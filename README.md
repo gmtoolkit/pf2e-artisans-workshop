@@ -18,11 +18,12 @@ shapes the first release are in progress; decisions land in `DECISIONS.md`.
   to work alongside the PF2e system and pf2e-dailies rather than against them.
 - **Rules coverage.** Feats, class features and gear that change crafting cost,
   time, batches or formulas are read from the character, not entered by hand.
-- **Downtime for the GM.** Earn Income with Crafting, wages, and approval of what
-  the party crafts.
+- **Downtime.** Earn Income with Crafting, Cooking Lore or any other skill, paid
+  straight to the earner; GMs set settlement task levels. Nothing waits on GM
+  approval, and it works with no GM online.
 
 Alchemy is the first crafting journey, not the only one: magic items and runes,
-talismans, tattoos, snares and cooking are in scope.
+talismans, tattoos and snares are in scope.
 
 ## Compatibility
 

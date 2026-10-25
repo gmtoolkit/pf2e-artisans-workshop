@@ -2,6 +2,29 @@
 
 Newest first.
 
+## 2026-10-25: Derived rules from the design review
+
+These follow from the decisions below and were confirmed while writing `DESIGN.md`.
+
+- **Orders own their Craft and Earn Income rolls.** Checks go through
+  `actor.skills.crafting.roll` (and the skill's own roll for Earn Income) with the
+  crafted item's roll options, `action:craft`, and an explicit DC. The system Craft
+  macro drops the rarity adjustment and the item's roll options, so gear and feat
+  bonuses predicated on the item never fire, and its pay buttons assume every day was
+  worked. The system Craft button itself is left alone.
+- **Responsible client.** For a write triggered by an all-client hook: the connected
+  owner of the affected actor (by stable id order), else the active GM, else the first
+  connected user; one browser tab per user holds a Web Locks lease, and lock-first
+  batches make cross-device duplicates harmless. This replaces "the acting user, else
+  the active GM", which names nobody when neither is connected.
+- **Duct Tape step-aside.** If PF2e Alchemist Remaster Duct Tape is active, the combat
+  features (Bandolier, Quick Alchemy panel, vial gathering, Healing Bomb) turn
+  themselves off; Use best consumable and everything outside combat stay. Without it,
+  combat is ours.
+- **When shared documents are created.** Installing and enabling the module writes
+  nothing. A GM turning on the master switch creates the ledger and strongbox (and sets
+  player ownership); feature toggles then default on, except vial gathering.
+
 ## 2026-10-25: Requirements are the gate, not GM approval
 
 **Decision:** no order needs GM approval. An order can start when its rules

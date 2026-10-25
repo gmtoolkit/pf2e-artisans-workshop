@@ -10,17 +10,26 @@ preparations, GM Earn Income). Public, MIT, `gmtoolkit/pf2e-artisans-workshop`.
 Design phase (started 2026-10-25). No code yet. `DECISIONS.md` holds every decision
 made so far, newest first; read it before proposing a design change.
 
+`DESIGN.md` is the specification (domain model, storage and sync, rules engine,
+UI, extension API, build order M0-M13, open questions). Change it in the same PR as
+any code that departs from it.
+
 ## Ground rules
 
-- Build on the PF2e system's own crafting model (`CraftingAbility` rule element,
-  the actor's crafting data, the Craft action) instead of re-implementing it. Read
-  the system source rather than recalling its API; it changes between releases.
+- Build on the PF2e system's own crafting model (`CraftingAbility` methods, the
+  formula list, special resources, coin items, Rest for the Night, Statistic rolls)
+  instead of re-implementing it. Orders roll their own checks through the Crafting
+  statistic with the item's roll options and an explicit DC; never route orders
+  through the system Craft macro, and never replace its button. Read the system
+  source rather than recalling its API; it changes between releases.
 - Target the latest Foundry generation and latest PF2e release. Application V2 only.
 - Coexist with pf2e-dailies, PF2e Toolbelt, PF2e Workbench and Item Piles. Never ship
   a second implementation of something they already automate.
-- Any write triggered by a hook that fires on every client goes through exactly one
-  responsible user (the acting user if connected, otherwise the active GM). Duplicate
-  prompts across owners are the bug class this module exists to avoid.
+- Any write triggered by a hook that fires on every client runs on exactly one
+  responsible client (`DESIGN.md` 5.6: connected owner, else active GM, else first
+  connected user; one tab per user via a Web Locks lease). Duplicate prompts across
+  owners are the bug class this module exists to avoid.
+- If PF2e Alchemist Remaster Duct Tape is active, the combat features step aside.
 - Nothing waits on a GM. Shared state lives in module-created documents every player
   owns (ledger, strongbox); otherwise a client writes only documents its user owns.
   The GM relay (core `CONFIG.queries`) is an accelerator, never a requirement.
