@@ -2,6 +2,65 @@
 
 Newest first.
 
+## 2026-10-25: Requirements are the gate, not GM approval
+
+**Decision:** no order needs GM approval. An order can start when its rules
+requirements are met: the crafter can use a formula (known, covered by a base formula,
+granted by a feature, or obtained by buying, copying, Inventor or reverse-engineering
+an item the party holds), the materials are on hand (including precious-material
+quantities), the item level, rarity access, proficiency and feat gates pass, and the
+up-front gold is funded. Narrative Craft Requirements are a checklist the crafter
+confirms, not something the module adjudicates.
+
+**Why:** the GM's lever is in the fiction: whether the party can source the formula,
+the item to copy, the materials or the gold. If the party has them, the Craft works
+and the module does not second-guess it. Approval prompts would add GM workload
+without adding control.
+
+**Consequences:** the planned GM approval inbox is dropped. The reversible ledger
+stays (anyone can see who moved what; the author of a row, or a GM, can reverse it).
+GM tooling focuses on settings, Earn Income task levels, and data hygiene.
+
+## 2026-10-25: Works with no GM online
+
+**Decision:** players can file requests, pledge and escrow gold, run Crafts and log
+their own downtime with no GM connected. Shared state lives in module-created
+documents that every player owns: a Workshop ledger and a strongbox actor for escrowed
+coins, created once by the GM's client when the module is first enabled. Each player
+otherwise writes only documents they own (their own actor). Finished items for another
+PC go to a pickup shelf in the strongbox and are claimed by the recipient's own client;
+a GM relay over core `CONFIG.queries` is used only as an accelerator when a GM is online.
+Tables whose players already own the pf2e Party actor can use its stash instead.
+
+**Why:** the author's table should not stall on GM availability, and players cannot
+write documents they don't own (pf2e #12645 confirms the party stash needs Owner).
+
+**Consequences:** the trust model is cooperative: owners can edit shared rows, so
+every ledger row records its author and nothing is silently overwritten. The
+one-responsible-client rule still applies to hook-driven writes.
+
+## 2026-10-25: Downtime days follow the world clock, with a manual wizard fallback
+
+**Decision:** when world time advances (core time controls or any calendar module,
+via `updateWorldTime`), PCs marked as in downtime accrue days on their current
+activity, and the owning player gets one prompt to resolve them. When nobody uses the
+clock, an "Advance days" wizard walks the party through each day: activity per PC,
+checks due, cost reductions, Earn Income, expiry.
+
+**Why:** some tables run a calendar module and some never touch the clock; time passing
+also doesn't mean the party was in downtime, so accrual needs the per-PC downtime flag.
+
+## 2026-10-25: Interview answers that set defaults
+
+- Escrow: pledged coins move into the strongbox and are refunded by outcome.
+- Expiry: Quick Alchemy items and infused items are marked inert automatically, with
+  the feat and item exceptions honoured.
+- Cooking is flavour plus Cooking Lore for Earn Income; no meal or recipe system.
+- Tattoos: the Secrets of Magic process (subject present, healing period, investiture)
+  is the default, with a simple-Craft toggle; the item catalogue is mostly Treasure
+  Vault (Remastered). Tattoo Artist is Remaster (Impossible Magic).
+- Target devices are laptops and desktops; windows from about 1024 px wide.
+
 ## 2026-10-25: Circus management is a separate module
 
 **Decision:** Adventure-path circus management (Prestige, Anticipation, Excitement,

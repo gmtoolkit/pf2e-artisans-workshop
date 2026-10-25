@@ -21,6 +21,13 @@ made so far, newest first; read it before proposing a design change.
 - Any write triggered by a hook that fires on every client goes through exactly one
   responsible user (the acting user if connected, otherwise the active GM). Duplicate
   prompts across owners are the bug class this module exists to avoid.
-- Players do not own each other's actors or the shared queue: writes they need go
-  through the GM over the module socket.
+- Nothing waits on a GM. Shared state lives in module-created documents every player
+  owns (ledger, strongbox); otherwise a client writes only documents its user owns.
+  The GM relay (core `CONFIG.queries`) is an accelerator, never a requirement.
+- No approval gates. Rules requirements (formula, materials, gold, gates) decide
+  whether a Craft can start.
+- Circus and other adventure-path subsystems are separate modules that use the
+  public extension API. Do not add them here.
+- Every user-facing string goes through `lang/en.json`; the author rewrites them
+  before release, and a release gate checks the sign-off hashes.
 - Do not embed Paizo rules text. Reference system compendium items by UUID.
