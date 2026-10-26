@@ -2,6 +2,41 @@
 
 Newest first.
 
+## 2026-10-25: Open questions settled by the author
+
+- **Scope added:** every crafting variant in Treasure Vault (Remastered) pp.157-175
+  (Complex Crafting with Quick Setup, crafting items with adjustments, crafting downtime
+  events, Critical Crafting, Deconstruct, Grow, Gardens of Wonder, Bestowed Gifts and
+  crafting quests), as world settings off by default; and a built-in affliction stage
+  tracker for crafted and used poisons, using the pf2e system's affliction schema (see the
+  backend entry below). Compendium poisons carry their stages only as description text, so the tracker
+  parses it at runtime from the installed compendium (registry overrides for the ones
+  that don't parse) and ships no Paizo text.
+- **Affliction backends:** pf2e
+  release builds remove the `affliction` item type (its constructor throws and no data
+  model is registered), so no affliction item can exist in a released world. The tracker
+  therefore keeps the type's schema in an `effect` item on the victim until pf2e enables
+  the type in release builds, then migrates to native `affliction` items.
+- **Scope excluded:** snare placement on the map (snares are craftable items only); a
+  legacy rules toggle (legacy content is allowed and badged, but the math is always
+  Remaster); items that exist only in the PF2e Legacy Data module.
+- **Privacy:** roster snapshots (members' formulas, crafting-relevant feats and ranks)
+  live in the shared ledger, readable by all players; the UI hides ranks when pf2e's
+  party-stats setting is off.
+- **Forge:** no dedicated Forge test. The design avoids every surface the Forge
+  changes (uploads, FilePicker, compendium packs, runtime JSON fetch), and the first
+  pre-release run at a Forge-hosted table is the smoke test.
+- **Listing:** titled "PF2e Artisan's Workshop", with the Community Use Policy notice
+  plus ORC and OGL notices.
+- **Rules-gap defaults** (each a setting): Communal Crafting helpers roll against the
+  item's DC, their degree selects the Income Earned column at (helper level - 1) and
+  their rank, and a helper who leaves forfeits the benefit; interrupted setup days
+  persist; a level-up recomputes the daily rate; swapping crafters restarts setup and
+  check while materials carry over; legendary Crafting from item level 17; one formula
+  covers every grade of an item; reverse-engineering keeps the item; copying a formula
+  from an ally is free and takes an hour; downtime-crafted alchemy is not infused; one
+  Workshop per world with orders tagged by party.
+
 ## 2026-10-25: Derived rules from the design review
 
 These follow from the decisions below and were confirmed while writing `DESIGN.md`.
