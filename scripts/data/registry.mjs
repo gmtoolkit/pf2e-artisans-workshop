@@ -55,6 +55,8 @@
  *   the crafter must also have.
  * - `earnIncome {doubleFailure}`: Experienced Professional's failure pay (6.10).
  * - `correction {consumable}`: a known data bug (talismans without the consumable trait batch as consumables).
+ * - `repairHp {success, critSuccess}` (M5): Hit Points a Repair restores are `n + n × rank` on that degree instead of the
+ *   Player Core numbers (the Crafter's Eyepiece, which the system's repair macro ignores; 6.13, 6.15 gap 12).
  * - `variantOnly {variant}`: the entry counts only while that variant rule is on.
  * The other kinds of 6.11 (`dcStamp`, `dailyGap`, `vialSource`, `additive`, `expiryRule`, `materialSource`,
  * `gate`, `conflict`, `afflictionModifier`, `delivery`) arrive with the milestones that read them.
@@ -495,6 +497,20 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "crafters-eyepiece": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.RgNBGpBc9G2yw1C2", type: "equipment", book: "Pathfinder GM Core", remaster: true, tier: 2,
+        effects: [
+            { kind: "repairHp", success: 10, critSuccess: 15 },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "crafters-eyepiece-greater": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.JSYtBZ7XblyAEFoV", type: "equipment", book: "Pathfinder GM Core", remaster: true, tier: 2,
+        effects: [
+            { kind: "repairHp", success: 10, critSuccess: 15 },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "cytillesh-toolkit": {
         uuid: "Compendium.pf2e.equipment-srd.Item.u6pDaIxMIimhQx7X", type: "equipment", book: "Pathfinder Monster Core", remaster: true, tier: 2,
         effects: [
@@ -777,6 +793,8 @@ export const REGISTRY = deepFreeze({
         uuid: "Compendium.pf2e.feats-srd.Item.3HChkcD1IRqv4DbA", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
         effects: [
             { kind: "virtualFormulaList", uuids: ["Compendium.pf2e.equipment-srd.Item.7fSnvJ2xoSfa6JXD", "Compendium.pf2e.equipment-srd.Item.Ti4gWILk69LPxKuU", "Compendium.pf2e.equipment-srd.Item.wob6DB1FFdWs0mbp", "Compendium.pf2e.equipment-srd.Item.44F1mfJei4GY8f2X", "Compendium.pf2e.equipment-srd.Item.3tOyV4VZEZhwnAMO", "Compendium.pf2e.equipment-srd.Item.UlIxxLm71UdRgCFE", "Compendium.pf2e.equipment-srd.Item.ML0GR2cIEdMn2hoD", "Compendium.pf2e.equipment-srd.Item.5j5KyZsGOfbrJNUZ", "Compendium.pf2e.equipment-srd.Item.oX39xqMLVB8kNrY0", "Compendium.pf2e.equipment-srd.Item.fyYnQf1NAx9fWFaS", "Compendium.pf2e.equipment-srd.Item.ccsgob2TZ7WqTrp7", "Compendium.pf2e.equipment-srd.Item.Sw7MBLASN3xK4Y44", "Compendium.pf2e.equipment-srd.Item.wrpI5z7iWB8XvflQ", "Compendium.pf2e.equipment-srd.Item.Zr4PwTEuBLE30kkn", "Compendium.pf2e.equipment-srd.Item.8Jdw4yAzWYylGePS"] },
+            // Repair without a repair toolkit (4.5); never Affix a Talisman, whose service options do not name the action.
+            { kind: "toolSubstitution", tools: ["repair-toolkit"], when: { all: ["action:repair"] } },
         ],
         verified: "pf2e-8.6.1",
     },
@@ -1192,6 +1210,20 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "repair-toolkit": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.vLGDUFrg4yGzpTQX", type: "equipment", book: "Pathfinder Player Core", remaster: true, tier: 1,
+        effects: [
+            { kind: "toolSubstitution", tools: ["repair-toolkit"] },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "repair-toolkit-superb": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.aDsdYMPpVc8hOnM5", type: "equipment", book: "Pathfinder Player Core", remaster: true, tier: 1,
+        effects: [
+            { kind: "toolSubstitution", tools: ["repair-toolkit"] },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "repurposed-parts": {
         uuid: "Compendium.pf2e.feats-srd.Item.UJcQgQpZRqXBw0Nb", type: "feat", book: "Pathfinder Guns & Gears", remaster: true, tier: 3,
         effects: [],
@@ -1276,7 +1308,7 @@ export const REGISTRY = deepFreeze({
         uuid: "Compendium.pf2e.classfeatures.Item.SQSq8uyENctclqew", type: "feat", book: "Pathfinder Impossible Magic", remaster: true, tier: 2,
         effects: [
             { kind: "virtualFormulaList", filter: { any: ["item:slug:weapon-potency-1", "item:slug:weapon-potency-2", "item:slug:weapon-potency-3", "item:slug:striking", "item:slug:striking-greater", "item:slug:striking-major", "item:slug:armor-potency-1", "item:slug:armor-potency-2", "item:slug:armor-potency-3", "item:slug:resilient", "item:slug:resilient-greater", "item:slug:resilient-major", "item:slug:reinforcing-rune-minor", "item:slug:reinforcing-rune-lesser", "item:slug:reinforcing-rune-moderate", "item:slug:reinforcing-rune-greater", "item:slug:reinforcing-rune-major", "item:slug:reinforcing-rune-supreme"] }, maxLevel: "level" },
-            { kind: "formulaAllowance", on: "level", levels: [4, 6, 8, 10, 12, 14, 16, 18, 20], count: 1, maxLevel: "level", filter: { any: ["item:usage:etched-onto-a-weapon", "item:usage:etched-onto-armor"], not: ["item:slug:weapon-potency-1", "item:slug:weapon-potency-2", "item:slug:weapon-potency-3", "item:slug:striking", "item:slug:striking-greater", "item:slug:striking-major", "item:slug:armor-potency-1", "item:slug:armor-potency-2", "item:slug:armor-potency-3", "item:slug:resilient", "item:slug:resilient-greater", "item:slug:resilient-major", "item:slug:reinforcing-rune-minor", "item:slug:reinforcing-rune-lesser", "item:slug:reinforcing-rune-moderate", "item:slug:reinforcing-rune-greater", "item:slug:reinforcing-rune-major", "item:slug:reinforcing-rune-supreme"] } },
+            { kind: "formulaAllowance", on: "level", levels: [4, 6, 8, 10, 12, 14, 16, 18, 20], count: 1, maxLevel: "level", filter: { any: ["item:usage:etched-onto-a-weapon", "item:usage:etched-onto-armor", "item:usage:etched-onto-heavy-armor", "item:usage:etched-onto-light-armor", "item:usage:etched-onto-metal-armor", "item:usage:etched-onto-clan-dagger", "item:usage:etched-onto-lm-nonmetal-armor", "item:usage:etched-onto-med-heavy-armor", "item:usage:etched-onto-medium-heavy-metal-armor", "item:usage:etched-onto-bludgeoning-weapon", "item:usage:etched-onto-melee-weapon", "item:usage:etched-onto-slashing-melee-weapon", "item:usage:etched-onto-piercing-or-slashing-melee-weapon", "item:usage:etched-onto-piercing-or-slashing-weapon", "item:usage:etched-onto-weapon-wo-unholy-rune", "item:usage:etched-onto-weapon-wo-holy-rune", "item:usage:etched-onto-melee-weapon-monk", "item:usage:etched-onto-thrown-weapon"], not: ["item:slug:weapon-potency-1", "item:slug:weapon-potency-2", "item:slug:weapon-potency-3", "item:slug:striking", "item:slug:striking-greater", "item:slug:striking-major", "item:slug:armor-potency-1", "item:slug:armor-potency-2", "item:slug:armor-potency-3", "item:slug:resilient", "item:slug:resilient-greater", "item:slug:resilient-major", "item:slug:reinforcing-rune-minor", "item:slug:reinforcing-rune-lesser", "item:slug:reinforcing-rune-moderate", "item:slug:reinforcing-rune-greater", "item:slug:reinforcing-rune-major", "item:slug:reinforcing-rune-supreme"] } },
         ],
         verified: "pf2e-8.6.1",
     },

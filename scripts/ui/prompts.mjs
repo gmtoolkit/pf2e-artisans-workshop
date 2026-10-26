@@ -63,3 +63,25 @@ const paragraph = (key) => ["<p>", foundry.utils.escapeHTML(game.i18n.localize(k
 export function confirm({ title, content, app = null }) {
     return dialogs().confirm({ window: { title }, content: paragraph(content), rejectClose: false, renderOptions: inWindowOf(app) });
 }
+
+const CHOOSE = "modules/pf2e-artisans-workshop/templates/prompts/choose.hbs";
+
+/**
+ * Ask for a choice (M5: the spell a caster pledges, the stock to hand over, a spell to buy a casting of), with an optional
+ * number and text: `options` are `{value, name}` (names from documents), the labels i18n keys.
+ * @returns {Promise<{value?: string, number?: number, text?: string}|null>}
+ */
+export async function askChoice({ title, label = null, options = null, number = null, text = null, hint = null, button, icon = "fa-solid fa-check", app = null }) {
+    if (options && !options.length) {
+        ui.notifications.warn("pf2e-artisans-workshop.Prompt.NothingToChoose", { localize: true });
+        return null;
+    }
+    const content = await foundry.applications.handlebars.renderTemplate(CHOOSE, { label, options, number, text, hint });
+    const answer = await dialogs().prompt({
+        window: { title, icon }, content,
+        ok: { label: button, icon, callback: (_event, target) => new foundry.applications.ux.FormDataExtended(target.form).object },
+        rejectClose: false, renderOptions: inWindowOf(app),
+    });
+    if (!answer) return null;
+    return { value: answer.value ?? null, number: answer.number === undefined ? null : Number(answer.number), text: answer.text ?? null };
+}

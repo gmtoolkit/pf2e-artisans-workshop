@@ -65,7 +65,8 @@ function mergeChanges(a = {}, b = {}) {
  *        ledger?: object} | {refuse: string})} plan
  *        called inside the mutex with the strongbox; returns the `makeRow` inputs (or rows already built, such as
  *        reversals), the coin plans, the purse stack locks, items the apply request creates (`{target, data}`: a
- *        finished order's shelf items, M4) and ledger keys that depend on the plan (written with the lock)
+ *        finished order's shelf items, M4), items it updates (`itemUpdates`, `{target, updates}`: a target's new runes,
+ *        an earmarked item put on the shelf, M5) and ledger keys that depend on the plan (written with the lock)
  * @param {object} [ledger]  other ledger keys written with the rows, e.g. a claim's `resolved`
  * @param {object[]} [known] the `makeRow` inputs of the rows, when they are known before planning (every move but a
  *        spend, whose rows follow its shares). The fast path then comes first: a move whose row exists is "already",
@@ -89,10 +90,14 @@ export function moveCoins(plan, ledger = {}, known = []) {
         const rowIds = rows.map((row) => row.id);
         const debits = planned.debits ?? [];
         const credits = planned.credits ?? [];
+        const itemUpdates = planned.itemUpdates ?? [];
+        const updated = itemUpdates.map(({ target, updates }) => ({ target, plan: { updates: updates.map((u) => ({ id: u._id })) } }));
         const batch = lockFirstBatch({
             rowIds, lockIds: lockIdsFor([...rowIds, ...(planned.locks ?? [])], debits), ledger: withRows(mergeChanges(ledger, planned.ledger), rows),
-            debits, credits, items: planned.items ?? [], lot: rows[0].id,
-            resume: { touched: touchedBy([...debits, ...credits]), actor: purseOf([...debits, ...credits]) },
+            debits, credits, items: planned.items ?? [], itemUpdates, lot: rows[0].id,
+            // The resumer must be able to write every actor the apply request touches: an item changed in place on a
+            // character (a finished etching) names that character even when the coins come from the strongbox alone.
+            resume: { touched: touchedBy([...debits, ...updated, ...credits]), actor: purseOf([...debits, ...updated, ...credits, ...(planned.items ?? [])]) },
         });
         const result = await runLockFirst(batch);
         if (result.outcome === "stopped") await noteStopped(rows, result);
@@ -111,7 +116,10 @@ function touchedBy(plans) {
     });
 }
 
-/** The purse (an actor UUID) the coin plans move coins in or out of, or null for the strongbox alone. */
+/**
+ * The actor (a UUID) a move writes besides the strongbox: the purse its coin plans move coins in or out of, or a
+ * character whose items it updates or creates; null for the strongbox alone. Its resumer must own it (`resumerOf`).
+ */
 const purseOf = (plans) => plans.find(({ target }) => target !== "strongbox")?.target ?? null;
 
 /**

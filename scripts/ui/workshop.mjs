@@ -38,6 +38,9 @@ import { gateText, money, nameOf, report, userName, when } from "./format.mjs";
 import { EVENT, ROW_KIND, STATUS } from "./labels.mjs";
 import { askAmount, confirm } from "./prompts.mjs";
 import { openRequestForm } from "./request.mjs";
+import { detailExtras, kindText, onCustodyOp, onPledgeOp, onServiceOp, servicesView, targetText } from "./extras.mjs";
+import { formulasContext, formulasOn, onFormulaChange, onFormulaDrop, onFormulaOp, onFormulaSearch } from "./formulas.mjs";
+import { allServices } from "../foundry/services.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -92,6 +95,11 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             closeRow: WorkshopApp.#onCloseRow,
             adjust: WorkshopApp.#onAdjust,
             clearFilters: WorkshopApp.#onClearFilters,
+            // M5: the Formulas tab, casting pledges, custody and service orders.
+            formula: WorkshopApp.#onFormula,
+            pledgeOp: WorkshopApp.#onPledgeOp,
+            custody: WorkshopApp.#onCustody,
+            service: WorkshopApp.#onService,
         },
     };
 
@@ -100,6 +108,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         nav: { template: T("nav") },
         queue: { template: T("queue"), scrollable: [".queue-main", ".order-detail"], templates: PARTIALS },
         funds: { template: T("funds"), scrollable: [""] },
+        formulas: { template: T("formulas"), scrollable: [".codex-main", ".codex-learn"] },
         status: { template: T("status") },
     };
 
@@ -108,6 +117,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             tabs: [
                 { id: "queue", icon: "fa-solid fa-list-check", label: "pf2e-artisans-workshop.Window.Tab.Queue" },
                 { id: "funds", icon: "fa-solid fa-coins", label: "pf2e-artisans-workshop.Window.Tab.Funds" },
+                { id: "formulas", icon: "fa-solid fa-book-open", label: "pf2e-artisans-workshop.Window.Tab.Formulas" },
             ],
             initial: "queue",
         },
@@ -131,7 +141,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     /** Re-render after store changes stop for a moment (10.1). */
     refresh = foundry.utils.debounce(() => {
-        if (this.rendered) this.render({ parts: ["header", "queue", "funds", "status"] });
+        if (this.rendered) this.render({ parts: ["header", "queue", "funds", "formulas", "status"] });
     }, 150);
 
     /** Announce an event in the status bar's live region (10.2) without moving focus. */
@@ -176,6 +186,10 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         part.tab = context.tabs?.[partId] ?? null;
         if (partId === "queue" && context.readable) Object.assign(part, await this.#queueContext());
         if (partId === "funds" && context.readable) Object.assign(part, this.#fundsContext());
+        // The Codex scans the equipment catalogue, so it is built only while its tab is shown (changeTab renders it then).
+        if (partId === "formulas" && context.readable) {
+            Object.assign(part, !formulasOn() ? { formulasOff: true } : this.tabGroups.primary === "formulas" ? await formulasContext(this) : { formulasPending: true });
+        }
         return part;
     }
 
@@ -185,7 +199,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const views = [];
         for (const { order, no } of queueOrder(all)) {
             const view = await orderContext(order, { no, viewer });
-            if (passesFilters(view, order, this.filters)) views.push(view);
+            if (passesFilters(view, order, this.filters)) views.push({ ...view, kindText: kindText(order), targetText: targetText(order) });
         }
         // One row is the list's tab stop (roving tabindex, 10.9): the one the user was on, else the first.
         const stop = views.some((v) => v.id === this.activeRow) ? this.activeRow : views[0]?.id ?? null;
@@ -199,7 +213,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const option = (value, label, current) => ({ value, label, selected: value === current });
         const people = members();
         return {
-            orders: views, selected, total: all.length, summary: queueSummary(all),
+            orders: views, selected, total: all.length, summary: queueSummary(all), services: servicesView(allServices()),
             filters: this.filters, filtered: views.length !== all.length,
             scopeOptions: [
                 option("all", "pf2e-artisans-workshop.Queue.Filter.All", this.filters.scope),
@@ -225,6 +239,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const gates = view.status === "accepted" && order.crafter ? await this.#gatesOf(order, rows) : [];
         return {
             ...view,
+            extras: await detailExtras(order),
             gates: gates.map((gate) => ({ ok: gate.ok, id: gate.id, text: gate.ok ? null : gateText(gate) })),
             history: logEntries(order).reverse().map((entry) => ({
                 event: entry.event, by: userName(entry.by), when: when(entry.at), eventLabel: EVENT[entry.event] ?? EVENT.other,
@@ -315,6 +330,15 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
                 callbacks: { drop: (event) => this.#onDrop(event) },
             }).bind(this.element);
         }
+        if (this.element.querySelector(".workshop-formulas")) {
+            new foundry.applications.ux.DragDrop.implementation({
+                dropSelector: ".workshop-formulas",
+                callbacks: { drop: async (event) => {
+                    const data = foundry.applications.ux.TextEditor.implementation.getDragEventData(event);
+                    if (await onFormulaDrop(this, data)) this.render({ parts: ["formulas"] });
+                } },
+            }).bind(this.element);
+        }
         this.#syncTabs();
     }
 
@@ -338,6 +362,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     changeTab(tab, group, options) {
         super.changeTab(tab, group, options);
         this.#syncTabs();
+        if (tab === "formulas") this.render({ parts: ["formulas"] });
         if (setting("ui.lastTab") !== tab) game.settings.set(MODULE_ID, "ui.lastTab", tab);
     }
 
@@ -359,6 +384,10 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     #onChange(event) {
         const target = event.target;
+        if (onFormulaChange(this, target)) {
+            this.render({ parts: ["formulas"] });
+            return;
+        }
         if (target.name === "acting") {
             this.acting = target.value;
             this.render({ parts: ["header", "queue", "funds"] });
@@ -373,7 +402,14 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     #searchDebounce = foundry.utils.debounce(() => this.render({ parts: ["queue"] }), 250);
 
+    #formulaSearchDebounce = foundry.utils.debounce(() => this.render({ parts: ["formulas"] }), 250);
+
     #onInput(event) {
+        if (event.target.dataset?.codex === "search") {
+            onFormulaSearch(this, event.target.value);
+            this.#formulaSearchDebounce();
+            return;
+        }
         if (event.target.dataset?.filter !== "search") return;
         this.filters = { ...this.filters, search: event.target.value };
         this.#searchDebounce();
@@ -572,6 +608,46 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     static async #onAdjust() {
         await this.#run(bookAdjustment(), "pf2e-artisans-workshop.Event.Adjust");
+    }
+
+    /** A Formulas-tab button (M5): choose a formula or a pick, or act on a route. */
+    static async #onFormula(_event, target) {
+        target.disabled = true;
+        try {
+            const result = await onFormulaOp(this, target);
+            if (result?.ok) this.announce(game.i18n.localize("pf2e-artisans-workshop.Event.Formula"));
+        } finally {
+            if (target.isConnected) target.disabled = false;
+        }
+        return this.render({ parts: ["formulas", "queue"] });
+    }
+
+    /** A casting-pledge button on an order's detail (M5, 6.9). */
+    static async #onPledgeOp(_event, target) {
+        const result = await onPledgeOp(this, target);
+        if (result?.ok) this.announce(game.i18n.localize("pf2e-artisans-workshop.Event.Pledge"));
+    }
+
+    /** A custody button: hand over an item, add stock, give one back (M5). */
+    static async #onCustody(_event, target) {
+        target.disabled = true;
+        try {
+            const result = await onCustodyOp(this, target);
+            if (result?.ok) this.announce(game.i18n.localize("pf2e-artisans-workshop.Event.Custody"));
+        } finally {
+            if (target.isConnected) target.disabled = false;
+        }
+    }
+
+    /** A service button (M5, 4.5). */
+    static async #onService(_event, target) {
+        target.disabled = true;
+        try {
+            const result = await onServiceOp(this, target);
+            if (result?.ok) this.announce(game.i18n.localize("pf2e-artisans-workshop.Event.Service"));
+        } finally {
+            if (target.isConnected) target.disabled = false;
+        }
     }
 }
 

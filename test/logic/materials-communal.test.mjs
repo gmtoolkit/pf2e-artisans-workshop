@@ -56,7 +56,7 @@ test("coin stands in for a common material by setting; rarer materials need stoc
     assert.equal(preciousCheck({ ...base, materials: [silver()], coinCp: 1000 }).ok, true);
     const noCoin = rulesWith({ preciousCoinForCommon: false });
     assert.deepEqual(preciousCheck({ ...base, materials: [silver()], coinCp: 1000 }, noCoin).problems,
-        [{ reason: "material-share", data: { requiredCp: 100, availableCp: 0, stockOnly: true } }]);
+        [{ reason: "material-share", data: { requiredCp: 100, availableCp: 0, stockOnly: true, type: "silver" } }]);
     const adamantine = { type: "adamantine", grade: "standard", level: 8, rarity: "uncommon" };
     assert.deepEqual(reasons(preciousCheck({ ...base, materials: [adamantine], coinCp: 1000, stockCp: 200 })), ["material-share"]);
     assert.equal(preciousCheck({ ...base, materials: [adamantine], stockCp: 250 }).ok, true);

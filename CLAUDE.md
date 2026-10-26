@@ -27,7 +27,13 @@ M4 is in place: the Workshop window with its Queue and Funds tabs (`scripts/ui/`
 lifecycle (`scripts/logic/orders.mjs`, `scripts/foundry/orders.mjs`), funds actions, chat
 cards, notifications, the request form with drag and drop, the entry points (Actors
 directory header, Party sheet header, `api.ui.open`) and the public API's first part
-(`scripts/foundry/api.mjs`); DESIGN 10.10 says what was built. `DECISIONS.md` holds every
+(`scripts/foundry/api.mjs`); DESIGN 10.10 says what was built. M5 is in place: formulas (the Formulas tab, `scripts/ui/formulas.mjs`, the
+Codex's pure parts in `scripts/logic/codex.mjs`, acquisition and the formula claim in `scripts/foundry/formulas.mjs`),
+casting pledges (`scripts/logic/pledges.mjs`, `scripts/foundry/pledges.mjs`), runes (`scripts/logic/runes.mjs`),
+service orders (`scripts/logic/services.mjs`, `scripts/foundry/services.mjs`), custody and material stock
+(`scripts/foundry/custody.mjs`), what a finish makes (`scripts/foundry/outputs.mjs`) and the equipment catalogue
+(`scripts/foundry/catalogue.mjs`); DESIGN 10.11 says what was built, and the live plans `m5-*`
+(`tools/harness/formula-scenarios.mjs`) have not run yet. `DECISIONS.md` holds every
 decision made so far, newest first; read it before proposing a design change.
 
 Development commands and layout are in the README's Development section. Use Node 24

@@ -8,6 +8,7 @@ import { DEGREE, compareRows, liveRows } from "./core.mjs";
 import { committedFromRows } from "./craft.mjs";
 import { DEFAULT_RULES } from "./defaults.mjs";
 import { incomePerDay } from "./income.mjs";
+import { materialsCp } from "./materials.mjs";
 import { CLOSED, escrowCp, orderActions, reversalKeepsCommitted, withdrawableCp } from "./orders.mjs";
 import { crafterRate, daysToZero, recordsOf, reductionCp, remainingCp, setupDaysDone } from "./progress.mjs";
 import { memberBalances } from "./reconcile.mjs";
@@ -61,7 +62,8 @@ export function estimateOf(order) {
  *   paidCp: number, earnedCp: number, remainingCp: number, escrowCp: number, upfrontCp: number, priceCp: number}}
  */
 export function orderProgress(order, { rows = [], days = [], rules = DEFAULT_RULES } = {}) {
-    const escrow = escrowCp(rows);
+    // Earmarked material stock counts toward the up-front half at its Price, as G8 counts it (6.6, M5).
+    const escrow = escrowCp(rows) + materialsCp(order);
     const { priceCp, upfrontCp, frozen } = estimateOf(order);
     if (!frozen || order.status === "accepted" || order.status === "requested") {
         const pct = percent(escrow, upfrontCp);

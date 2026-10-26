@@ -31,6 +31,8 @@ export const DEFAULT_RULES = Object.freeze({
     snareToolkitIsArtisans: true,
     // Tattoos (6.14): "secrets-of-magic" or "simple".
     tattooProcess: "secrets-of-magic",
+    // Talismans (7.4): bombs are no hosts, since they are consumed (design choice).
+    talismanHostsExcludeBombs: true,
     // Earn Income (6.10).
     earnIncomeOtherSkillDc: 5,
     downtimeRerolls: "warn",             // or "block"

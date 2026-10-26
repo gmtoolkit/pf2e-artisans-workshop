@@ -1,0 +1,199 @@
+<section class="tab workshop-formulas {{tab.cssClass}}" data-group="primary" data-tab="formulas" role="tabpanel"
+         id="pf2e-artisans-workshop-panel-formulas" aria-labelledby="pf2e-artisans-workshop-tab-formulas">
+    {{#if formulasPending}}
+    {{else if formulasOff}}
+    <p class="queue-empty">{{localize "pf2e-artisans-workshop.Formulas.Off"}}</p>
+    {{else if readable}}
+    <div class="formulas-toolbar" role="group" aria-label="{{localize 'pf2e-artisans-workshop.Formulas.Toolbar'}}">
+        {{#if codex.choices.length}}
+        <label class="formulas-actor">
+            <span class="label">{{localize "pf2e-artisans-workshop.Formulas.Character"}}</span>
+            <select name="codexActor">
+                {{#each codex.choices}}<option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{name}}</option>{{/each}}
+            </select>
+        </label>
+        {{/if}}
+        {{#if codex.actor}}
+        <span class="formulas-total">{{localize "pf2e-artisans-workshop.Formulas.Total" n=codex.total}}</span>
+        <ul class="provenance-badges" aria-label="{{localize 'pf2e-artisans-workshop.Formulas.ByProvenance'}}">
+            {{#each codex.badges}}<li class="badge route-{{route}}"><i class="{{label.icon}}" inert></i> {{localize label.key}} <span class="count">{{n}}</span></li>{{/each}}
+        </ul>
+        {{/if}}
+    </div>
+    {{#if codex.actor}}
+    <div class="formulas-body">
+        <div class="codex-main">
+            <h3>{{localize "pf2e-artisans-workshop.Formulas.Book"}}</h3>
+            {{#if codex.noCatalogue}}<p class="hint">{{localize "pf2e-artisans-workshop.Formulas.NoCatalogue"}}</p>{{/if}}
+            {{#if codex.families.length}}
+            <ul class="codex-families">
+                {{#each codex.families}}
+                <li class="codex-family">
+                    <details open>
+                        <summary><span class="family-name">{{name}}</span>
+                            <span class="family-count">{{localize "pf2e-artisans-workshop.Formulas.FamilyCount" known=known.length covered=coveredCount}}</span></summary>
+                        <ul class="codex-entries">
+                            {{#each known}}
+                            <li class="codex-entry">
+                                {{#if img}}<img src="{{img}}" alt="">{{/if}}
+                                <span class="entry-name">{{name}}</span>
+                                <span class="entry-level">{{localize "pf2e-artisans-workshop.Formulas.Level" level=level}}</span>
+                                <span class="tags paizo-style"><span class="tag rarity {{rarity}}">{{rarityLabel}}</span></span>
+                                <span class="badge route-{{route}}"><i class="{{badge.icon}}" inert></i> {{localize badge.key}}{{#if source}} ({{source}}){{/if}}</span>
+                                <button type="button" class="small" data-action="formula" data-op="select" data-uuid="{{uuid}}"
+                                        aria-label="{{localize 'pf2e-artisans-workshop.Formulas.Look' name=name}}">
+                                    <i class="fa-solid fa-magnifying-glass" inert></i><span>{{localize "pf2e-artisans-workshop.Formulas.Routes"}}</span></button>
+                            </li>
+                            {{/each}}
+                        </ul>
+                        {{#if covered.shown.length}}
+                        <p class="family-covered"><i class="fa-solid fa-sitemap" inert></i> {{localize "pf2e-artisans-workshop.Formulas.Covers"}}
+                            {{#each covered.shown}}<span class="chip">{{this}}</span>{{/each}}{{#if covered.more}} <span class="more">{{covered.more}}</span>{{/if}}</p>
+                        {{/if}}
+                    </details>
+                </li>
+                {{/each}}
+            </ul>
+            {{else}}
+            <p class="empty">{{localize "pf2e-artisans-workshop.Formulas.EmptyBook"}}</p>
+            {{/if}}
+
+            {{#if codex.virtual.length}}
+            <h3>{{localize "pf2e-artisans-workshop.Formulas.Virtual"}}</h3>
+            <ul class="codex-virtual">
+                {{#each codex.virtual}}
+                <li><details><summary><i class="fa-solid fa-wand-sparkles" inert></i> {{localize "pf2e-artisans-workshop.Formulas.VirtualList" name=name count=count}}</summary>
+                    <p class="virtual-items">{{#each items.shown}}<span class="chip">{{this}}</span>{{/each}}{{#if items.more}} <span class="more">{{items.more}}</span>{{/if}}</p>
+                </details></li>
+                {{/each}}
+            </ul>
+            {{/if}}
+
+            <h3>{{localize "pf2e-artisans-workshop.Formulas.Picks"}}</h3>
+            {{#if codex.owed.length}}
+            <table class="codex-picks">
+                <caption class="sr-only">{{localize "pf2e-artisans-workshop.Formulas.PicksCaption" n=codex.owedTotal}}</caption>
+                <thead><tr>
+                    <th scope="col">{{localize "pf2e-artisans-workshop.Formulas.PickLevel"}}</th>
+                    <th scope="col">{{localize "pf2e-artisans-workshop.Formulas.PickFrom"}}</th>
+                    <th scope="col">{{localize "pf2e-artisans-workshop.Formulas.PickOwed"}}</th>
+                    <th scope="col">{{localize "pf2e-artisans-workshop.Formulas.PickMax"}}</th>
+                    <th scope="col"><span class="sr-only">{{localize "pf2e-artisans-workshop.Formulas.Choose"}}</span></th>
+                </tr></thead>
+                <tbody>
+                    {{#each codex.owed}}
+                    <tr class="{{#if choosing}}choosing{{/if}}">
+                        <td>{{level}}</td><th scope="row">{{name}}</th><td>{{localize "pf2e-artisans-workshop.Formulas.OwedOf" owed=owed count=count}}</td>
+                        <td>{{#if maxLevel}}{{maxLevel}}{{/if}}</td>
+                        <td><button type="button" class="small" data-action="formula" data-op="pick" data-key="{{key}}" data-level="{{level}}">
+                            <i class="fa-solid fa-hand-pointer" inert></i><span>{{localize "pf2e-artisans-workshop.Formulas.Choose"}}</span></button></td>
+                    </tr>
+                    {{/each}}
+                </tbody>
+            </table>
+            {{else}}
+            <p class="empty">{{localize "pf2e-artisans-workshop.Formulas.NoPicks"}}</p>
+            {{/if}}
+
+            {{#if codex.party.length}}
+            <h3>{{localize "pf2e-artisans-workshop.Formulas.Party"}}</h3>
+            <table class="codex-party">
+                <thead><tr>
+                    <th scope="col">{{localize "pf2e-artisans-workshop.Formulas.PartyFamily"}}</th>
+                    <th scope="col">{{localize "pf2e-artisans-workshop.Formulas.PartyMembers"}}</th>
+                    <th scope="col" class="low">{{localize "pf2e-artisans-workshop.Formulas.PartyLevels"}}</th>
+                </tr></thead>
+                <tbody>{{#each codex.party}}<tr><th scope="row">{{name}}</th><td>{{members}}</td><td class="low">{{levels}}</td></tr>{{/each}}</tbody>
+            </table>
+            {{/if}}
+        </div>
+
+        <aside class="codex-learn" aria-label="{{localize 'pf2e-artisans-workshop.Formulas.Learn'}}">
+            <h3>{{localize "pf2e-artisans-workshop.Formulas.Learn"}}</h3>
+            {{#with codex.learn}}
+            {{#if pick}}
+            <p class="learn-pick"><i class="fa-solid fa-hand-pointer" inert></i>
+                {{#if pick.maxLevel}}{{localize "pf2e-artisans-workshop.Formulas.ChoosingFor" name=pick.name level=pick.level max=pick.maxLevel}}{{else}}{{localize "pf2e-artisans-workshop.Formulas.ChoosingForAny" name=pick.name level=pick.level}}{{/if}}
+                <button type="button" class="small" data-action="formula" data-op="clear">{{localize "pf2e-artisans-workshop.Formulas.StopChoosing"}}</button></p>
+            {{/if}}
+            <input type="search" name="codexSearch" data-codex="search" value="{{search}}" placeholder="{{localize 'pf2e-artisans-workshop.Formulas.Search'}}"
+                   aria-label="{{localize 'pf2e-artisans-workshop.Formulas.Search'}}">
+            {{#if matches.length}}
+            <ul class="learn-matches" aria-label="{{localize 'pf2e-artisans-workshop.Request.Matches'}}">
+                {{#each matches}}
+                <li><button type="button" data-action="formula" data-op="select" data-uuid="{{uuid}}">{{#if img}}<img src="{{img}}" alt="">{{/if}}<span>{{name}}</span>
+                    <span class="level">{{localize "pf2e-artisans-workshop.Request.Level" level=level}}</span></button></li>
+                {{/each}}
+            </ul>
+            {{/if}}
+            <p class="drop-hint"><i class="fa-solid fa-hand-pointer" inert></i> {{localize "pf2e-artisans-workshop.Formulas.DropHint"}}</p>
+            {{#with selected}}
+            <div class="learn-item">
+                <header>{{#if img}}<img src="{{img}}" alt="">{{/if}}<strong>{{name}}</strong>
+                    <span>{{localize "pf2e-artisans-workshop.Formulas.Level" level=level}}</span>
+                    <span class="tags paizo-style"><span class="tag rarity {{rarity}}">{{rarityLabel}}</span></span>
+                    <button type="button" class="icon" data-action="formula" data-op="clear" aria-label="{{localize 'pf2e-artisans-workshop.Request.Clear'}}"
+                            data-tooltip="{{localize 'pf2e-artisans-workshop.Request.Clear'}}"><i class="fa-solid fa-xmark" inert></i></button></header>
+                {{#if known}}<p class="learn-known"><i class="fa-solid fa-book" inert></i> {{localize "pf2e-artisans-workshop.Formulas.InBook"}}</p>
+                {{else if pending}}<p class="learn-known"><i class="fa-solid fa-hourglass-half" inert></i> {{localize "pf2e-artisans-workshop.Formulas.OnItsWay"}}</p>
+                {{else}}<p class="learn-route">{{localize "pf2e-artisans-workshop.Formulas.CraftNow" route=routeText}}</p>{{/if}}
+                {{#if routes.length}}
+                <table class="learn-routes">
+                    <thead><tr>
+                        <th scope="col">{{localize "pf2e-artisans-workshop.Formulas.Route"}}</th>
+                        <th scope="col">{{localize "pf2e-artisans-workshop.Formulas.Cost"}}</th>
+                        <th scope="col">{{localize "pf2e-artisans-workshop.Formulas.Time"}}</th>
+                        <th scope="col"><span class="sr-only">{{localize "pf2e-artisans-workshop.Formulas.Act"}}</span></th>
+                    </tr></thead>
+                    <tbody>
+                        {{#each routes}}
+                        <tr>
+                            <th scope="row">{{localize label}}{{#if check}} <span class="note">{{localize "pf2e-artisans-workshop.Formulas.CraftCheck"}}</span>{{/if}}</th>
+                            <td class="money">{{cost}}{{#if hint}} <span class="note">{{localize "pf2e-artisans-workshop.Formulas.SaveADay" amount=hint}}</span>{{/if}}</td>
+                            <td>{{time}}</td>
+                            <td>
+                                {{#if (eq route "buy")}}<button type="button" class="small" data-action="formula" data-op="buy" {{#unless ../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.Buy"}}</button>{{/if}}
+                                {{#if (eq route "copy-npc")}}<button type="button" class="small" data-action="formula" data-op="copy-npc" {{#unless ../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.CopyNpc"}}</button>{{/if}}
+                                {{#if (eq route "scanner")}}<button type="button" class="small" data-action="formula" data-op="scanner" {{#unless ../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.Scan"}}</button>{{/if}}
+                                {{#if (eq route "invent")}}<button type="button" class="small" data-action="formula" data-op="invent" {{#unless ../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.Invent"}}</button>{{/if}}
+                                {{#if (eq route "reverse-engineer")}}<button type="button" class="small" data-action="formula" data-op="reverse-engineer" {{#unless ../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.Reverse"}}</button>{{/if}}
+                                {{#if (eq route "copy-ally")}}{{#each ../allies}}<button type="button" class="small" data-action="formula" data-op="ask" data-ally="{{uuid}}" {{#unless ../../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.Ask" name=name}}</button>{{/each}}{{/if}}
+                            </td>
+                        </tr>
+                        {{/each}}
+                    </tbody>
+                </table>
+                {{#if needsSeller}}
+                <label class="learn-seller"><input type="checkbox" name="codexSeller" {{#if seller}}checked{{/if}}> {{localize "pf2e-artisans-workshop.Formulas.SellerAvailable"}}</label>
+                {{/if}}
+                {{/if}}
+                {{#with breakEven}}
+                <p class="learn-break-even"><i class="fa-solid fa-scale-balanced" inert></i>
+                    {{#if needed}}{{localize "pf2e-artisans-workshop.Formulas.BreakEvenNeeded" formula=formula}}
+                    {{else if crafts}}{{localize "pf2e-artisans-workshop.Formulas.BreakEven" formula=formula day=day crafts=crafts}}
+                    {{else}}{{localize "pf2e-artisans-workshop.Formulas.BreakEvenNever" formula=formula}}{{/if}}</p>
+                {{/with}}
+                {{#if pickable}}
+                <button type="button" class="primary" data-action="formula" data-op="grant" {{#unless ../ready}}disabled{{/unless}}>
+                    <i class="fa-solid fa-gift" inert></i><span>{{localize "pf2e-artisans-workshop.Formulas.TakePick"}}</span></button>
+                {{/if}}
+                {{#with copy}}
+                <div class="learn-copy">
+                    <label><span>{{localize "pf2e-artisans-workshop.Formulas.CopyFor"}}</span>
+                        <select name="codexRecipient"><option value="">{{localize "pf2e-artisans-workshop.Formulas.ChooseMember"}}</option>
+                            {{#each recipients}}<option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{name}}</option>{{/each}}</select></label>
+                    <button type="button" class="small" data-action="formula" data-op="craft-copy">{{localize "pf2e-artisans-workshop.Formulas.CraftCopy" cost=cost}}</button>
+                </div>
+                {{/with}}
+            </div>
+            {{/with}}
+            {{/with}}
+        </aside>
+    </div>
+    {{else}}
+    <p class="queue-empty">{{localize "pf2e-artisans-workshop.Formulas.NoCharacter"}}</p>
+    {{/if}}
+    {{else}}
+    <p class="queue-empty">{{localize "pf2e-artisans-workshop.Window.Unavailable"}}</p>
+    {{/if}}
+</section>

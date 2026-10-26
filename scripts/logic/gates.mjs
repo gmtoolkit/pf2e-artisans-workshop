@@ -224,11 +224,11 @@ export function runeProblem({ kind, target }) {
     return null;
 }
 
-/** G12: no artifacts, no Craft without a Price, and the rune rules for an etching. GM Core pp.223-225. */
+/** G12: no artifacts, no Craft without a Price, and the rune rules for an etching or a transfer. GM Core pp.223-225. */
 export function gateProduct(item, craftType = "item", rune = null) {
     if (item.isArtifact) return fail("G12", "artifact");
     if (!(item.priceCp > 0)) return fail("G12", "no-price");
-    const problem = craftType === "rune-etch" && rune ? runeProblem(rune) : null;
+    const problem = (craftType === "rune-etch" || craftType === "rune-transfer") && rune ? runeProblem(rune) : null;
     return problem ? fail("G12", problem.reason, problem.data ?? {}) : pass("G12");
 }
 

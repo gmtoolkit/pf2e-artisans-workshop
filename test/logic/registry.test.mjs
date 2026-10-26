@@ -43,6 +43,7 @@ const KINDS = {
     toolSubstitution: (e) => Array.isArray(e.tools) && e.tools.length > 0,
     earnIncome: (e) => typeof e.doubleFailure === "boolean",
     correction: (e) => e.consumable === true,
+    repairHp: (e) => Number.isInteger(e.success) && Number.isInteger(e.critSuccess),
     variantOnly: (e) => typeof e.variant === "string" && e.variant in rulesWith({}).variants,
 };
 

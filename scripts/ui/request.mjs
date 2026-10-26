@@ -4,31 +4,80 @@
  * optional crafter, a gift flag and a note; and, before filing, the members who can make it with their formula route,
  * setup, DC, daily reduction and days to zero.
  *
+ * M5 adds what the request is (4.2.1 `craftType`, 4.5): a Craft of the item; an upgrade of one of the requester's items
+ * to the chosen stronger grade; a rune etched onto one of the requester's items; a rune transferred between two of them;
+ * or a service (Repair, affix a talisman or take one off, Identify Alchemy) of one of the requester's items. Formula jobs
+ * are filed from the Formulas tab.
+ *
  * Searching by name reads the pf2e equipment compendium's index, so every drag has a keyboard alternative (10.9). A
  * re-render keeps the focused field and its caret (`focus.mjs`), so typing on after the search's re-render goes on where
  * it was. Opened from the Workshop, the form is its child and opens in the same browser window.
  */
+import { MODULE_ID } from "../constants.mjs";
 import { DEGREE } from "../logic/core.mjs";
 import { splitIntoBatches } from "../logic/batches.mjs";
+import { familyKey } from "../logic/families.mjs";
 import { incomePerDay } from "../logic/income.mjs";
 import { daysToZero } from "../logic/progress.mjs";
+import { isRuneItemOf, normalRunes, runeOf, usageFits } from "../logic/runes.mjs";
 import { estimateOf } from "../logic/views.mjs";
 import { actingChoices, requestOrder } from "../foundry/orders.mjs";
-import { crafterFacts, gatesFor, productFacts } from "../foundry/products.mjs";
+import { crafterFacts, gatesFor, liveItemFacts, productFacts } from "../foundry/products.mjs";
 import { members } from "../foundry/roster.mjs";
+import { searchCatalogue } from "../foundry/catalogue.mjs";
+import { requestService } from "../foundry/services.mjs";
 import { rulesFromSettings } from "../foundry/settings.mjs";
 import { canWrite } from "../foundry/state.mjs";
 import { showDcs } from "./context.mjs";
 import { focusState, restoreFocus } from "./focus.mjs";
 import { gateText, money, number, report } from "./format.mjs";
-import { ROUTE } from "./labels.mjs";
+import { CRAFT_TYPE, ROUTE, SERVICE } from "./labels.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
-/** The compendium searched by name. */
-const PACK = "pf2e.equipment-srd";
 /** How many matches the search lists. */
 const MATCHES = 12;
+/** What a request can be (M5). */
+const KINDS = Object.freeze(["item", "upgrade", "rune-etch", "rune-transfer", "service"]);
+/** Kinds that work on one of the requester's items. */
+const ON_ITEM = new Set(["upgrade", "rune-etch", "rune-transfer"]);
+/** Services the form files (4.5); a formula copy is asked from the Formulas tab. */
+const SERVICE_KINDS = Object.freeze(["repair", "affix", "unaffix", "identify-alchemy"]);
+
+const actorOf = (uuid) => (typeof uuid === "string" ? fromUuidSync(uuid, { strict: false }) : null);
+const traitsOf = (item) => new Set(item.traits ?? item.system?.traits?.value ?? []);
+
+/**
+ * The requester's items a request can work on, by kind (M5): a lower grade of the product's family to upgrade, an item a
+ * rune fits, an item that holds the rune (a transfer's source, or the rune's own item: `isRuneItemOf`), a damaged item to repair, a talisman or
+ * spellheart, a host, an affixed talisman.
+ */
+export function itemChoices(actor, kind, product, { serviceKind = null, source = null } = {}) {
+    const items = (actor?.items ?? []).filter((i) => i.isOfType?.("physical"));
+    const view = (i) => ({ uuid: i.uuid, name: i.name });
+    if (kind === "upgrade" && product) {
+        const key = familyKey(product);
+        return items.filter((i) => familyKey({ name: (i.sourceId ? actorOf(i.sourceId)?.name : null) ?? i.name, type: i.type, category: product.category }) === key &&
+            (i.level ?? 0) < product.level).map(view);
+    }
+    const rune = product ? runeOf({ slug: product.slug, usage: product.usage }) : null;
+    const holds = (i) => {
+        const runes = normalRunes(i.system?.runes ?? {});
+        return rune && (rune.kind === "property" ? runes.property.includes(rune.value) : runes[rune.slot] === rune.value);
+    };
+    const fits = (i) => i.type === rune.target && usageFits(product.usage, liveItemFacts(i));
+    if (kind === "rune-etch") return rune ? items.filter(fits).map(view) : [];
+    const runeItem = (i) => isRuneItemOf({ sourceId: i.sourceId ?? i._stats?.compendiumSource ?? null, slug: i.slug ?? null, usage: i.system?.usage?.value ?? null }, product);
+    if (kind === "rune-transfer" && source === "pick") return rune ? items.filter((i) => holds(i) || runeItem(i)).map(view) : [];
+    if (kind === "rune-transfer") return rune ? items.filter((i) => fits(i) && !holds(i)).map(view) : [];
+    if (kind === "service") {
+        if (serviceKind === "repair") return items.filter((i) => (i.system?.hp?.max ?? 0) > 0 && (i.system.hp.value ?? 0) < i.system.hp.max).map(view);
+        if (serviceKind === "affix") return items.filter((i) => ["talisman", "spellheart"].some((t) => traitsOf(i).has(t))).map(view);
+        if (serviceKind === "unaffix") return items.filter((i) => i.flags?.[MODULE_ID]?.affix).map(view);
+        if (serviceKind === "host") return items.filter((i) => ["armor", "shield", "weapon"].includes(i.type)).map(view);
+    }
+    return [];
+}
 
 export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
     static DEFAULT_OPTIONS = {
@@ -46,52 +95,77 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
     };
 
     /** The form's state between renders. */
-    state = { uuid: null, quantity: 1, requester: null, recipient: null, crafter: "", gift: false, note: "", search: "" };
+    state = {
+        uuid: null, quantity: 1, requester: null, recipient: null, crafter: "", gift: false, note: "", search: "",
+        kind: "item", target: "", source: "", serviceKind: "repair", host: "", performer: "",
+    };
 
-    constructor({ uuid = null, requester = null, ...options } = {}) {
+    constructor({ uuid = null, requester = null, kind = null, ...options } = {}) {
         super(options);
         const choices = actingChoices();
         this.state.uuid = uuid;
         this.state.requester = requester ?? choices.find((a) => a === game.user.character)?.uuid ?? choices[0]?.uuid ?? null;
         this.state.recipient = this.state.requester;
+        if (KINDS.includes(kind)) this.state.kind = kind;
     }
 
     async _prepareContext(options) {
         const context = await super._prepareContext(options);
-        const product = this.state.uuid ? await productFacts(this.state.uuid) : null;
+        const s = this.state;
+        const service = s.kind === "service";
+        const product = !service && s.uuid ? await productFacts(s.uuid) : null;
         const people = members();
         const own = actingChoices();
-        const quantity = Math.max(1, Number(this.state.quantity) || 1);
+        const single = ON_ITEM.has(s.kind);
+        const quantity = single ? 1 : Math.max(1, Number(s.quantity) || 1);
         const order = { id: "preview", quantity, product: { snapshot: product ?? {} } };
-        const estimate = product ? estimateOf(order) : null;
+        const estimate = product && !single ? estimateOf(order) : null;
+        const requester = actorOf(s.requester);
+        const option = (value, label, current) => ({ value, label, selected: value === current });
+        const items = (opts) => itemChoices(requester, s.kind, product, opts).map((i) => ({ ...i, selected: false }));
+        const mark = (list, current) => list.map((i) => ({ ...i, selected: i.uuid === current }));
         return Object.assign(context, {
-            formId: this.id, ready: canWrite(), state: this.state, product,
+            formId: this.id, ready: canWrite(), state: s, product, service, single,
+            kinds: KINDS.map((k) => option(k, k === "service" ? "pf2e-artisans-workshop.Request.Kind.Service" : CRAFT_TYPE[k], s.kind)),
+            serviceKinds: SERVICE_KINDS.map((k) => option(k, SERVICE[k], s.serviceKind)),
+            targets: single ? mark(items({}), s.target) : service && s.serviceKind !== "identify-alchemy"
+                ? mark(itemChoices(requester, "service", null, { serviceKind: s.serviceKind }), s.target) : [],
+            sources: s.kind === "rune-transfer" ? mark(items({ source: "pick" }), s.source) : [],
+            hosts: service && s.serviceKind === "affix" ? mark(itemChoices(requester, "service", null, { serviceKind: "host" }), s.host) : [],
+            performers: people.map((a) => ({ uuid: a.uuid, name: a.name, selected: a.uuid === s.performer })),
+            needsTarget: single || (service && s.serviceKind !== "identify-alchemy"),
             rarityLabel: product && CONFIG.PF2E?.rarityTraits?.[product.rarity] ? game.i18n.localize(CONFIG.PF2E.rarityTraits[product.rarity]) : null,
             priceText: product ? money(product.priceCp) : null, perText: product?.per > 1 ? number(product.per) : null,
             estimate: estimate ? { price: money(estimate.priceCp), upfront: money(estimate.upfrontCp) } : null,
-            requesters: own.map((a) => ({ uuid: a.uuid, name: a.name, selected: a.uuid === this.state.requester })),
+            requesters: own.map((a) => ({ uuid: a.uuid, name: a.name, selected: a.uuid === s.requester })),
             recipients: [
-                ...people.map((a) => ({ value: a.uuid, name: a.name, selected: a.uuid === this.state.recipient })),
-                { value: "strongbox", label: "pf2e-artisans-workshop.Queue.ForStrongbox", selected: this.state.recipient === "strongbox" },
+                ...people.map((a) => ({ value: a.uuid, name: a.name, selected: a.uuid === s.recipient })),
+                { value: "strongbox", label: "pf2e-artisans-workshop.Queue.ForStrongbox", selected: s.recipient === "strongbox" },
             ],
-            crafters: own.map((a) => ({ uuid: a.uuid, name: a.name, selected: a.uuid === this.state.crafter })),
-            candidates: product ? await this.#candidates(product, quantity, people) : [],
-            matches: await this.#matches(),
+            crafters: own.map((a) => ({ uuid: a.uuid, name: a.name, selected: a.uuid === s.crafter })),
+            candidates: product && (!single || s.target) ? await this.#candidates(product, quantity, people) : [],
+            matches: service ? [] : await this.#matches(),
         });
     }
 
     /** Every member with Crafting, and how they would make the item at this quantity (4.3, 4.4, 6.5). */
     async #candidates(product, quantity, people) {
         const rules = rulesFromSettings();
+        const s = this.state;
+        const single = ON_ITEM.has(s.kind);
+        const probe = {
+            id: "preview", quantity: 1, craftType: s.kind, target: single ? s.target || null : null,
+            variant: s.kind === "rune-transfer" ? { transfer: { source: s.source || null } } : {}, custody: {}, pledges: {},
+        };
         const out = [];
         for (const actor of people) {
             const crafter = crafterFacts(actor);
             if (!(crafter.ranks.crafting > 0)) continue;
-            const { gates, plan } = await gatesFor({ id: "preview", quantity: 1 }, crafter, product, [], rules);
+            const { gates, plan } = await gatesFor(probe, crafter, product, [], rules);
             const blocking = gates.filter((g) => !g.ok && !["G7", "G8", "G9", "G10", "G11", "batch"].includes(g.id));
             const batches = splitIntoBatches(quantity, Math.max(1, plan.batchMax ?? 1));
             const perDay = incomePerDay(crafter.level, crafter.ranks.crafting, DEGREE.success);
-            const priceCp = Math.round((product.priceCp * batches[0]) / product.per);
+            const priceCp = single ? (plan.priceCp ?? 0) : Math.round((product.priceCp * batches[0]) / product.per);
             const days = daysToZero(priceCp - Math.ceil(priceCp / 2), perDay);
             out.push({
                 name: actor.name, ok: blocking.length === 0, reasons: blocking.map(gateText),
@@ -99,20 +173,15 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
                 setup: plan.setup ? number(plan.setup.days) : null, dc: showDcs() ? plan.dc?.final ?? null : null,
                 batchMax: number(plan.batchMax ?? 1), batches: number(batches.length),
                 perDay: money(perDay), daysToZero: Number.isFinite(days) ? number(days) : null,
+                price: single && plan.ok ? money(plan.priceCp) : null,
             });
         }
         return out;
     }
 
-    /** Items in the equipment compendium whose name contains the search text. */
+    /** Items in the equipment compendium whose name contains the search text (the cached catalogue, M5). */
     async #matches() {
-        const text = this.state.search.trim().toLowerCase();
-        if (text.length < 2) return [];
-        const pack = game.packs.get(PACK);
-        if (!pack) return [];
-        const index = await pack.getIndex({ fields: ["system.level.value"] });
-        return index.filter((entry) => entry.name.toLowerCase().includes(text)).slice(0, MATCHES)
-            .map((entry) => ({ uuid: entry.uuid, name: entry.name, img: entry.img, level: entry.system?.level?.value ?? null }));
+        return (await searchCatalogue(this.state.search, MATCHES)).map(({ uuid, name, img, level }) => ({ uuid, name, img, level }));
     }
 
     _onFirstRender(context, options) {
@@ -155,7 +224,8 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
         const { name, value, checked, type } = event.target;
         if (!name || name === "search") return;
         this.state[name] = type === "checkbox" ? checked : value;
-        if (["quantity", "crafter", "recipient", "requester"].includes(name)) this.render();
+        if (name === "kind" || name === "serviceKind" || name === "requester") Object.assign(this.state, { target: "", source: "", host: "" });
+        if (["quantity", "crafter", "recipient", "requester", "kind", "serviceKind", "target", "source", "host"].includes(name)) this.render();
     }
 
     async #onDrop(event) {
@@ -179,14 +249,29 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
 
     static async #onSubmit() {
         const s = this.state;
+        if (s.kind === "service") {
+            const result = report(await requestService({ kind: s.serviceKind, requester: s.requester, performer: s.performer || null,
+                target: s.target || null, host: s.host || null, note: s.note }));
+            if (result?.ok) {
+                ui.notifications.info("pf2e-artisans-workshop.Request.ServiceFiled", { localize: true });
+                await this.close();
+            }
+            return;
+        }
         if (!s.uuid) {
             ui.notifications.warn("pf2e-artisans-workshop.Request.NoItem", { localize: true });
             return;
         }
+        const single = ON_ITEM.has(s.kind);
+        if (single && (!s.target || (s.kind === "rune-transfer" && !s.source))) {
+            ui.notifications.warn("pf2e-artisans-workshop.Request.NoTarget", { localize: true });
+            return;
+        }
         const recipient = s.recipient === "strongbox" ? { kind: "strongbox" } : { kind: "actor", uuid: s.recipient || s.requester };
         const result = report(await requestOrder({
-            uuid: s.uuid, quantity: Math.max(1, Number(s.quantity) || 1), requester: s.requester, recipient,
-            crafter: s.crafter || null, note: s.note, gift: s.gift === true,
+            uuid: s.uuid, quantity: single ? 1 : Math.max(1, Number(s.quantity) || 1), requester: s.requester, recipient,
+            crafter: s.crafter || null, note: s.note, gift: s.gift === true, craftType: s.kind === "item" ? null : s.kind,
+            target: single ? s.target : null, variant: s.kind === "rune-transfer" ? { transfer: { source: s.source } } : {},
         }));
         if (result?.ok) {
             ui.notifications.info("pf2e-artisans-workshop.Request.Filed", { format: { count: String(result.orders.length) } });
@@ -199,7 +284,7 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
  * Open the request form, optionally with an item and a requester. From a window (`parent`, the Workshop) it is that
  * window's child, so it opens in the browser window the Workshop is in, detached or not.
  */
-export function openRequestForm({ uuid = null, requester = null, parent = null } = {}) {
-    const form = new RequestForm({ uuid, requester });
+export function openRequestForm({ uuid = null, requester = null, parent = null, kind = null } = {}) {
+    const form = new RequestForm({ uuid, requester, kind });
     return parent ? parent.renderChild(form) : form.render({ force: true });
 }

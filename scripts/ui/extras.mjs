@@ -1,0 +1,239 @@
+/**
+ * What the Queue shows of M5 (DESIGN.md 4.5, 6.6, 6.9, 6.13, 10.3): on an order's detail, its casting pledges (6.9)
+ * with "pledge a casting", "mark cast", "withdraw" and "buy a casting"; the items handed over for it (a target to etch or
+ * upgrade, a rune's source, an item to reverse-engineer, precious stock) with "hand over" and "give back"; and below the
+ * orders, the service orders (4.5) with "offer", "hand over", "perform" and "cancel". Each button carries `data-action`
+ * ("pledgeOp", "custody", "service") and `data-op`; the handlers ask what they need in a dialog and run the Foundry side.
+ */
+import { stockMaterial } from "../logic/materials.mjs";
+import { TARGETED } from "../logic/orders.mjs";
+import { castingsOf, livePledges, spellGate, spellSupply } from "../logic/pledges.mjs";
+import { serviceActions } from "../logic/services.mjs";
+import { STOCK_STATUSES, giveBack, handOver, heldLines } from "../foundry/custody.mjs";
+import { actingChoices, viewer as currentViewer } from "../foundry/orders.mjs";
+import { buyCasting, fulfilPledge, pledgeCasting, withdrawPledge } from "../foundry/pledges.mjs";
+import { custodyLine, inCustody, liveItemFacts, productFacts, targetOf } from "../foundry/products.mjs";
+import * as services from "../foundry/services.mjs";
+import { read } from "../foundry/store.mjs";
+import { money, nameOf, number, parseMoney, report } from "./format.mjs";
+import { CRAFT_TYPE, PLEDGE_STATUS, PURPOSE, SERVICE, SERVICE_STATUS } from "./labels.mjs";
+import { askChoice } from "./prompts.mjs";
+
+const loc = (key) => game.i18n.localize(key);
+const fmt = (key, data) => game.i18n.format(key, data);
+const actorOf = (uuid) => (typeof uuid === "string" ? fromUuidSync(uuid, { strict: false }) : null);
+const owns = (uuid) => actorOf(uuid)?.isOwner === true;
+
+/** The kind of an order, when it is not a plain Craft of an item (M5). */
+export function kindText(order) {
+    if (order.product?.type === "formula") return loc(CRAFT_TYPE.formula);
+    const type = order.craftType ?? "item";
+    return type === "item" ? null : loc(CRAFT_TYPE[type] ?? CRAFT_TYPE.item);
+}
+
+/** The name of the item an order works on (an etching's, an upgrade's, a transfer's target). */
+export function targetText(order) {
+    if (!TARGETED.includes(order.craftType)) return null;
+    return targetOf(order)?.name ?? actorOf(order.target)?.name ?? null;
+}
+
+/* -------------------------------------------- */
+/*  An order's detail                            */
+/* -------------------------------------------- */
+
+/** Items this user could hand over for an order: the target, a transfer's source, an item to reverse-engineer. */
+function handOverChoices(order) {
+    const out = [];
+    const offer = (item, purpose) => {
+        if (!item?.parent || item.parent.uuid === order.crafter || !item.parent.isOwner || inCustody(order, item)) return;
+        out.push({ uuid: item.uuid, name: item.name, purpose, purposeText: loc(PURPOSE[purpose]) });
+    };
+    if (TARGETED.includes(order.craftType)) {
+        if (!custodyLine(order, "target")) offer(targetOf(order), "target");
+        if (order.craftType === "rune-transfer" && !custodyLine(order, "source")) offer(targetOf(order, "source"), "source");
+    }
+    if (order.product?.type === "formula" && order.route === "reverse-engineer" && !custodyLine(order, "possession")) {
+        const crafter = actorOf(order.crafter);
+        const crafterHolds = (crafter?.items ?? []).some((i) => (i.sourceId ?? i._stats?.compendiumSource) === order.product.uuid);
+        if (!crafterHolds) {
+            for (const actor of actingChoices()) {
+                if (actor.uuid === order.crafter) continue;
+                for (const item of actor.items) if ((item.sourceId ?? item._stats?.compendiumSource) === order.product.uuid) offer(item, "possession");
+            }
+        }
+    }
+    return out;
+}
+
+/** What an order's detail drawer shows beyond M4: pledges, spell supply, custody and stock, and what this user may do. */
+export async function detailExtras(order) {
+    const viewer = currentViewer();
+    const product = await productFacts(order.product?.uuid);
+    const supply = product && order.product?.type !== "formula" ? spellSupply(product) : null;
+    const open = !["complete", "cancelled", "archived", "rolled"].includes(order.status);
+    const extras = { kind: kindText(order), target: targetText(order), supply: null, pledges: [], custody: [], handOver: [], stock: false };
+    if (supply) {
+        const gate = spellGate(order, supply);
+        extras.supply = {
+            text: fmt("pf2e-artisans-workshop.Pledge.Supply", { kind: loc(CRAFT_TYPE["spell-item"]), needed: number(gate.needed), fulfilled: number(gate.fulfilled) }),
+            canPledge: open && actingChoices().some((a) => a.items.some((i) => i.type === "spell")), canBuy: open && viewer.hasCharacter,
+        };
+        extras.pledges = livePledges(order).concat(Object.values(order.pledges ?? {}).filter((p) => p?.status === "withdrawn")).map((p) => ({
+            id: p.id, caster: p.caster ? nameOf(p.caster) : loc("pf2e-artisans-workshop.Pledge.Service"), spell: p.spell?.name ?? "",
+            rank: p.rank ?? "", castings: number(p.castings), status: loc(PLEDGE_STATUS[p.status] ?? PLEDGE_STATUS.offered), statusKey: p.status,
+            cost: p.costCp ? money(p.costCp) : null,
+            canFulfil: open && p.status === "offered" && owns(p.caster), canWithdraw: open && p.status === "offered" && (viewer.isGM || owns(p.caster)),
+        }));
+    }
+    const lines = heldLines(order);
+    extras.custody = lines.map((line) => ({
+        id: line.id, name: line.name, purpose: loc(PURPOSE[line.purpose] ?? PURPOSE.target), from: nameOf(line.from),
+        value: line.purpose === "material" ? money(line.valueCp) : null,
+        canGiveBack: ["requested", "accepted", "failed"].includes(order.status) && (viewer.isGM || owns(line.from) || owns(order.requester) || owns(order.crafter)),
+    }));
+    if (open) extras.handOver = handOverChoices(order);
+    extras.stock = STOCK_STATUSES.includes(order.status) && !!product?.material?.type && actingChoices().some((a) => stockItems(a).length > 0);
+    extras.castings = supply ? number(castingsOf(order)) : null;
+    return extras;
+}
+
+/** Precious-material stock a character carries (6.6). */
+function stockItems(actor) {
+    return actor.items.filter((item) => item.isOfType?.("physical") && stockMaterial({ slug: item.slug, traits: [...(item.traits ?? [])] }));
+}
+
+/* -------------------------------------------- */
+/*  Services                                     */
+/* -------------------------------------------- */
+
+/** What a closed service did, in a sentence. */
+function resultText(service) {
+    const r = service.result;
+    if (!r) return null;
+    if (service.kind === "repair") {
+        return r.damage ? fmt("pf2e-artisans-workshop.Service.Damaged", { n: number(r.damage), item: r.item ?? "" })
+            : fmt("pf2e-artisans-workshop.Service.Restored", { n: number(r.restored ?? 0), item: r.item ?? "" });
+    }
+    if (service.kind === "affix") return fmt("pf2e-artisans-workshop.Service.Affixed", { item: r.item ?? "", host: r.host ?? "" });
+    return null;
+}
+
+/** The service orders as the Queue lists them: open ones first, oldest first; then the latest closed ones. */
+export function servicesView(all) {
+    const viewer = currentViewer();
+    const open = all.filter((s) => s.status === "open").sort((a, b) => (a.created?.real ?? 0) - (b.created?.real ?? 0));
+    const closed = all.filter((s) => s.status !== "open").sort((a, b) => (b.closed?.real ?? b.at?.real ?? 0) - (a.closed?.real ?? a.at?.real ?? 0)).slice(0, 10);
+    return [...open, ...closed].map((service) => {
+        const actions = serviceActions(service, viewer);
+        const item = actorOf(service.target);
+        const status = SERVICE_STATUS[service.status] ?? SERVICE_STATUS.open;
+        const handOverItem = service.status === "open" && service.kind === "repair" && item?.parent && item.parent.isOwner &&
+            item.parent.uuid !== service.performer && !heldLines(service).length;
+        return {
+            id: service.id, kind: loc(SERVICE[service.kind] ?? SERVICE.repair), status: service.status, statusWord: loc(status.key), statusIcon: status.icon,
+            requester: nameOf(service.requester), performer: service.performer ? nameOf(service.performer) : null,
+            item: item?.name ?? (service.uuid ? fromUuidSync(service.uuid, { strict: false })?.name ?? null : null),
+            host: service.host ? actorOf(service.host)?.name ?? null : null, note: service.note || null, result: resultText(service),
+            actions: { ...actions, handOver: !!handOverItem }, closed: service.status !== "open",
+        };
+    });
+}
+
+/* -------------------------------------------- */
+/*  Actions                                      */
+/* -------------------------------------------- */
+
+const dataOf = (target) => target.closest("[data-op]")?.dataset ?? {};
+const orderOf = (target) => target.closest("[data-order-id]")?.dataset.orderId ?? null;
+
+/** Pledge buttons (`data-action="pledgeOp"`): pledge a casting, mark one cast, withdraw one, buy one. */
+export async function onPledgeOp(app, target) {
+    const id = orderOf(target);
+    const { op, pledge } = dataOf(target);
+    switch (op) {
+        case "pledge": {
+            const options = actingChoices().flatMap((actor) => actor.items.filter((i) => i.type === "spell")
+                .map((spell) => ({ value: spell.uuid, name: fmt("pf2e-artisans-workshop.Pledge.CasterSpell", { caster: actor.name, spell: spell.name }), caster: actor.uuid })));
+            const answer = await askChoice({ title: "pf2e-artisans-workshop.Pledge.Title", label: "pf2e-artisans-workshop.Pledge.Spell", options,
+                number: { label: "pf2e-artisans-workshop.Pledge.Castings", value: 1, min: 1 }, button: "pf2e-artisans-workshop.Pledge.Button", icon: "fa-solid fa-scroll", app });
+            if (!answer?.value) return null;
+            const caster = options.find((o) => o.value === answer.value)?.caster;
+            return report(await pledgeCasting(id, { caster, spell: answer.value, castings: answer.number || 1 }));
+        }
+        case "fulfil": {
+            const answer = await askChoice({ title: "pf2e-artisans-workshop.Pledge.FulfilTitle", text: { label: "pf2e-artisans-workshop.Pledge.Cost" },
+                hint: "pf2e-artisans-workshop.Pledge.CostHint", button: "pf2e-artisans-workshop.Pledge.FulfilButton", icon: "fa-solid fa-wand-magic-sparkles", app });
+            if (!answer) return null;
+            const costCp = answer.text?.trim() ? parseMoney(answer.text) : 0;
+            if (costCp === null) return report({ ok: false, reason: "nothing" });
+            return report(await fulfilPledge(id, pledge, { costCp }));
+        }
+        case "withdraw":
+            return report(await withdrawPledge(id, pledge));
+        case "buy": {
+            const answer = await askChoice({ title: "pf2e-artisans-workshop.Pledge.BuyTitle", text: { label: "pf2e-artisans-workshop.Pledge.SpellName" },
+                options: actingChoices().map((a) => ({ value: a.uuid, name: a.name })), label: "pf2e-artisans-workshop.Pledge.Payer",
+                number: { label: "pf2e-artisans-workshop.Pledge.Castings", value: 1, min: 1 }, hint: "pf2e-artisans-workshop.Pledge.BuyHint",
+                button: "pf2e-artisans-workshop.Pledge.BuyButton", icon: "fa-solid fa-coins", app });
+            if (!answer?.value || !answer.text) return null;
+            const spell = await findSpell(answer.text);
+            if (!spell) return report({ ok: false, reason: "no-spell" });
+            return report(await buyCasting(id, { payer: answer.value, spell, castings: answer.number || 1 }));
+        }
+        default: return null;
+    }
+}
+
+/** A compendium spell by name, from pf2e's spells pack: an exact name first, else the first that contains it. */
+async function findSpell(text) {
+    const pack = game.packs?.get("pf2e.spells-srd");
+    if (!pack) return null;
+    const index = await pack.getIndex();
+    const needle = text.trim().toLowerCase();
+    const exact = index.find((e) => e.name.toLowerCase() === needle);
+    return (exact ?? index.find((e) => e.name.toLowerCase().includes(needle)))?.uuid ?? null;
+}
+
+/** Custody buttons (`data-action="custody"`): hand over an item, add stock, give back a line. */
+export async function onCustodyOp(app, target) {
+    const id = orderOf(target);
+    const service = target.closest("[data-service-id]")?.dataset.serviceId ?? null;
+    const { op, item, purpose, line } = dataOf(target);
+    switch (op) {
+        case "hand-over":
+            return report(await handOver({ order: service ? null : id, service, item, purpose }));
+        case "stock": {
+            // Part of a stack may go (6.6): only what is handed over counts, and only that is used up.
+            const options = actingChoices().flatMap((actor) => stockItems(actor).map((i) => ({ value: i.uuid, name: fmt("pf2e-artisans-workshop.Custody.StockOf",
+                { actor: actor.name, item: i.name, qty: number(Math.max(1, i.quantity ?? 1)), value: money(liveItemFacts(i).priceCp) }) })));
+            const answer = await askChoice({ title: "pf2e-artisans-workshop.Custody.StockTitle", label: "pf2e-artisans-workshop.Custody.Stock", options,
+                number: { label: "pf2e-artisans-workshop.Custody.StockQuantity", min: 1, value: 1 }, hint: "pf2e-artisans-workshop.Custody.StockHint",
+                button: "pf2e-artisans-workshop.Custody.HandOver", icon: "fa-solid fa-cubes", app });
+            return answer?.value ? report(await handOver({ order: id, item: answer.value, purpose: "material", quantity: answer.number ?? 1 })) : null;
+        }
+        case "give-back":
+            return report(await giveBack({ order: service ? null : id, service, line }));
+        default: return null;
+    }
+}
+
+/** Service buttons (`data-action="service"`): offer, hand over the item, perform, cancel. */
+export async function onServiceOp(app, target) {
+    const id = target.closest("[data-service-id]")?.dataset.serviceId;
+    const { op } = dataOf(target);
+    const service = read(`services.${id}`);
+    if (!service) return null;
+    switch (op) {
+        case "offer": {
+            const actor = app.actingActor();
+            return report(actor ? await services.offer(id, actor.uuid) : { ok: false, reason: "not-owner" });
+        }
+        case "hand-over":
+            return report(await handOver({ service: id, item: service.target, purpose: "service" }));
+        case "perform":
+            return report(await services.perform(id));
+        case "cancel":
+            return report(await services.cancel(id));
+        default: return null;
+    }
+}

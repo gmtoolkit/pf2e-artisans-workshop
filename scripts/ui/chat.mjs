@@ -31,7 +31,7 @@ import { read } from "../foundry/store.mjs";
 import { sweepClaims, shelfItemsFor } from "../foundry/claims.mjs";
 import { orderContext } from "./context.mjs";
 import { money, report } from "./format.mjs";
-import { DEGREE_CLASS, DEGREE_KEY } from "./labels.mjs";
+import { DEGREE_CLASS, DEGREE_KEY, PROVENANCE } from "./labels.mjs";
 import { askAmount } from "./prompts.mjs";
 
 const TEMPLATES = Object.freeze({
@@ -118,6 +118,35 @@ export function registerChatHooks() {
     Hooks.on("pf2e-artisans-workshop.status", (now) => {
         if (now === "ready") everyOrderChanged();
     });
+    // M5: a "Formula learned" card (10.5) from the client that wrote the formula (12.3: the hook fires only there).
+    Hooks.on("pf2e-artisans-workshop.formulaAcquired", ({ actor, uuid, route, added }) => {
+        if (added) postFormulaCard(actor, uuid, route);
+    });
+}
+
+/**
+ * The "Formula learned" card (10.5, M5): the formula, whose book and how it came (provenance, 4.13). A summary only, from
+ * the client that wrote the formula, whispered to the learner's owners and GMs (or public by `chat.visibility`).
+ */
+export async function postFormulaCard(actor, uuid, route) {
+    try {
+        const item = fromUuidSync(uuid, { strict: false });
+        const name = item?.name ?? uuid;
+        const how = game.i18n.localize(PROVENANCE[route]?.key ?? PROVENANCE.unrecorded.key);
+        const summary = game.i18n.format("pf2e-artisans-workshop.Card.Summary.Formula", { actor: actor?.name ?? "", item: name, how });
+        const content = await foundry.applications.handlebars.renderTemplate(TEMPLATES.summary, {
+            kind: "formula", order: "", heading: game.i18n.localize("pf2e-artisans-workshop.Card.Formula"), img: item?.img ?? null, name, summary,
+        });
+        const publicCards = setting("chat.visibility") === "public";
+        const whisper = publicCards ? [] : [...new Set([...game.users.filter((u) => u.isGM).map((u) => u.id), ...ownersOf(actor).map((u) => u.id), game.user.id])];
+        return await ChatMessage.implementation.create({
+            content, speaker: ChatMessage.implementation.getSpeaker({ actor }), whisper,
+            flags: { [MODULE_ID]: { card: { kind: "formula", order: null } } },
+        });
+    } catch (error) {
+        console.warn(`${MODULE_ID} | could not post a formula card`, error);
+        return null;
+    }
 }
 
 async function onRender(message, html) {

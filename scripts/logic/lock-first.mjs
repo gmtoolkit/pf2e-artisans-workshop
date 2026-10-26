@@ -36,7 +36,9 @@
  *
  * Descriptors: `{op: "lock", ids, move?, hand?}`, `{op: "ledger", change: {set, replace, del}}`, `{op: "deleteItems",
  * target, ids}`, `{op: "updateCoins", target, updates: [{id, quantity}]}`, `{op: "createCoins", target, coins:
- * [{denomination, quantity}], lot}`, `{op: "createItems", target, data}`. `target` is "strongbox" or an actor UUID.
+ * [{denomination, quantity}], lot}`, `{op: "createItems", target, data}`, `{op: "updateItems", target, updates: [{_id,
+ * ...}]}` (M5: a target item's new runes, an earmarked item put on the pickup shelf; updates are nested objects, never
+ * dotted keys, since a resumable move's page stores them in flags). `target` is "strongbox" or an actor UUID.
  */
 import { stampTime } from "./core.mjs";
 import { hashId, idemKey } from "./ids.mjs";
@@ -133,6 +135,7 @@ export function resumeApply(move) {
  * @param {{target: string, plan: object}[]} [p.debits]
  * @param {{target: string, plan: object}[]} [p.credits]
  * @param {{target: string, data: object[]}[]} [p.items]   items created, after the credits
+ * @param {{target: string, updates: object[]}[]} [p.itemUpdates]  items updated, after the debits (M5)
  * @param {string} [p.lot]        the row id new strongbox stacks are flagged with (`flags.MOD.lot.row`)
  * @param {{touched: {target: string, id: string, version: number}[], actor: string|null}} [p.resume]  makes the move
  *        resumable: every item its apply request deletes or updates with the version it was planned from, and the
@@ -142,7 +145,7 @@ export function resumeApply(move) {
  *        the same page (`recreateLockId`), so only one of them ever creates the item (DESIGN.md 5.11, As built in M4)
  * @returns {{lock: object[], apply: object[]}}
  */
-export function lockFirstBatch({ rowIds = [], lockIds = rowIds, ledger = {}, debits = [], credits = [], items = [], lot = null, resume = null, mark = null }) {
+export function lockFirstBatch({ rowIds = [], lockIds = rowIds, ledger = {}, debits = [], credits = [], items = [], itemUpdates = [], lot = null, resume = null, mark = null }) {
     const ids = [...new Set(lockIds)];
     if (!ids.length) throw new RangeError("a lock-first move takes at least one lock");
     if (resume && (!rowIds.length || ids[0] !== rowIds[0])) throw new RangeError("a resumable move locks its rows first");
@@ -151,6 +154,7 @@ export function lockFirstBatch({ rowIds = [], lockIds = rowIds, ledger = {}, deb
     const apply = [
         ...(resume ? [{ op: "lock", ids: [applyMarkId(rowIds[0])] }] : mark ? [{ op: "lock", ids: [mark] }] : []),
         ...debits.flatMap((d) => coinOps(d.target, d.plan, d.target === "strongbox" ? lot : null)),
+        ...itemUpdates.map((u) => ({ op: "updateItems", target: u.target, updates: u.updates })),
         ...credits.flatMap((c) => coinOps(c.target, c.plan, c.target === "strongbox" ? lot : null)),
         ...items.map((i) => ({ op: "createItems", target: i.target, data: i.data })),
         ...(rowIds.length ? [settle] : []),

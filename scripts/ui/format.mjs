@@ -5,7 +5,7 @@
  */
 import { REGISTRY } from "../data/registry.mjs";
 import { coinParts } from "../logic/views.mjs";
-import { GATE, RANK_KEY, REFUSAL, STATUS, TOOL } from "./labels.mjs";
+import { GATE, GRADE, RANK_KEY, REFUSAL, STATUS, TOOL } from "./labels.mjs";
 
 const loc = (key) => game.i18n.localize(key);
 const fmt = (key, data) => game.i18n.format(key, data);
@@ -59,13 +59,28 @@ export function skillName(slug) {
 export const rankName = (rank) => loc(RANK_KEY[rank] ?? RANK_KEY[0]);
 
 /** A registry key's compendium name (P9), or the key. */
-function featName(key) {
+export function featName(key) {
     const entry = REGISTRY[key.split(":")[0]];
     return (entry && fromUuidSync(entry.uuid, { strict: false })?.name) ?? key;
 }
 
-/** A gate's reason as a sentence (6.5): which requirement fails and what it needs. */
+/** A precious material's name from pf2e's own strings (P9), or its slug. */
+function materialName(type) {
+    const label = CONFIG.PF2E?.preciousMaterials?.[type];
+    return label ? loc(label) : type ?? "";
+}
+
+/**
+ * A gate's reason as a sentence (6.5): which requirement fails and what it needs. G8's precious-material failure is told
+ * as each of its problems (6.6), with the amounts: the material's share needed and what the order has, and whether only
+ * stock counts.
+ */
 export function gateText(gate) {
+    const problems = gate.reason === "precious" ? gate.data?.problems ?? [] : [];
+    if (problems.length) {
+        return problems.map((p) => gateText({ reason: p.reason === "material-share" && p.data?.stockOnly ? "material-share-stock" : p.reason, data: p.data }))
+            .join(" ");
+    }
     const key = GATE[gate.reason] ?? GATE.other;
     const data = gate.data ?? {};
     const parts = {
@@ -76,6 +91,8 @@ export function gateText(gate) {
         ].join(", "),
         rarity: data.rarity ?? "", short: money(data.shortCp ?? 0),
         tool: TOOL[data.tool] ? loc(TOOL[data.tool]) : data.tool ?? "", max: String(data.max ?? ""), reason: gate.reason ?? "",
+        slots: String(data.slots ?? ""), grade: GRADE[data.grade] ? loc(GRADE[data.grade]) : data.grade ?? "",
+        qty: String(data.qty ?? ""), name: data.name ?? "", material: materialName(data.type), required: money(data.requiredCp ?? 0), available: money(data.availableCp ?? 0),
     };
     return fmt(key, parts);
 }
@@ -88,7 +105,7 @@ export function refusalText(result) {
     const data = result?.data ?? {};
     return fmt(key, {
         reason, status: STATUS[data.status] ? loc(STATUS[data.status].key) : "",
-        short: money(data.shortCp ?? 0), max: money(data.maxCp ?? 0),
+        short: money(data.shortCp ?? 0), max: Number.isInteger(data.max) ? String(data.max) : money(data.maxCp ?? 0),
         gates: (data.gates ?? []).map(gateText).join(" "),
     });
 }

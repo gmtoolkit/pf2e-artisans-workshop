@@ -8,6 +8,7 @@ import { FEAT, asSet, clamp, requireInteger } from "./core.mjs";
 import { craftCost, setupPlan } from "./craft.mjs";
 import { craftDC } from "./dc.mjs";
 import { DEFAULT_RULES } from "./defaults.mjs";
+import { craftCopyGates, inventGates, reverseEngineerGates } from "./gates.mjs";
 import { craftOptions, modifiers, setupOverride } from "./registry.mjs";
 
 /** Setup days of a Craft without and with the formula (Player Core p.237), and of crafting a formula copy. */
@@ -145,4 +146,44 @@ export function formulaJobPlan(route, { item, feats = [], ranks = {}, pwol = fal
         dc: craftDC({ level: item.level, rarity: item.rarity, pwol, adjust: dcAdjust }, rules),
         modifiers: modifiers(feats, jobOptions(feats, route), ranks, rules),
     };
+}
+
+/* -------------------------------------------- */
+/*  M5: acquisition as jobs                      */
+/* -------------------------------------------- */
+
+/** Routes that are Craft-like formula jobs, run on the order machine with `product.type = "formula"` (6.8). */
+export const FORMULA_ORDER_ROUTES = Object.freeze(["invent", "reverse-engineer", "craft-copy"]);
+/** Routes acquired at once: a purchase (or nothing) and an hour of copying (6.8). `grant` is a feature's pick. */
+export const INSTANT_ROUTES = Object.freeze(["buy", "copy-npc", "scanner", "grant"]);
+
+/**
+ * The plan of an instant acquisition (6.8): its cost, the provenance it writes and the checklist confirmations it
+ * needs, or a refusal (`no-route`: not one of the item's routes for this crafter; `needs`: a confirmation is missing).
+ * `copy-ally` is not instant: the ally's owner performs a `formula-copy` service (4.5).
+ *
+ * @param {string} route
+ * @param {object} p   `acquisitionRoutes`' input
+ * @param {string[]} [confirmed]   checklist confirmations given ("seller")
+ */
+export function instantPlan(route, p, confirmed = [], rules = DEFAULT_RULES) {
+    if (route === "grant") return { ok: true, route, costCp: 0, provenance: "granted", needs: [] };
+    if (!INSTANT_ROUTES.includes(route)) return { ok: false, reason: "no-route", data: { route } };
+    const found = acquisitionRoutes(p, rules).find((r) => r.route === route);
+    if (!found) return { ok: false, reason: "no-route", data: { route } };
+    const missing = found.needs.filter((need) => !confirmed.includes(need));
+    if (missing.length) return { ok: false, reason: "needs", data: { needs: missing } };
+    return { ok: true, route, costCp: found.costCp, provenance: PROVENANCE[route], needs: found.needs, minutes: found.minutes };
+}
+
+/**
+ * The gates of a Craft-like formula job (6.5, 6.8): `inventGates`, `reverseEngineerGates` or `craftCopyGates`.
+ * @param {string} route   one of `FORMULA_ORDER_ROUTES`
+ * @param {object} p       the gate set's input
+ */
+export function formulaOrderGates(route, p, rules = DEFAULT_RULES) {
+    if (route === "invent") return inventGates(p, rules);
+    if (route === "reverse-engineer") return reverseEngineerGates(p, rules);
+    if (route === "craft-copy") return craftCopyGates(p, rules);
+    throw new RangeError(`not a formula job route: ${route}`);
 }

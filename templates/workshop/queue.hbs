@@ -36,7 +36,9 @@
                     <div class="order-line">
                         <span class="order-no">{{localize "pf2e-artisans-workshop.Queue.Number" no=no}}</span>
                         {{#if img}}<img class="order-img" src="{{img}}" alt="">{{else}}<i class="order-img fa-solid fa-gift" inert></i>{{/if}}
+                        {{#if kindText}}<span class="order-kind">{{kindText}}</span>{{/if}}
                         <span class="order-title">{{title}}</span>
+                        {{#if targetText}}<span class="order-target"><i class="fa-solid fa-crosshairs" inert></i> {{targetText}}</span>{{/if}}
                         {{#if quantityText}}<span class="order-qty">{{quantityText}}</span>{{/if}}
                         <span class="order-for"><i class="fa-solid fa-arrow-right" inert></i> {{forText}}</span>
                         {{#unless giftHidden}}<span class="tags paizo-style"><span class="tag rarity {{rarity}}">{{rarityLabel}}</span></span>{{/unless}}
@@ -79,6 +81,32 @@
             <p class="queue-empty">{{#if total}}{{localize "pf2e-artisans-workshop.Queue.NoMatch"}}{{else}}{{localize "pf2e-artisans-workshop.Queue.Empty"}}{{/if}}</p>
             {{/if}}
             <p class="drop-hint"><i class="fa-solid fa-hand-pointer" inert></i> {{localize "pf2e-artisans-workshop.Queue.DropHint"}}</p>
+            {{#if services.length}}
+            <h3 class="services-heading">{{localize "pf2e-artisans-workshop.Service.Heading"}}</h3>
+            <ul class="service-list" aria-label="{{localize 'pf2e-artisans-workshop.Service.Heading'}}">
+                {{#each services}}
+                <li class="service-row status-{{status}}" data-service-id="{{id}}">
+                    <div class="order-line">
+                        <span class="status-chip status-{{status}}"><i class="{{statusIcon}}" inert></i><span class="word">{{statusWord}}</span></span>
+                        <span class="order-title">{{kind}}</span>
+                        {{#if item}}<span class="order-target">{{item}}{{#if host}} <i class="fa-solid fa-arrow-right" inert></i> {{host}}{{/if}}</span>{{/if}}
+                        <span class="order-for">{{localize "pf2e-artisans-workshop.Service.For" name=requester}}</span>
+                        <span class="order-crafter">{{#if performer}}{{localize "pf2e-artisans-workshop.Service.By" name=performer}}{{else}}{{localize "pf2e-artisans-workshop.Service.NoPerformer"}}{{/if}}</span>
+                    </div>
+                    {{#if result}}<p class="service-result">{{result}}</p>{{/if}}
+                    {{#if note}}<p class="detail-notes">{{note}}</p>{{/if}}
+                    {{#unless closed}}
+                    <div class="order-actions">
+                        {{#if actions.offer}}<button type="button" data-action="service" data-op="offer"><i class="fa-solid fa-handshake" inert></i>{{localize "pf2e-artisans-workshop.Service.Offer"}}</button>{{/if}}
+                        {{#if actions.handOver}}<button type="button" data-action="service" data-op="hand-over"><i class="fa-solid fa-box" inert></i>{{localize "pf2e-artisans-workshop.Custody.HandOver"}}</button>{{/if}}
+                        {{#if actions.perform}}<button type="button" class="primary" data-action="service" data-op="perform"><i class="fa-solid fa-screwdriver-wrench" inert></i>{{localize "pf2e-artisans-workshop.Service.Perform"}}</button>{{/if}}
+                        {{#if actions.cancel}}<button type="button" class="danger" data-action="service" data-op="cancel">{{localize "pf2e-artisans-workshop.Service.Cancel"}}</button>{{/if}}
+                    </div>
+                    {{/unless}}
+                </li>
+                {{/each}}
+            </ul>
+            {{/if}}
         </div>
         {{#if selected}}
         <aside class="order-detail" tabindex="-1" role="region" data-order-id="{{selected.id}}"
@@ -97,6 +125,8 @@
                 {{#if daysText}}<p>{{daysText}}</p>{{/if}}
             </div>
             <dl class="detail-facts">
+                {{#if extras.kind}}<dt>{{localize "pf2e-artisans-workshop.Detail.Kind"}}</dt><dd>{{extras.kind}}</dd>{{/if}}
+                {{#if extras.target}}<dt>{{localize "pf2e-artisans-workshop.Detail.Target"}}</dt><dd>{{extras.target}}</dd>{{/if}}
                 <dt>{{localize "pf2e-artisans-workshop.Detail.Requester"}}</dt><dd>{{requesterName}}</dd>
                 <dt>{{localize "pf2e-artisans-workshop.Detail.For"}}</dt><dd>{{forText}}</dd>
                 <dt>{{localize "pf2e-artisans-workshop.Detail.Crafter"}}</dt><dd>{{#if crafter}}{{crafter}}{{else}}{{localize "pf2e-artisans-workshop.Queue.NoCrafter"}}{{/if}}</dd>
@@ -141,6 +171,44 @@
                 {{#if actions.undo}}<button type="button" data-action="op" data-op="undo">{{localize "pf2e-artisans-workshop.Action.Undo"}}</button>{{/if}}
                 {{#if actions.cancel}}<button type="button" class="danger" data-action="op" data-op="cancel">{{localize "pf2e-artisans-workshop.Action.Cancel"}}</button>{{/if}}
             </div>
+            {{#with extras}}
+            {{#if supply}}
+            <h4>{{localize "pf2e-artisans-workshop.Pledge.Heading"}}</h4>
+            <p class="detail-supply">{{supply.text}}</p>
+            {{#if pledges.length}}
+            <ul class="detail-list detail-pledges">
+                {{#each pledges}}
+                <li class="pledge-{{statusKey}}" data-op-row="{{id}}">
+                    <span>{{localize "pf2e-artisans-workshop.Pledge.Line" caster=caster spell=spell rank=rank castings=castings}}</span>
+                    <span class="by">{{status}}{{#if cost}} {{cost}}{{/if}}</span>
+                    {{#if canFulfil}}<button type="button" class="small" data-action="pledgeOp" data-op="fulfil" data-pledge="{{id}}">{{localize "pf2e-artisans-workshop.Pledge.Fulfil"}}</button>{{/if}}
+                    {{#if canWithdraw}}<button type="button" class="small" data-action="pledgeOp" data-op="withdraw" data-pledge="{{id}}">{{localize "pf2e-artisans-workshop.Pledge.Withdraw"}}</button>{{/if}}
+                </li>
+                {{/each}}
+            </ul>
+            {{/if}}
+            <div class="detail-actions">
+                {{#if supply.canPledge}}<button type="button" data-action="pledgeOp" data-op="pledge"><i class="fa-solid fa-scroll" inert></i>{{localize "pf2e-artisans-workshop.Pledge.Pledge"}}</button>{{/if}}
+                {{#if supply.canBuy}}<button type="button" data-action="pledgeOp" data-op="buy"><i class="fa-solid fa-coins" inert></i>{{localize "pf2e-artisans-workshop.Pledge.Buy"}}</button>{{/if}}
+            </div>
+            {{/if}}
+            {{#if (or custody.length handOver.length)}}
+            <h4>{{localize "pf2e-artisans-workshop.Custody.Heading"}}</h4>
+            <ul class="detail-list detail-custody">
+                {{#each custody}}
+                <li><span>{{localize "pf2e-artisans-workshop.Custody.Line" name=name purpose=purpose from=from}}</span>{{#if value}}<span class="money">{{value}}</span>{{/if}}
+                    {{#if canGiveBack}}<button type="button" class="small" data-action="custody" data-op="give-back" data-line="{{id}}">{{localize "pf2e-artisans-workshop.Custody.GiveBack"}}</button>{{/if}}</li>
+                {{/each}}
+                {{#each handOver}}
+                <li><span>{{localize "pf2e-artisans-workshop.Custody.Waiting" name=name purpose=purposeText}}</span>
+                    <button type="button" class="small" data-action="custody" data-op="hand-over" data-item="{{uuid}}" data-purpose="{{purpose}}">{{localize "pf2e-artisans-workshop.Custody.HandOver"}}</button></li>
+                {{/each}}
+            </ul>
+            {{/if}}
+            {{#if stock}}
+            <div class="detail-actions"><button type="button" data-action="custody" data-op="stock"><i class="fa-solid fa-cubes" inert></i>{{localize "pf2e-artisans-workshop.Custody.AddStock"}}</button></div>
+            {{/if}}
+            {{/with}}
             {{#if contributorsText.length}}
             <h4>{{localize "pf2e-artisans-workshop.Detail.Contributors"}}</h4>
             <ul class="detail-list">

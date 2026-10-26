@@ -397,6 +397,126 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .funds-ledger button.small { min-height: 1.6rem; padding: 0 0.4rem; }
 .funds-reconcile { display: flex; flex-direction: column; gap: 0.35rem; align-items: flex-start; }
 
+/* ------------------------------------------------------------------ */
+/*  M5: kinds of order, services, pledges and custody                  */
+/* ------------------------------------------------------------------ */
+
+.order-kind,
+.service-row .order-title {
+    font-family: var(--sans-serif-condensed, var(--font-sans));
+    font-size: var(--font-size-12, 0.75rem);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.order-kind { padding: 0 0.3rem; border-radius: 3px; background: var(--paw-surface-strong); }
+.order-target { color: var(--color-text-secondary, inherit); }
+.services-heading { margin-top: 1rem; }
+.service-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.service-row {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--paw-line);
+    border-radius: 5px;
+    background: var(--paw-surface);
+}
+.service-row.status-done,
+.service-row.status-failed,
+.service-row.status-cancelled { opacity: 0.8; }
+.service-row .service-result { margin: 0.2rem 0 0; font-size: var(--font-size-13, 0.8125rem); }
+.status-chip.status-open { border-left-color: var(--paw-escrow); }
+.status-chip.status-done { border-left-color: var(--paw-crit-success); }
+.detail-supply { margin: 0.2rem 0; }
+.detail-pledges li.pledge-withdrawn { text-decoration: line-through; opacity: 0.75; }
+.detail-pledges button.small,
+.detail-custody button.small,
+.pf2e-artisans-workshop button.small { min-height: 1.6rem; padding: 0 0.45rem; }
+
+/* ------------------------------------------------------------------ */
+/*  The Formulas tab (10.1, M5)                                        */
+/* ------------------------------------------------------------------ */
+
+.workshop-body > .workshop-formulas.active { display: flex; flex-direction: column; }
+.formulas-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.8rem; }
+.formulas-toolbar .formulas-actor { display: flex; align-items: center; gap: 0.4rem; }
+.formulas-toolbar .formulas-actor select { max-width: 16rem; }
+.formulas-total { font-weight: 700; }
+.provenance-badges,
+.codex-families,
+.codex-entries,
+.codex-virtual,
+.learn-matches { list-style: none; margin: 0; padding: 0; }
+.provenance-badges { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.pf2e-artisans-workshop .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0 0.35rem;
+    border: 1px solid var(--paw-line);
+    border-radius: 3px;
+    background: var(--paw-surface);
+    font-family: var(--sans-serif-condensed, var(--font-sans));
+    font-size: var(--font-size-12, 0.75rem);
+    white-space: nowrap;
+}
+.pf2e-artisans-workshop .badge .count { font-weight: 700; font-variant-numeric: tabular-nums; }
+.pf2e-artisans-workshop .badge.route-unrecorded { border-style: dashed; }
+.formulas-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    min-height: 0;
+    flex: 1;
+}
+.codex-main,
+.codex-learn { min-height: 0; overflow: auto; }
+.codex-learn {
+    padding: 0 0.5rem 0.5rem;
+    border: 1px solid var(--paw-line);
+    border-radius: 5px;
+    background: var(--paw-panel);
+}
+.codex-family { border-bottom: 1px solid var(--paw-surface-strong); padding: 0.2rem 0; }
+.codex-family summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; }
+.codex-family .family-name { font-family: var(--serif, var(--font-h2)); font-weight: 700; }
+.codex-family .family-count,
+.family-covered,
+.virtual-items { color: var(--color-text-secondary, inherit); font-size: var(--font-size-13, 0.8125rem); }
+.codex-entry { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.5rem; padding: 0.15rem 0 0.15rem 1rem; }
+.codex-entry img,
+.learn-item header img,
+.learn-matches img { width: 1.5rem; height: 1.5rem; border: none; object-fit: contain; }
+.codex-entry .entry-name { font-weight: 600; }
+.codex-entry .entry-level { font-variant-numeric: tabular-nums; color: var(--color-text-secondary, inherit); }
+.codex-entry .tags { margin: 0; }
+.codex-entry button { margin-left: auto; }
+.pf2e-artisans-workshop .chip {
+    display: inline-block;
+    margin: 0.1rem 0.2rem 0.1rem 0;
+    padding: 0 0.3rem;
+    border-radius: 3px;
+    background: var(--paw-surface-strong);
+}
+.pf2e-artisans-workshop .more { font-style: italic; }
+.codex-picks tr.choosing { background: var(--paw-surface-strong); }
+.codex-learn input[type="search"] { width: 100%; }
+.learn-matches { max-height: 14rem; overflow: auto; margin: 0.3rem 0; }
+.learn-matches button { width: 100%; justify-content: flex-start; }
+.learn-matches .level { margin-left: auto; color: var(--color-text-subtle, #555); }
+.learn-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; font-weight: 600; }
+.learn-item header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin: 0.5rem 0 0.25rem; }
+.learn-item header button.icon { margin-left: auto; min-width: 2rem; justify-content: center; }
+.learn-item header .tags { margin: 0; }
+.learn-routes .note { display: block; color: var(--color-text-subtle, #555); font-size: var(--font-size-12, 0.75rem); font-weight: 400; }
+.learn-routes td button { margin: 0.1rem 0; }
+.learn-seller,
+.learn-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0.35rem 0; }
+.learn-copy label { display: flex; align-items: center; gap: 0.35rem; }
+.learn-break-even { font-size: var(--font-size-13, 0.8125rem); }
+.learn-known { color: var(--paw-crit-success); font-weight: 600; }
+
+@container workshop (width >= 1040px) {
+    .formulas-body { grid-template-columns: minmax(0, 1fr) minmax(18rem, 26rem); }
+}
+
 /* Tiers (10.8). Medium: the detail slides over the list; lower-priority columns go. */
 @container workshop (width < 1040px) {
     .queue-body.has-detail .order-detail {

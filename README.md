@@ -111,6 +111,7 @@ connection between a move's two requests and waits out the 60 s grace time twice
 npm run harness:live -- --runs 2 --behaviours all --out /tmp/live     # everything
 npm run harness:live -- --scenarios 3c --runs 1 --behaviours none --canvas
 npm run harness:live -- --scenarios none --behaviours m4-lifecycle,m4-no-gm,m4-cancel,m4-double-delivery,m4-reroll-race,m4-shots,m4-ui --runs 1 --shots /tmp/m4-shots
+npm run harness:live -- --scenarios none --behaviours m5-buy,m5-ally-copy,m5-pick,m5-jobs,m5-etch,m5-upgrade-transfer,m5-precious,m5-scroll,m5-services,m5-ui,m5-shots --runs 1 --shots /tmp/m5-shots
 ```
 
 The M4 behaviours run the order lifecycle with a GM and two players (`m4-lifecycle`), with two players and no GM, the
@@ -119,7 +120,11 @@ recipient offline at the finish (`m4-no-gm`), a cancel with refunds (`m4-cancel`
 `m4-shots` seeds orders and saves screenshots of the Queue and Funds tabs as the GM and as a player at 1440x900 and
 1024x768, dark and light, into `--shots` (default `<out>/shots`); `m4-ui` drives the window as Player One with real
 clicks and keys (tabs, both searches, focus through a refresh, the narrow tier, a detached Workshop, the chat cards
-after a reload). A world launched before `module.json` named
+after a reload). The M5 behaviours (DESIGN 10.11) need the wizard
+fixture (7) built besides the two player characters; each starts by taking back the items earlier M5 plans gave the
+characters (marked `flags.world.pf2e-artisans-workshop-m5`) and putting their formula books back. `m5-shots` saves the
+Formulas tab as the GM (showing Player One's alchemist) and as Player One, and the Queue with a handed-over item and a
+service, at 1440x900 and 1024x768 in both schemes. A world launched before `module.json` named
 `styles/workshop.css` serves pages without it; the driver then adds it to each page and says so in `results.json`
 (`styleAdded`).
 

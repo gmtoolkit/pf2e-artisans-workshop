@@ -59,21 +59,30 @@ const refuse = (reason, data = {}) => ({ ok: false, reason, data });
  * @param {{by: string, at: object}} stamp
  */
 export function makeOrder({ id, party = null, requester, recipient, product, quantity, crafter = null, note = "", visibility = "public",
-    craftType = "item", skill = "crafting", specialty = null }, stamp) {
+    craftType = "item", skill = "crafting", specialty = null, productType = "item", route = null, target = null, variant = {} }, stamp) {
     requireInteger(quantity, "quantity");
     if (quantity < 1) throw new RangeError("an order makes at least one item");
     if (!product?.uuid) throw new TypeError("an order needs its product's UUID");
     if (recipient?.kind !== "actor" && recipient?.kind !== "strongbox") throw new TypeError("an order needs a recipient");
+    if (!CRAFT_TYPES.includes(craftType)) throw new RangeError(`unknown craft type ${craftType}`);
+    if (productType !== "item" && productType !== "formula") throw new RangeError(`unknown product type ${productType}`);
+    if (productType === "formula" && (recipient.kind !== "actor" || quantity !== 1)) throw new RangeError("a formula goes into one actor's book");
+    if (TARGETED.includes(craftType) && !target) throw new TypeError(`a ${craftType} order names the item it works on`);
     return {
         id, v: ORDER_VERSION, party, requester, recipient: { kind: recipient.kind, uuid: recipient.uuid ?? null },
-        product: { type: "item", uuid: product.uuid, family: product.family ?? null, snapshot: { ...product.snapshot } },
-        craftType, attempt: 0, quantity, target: null, crafter, skill, route: null, specialty,
-        priceCp: null, upfrontCp: null, dc: null, setup: null, variant: {}, events: {}, check: null, helpers: {}, pledges: {},
-        checklist: {}, materials: {}, status: crafter ? "accepted" : "requested", resumeTo: null, priority: 0,
+        product: { type: productType, uuid: product.uuid, family: product.family ?? null, snapshot: { ...product.snapshot } },
+        craftType, attempt: 0, quantity, target, crafter, skill, route, specialty,
+        priceCp: null, upfrontCp: null, dc: null, setup: null, variant: { ...variant }, events: {}, check: null, helpers: {}, pledges: {},
+        checklist: {}, materials: {}, custody: {}, status: crafter ? "accepted" : "requested", resumeTo: null, priority: 0,
         notes: note ?? "", visibility, dependsOn: [], log: {}, settlement: null, conflict: null,
         created: stamp.at, ...stamp,
     };
 }
+
+/** Craft types the order machine runs in M5 (4.2.1); the variant ones (6.16) arrive with M9a. */
+export const CRAFT_TYPES = Object.freeze(["item", "upgrade", "rune-etch", "rune-transfer", "spell-item"]);
+/** Craft types that work on an item the crafter must hold for the whole job (G10, GM Core p.225). */
+export const TARGETED = Object.freeze(["upgrade", "rune-etch", "rune-transfer"]);
 
 /** Accept a requested order as its crafter (4.2.3). */
 export function acceptOrder(order, crafter) {

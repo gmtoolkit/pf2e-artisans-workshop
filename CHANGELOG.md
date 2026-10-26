@@ -52,6 +52,18 @@ All notable changes to this module are documented here. The format follows
   the same order at the same moment (a cancel and a finish, two offers to craft), only the first goes through, and the
   purge's refunds never pay a contributor whose refund is still waiting a second time. Typing and keyboard focus survive
   the window's live updates, and a detached window keeps its forms and dialogs with it.
+- Formulas (milestone M5). A Formulas tab shows a character's formula book grouped by family, with how each formula
+  was learned and the other grades each family covers, the formulas its feats and features give it without a book, the
+  formula picks they still owe by level, and the party's families. A formula can be bought, copied from an NPC, scanned,
+  taken for an owed pick, or asked of an ally (who performs the copy), at once; or invented, reverse-engineered (keeping
+  the item) or crafted as a copy for another member's book, as orders on the Queue. The learner's own client writes the
+  formula into the book, with no GM needed. Scrolls, wands, staves and spellhearts take casting pledges from party
+  casters (or a bought casting) before they can start, and a finished scroll or wand carries the pledged spell. Precious
+  material stock (all of a stack or part of it) can be handed over toward the up-front materials before an attempt
+  starts. Runes can be etched onto items they fit, at the rune's Price (or the difference to the rune they upgrade), and
+  transferred between items, and items upgraded to a stronger grade at the Price difference, with the item handed over
+  to the strongbox when the crafter does not hold it and returned with the change. Repair, affixing and removing talismans, Identify
+  Alchemy and formula copies are service orders any member can ask for and perform.
 
 ### Fixed
 

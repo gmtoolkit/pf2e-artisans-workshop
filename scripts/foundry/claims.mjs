@@ -66,6 +66,7 @@ function deliveredSource(item, rowId) {
     const source = item.toObject();
     delete source._id;
     delete source.flags[MODULE_ID].shelf;
+    delete source.flags[MODULE_ID].earmark;   // an item handed over for an order and given back (M5, custody.mjs)
     source.flags[MODULE_ID].delivered = { row: rowId };
     if (source.system?.containerId) source.system.containerId = null;   // a strongbox container is not the recipient's
     return source;

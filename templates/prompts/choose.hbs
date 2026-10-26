@@ -1,0 +1,23 @@
+<div class="pf2e-artisans-workshop-choose standard-form">
+    {{#if options}}
+    <div class="form-group">
+        <label for="pf2e-artisans-workshop-choose-value">{{localize label}}</label>
+        <select name="value" id="pf2e-artisans-workshop-choose-value">
+            {{#each options}}<option value="{{value}}">{{name}}</option>{{/each}}
+        </select>
+    </div>
+    {{/if}}
+    {{#if text}}
+    <div class="form-group">
+        <label for="pf2e-artisans-workshop-choose-text">{{localize text.label}}</label>
+        <input type="text" name="text" id="pf2e-artisans-workshop-choose-text" autofocus>
+    </div>
+    {{/if}}
+    {{#if number}}
+    <div class="form-group">
+        <label for="pf2e-artisans-workshop-choose-number">{{localize number.label}}</label>
+        <input type="number" name="number" id="pf2e-artisans-workshop-choose-number" min="{{number.min}}" step="1" value="{{number.value}}">
+    </div>
+    {{/if}}
+    {{#if hint}}<p class="hint">{{localize hint}}</p>{{/if}}
+</div>

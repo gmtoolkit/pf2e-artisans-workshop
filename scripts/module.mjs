@@ -1,5 +1,6 @@
 import { MODULE_ID } from "./constants.mjs";
 import { publishApi } from "./foundry/api.mjs";
+import { registerFormulaClaims } from "./foundry/formulas.mjs";
 import { registerOrderHooks } from "./foundry/orders.mjs";
 import { initSync, readySync } from "./foundry/sync.mjs";
 import { registerChatHooks } from "./ui/chat.mjs";
@@ -43,6 +44,8 @@ Hooks.once("init", () => {
     // The order lifecycle's one hook-driven write (the settlement repair, 6.12), and the Workshop window, its chat cards,
     // notifications and where it opens from (DESIGN.md 10, M4).
     registerOrderHooks();
+    // M5: the formula claim's applier (5.5), so the claims sweep writes formulas into the learner's book.
+    registerFormulaClaims();
     registerChatHooks();
     registerNotifications();
     registerWindowHooks();

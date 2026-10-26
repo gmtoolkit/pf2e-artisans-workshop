@@ -19,3 +19,15 @@ export const PRECIOUS_MATERIALS_PER_ITEM = 1;
 
 /** Least Crafting rank to craft any item with a precious material (expert). GM Core p.253. */
 export const PRECIOUS_MIN_RANK = 2;
+
+/**
+ * Precious materials that are common (GM Core p.253): coin may stand in for their share of the up-front materials
+ * while `rules.preciousCoinForCommon` is on; every other material needs stock items (Player Core p.237).
+ */
+export const COMMON_PRECIOUS_MATERIALS = Object.freeze(["cold-iron", "silver"]);
+
+/**
+ * The words pf2e's slugs end with for precious material stock (an adamantine chunk, a duskwood branch, a djezet alloy
+ * ingot): the material is the slug before them. Longest first.
+ */
+export const STOCK_SUFFIXES = Object.freeze(["-alloy-ingot", "-ingot", "-chunk", "-lumber", "-branch"]);

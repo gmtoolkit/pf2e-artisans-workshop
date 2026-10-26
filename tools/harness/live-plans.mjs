@@ -1889,3 +1889,431 @@ Object.assign(BEHAVIOURS, {
     "m4-shots": m4Shots,
     "m4-ui": m4Ui,
 });
+
+/* -------------------------------------------- */
+/*  M5: formulas, jobs, runes, materials,        */
+/*  pledges and services                         */
+/* -------------------------------------------- */
+
+/** Compendium items the M5 plans use (pf2e `packs/pf2e/equipment/`). */
+const M5 = Object.freeze({
+    elixirLesser: "Compendium.pf2e.equipment-srd.Item.TZUskLT7yvP7N2co",
+    striking: "Compendium.pf2e.equipment-srd.Item.DxCuJKynlnMQZHgp",
+    longsword: "Compendium.pf2e.equipment-srd.Item.LJdbVTOZog39EEbi",
+    steelShield: "Compendium.pf2e.equipment-srd.Item.Yr9yCuJiAlFh3QEB",
+    leatherArmor: "Compendium.pf2e.equipment-srd.Item.4tIVTg9wj56RrveA",
+    wolfFang: "Compendium.pf2e.equipment-srd.Item.clyXfh0aVXgij2Hb",
+    jadeCat: "Compendium.pf2e.equipment-srd.Item.2MgFoNXTccL8Own9",
+    repairToolkit: "Compendium.pf2e.equipment-srd.Item.vLGDUFrg4yGzpTQX",
+    coldIronIngot: "Compendium.pf2e.equipment-srd.Item.eQjibJl41aQpQ47d",
+    sparkblade: "Compendium.pf2e.equipment-srd.Item.5BU4hJ1oXMLtSkuA",
+    scroll1: "Compendium.pf2e.equipment-srd.Item.RjuupS9xyXDLgyIr",
+    runestone: "Compendium.pf2e.equipment-srd.Item.ev3F9qlMNlNdCOAI",
+});
+
+/** In the page: the Workshop's chat cards of a kind, and every message, counted. */
+function pageCards({ mod, kind }) {
+    return { cards: game.messages.filter((m) => m.flags?.[mod]?.card?.kind === kind).length, messages: game.messages.size };
+}
+
+/** Every M5 plan starts here: the world reset, the M5 items taken back and the books restored, a lab in the strongbox. */
+async function m5Reset(h, w, { lab = true } = {}) {
+    await resetWorld(h, w);
+    await h.step("gm", "m5", "reset", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid] });
+    if (lab) await h.evaluate("gm", pageStoreItem, { mod: MOD, uuid: LAB }, "an alchemist's lab in the strongbox");
+}
+
+/** A formula's provenance route in a `book` result, or null. */
+const routeIn = (book, uuid) => book.provenance?.find((p) => p.uuid === uuid)?.route ?? null;
+
+/**
+ * Buying a formula (6.8): Player Two buys Antidote (Lesser): one purchase row from the purse, the formula claim applied at
+ * once by Player Two's own client, the book written, provenance `bought`, the "Formula learned" card; a second buy is
+ * refused as known.
+ */
+async function m5Buy(h, w) {
+    await m5Reset(h, w);
+    await h.only(["gm", "p2"]);
+    await h.settle("ready");
+    const bought = await h.step("p2", "m5", "acquire", { uuid: ANTIDOTE, route: "buy" });
+    h.check("the purchase lands: 1 gp from Player Two's purse", bought.result?.ok === true && bought.paid === 100, bought);
+    h.check("the formula is in the book with provenance bought", bought.book.includes(ANTIDOTE) && routeIn(bought, ANTIDOTE) === "bought", bought);
+    const again = await h.step("p2", "m5", "acquire", { uuid: ANTIDOTE, route: "buy" });
+    h.check("a second buy is refused: known", again.result?.reason === "known", again.result);
+    const seen = await h.step("gm", "m5", "book", { actor: w.pcs.p2.uuid, ms: 1500 });
+    h.check("the GM sees the same book, one claim resolved and applied", seen.book.includes(ANTIDOTE) && seen.claims.length === 1 && seen.claims[0].applied, seen);
+    const cards = await h.evaluate("p2", pageCards, { mod: MOD, kind: "formula" }, "formula cards");
+    h.check("a Formula learned card was posted once", cards.cards === 1, cards);
+    const view = await serverView(h, "gm", w);
+    h.check("server: one applied purchase row", view.rows.filter((r) => r.kind === "purchase" && r.state === "applied").length === 1, view.rows);
+    checkReconciles(h, view);
+    await checkStatuses(h);
+    return { bought, seen, cards };
+}
+
+/**
+ * Copying from an ally with no GM (6.8, 5.5): Player One buys Alchemist's Fire (Lesser); Player Two asks Player One for it;
+ * Player One performs the formula-copy service, which files a formula claim; Player Two's own client writes it. Then the
+ * same with Player Two offline when Player One performs it: the claim waits and is applied at Player Two's login.
+ */
+async function m5AllyCopy(h, w) {
+    await m5Reset(h, w);
+    await h.only(["p1", "p2"]);
+    await h.settle("ready");
+    await h.step("p1", "m5", "acquire", { uuid: ALCHEMISTS_FIRE, route: "buy" });
+    const asked = await h.step("p2", "m5", "service", { kind: "formula-copy", performer: w.pcs.p1.uuid, uuid: ALCHEMISTS_FIRE });
+    h.check("Player Two asks Player One for the formula", asked.ok === true && !!asked.service, asked);
+    const performed = await h.step("p1", "m5", "perform", { service: asked.service });
+    h.check("Player One performs it: a claim for Player Two, not written by Player One's client", performed.result?.outcome === "claimed" &&
+        performed.service?.status === "done", performed);
+    const learned = await h.step("p2", "m5", "waitFormula", { uuid: ALCHEMISTS_FIRE });
+    h.check("Player Two's client writes the formula, provenance copied-ally from Player One", learned.ok && learned.provenance?.route === "copied-ally" &&
+        learned.provenance?.source === w.pcs.p1.uuid, learned);
+    await h.step("p1", "m5", "acquire", { uuid: ANTIDOTE, route: "buy" });
+    const second = await h.step("p2", "m5", "service", { kind: "formula-copy", performer: w.pcs.p1.uuid, uuid: ANTIDOTE });
+    await h.only(["p1"]);
+    const offline = await h.step("p1", "m5", "perform", { service: second.service });
+    const waiting = await h.step("p1", "m5", "book", { actor: w.pcs.p2.uuid, ms: 2000 });
+    h.check("with Player Two away and no GM, the claim waits unapplied", offline.result?.outcome === "claimed" && !waiting.book.includes(ANTIDOTE) &&
+        waiting.claims.some((c) => c.route === "copied-ally" && !c.resolved), waiting);
+    await h.only(["p1", "p2"]);
+    await h.settle("ready");
+    const back = await h.step("p2", "m5", "waitFormula", { uuid: ANTIDOTE });
+    h.check("Player Two's login sweep applies it", back.ok === true, back);
+    const once = await h.step("p1", "m5", "book", { actor: w.pcs.p2.uuid, ms: 2000 });
+    h.check("each formula claim applied once", once.claims.filter((c) => c.applied).length === 2 && once.book.filter((u) => u === ANTIDOTE).length === 1, once);
+    await checkStatuses(h);
+    return { performed, learned, offline, back };
+}
+
+/** An owed pick (6.8): Player One's alchemist takes a formula for the first Formula Book pick; the pick count drops by one. */
+async function m5Pick(h, w) {
+    await m5Reset(h, w);
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    const before = await h.step("p1", "m5", "owed", { key: "formula-book" });
+    h.check("the alchemist is owed Formula Book picks, and a catalogue item fits the first", before.owed > 0 && !!before.pick && !!before.fit, before);
+    const taken = await h.step("p1", "m5", "acquire", { uuid: before.fit.uuid, route: "grant", source: before.pick.key, pickLevel: before.pick.level });
+    h.check("the pick is taken: provenance granted, nothing paid", taken.result?.ok === true && routeIn(taken, before.fit.uuid) === "granted" && taken.paid === 0, taken);
+    const after = await h.step("p1", "m5", "owed", { key: "formula-book" });
+    h.check("one pick fewer is owed", after.owed === before.owed - 1, { before: before.owed, after: after.owed });
+    await checkStatuses(h);
+    return { before, taken, after };
+}
+
+/**
+ * The Craft-like formula jobs on the order machine (6.8): Player Two invents Healing Potion (Minor) (Inventor, Magical
+ * Crafting; its 1 gp formula, 50 cp up front); Player One reverse-engineers an Elixir of Life (Lesser) the GM gave them
+ * (its 8 gp formula, 4 gp up front) and keeps it; Player One crafts a copy of Antidote (Lesser) into Player Two's book,
+ * which Player Two's client writes. A check that fails leaves the job failed, which the plan accepts.
+ */
+async function m5Jobs(h, w) {
+    await m5Reset(h, w);
+    const elixir = await h.step("gm", "m5", "give", { actor: w.pcs.p1.uuid, uuid: M5.elixirLesser });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const invent = await h.step("p2", "m5", "request", { uuid: HEALING_POTION, productType: "formula", route: "invent", crafter: w.pcs.p2.uuid });
+    h.check("Player Two files an invent job for themself", invent.ok === true && invent.brief?.productType === "formula" && invent.brief?.status === "accepted", invent);
+    const invented = await h.step("p2", "m5", "run", { order: invent.order, pledge: 50 });
+    const inventOk = invented.order?.status === "complete" && invented.order.setup?.days === 2;
+    h.check("invented: half the formula's Price up front, 2 setup days, complete", inventOk || invented.order?.status === "failed", invented);
+    if (inventOk) {
+        const book = await h.step("p2", "m5", "book", {});
+        h.check("the formula is in Player Two's book, invented", routeIn(book, HEALING_POTION) === "invented", book);
+    }
+    const reverse = await h.step("p1", "m5", "request", { uuid: M5.elixirLesser, productType: "formula", route: "reverse-engineer", crafter: w.pcs.p1.uuid });
+    const reversed = await h.step("p1", "m5", "run", { order: reverse.order, pledge: 400 });
+    const reverseOk = reversed.order?.status === "complete";
+    h.check("reverse-engineered at the item's DC; the job completes (or fails its check)", reverseOk || reversed.order?.status === "failed", reversed);
+    if (reverseOk) {
+        const mine = await h.step("p1", "m5", "state", { names: [elixir.name] });
+        const book = await h.step("p1", "m5", "book", {});
+        h.check("the item is kept and the formula is in the book (Player Core p.294)", mine.mine.length === 1 && routeIn(book, M5.elixirLesser) === "reverse-engineered",
+            { mine, book });
+    }
+    await h.step("p1", "m5", "acquire", { uuid: ANTIDOTE, route: "buy" });
+    const copy = await h.step("p1", "m5", "request", { uuid: ANTIDOTE, productType: "formula", route: "craft-copy", crafter: w.pcs.p1.uuid, recipient: w.pcs.p2.uuid });
+    const copied = await h.step("p1", "m5", "run", { order: copy.order, pledge: 50 });
+    if (copied.order?.status === "complete") {
+        const theirs = await h.step("p2", "m5", "waitFormula", { uuid: ANTIDOTE });
+        h.check("the copy goes into Player Two's book, written by Player Two's client", theirs.ok && theirs.provenance?.route === "copied-ally", theirs);
+    } else {
+        h.check("crafting a copy completes or fails its check", copied.order?.status === "failed", copied);
+    }
+    checkReconciles(h, await serverView(h, "gm", w));
+    await checkStatuses(h);
+    return { invented, reversed, copied };
+}
+
+/**
+ * A rune etched with custody (6.13, G10): the GM gives Player One a +1 longsword; Player One asks for Striking on it; Player
+ * Two's gates show the sword not held; Player One hands it over; Player Two crafts it at the Price difference (65 gp) and
+ * the rune's DC (19); the sword goes back to Player One on the shelf with the rune, and Player One's client collects it.
+ */
+async function m5Etch(h, w) {
+    await m5Reset(h, w);
+    const sword = await h.step("gm", "m5", "give", { actor: w.pcs.p1.uuid, uuid: M5.longsword, system: { runes: { potency: 1, striking: 0, property: [] } } });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const filed = await h.step("p1", "m5", "request", { uuid: M5.striking, craftType: "rune-etch", target: sword.uuid });
+    h.check("Player One files an etching for their sword", filed.ok === true && filed.brief?.craftType === "rune-etch", filed);
+    await h.step("p2", "m4", "accept", { order: filed.order });
+    const blocked = await h.step("p2", "m5", "gates", { order: filed.order });
+    h.check("the sword is not in custody yet (G10), the Price is 65 gp at DC 19", blocked.failing.some(([id, reason]) => id === "G10" && reason === "target-not-held") &&
+        blocked.plan.priceCp === 6500 && blocked.plan.dc === 19, blocked);
+    const handed = await h.step("p1", "m5", "handOver", { order: filed.order, item: sword.uuid, purpose: "target" });
+    h.check("Player One hands the sword over to the strongbox", handed.ok === true, handed);
+    const crafted = await h.step("p2", "m5", "run", { order: filed.order, pledge: 3250 });
+    if (crafted.order?.status !== "complete") {
+        h.check("the etching completes or fails its check", crafted.order?.status === "failed", crafted);
+        return { crafted };
+    }
+    const shelf = await h.step("gm", "m5", "state", { ms: 500 });
+    await h.step("p1", "m5", "sweep", {});
+    const mine = await h.step("p1", "m5", "state", { names: ["Longsword"], ms: 2000 });
+    h.check("the sword comes back to Player One with a striking rune and no earmark", mine.mine.some((i) => i.runes?.striking === 1) &&
+        !mine.strongbox.some((i) => i.name === "Longsword"), { shelf, mine });
+    checkReconciles(h, await serverView(h, "gm", w));
+    await checkStatuses(h);
+    return { blocked, handed, crafted, mine };
+}
+
+/**
+ * Upgrades and transfers (6.13): Player One upgrades an Elixir of Life (Minor) to (Lesser) at the Price difference; Player
+ * Two moves a striking rune from one longsword to another for 10% of its Price in one setup day. A transfer from the
+ * Striking item itself (pf2e's rune on a runestone) is free; one from a blank runestone is refused (`not-there`).
+ */
+async function m5UpgradeTransfer(h, w) {
+    await m5Reset(h, w);
+    const minor = await h.step("gm", "m5", "give", { actor: w.pcs.p1.uuid, uuid: ELIXIR });
+    const from = await h.step("gm", "m5", "give", { actor: w.pcs.p2.uuid, uuid: M5.longsword, system: { runes: { potency: 1, striking: 1, property: [] } } });
+    const to = await h.step("gm", "m5", "give", { actor: w.pcs.p2.uuid, uuid: M5.longsword, system: { runes: { potency: 1, striking: 0, property: [] } } });
+    const blankStone = await h.step("gm", "m5", "give", { actor: w.pcs.p2.uuid, uuid: M5.runestone });
+    const runeItem = await h.step("gm", "m5", "give", { actor: w.pcs.p2.uuid, uuid: M5.striking });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const upgrade = await h.step("p1", "m5", "request", { uuid: M5.elixirLesser, craftType: "upgrade", target: minor.uuid, crafter: w.pcs.p1.uuid });
+    const upGates = await h.step("p1", "m5", "gates", { order: upgrade.order });
+    h.check("the upgrade costs the Price difference (30 gp - 3 gp)", upGates.plan.priceCp === 2700, upGates);
+    const upgraded = await h.step("p1", "m5", "run", { order: upgrade.order, pledge: 1350 });
+    if (upgraded.order?.status === "complete") {
+        const mine = await h.step("p1", "m5", "state", { names: ["Elixir of Life (Minor)", "Elixir of Life (Lesser)"] });
+        h.check("the minor elixir became a lesser one", mine.mine.some((i) => i.name === "Elixir of Life (Lesser)") && !mine.mine.some((i) => i.uuid === minor.uuid), mine);
+    }
+    const transfer = await h.step("p2", "m5", "request", { uuid: M5.striking, craftType: "rune-transfer", target: to.uuid, crafter: w.pcs.p2.uuid,
+        variant: { transfer: { source: from.uuid } } });
+    const moved = await h.step("p2", "m5", "run", { order: transfer.order, pledge: 325 });
+    h.check("the transfer costs 10% of the rune (650 cp) with one setup day", moved.order?.priceCp === 650 && moved.order?.setup?.days === 1, moved.order);
+    if (moved.order?.status === "complete") {
+        const swords = await h.step("p2", "m5", "state", { names: ["Longsword"] });
+        const runes = swords.mine.map((i) => i.runes?.striking).sort();
+        h.check("the striking rune moved from one sword to the other", JSON.stringify(runes) === JSON.stringify([0, 1]) &&
+            swords.mine.find((i) => i.uuid === to.uuid)?.runes?.striking === 1, swords);
+    }
+    const blank = await h.step("p2", "m5", "request", { uuid: M5.striking, craftType: "rune-transfer", target: from.uuid, crafter: w.pcs.p2.uuid,
+        variant: { transfer: { source: blankStone.uuid } } });
+    const blankGates = await h.step("p2", "m5", "gates", { order: blank.order });
+    h.check("a blank runestone holds no rune: the transfer is refused (not-there)", blankGates.failing.some(([id, reason]) => id === "G12" && reason === "not-there"),
+        blankGates);
+    const fromItem = await h.step("p2", "m5", "request", { uuid: M5.striking, craftType: "rune-transfer", target: from.uuid, crafter: w.pcs.p2.uuid,
+        variant: { transfer: { source: runeItem.uuid } } });
+    const itemGates = await h.step("p2", "m5", "gates", { order: fromItem.order });
+    h.check("a transfer from the Striking item itself is free", itemGates.plan.ok && itemGates.plan.priceCp === 0, itemGates);
+    checkReconciles(h, await serverView(h, "gm", w));
+    await checkStatuses(h);
+    return { upgraded, moved };
+}
+
+/**
+ * Precious material stock (6.6): with coin no longer standing in for common materials, Player Two's sparkblade (low-grade
+ * cold iron) is blocked on G8 until Player Two hands over a cold iron ingot; the ingot counts at its Price, the coins
+ * commit nothing, and the finish uses it up.
+ */
+async function m5Precious(h, w) {
+    await m5Reset(h, w);
+    await h.step("gm", "m5", "setting", { key: "rules.preciousCoinForCommon", value: false });
+    const ingot = await h.step("gm", "m5", "give", { actor: w.pcs.p2.uuid, uuid: M5.coldIronIngot });
+    await h.only(["gm", "p2"]);
+    await h.settle("ready");
+    try {
+        const filed = await h.step("p2", "m5", "request", { uuid: M5.sparkblade, crafter: w.pcs.p2.uuid });
+        await h.step("p2", "m4", "pledge", { order: filed.order, cp: 3500 });
+        const blocked = await h.step("p2", "m5", "gates", { order: filed.order });
+        h.check("blocked on the material's share (G8 precious)", blocked.failing.some(([id, reason]) => id === "G8" && reason === "precious"), blocked);
+        const handed = await h.step("p2", "m5", "handOver", { order: filed.order, item: ingot.uuid, purpose: "material" });
+        const open = await h.step("p2", "m5", "gates", { order: filed.order });
+        h.check("the ingot opens G8", handed.ok === true && !open.failing.some(([id]) => id === "G8"), { handed, open });
+        const crafted = await h.step("p2", "m5", "run", { order: filed.order });
+        h.check("the coins commit nothing: the stock covers the up-front half", !crafted.order.rows.some((r) => r.kind === "commit"), crafted.order.rows);
+        if (crafted.order?.status === "complete") {
+            h.check("the finish uses the stock up", crafted.order.materials.every((m) => m.used) && crafted.order.rows.some((r) => r.kind === "material-out"), crafted.order);
+        }
+        checkReconciles(h, await serverView(h, "gm", w));
+        return { blocked, open, crafted };
+    } finally {
+        await h.step("gm", "m5", "setting", { key: "rules.preciousCoinForCommon", value: true });
+    }
+}
+
+/**
+ * Casting pledges (6.9): Player Two asks for two 1st-rank scrolls; G9 blocks until a caster's pledge is cast; the GM pledges
+ * Force Barrage from the wizard fixture and marks it cast; Player Two crafts the scrolls, which carry the spell; a second
+ * scroll's casting is bought at the service price.
+ */
+async function m5Scroll(h, w) {
+    await m5Reset(h, w);
+    const wizardId = w.fixtures.find(([, fixture]) => fixture === "wizard-9")?.[0];
+    const wizard = wizardId ? `Actor.${wizardId}` : null;
+    h.check("the wizard fixture is built", !!wizard, w.fixtures);
+    if (!wizard) return {};
+    const spell = await h.step("gm", "m5", "spell", { actor: wizard, name: "Force Barrage" });
+    await h.only(["gm", "p2"]);
+    await h.settle("ready");
+    const filed = await h.step("p2", "m5", "request", { uuid: M5.scroll1, quantity: 2, crafter: w.pcs.p2.uuid });
+    h.check("a scroll order is a spell item", filed.brief?.craftType === "spell-item", filed.brief);
+    await h.step("p2", "m4", "pledge", { order: filed.order, cp: 400 });
+    const blocked = await h.step("p2", "m5", "gates", { order: filed.order });
+    h.check("G9 waits for the castings", blocked.failing.some(([id, reason]) => id === "G9" && reason === "spells"), blocked);
+    const pledged = await h.step("gm", "m5", "pledge", { order: filed.order, caster: wizard, spell: spell.uuid, castings: 2 });
+    const cast = await h.step("gm", "m5", "fulfil", { order: filed.order, caster: wizard });
+    h.check("the GM pledges two castings from the wizard and marks them cast", pledged.ok === true && cast.order.pledges.every((p) => p.status === "fulfilled"), { pledged, cast });
+    const crafted = await h.step("p2", "m5", "run", { order: filed.order });
+    if (crafted.order?.status === "complete") {
+        await h.step("p2", "m5", "sweep", {});
+        const mine = await h.step("p2", "m5", "state", { ms: 2000 });
+        h.check("Player Two holds the scrolls of Force Barrage", mine.mine.some((i) => /Force Barrage/.test(i.name)), mine.mine.map((i) => i.name));
+    }
+    const second = await h.step("p2", "m5", "request", { uuid: M5.scroll1, quantity: 1, crafter: w.pcs.p2.uuid });
+    const bought = await h.step("p2", "m5", "buyCasting", { order: second.order, name: "Force Barrage", castings: 1 });
+    h.check("a casting bought at the service price (3 gp)", bought.ok === true, bought);
+    const after = await h.step("p2", "m5", "gates", { order: second.order });
+    h.check("the bought casting satisfies G9", !after.failing.some(([id]) => id === "G9"), after);
+    checkReconciles(h, await serverView(h, "gm", w));
+    await checkStatuses(h);
+    return { crafted, bought };
+}
+
+/**
+ * Services (4.5, 6.13) with no GM online for the work: Player One's damaged shield, handed over, is repaired by Player Two
+ * (who carries a repair toolkit) and comes back with its Hit Points; Player One affixes a talisman to armor, is refused a
+ * second on the same host, and takes the first off; Player One identifies alchemy through pf2e's own action.
+ */
+async function m5Services(h, w) {
+    await m5Reset(h, w);
+    const shield = await h.step("gm", "m5", "give", { actor: w.pcs.p1.uuid, uuid: M5.steelShield, system: { hp: { value: 5 } } });
+    await h.step("gm", "m5", "give", { actor: w.pcs.p2.uuid, uuid: M5.repairToolkit, equip: true, hands: 2 });
+    await h.step("gm", "m5", "give", { actor: w.pcs.p1.uuid, uuid: M5.repairToolkit, equip: true, hands: 2 });
+    const fang = await h.step("gm", "m5", "give", { actor: w.pcs.p1.uuid, uuid: M5.wolfFang });
+    const cat = await h.step("gm", "m5", "give", { actor: w.pcs.p1.uuid, uuid: M5.jadeCat });
+    const armor = await h.step("gm", "m5", "give", { actor: w.pcs.p1.uuid, uuid: M5.leatherArmor });
+    await h.only(["p1", "p2"]);
+    await h.settle("ready");
+    const repair = await h.step("p1", "m5", "service", { kind: "repair", performer: w.pcs.p2.uuid, target: shield.uuid });
+    const handed = await h.step("p1", "m5", "handOver", { service: repair.service, item: shield.uuid, purpose: "service" });
+    h.check("Player One hands the shield over for the repair", handed.ok === true, handed);
+    const done = await h.step("p2", "m5", "perform", { service: repair.service });
+    h.check("Player Two repairs it: master Crafting restores up to 20 HP (a failure restores nothing)", done.result?.ok === true &&
+        (done.result.degree >= 2 ? done.result.after === 20 : done.result.after <= 20), done);
+    await h.step("p1", "m5", "sweep", {});
+    const back = await h.step("p1", "m5", "state", { names: ["Steel Shield"], ms: 2000 });
+    h.check("the shield is back with Player One", back.mine.length === 1 && !back.strongbox.some((i) => i.name === "Steel Shield"), back);
+    const affix = await h.step("p1", "m5", "service", { kind: "affix", performer: w.pcs.p1.uuid, target: fang.uuid, host: armor.uuid });
+    const affixed = await h.step("p1", "m5", "perform", { service: affix.service });
+    const second = await h.step("p1", "m5", "service", { kind: "affix", performer: w.pcs.p1.uuid, target: cat.uuid, host: armor.uuid });
+    const refused = await h.step("p1", "m5", "perform", { service: second.service });
+    const flags = await h.step("p1", "m5", "state", { names: ["Wolf Fang", "Jade Cat"] });
+    h.check("one talisman per host: the second is refused (host-taken)", affixed.result?.ok === true && refused.result?.reason === "host-taken" &&
+        flags.mine.find((i) => i.name === "Wolf Fang")?.affix?.host, { affixed, refused, flags });
+    const off = await h.step("p1", "m5", "service", { kind: "unaffix", performer: w.pcs.p1.uuid, target: fang.uuid });
+    await h.step("p1", "m5", "perform", { service: off.service });
+    const cleared = await h.step("p1", "m5", "state", { names: ["Wolf Fang"] });
+    h.check("taking it off clears the affix record", !cleared.mine[0]?.affix, cleared);
+    const before = await h.evaluate("p1", pageCards, { mod: MOD, kind: "none" }, "messages");
+    const identify = await h.step("p1", "m5", "service", { kind: "identify-alchemy", performer: w.pcs.p1.uuid });
+    const identified = await h.step("p1", "m5", "perform", { service: identify.service });
+    const after = await h.evaluate("p1", pageCards, { mod: MOD, kind: "none" }, "messages");
+    h.check("Identify Alchemy runs pf2e's own action and closes the service", identified.service?.status === "done" && after.messages > before.messages, { identified, before, after });
+    await checkStatuses(h);
+    return { done, affixed, refused, identified };
+}
+
+/**
+ * The Formulas tab driven like a user (10.1): Player One opens it, looks up Antidote (Lesser), clicks Buy and sees it in
+ * the book; chooses the first owed pick and takes a fitting formula with its button.
+ */
+async function m5Ui(h, w) {
+    await m5Reset(h, w);
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    const opened = await h.step("p1", "m5", "open", { tab: "formulas", uuid: ANTIDOTE });
+    h.check("the Formulas tab opens with the routes for Antidote (Lesser)", opened.open && opened.tab === "formulas" && opened.routes >= 2, opened);
+    const clicked = await h.step("p1", "m5", "click", { selector: '.learn-routes button[data-op="buy"]', ms: 2500 });
+    const book = await h.step("p1", "m5", "book", {});
+    h.check("clicking Buy learns it", clicked.clicked && book.book.includes(ANTIDOTE), book);
+    const owed = await h.step("p1", "m5", "owed", { key: "formula-book" });
+    if (owed.pick && owed.fit) {
+        await h.step("p1", "m5", "open", { tab: "formulas", uuid: owed.fit.uuid, pick: { key: owed.pick.key, level: owed.pick.level } });
+        const take = await h.step("p1", "m5", "click", { selector: 'button[data-op="grant"]', ms: 2500 });
+        const after = await h.step("p1", "m5", "owed", { key: "formula-book" });
+        h.check("'Take as this pick' takes the pick", take.clicked && after.owed === owed.owed - 1, { owed: owed.owed, after: after.owed });
+    }
+    const errors = h.console.filter((c) => c.client === "p1" && c.type === "pageerror");
+    h.check("no page errors on Player One's client", errors.length === 0, errors);
+    await h.step("p1", "m5", "close", {});
+    return { opened, book };
+}
+
+/**
+ * Screenshots of the Formulas tab (10.1, 10.8, 10.9) as the GM (showing Player One's alchemist) and as Player One, at
+ * 1440x900 and 1024x768, dark and light: the book by family with its badges, the picks owed and the routes for a formula;
+ * and the Queue with an etching's custody and an open repair service, with its detail open.
+ */
+async function m5Shots(h, w) {
+    await m5Reset(h, w);
+    const sword = await h.step("gm", "m5", "give", { actor: w.pcs.p1.uuid, uuid: M5.longsword, system: { runes: { potency: 1, striking: 0, property: [] } } });
+    const shield = await h.step("gm", "m5", "give", { actor: w.pcs.p1.uuid, uuid: M5.steelShield, system: { hp: { value: 5 } } });
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    await h.step("p1", "m5", "acquire", { uuid: ANTIDOTE, route: "buy" });
+    await h.step("p1", "m5", "acquire", { uuid: ELIXIR, route: "buy" });
+    const etch = await h.step("p1", "m5", "request", { uuid: M5.striking, craftType: "rune-etch", target: sword.uuid });
+    await h.step("p1", "m5", "handOver", { order: etch.order, item: sword.uuid, purpose: "target" });
+    await h.step("p1", "m5", "service", { kind: "repair", target: shield.uuid });
+    const sizes = [{ width: 1440, height: 900 }, { width: 1024, height: 768 }];
+    const opened = [];
+    for (const role of ["gm", "p1"]) {
+        for (const scheme of ["dark", "light"]) {
+            await h.step(role, "m4", "theme", { scheme });
+            for (const size of sizes) {
+                const file = `m5-${role}-formulas-${size.width}x${size.height}-${scheme}.png`;
+                await h.screenshot(role, file, size, async () => {
+                    const open = await h.step(role, "m5", "open", { tab: "formulas", actor: w.pcs.p1.uuid, uuid: M5.elixirLesser });
+                    opened.push({ role, scheme, ...size, ...open });
+                    return open;
+                });
+            }
+            await h.screenshot(role, `m5-${role}-queue-services-1440x900-${scheme}.png`, sizes[0],
+                () => h.step(role, "m5", "open", { tab: "queue", order: etch.order }));
+        }
+        await h.step(role, "m5", "close", {});
+    }
+    h.check("the Formulas tab opened with the module's styles every time", opened.every((o) => o.open && o.hasStyles), opened.filter((o) => !o.open || !o.hasStyles));
+    h.check("the tab showed families and routes", opened.every((o) => o.families >= 1 && o.routes >= 1), opened.map((o) => [o.role, o.families, o.routes]));
+    await h.step("gm", "m4", "theme", { scheme: "dark" });
+    await h.step("p1", "m4", "theme", { scheme: "dark" });
+    return { opened, shots: h.shots.filter((s) => s.label === h.label).map((s) => s.file) };
+}
+
+Object.assign(BEHAVIOURS, {
+    "m5-buy": m5Buy,
+    "m5-ally-copy": m5AllyCopy,
+    "m5-pick": m5Pick,
+    "m5-jobs": m5Jobs,
+    "m5-etch": m5Etch,
+    "m5-upgrade-transfer": m5UpgradeTransfer,
+    "m5-precious": m5Precious,
+    "m5-scroll": m5Scroll,
+    "m5-services": m5Services,
+    "m5-ui": m5Ui,
+    "m5-shots": m5Shots,
+});

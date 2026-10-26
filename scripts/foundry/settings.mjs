@@ -34,6 +34,7 @@ export const RULE_SETTINGS = Object.freeze([
     { key: "rules.snareToolkitIsArtisans", rule: "snareToolkitIsArtisans", name: "pf2e-artisans-workshop.Settings.SnareToolkitIsArtisans.Name", hint: "pf2e-artisans-workshop.Settings.SnareToolkitIsArtisans.Hint" },
     { key: "rules.tattooProcess", rule: "tattooProcess", name: "pf2e-artisans-workshop.Settings.TattooProcess.Name", hint: "pf2e-artisans-workshop.Settings.TattooProcess.Hint",
         choices: { "secrets-of-magic": "pf2e-artisans-workshop.Settings.TattooProcess.SecretsOfMagic", simple: "pf2e-artisans-workshop.Settings.TattooProcess.Simple" } },
+    { key: "rules.talismanHostsExcludeBombs", rule: "talismanHostsExcludeBombs", name: "pf2e-artisans-workshop.Settings.TalismanHostsExcludeBombs.Name", hint: "pf2e-artisans-workshop.Settings.TalismanHostsExcludeBombs.Hint" },
     { key: "rules.earnIncomeOtherSkillDc", rule: "earnIncomeOtherSkillDc", name: "pf2e-artisans-workshop.Settings.EarnIncomeOtherSkillDc.Name", hint: "pf2e-artisans-workshop.Settings.EarnIncomeOtherSkillDc.Hint" },
     { key: "rules.downtimeRerolls", rule: "downtimeRerolls", name: "pf2e-artisans-workshop.Settings.DowntimeRerolls.Name", hint: "pf2e-artisans-workshop.Settings.DowntimeRerolls.Hint",
         choices: { warn: "pf2e-artisans-workshop.Settings.DowntimeRerolls.Warn", block: "pf2e-artisans-workshop.Settings.DowntimeRerolls.Block" } },
@@ -96,6 +97,12 @@ export function registerSettings(handlers) {
         },
     });
     game.settings.register(MODULE_ID, "ui.lastTab", { scope: "user", config: false, type: String, default: "queue" });
+    // M5 (DESIGN.md 14.1): the Formulas tab, formula jobs and services; off hides the tab and the formula routes.
+    game.settings.register(MODULE_ID, "features.formulas", {
+        name: "pf2e-artisans-workshop.Settings.FeaturesFormulas.Name",
+        hint: "pf2e-artisans-workshop.Settings.FeaturesFormulas.Hint",
+        scope: "world", config: true, type: Boolean, default: true,
+    });
     game.settings.register(MODULE_ID, "claims.auto", {
         name: "pf2e-artisans-workshop.Settings.AutoClaim.Name",
         hint: "pf2e-artisans-workshop.Settings.AutoClaim.Hint",

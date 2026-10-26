@@ -21,8 +21,12 @@ const GRADE = /\s*\((?:minor|lesser|moderate|greater|major|supreme|true|type [iv
  */
 export function familyKey(item) {
     if (item.familyOverride) return item.familyOverride;
-    const base = item.name.replace(GRADE, "").replace(/\s+/g, " ").trim().toLowerCase();
-    return `${item.type}|${item.category ?? ""}|${base}`;
+    return `${item.type}|${item.category ?? ""}|${familyBaseName(item.name).toLowerCase()}`;
+}
+
+/** An item name without its grade ("Elixir of Life (Minor)" is "Elixir of Life"), for a family's heading (M5). */
+export function familyBaseName(name) {
+    return name.replace(GRADE, "").replace(/\s+/g, " ").trim();
 }
 
 /**

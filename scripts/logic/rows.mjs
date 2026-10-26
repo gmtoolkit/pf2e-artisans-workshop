@@ -33,6 +33,10 @@ const SIGNS = Object.freeze({
     shelved: [0, 0, 0],
     "material-in": [0, 0, 1],
     "material-out": [0, 0, -1],
+    // M5: an item handed over to the strongbox for an order (a target to etch or upgrade, an item to reverse-engineer)
+    // and given back. Items only: what they are worth is not escrow (`custody-in`/`custody-out`, 0, 0, 0).
+    "custody-in": [0, 0, 0],
+    "custody-out": [0, 0, 0],
 });
 
 /**

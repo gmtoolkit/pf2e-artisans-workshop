@@ -420,6 +420,8 @@ not move other players' items without their client. The toolkit requirement is c
 tool rule as G7 (6.5), except that a toolkit in the strongbox does not count: these are 10-minute
 activities done with the kit in hand, so the performer takes it out first.
 
+As built in M5: service records, custody and the formula-copy service are described in 10.11.
+
 ### 4.6 Ledger rows
 
 Every movement of value is a row. Rows are append-only; corrections are new rows.
@@ -701,6 +703,8 @@ garden produce (6.16.7) gets a `world` stamp ending with the harvest day.
 `looted`, `family` (written on demand, 6.4), `virtual` (written on demand, 7.4), `unrecorded` (already
 in the book when the module was enabled). The system list itself only ever receives plain `{uuid}`
 entries.
+
+As built in M5: provenance records, the formula claim that writes them and the Codex are described in 10.11.
 
 ### 4.14 Schema version and migrations
 
@@ -1768,6 +1772,8 @@ As built in M1 (`scripts/logic/gates.mjs`):
   item is limited by the material's level alone. Coin counts toward the share only for a common material
   with `rules.preciousCoinForCommon` on. Every failed condition is reported, each a code with its numbers.
 
+- **As built in M5:** earmarked stock lines, the coin commit they lower and when they are used up are in 10.11.
+
 ### 6.7 Communal Crafting and Aid
 
 Rules (Player Core p.253): with Communal Crafting, other PCs can help. Each helper rolls a skill they
@@ -1883,6 +1889,9 @@ function helperRate(h, s) {
     Reverse Engineering feat's +2, applied by the roll wrapper) in place of `bonus`, its 1-day setup from the
     registry too.
 
+- **As built in M5:** instant acquisition, formula jobs on the order machine, picks owed and the formula claim are in
+  10.11.
+
 ### 6.9 Casting pledges
 
 - **When.** The product is a scroll, wand or staff, or its parsed Craft Requirements ask for castings
@@ -1902,6 +1911,8 @@ function helperRate(h, s) {
   uncommon, so it is a checklist item). Craft Anything waives the casting but not its added cost.
 - **Making the item.** The finished scroll or wand is built from the pf2e base "Scroll/Wand of
   Nth-rank Spell" item and the pledged spell. pf2e's own builder is not exported (OQ-15).
+
+As built in M5: pledges, the spell-supply gate and the scroll and wand builder are described in 10.11.
 
 ### 6.10 Earn Income jobs
 
@@ -2302,8 +2313,9 @@ Hooks.on("createChatMessage", (message) => {
 ### 6.13 Service rules
 
 - **Repair.** Requires a repair toolkit held or worn by the performer, waived by Improvise Tool (4.5).
-  DC: the item's level DC, no rarity adjustment (GM Core p.53). HP restored: 5 + 5 × rank on
-  a success, 10 + 10 × rank on a critical success; Crafter's Eyepiece raises these to 10 + 10 × rank and
+  DC: the item's level DC, no rarity adjustment (GM Core p.53). Repair is an untrained use of Crafting. HP
+  restored: 5 + 5 × rank on a success, 10 + 10 × rank on a critical success (rank 0 included, as pf2e's own
+  repair action does); Crafter's Eyepiece raises these to 10 + 10 × rank and
   15 + 15 × rank (the system's repair macro ignores it). Critical failure: 2d6 damage minus Hardness.
   Destroyed items cannot be repaired. Quick Repair and Rapid Affixture change time only.
 - **Rune transfer and swap** (GM Core p.225): 1 day, cost 10% of the rune's Price (free from a
@@ -2311,10 +2323,17 @@ Hooks.on("createChatMessage", (message) => {
   fundamental, property for property; an invalid target is an automatic critical failure; property runes
   left without enough potency go dormant.
 - **Etching and upgrades** (GM Core pp.223-225): one rune at a time, the item stays with the crafter;
-  cost is the Price difference, computed by preparing an ephemeral clone with the new runes or material
-  and reading its `price`, `level` and `rarity`. The module never re-implements pf2e's rune price table,
-  which disagrees with the compendium on a few runes.
+  etching costs the rune's Price, and upgrading a rune (a stronger fundamental rune, or a stronger grade of
+  a property rune, which takes the weaker one's slot) the difference between the two runes' Prices, both
+  read from pf2e's rune items in the compendium. Not from the item's prepared Price: pf2e drops a mundane
+  item's own Price once it has runes and prices a specific item's runes at nothing (`computePrice`). An
+  upgrade to a stronger grade of an item costs the two grades' Price difference. A rune goes only on an item
+  its usage allows (melee, thrown, damage types, armor category, metal, holy or unholy), and a low- or
+  standard-grade precious item holds runes only up to level 8 or 15 (GM Core p.253). The module never
+  re-implements pf2e's rune price table, which disagrees with the compendium on a few runes.
 - **Affixing** (7.4) and **Identify Alchemy** (the system action) are as in 4.5.
+
+As built in M5: Repair, affixing, etching, upgrades and transfers with custody are described in 10.11.
 
 ### 6.14 Tattoos
 
@@ -3861,7 +3880,7 @@ min-height: 0`.
 ### 10.10 As built in M4
 
 M4 builds the window shell with the Queue and Funds tabs; Morning, Formulas, Downtime and Settings come with M5-M7 and
-M11 (`scripts/ui/`, `templates/`, `styles/workshop.css`; view models in `scripts/logic/views.mjs`).
+M11 (Formulas: 10.11) (`scripts/ui/`, `templates/`, `styles/workshop.css`; view models in `scripts/logic/views.mjs`).
 
 - **The window** (`WorkshopApp`, `scripts/ui/workshop.mjs`): one ApplicationV2 with `HandlebarsApplicationMixin`, parts
   `header`, `nav`, `queue`, `funds`, `status`; one window per client (`WorkshopApp.instance`). Store changes (the
@@ -4044,6 +4063,220 @@ M11 (`scripts/ui/`, `templates/`, `styles/workshop.css`; view models in `scripts
   - The driver's closing world reset throws, and the run exits non-zero, when a session it did not open is connected
     (an Assistant GM was, at the end of that run, after every plan had passed). Name the stray session in the results
     and leave the exit code to the plans.
+
+### 10.11 As built in M5
+
+M5 builds formulas, formula jobs, casting pledges, precious-material stock, service orders, rune etching, upgrades and
+transfers, and the Formulas tab (pure parts in `scripts/logic/codex.mjs`, `pledges.mjs`, `runes.mjs`, `services.mjs` and
+additions to `formula-jobs.mjs`, `materials.mjs`, `orders.mjs`, `lock-first.mjs`; Foundry parts in
+`scripts/foundry/catalogue.mjs`, `formulas.mjs`, `custody.mjs`, `pledges.mjs`, `services.mjs`, `outputs.mjs` and
+additions to `products.mjs`, `orders.mjs`; the window in `scripts/ui/formulas.mjs`, `extras.mjs`,
+`templates/workshop/formulas.hbs`). Unit and stub tests cover each part; the live plans are written and not yet run.
+
+- **The equipment catalogue** (`catalogue.mjs`): facts about every item of `pf2e.equipment-srd` read once per session
+  from the pack's index (name, image, type, level, rarity, traits, category, slug, usage, book, Price, material), with
+  their item options (`itemOptions`), so families, virtual lists, picks and the searches never load documents.
+- **Provenance** (4.13) is `formulas.<actorId>.<hash of the UUID>` = `{id, v, uuid, route, source, pickLevel, day, row,
+  order, service, by, at}`; a formula in the book without a record reads as `unrecorded`. `family` and `virtual`
+  records are not written yet (M7 writes them when a tier is prepared).
+- **The formula claim** (5.5). Every acquisition files a claim of kind `formula` (`{uuid, route, source, pickLevel,
+  order, service, row}`, keyed `formula:<cause>:<learner UUID>:<formula UUID>`), with whatever paid for it in the same
+  write: a `purchase` row's lock-first move, a finish's move, a service's close. The learner's responsible client applies
+  it (`registerClaimKind`, so the claims sweep and the GM relay apply it too; the acting client applies it at once when
+  it is the responsible one): a request takes the claim's own lock page with `resolved` and the provenance, then the
+  book is appended to as pf2e's crafting tab does (`actor.update({"system.crafting.formulas": [..._source, {uuid}]})`,
+  never the prepared array; a formula already there is not added again), then `applied`, the `formulaAcquired` hook
+  (12.3; payload `{actor, uuid, route, provenance, added}`) and the "Formula learned" card. A claim resolved but not
+  applied, or locked but not resolved, past the grace time is finished by the learner's responsible client at the sweep
+  (`resumeFormulaClaims`, a new sweep step). A claim filed but not applied yet (`pendingFormulas`) counts as known
+  (`knownState`): buying, copying, a pick or a formula job for that book is refused as `pending`, the picks owed count
+  it (`withPending`), and the Formulas tab shows the formula "on its way" with no route; a result applied elsewhere
+  (`claimed`) is told to the user.
+- **Acquiring at once** (`acquire`, `instantPlan`): `buy` (the formula's Price plus the rarity surcharge; an uncommon
+  or rarer one needs "a seller is available" confirmed), `copy-npc`, `scanner` (the learner carries a schematic scanner
+  and an item made from the formula), and `grant` for an owed pick. The cost is a `purchase` row from the payer's purse
+  (a character the user owns). Copying from an ally is a `formula-copy` service: the requester files it naming the
+  ally; the ally's owner performs it once they confirm the ally knows the formula (`rules.allyCopyCostCp`, default 0,
+  is paid at the request as a purchase row when it is more).
+- **Formula jobs** (`productType: "formula"`, `route` one of `invent`, `reverse-engineer`, `craft-copy` given at
+  filing; one per order, for one actor's book): planned by `formulaJobPlan` and gated by `formulaOrderGates`; the roll
+  wrapper adds `action:reverse-engineer` and the registry's modifiers for the route, as in M3. Reverse-engineering needs
+  the item on the crafter (made from the formula's UUID) or handed over for the order (`possession`); the item is kept
+  and goes back to whoever handed it over. The finish writes no item: its move files the formula claim for the
+  recipient (invented, reverse-engineered, or copied-ally for a copy) and pays the remainder; a finish that moves
+  nothing is one write behind the log slot's lock.
+- **Picks owed** (`picksSchedule`, `picksOwed`): every `formulaAllowance` of the held keys from the level each key was
+  gained (`gainedAtOf`: a feat's level taken, a feature's level; 1 when unknown): `gain` at that level, `level` at each
+  later level (only its `levels`, when listed), `rank` at that level for every rank held now. Granted provenance with
+  that key as `source` fills its `pickLevel` entry first, then the earliest; `pickFits` checks the named UUIDs, rarity,
+  level bounds and filter.
+- **The Formulas tab** (10.1): the character (own characters; every member for a GM), the count and badges by
+  provenance (icon and word), the book by family (`familiesOf`: each known grade with its badge, the catalogue's
+  grades the family covers by 6.4's rule), the virtual lists (`virtualLists`, each list's items), the picks owed by
+  level with "Choose" (the learn panel then lists the catalogue items that fit), the party's families from the roster
+  snapshots, and "Learn a formula": a search over the catalogue or an item dropped on the tab, the route to craft it now,
+  every acquisition route with its cost and time, the break-even of buying (`breakEven`: the formula's Price against the
+  setup day it saves, at the crafter's success rate; "needed" without access), and a button per route (Buy, Copy, Scan,
+  Ask <ally>, Invent, Reverse-engineer, Take as this pick, Craft a copy for <member>). The tab is built only while it is
+  shown (it scans the catalogue). `features.formulas` (W, on) turns it off.
+- **Casting pledges** (6.9): `orders.<id>.pledges.<id>` = `{caster, spell: {uuid, source, name, rank, traits,
+  category}, rank, castings, payer, day, status, service, costCp}`, written by the caster's owner. Scrolls and wands are
+  pf2e's base items by rank (`CONFIG.PF2E.spellcastingItems`, `productFacts().spellcasting`), staves and spellhearts by
+  trait; an order for one is `craftType: "spell-item"`. Rules (`pledgeProblem`): no cantrips, focus spells or rituals,
+  a spell no higher than the item's rank, one spell for a scroll batch, at most 4 scroll castings, one wand casting.
+  G9 counts fulfilled castings (one per scroll, one otherwise). "Mark cast" is the caster's owner's confirmation
+  (OQ-15 stays open: pf2e has no public call that spends a slot without casting); a spell cost given then is a purchase
+  row from the payer. "Buy a casting" makes a fulfilled pledge with no caster and a purchase row at the service price.
+  The finished scroll or wand is pf2e's base item with the pledged spell as `system.spell` at the item's rank, pf2e's
+  name template, the spell's traits (no `magical` beside a tradition) and rarity, and a link to the spell
+  (`spellItemSource`, as pf2e's unexported builder does).
+- **Custody and stock** (G10, 6.6): a member hands over an item from a character they own (`handOver`): one coin move
+  with no coins, a `custody-in` row (or `material-in` for stock; both new or reused kinds with no amount, the value on
+  the line), the item deleted from its owner and created in the strongbox with its own id and `flags.MOD.earmark =
+  {order | service, line, purpose, from, by}`, and a line `orders.<id>.custody.<line>` (purposes `target`, `source`,
+  `possession`) or `orders.<id>.materials.<line>` (precious stock: an item with the `precious` trait whose slug ends in
+  ingot, chunk, lumber or branch; `stockMaterial`). Items are given back by a shelf flag for their former owner
+  (`givingBack`, `giveBack`: once per line), whose client collects them; deliveries drop the earmark.
+  `lockFirstBatch` takes `itemUpdates` (nested updates, after the debits) and `createItems` keeps given ids. Part of
+  a stack can be handed over (`quantity`; the owner's stack is reduced by a quantity update): stock goes whole unless
+  a number is given (the Stock prompt asks how many), any other item one at a time, so an etching, a transfer or a
+  repair never holds a stack. A resumable move names, as the actor its resumer must own, any character it updates or
+  creates items on as well as a purse (`purseOf`), so a finish that changes the crafter's item in place while its
+  coins come from the strongbox is resumed only by a user who can write that item.
+- **Precious materials** (6.6): `orderPrecious` checks the product's material and grade against the crafter and the
+  stock lines (coin stands in for cold iron and silver while `rules.preciousCoinForCommon` is on). Stock counts toward
+  G8's up-front half at its Price; the start's coin commit is the half less the stock, so a stock-funded order may
+  commit nothing; the funding bar counts the stock too. Stock is taken only while the next step will count it
+  (`STOCK_STATUSES`: requested, accepted, failed; the Stock button shows then only): once an attempt has committed, a
+  hand-over is refused as `state`. G8's precious failure is told problem by problem with its numbers (the share of
+  the material needed and what the order has, "only stock counts" for an uncommon material, the rank, level or grade
+  cap), not as one sentence. The stock is used up at the finish (a `material-out` row and the
+  item deleted), or at a cancel once an attempt settled as a success; otherwise a cancel gives it back.
+- **Etching, upgrades and transfers** (6.13; `craftType` `rune-etch`, `upgrade`, `rune-transfer`; `target` the item's
+  UUID; a transfer's source in `variant.transfer.source`): the item must be in custody (on the crafter, or handed over
+  and earmarked to the order), one item, never a stack (`target-stack`: a stack on the crafter must be split; a
+  hand-over takes one). `runeOf` reads a rune item's slug and usage; `usageFits` checks the usage against the item
+  (`wrong-item`), `runeLevelProblem` the grade cap of a precious item (`grade-rune-level`); an etching costs the rune's
+  Price (`etchPriceCp`), or the difference to the rune it upgrades, whose Price is read from the catalogue by its slug
+  (`runeSlug`), at the rune's level and DC; a property rune pf2e has no key for is refused (`rune-unsupported`,
+  `pf2eKnowsProperty`: an unsaved non-specific copy of the item is no dearer with it); a stronger grade of a property
+  rune replaces the weaker in its slot, by etching or transfer (`propertyGrade`, `replaces`); an upgrade costs the
+  stronger grade's Price less the item's, at the new level's DC, and must be the same family and a higher level; a
+  transfer costs 10% of the rune's Price (nothing from the rune's own item, pf2e's rune on a runestone such as `Striking`:
+  an item made from the order's rune, or with its slug and an etched-onto usage, `isRuneItemOf`; it is used up; a blank
+  `Runestone` holds nothing and is refused as `not-there`) with one setup day; G12's rune rules (`runeProblem`) apply to etchings and transfers. At the finish the item is
+  changed in place on the crafter when the crafter is the recipient; changed in the strongbox and put on the shelf for
+  the recipient; or moved from the crafter to the shelf. An upgrade replaces the item with the compendium's stronger
+  grade.
+- **Service orders** (4.5): `services.<id>` = `{kind, party, requester, performer, target, host, uuid, status, result,
+  note, created, custody, closed, by, at}`; kinds `repair`, `affix`, `unaffix`, `identify-alchemy`, `formula-copy`.
+  Anyone with a character offers; the performer's owners perform; the requester's or performer's owners or a GM cancel
+  (items handed over go back). Closing takes the lock page `service:<id>:close`, so a service closes once. Repair rolls
+  Crafting with `action:repair` and the item's traits as `target:trait:` options against the item's level DC with no
+  rarity adjustment, restores Player Core's Hit Points or the Crafter's Eyepiece's (registry kind `repairHp`, worn and
+  invested; an untrained performer restores the base), and on a critical failure deals 2d6 less Hardness; the
+  performer must carry a repair toolkit (registry
+  `repair-toolkit`, `repair-toolkit-superb`; Improvise Tool waives it for Repair only). The item is on the performer or
+  handed over for the service. Affixing writes `flags.MOD.affix = {host, at, by}` on a talisman or spellheart on the
+  performer, with one per host (two with Talismanic Sage), the host types the talisman's usage names
+  (`affixHostKinds`: `affixed-to-armor-or-a-weapon` is armor or a weapon; none named, any armor, shield or weapon),
+  bombs left out by
+  `rules.talismanHostsExcludeBombs` (W, on); it steps aside while PF2e Talisman Manager is active. Identify Alchemy runs
+  pf2e's own action. A rune transfer is an order, not a service.
+- **The Queue and the request form**: rows show the order's kind and the item it works on; the detail shows the spell
+  supply and pledges (pledge a casting, mark cast, withdraw, buy a casting), the items held for the order and those
+  still to hand over (hand over, give back, add precious stock); a Services list follows the orders (offer, hand over,
+  perform, cancel). The request form asks what the request is (a Craft, an upgrade, an etching, a transfer, a service)
+  and offers the requester's items that fit (`itemChoices`), the source of a transfer, the host of an affix and the
+  performer of a service; its search uses the catalogue.
+- **API** (11.2): `formulas.{knows, routes, family, provenance, codex, acquire}` (`acquire` covers every route of macro
+  11), `pledges.{pledge, fulfil, withdraw, buy}`, `custody.handOver`, `services.{list, get, request, offer, perform,
+  cancel}`.
+- **Registry**: entries `crafters-eyepiece`, `crafters-eyepiece-greater` (`repairHp {success, critSuccess}`, a new
+  kind), `repair-toolkit`, `repair-toolkit-superb`, and Improvise Tool's repair-toolkit substitution under
+  `action:repair`; the four items left the ignore list (247 entries, 1204 ignored, validated against the pf2e checkout).
+- **Live plans** (to run later, 15.3): `m5-buy` (GM, P2), `m5-ally-copy` (P1, P2, no GM; the learner offline at the
+  copy and applying it at login), `m5-pick` (GM, P1), `m5-jobs` (all three: invent, reverse-engineer, craft a copy),
+  `m5-etch` (custody of P1's sword, crafted by P2, collected by P1), `m5-upgrade-transfer`, `m5-precious` (coin turned
+  off for common materials; an ingot handed over), `m5-scroll` (the wizard fixture's pledge by the GM; a bought
+  casting), `m5-services` (Repair with custody, affix and its refusal, unaffix, Identify Alchemy, with no GM), `m5-ui`
+  (the tab driven with clicks) and `m5-shots` (the Formulas tab as GM and P1 at 1440x900 and 1024x768, dark and light,
+  plus the Queue with custody and a service).
+- **After the M5 review**: the fixes above (transfer sources, multi-host talismans, etching prices, rune usages and
+  grade caps, property-rune grades, untrained Repair, stock only before an attempt and part of a stack, single items for
+  changes, pending formula claims, the resume actor of an item update, G8's texts, Runic Crafter's picks over every
+  weapon and armor property rune usage). The Formulas tab's controls are found again after a re-render (10.9): the
+  search field has a name (`codexSearch`), and its buttons carry `data-op` like the Queue's.
+
+#### Follow-ups (M5, low)
+
+- Stock is at risk only once an attempt succeeds: a critical failure ruins 10% of the committed coins and nothing of
+  the stock (with stock covering the half, nothing at all), and stock handed over beyond what the up-front half needs
+  is used up at the finish (part of a stack can be handed over, so a member need not hand over more). Ruin a share of
+  the stock's value, and count only what the half needs.
+- `gainedAtOf` falls back to a feat's own level when it has no level taken (granted or unslotted feats), which shifts
+  the picks it schedules; rank-based picks all fall at the level the feature was gained.
+- Provenance is written only when none exists: a formula deleted on the sheet and learned again another way keeps its
+  old route and source.
+- PF2e Talisman Manager's module id (`pf2e-talisman-manager`) was not checked against its manifest.
+- Dropping a formula book on the Formulas tab to import it, and a material item on an order to earmark it (10.6), are
+  not built; the Codex does not hide what Automatic Bonus Progression replaces (6.4 ABP), nor legacy-only items
+  (`legacy.show`); swaps of runes have no field in the request form (`transferRunes` supports them); affixing works only
+  on the performer's own actor (an affix made in the strongbox would name a host id that changes on delivery).
+- A Repair, an affix and an Identify Alchemy are recorded from the roll's result on the performer's client, not from
+  its chat message, so a Hero Point reroll of the Repair check is not applied (6.12 records orders and jobs only).
+- A finish for a scroll or wand with no pledged spell (Craft Anything waived G9) is refused as `no-spell`; offer a
+  plain base item or a spell choice there.
+- The narrative Craft Requirements checklist (G9's other half) is still not parsed; spellhearts and staves rely on the
+  caster's castings count.
+- Upgrading a grade rebuilds the item from the compendium, so customisations of the old item (runes, a material, a
+  name) are not carried over; raising a precious material's grade is not offered.
+- Material lines are counted toward the funding bar but not shown in "Funded by", and withdrawals ignore them.
+
+From the M5 review (low; the medium and high findings were fixed, 10.11 "After the M5 review"):
+
+- Material stock counts toward G8 and lowers the coin commit whatever its material and whatever the product (a silver
+  ingot funds a potion's up-front half), and the finish uses up every material line. Count and use up only lines of
+  the product's precious material (or the target's, for a grade upgrade); give the others back.
+- Some stock never matches its product's material: `djezet-mass` and `throneglass-shard` match no suffix (add `-mass`,
+  `-shard`); sisterstone chunks and ingots strip to `sisterstone` while items use `sisterstone-dusk` and
+  `sisterstone-scarlet`; dragonhide has no stock item, so Dragonplate (and the throneglass Destiny Blade and Azlanti
+  Diamond) can never pass G8. Let a confirmed checklist line or a GM-confirmed value count as stock for those.
+- Identify Alchemy is a trained action that needs an alchemist's toolkit held or worn; the service checks neither (nor
+  does pf2e's action). Refuse `untrained` and `tool` before running it.
+- Buying a casting for a 10th-rank scroll throws a RangeError (the spellcasting-service table stops at rank 9); refuse
+  `no-service` and hide "Buy a casting" there.
+- 17 compendium runes have no pf2e property-rune key (Energy-Resistant and its greater grade, Vitalizing, Spell
+  Reservoir, Quickstrike, Animated, Called, the mythic runes and others). Since etchings are priced from the rune items,
+  an etching of one is refused as `rune-unsupported` (naming the rune: pf2e values only the keys it knows,
+  `pf2eKnowsProperty`) rather than charged for a key with no effect; offering Energy-Resistant's energy choice as
+  pf2e's `acidResistant`, `coldResistant` and so on is not built.
+- Talismanic Sage lets every host take two talismans; the feat treats one item at a time. Record the treated host on
+  the performer and allow two there only.
+- Snarecrafter Dedication's and Gadget Specialist's rank picks count every listed rank held now, including ranks held
+  before the feat was taken; Snarecrafter grants them only when the rank rises afterwards (an `onIncrease` flag).
+- `handOver` does not check that a target, source or possession is the item the order names, nor that the order has no
+  such line yet (only the Queue prevents a second target line); a second target line is never placed or given back.
+  A target handed over by someone other than the recipient goes to the recipient at the finish, which the hand-over
+  prompt does not say.
+- `giveBack` and `start` take different locks, so stock given back while the order starts can be counted toward the
+  up-front half and still go back. Have `giveBack` on an order take its log slot too.
+- Offering to perform a service is an unlocked write (two offers at once both believe they hold it) and overwrites the
+  record's `by`; take a lock page `service:<id>:offer` and write the offerer to `offeredBy`.
+- Withdrawing a pledge is an unlocked write and can overwrite a concurrent "mark cast" that paid a spell cost; have
+  fulfil and withdraw take one per-pledge lock page.
+
+Left by the fixes (low):
+
+- Talisman hosts are read by kind only (armor, shield, weapon, worn equipment for headgear): the narrower words of a
+  usage (metal, melee, ranged, firearm, two-handed, a magical staff) are not checked, and the request form offers only
+  armor, shields and weapons as hosts, so a headgear talisman is affixed through the API.
+- Metal armor is told by its group (chain, composite, plate) or a `metal` trait; a precious material is not read. A
+  property-rune swap does not check the rune going back against the source's usage.
+- A transfer to an item that cannot take the rune is refused rather than rolled as an automatic critical failure
+  (GM Core p.225).
+- A blank runestone is never a transfer source: etching a rune onto a runestone (which would record the rune it holds)
+  is not built, and a stack of rune items must be split before a transfer from one.
 
 ---
 
@@ -4632,6 +4865,9 @@ churn watch come with M8a and the release workflow.
 - As built in M4: scenario `m4` (`tools/harness/order-scenarios.mjs`) and the behaviours `m4-lifecycle`, `m4-no-gm`,
   `m4-cancel`, `m4-double-delivery`, `m4-reroll-race`, `m4-shots` (screenshots with `--shots <dir>`) and `m4-ui` (the
   window driven with real clicks and keys), described in 10.10.
+- As built in M5: scenario `m5` (`tools/harness/formula-scenarios.mjs`) and the behaviours `m5-buy`, `m5-ally-copy`,
+  `m5-pick`, `m5-jobs`, `m5-etch`, `m5-upgrade-transfer`, `m5-precious`, `m5-scroll`, `m5-services`, `m5-ui` and
+  `m5-shots`, described in 10.11; not run yet.
 - As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
   counts the rows that are new since `purseBefore` by id, not by a server-time cut-off (two devices' estimates of
   the server's time differ by milliseconds, and one real row was left out); the `claim` step reports its own rows
@@ -4819,7 +5055,7 @@ draft; the letters keep the existing milestone numbers stable.
 | M2 | Storage and sync | shared documents and bootstrap, schema and migrations, key-path store, responsible-client resolver, claims, `modifyBatch` coin moves, roster snapshots, deletion guards, purge, reconciliation | M1 |
 | M3 | Registry and roll wrapper | registry tiers 1-2, validation script, roll wrapper with reroll recording, Earn Income roll | M1, M2 |
 | M4 | Queue and Funds | Workshop shell, Queue and Funds tabs, order lifecycle, escrow and refunds, pickup shelf, chat cards, request drag and drop; built, with the 5.11 and 6.12 follow-ups (10.10) | M2, M3 |
-| M5 | Formulas | codex, families, provenance, acquisition jobs, picks owed, casting pledges, precious materials, service orders, rune etching, upgrades and transfers | M4 |
+| M5 | Formulas | codex, families, provenance, acquisition jobs, picks owed, casting pledges, precious materials, service orders, rune etching, upgrades and transfers; built, live plans not yet run (10.11) | M4 |
 | M6 | Downtime | per-PC status, clock accrual and prompts, day resolver, Advance days wizard, Communal Crafting helpers, Earn Income jobs, settlement profiles | M4 |
 | M7 | Morning | daily sources panel, loadouts, standing orders, Talisman Dabbler and Esoterica lists, the Dabbler DC stamp, affix records, party-wide expiry, rest ordering, pf2e-dailies custom daily | M5 |
 | M8 | Combat | Bandolier, HUD palette, Quick Alchemy panel, quick vials, Quick Bomber, Healing Bomb, additives, vial gathering, turn expiry, Duct Tape step-aside, Use best consumable | M7 |

@@ -12,8 +12,15 @@ import { openRequestForm } from "../ui/request.mjs";
 import { claimRowInput, openClaims } from "../logic/claims.mjs";
 import { memberBalances } from "../logic/reconcile.mjs";
 import { parseMoney } from "../ui/format.mjs";
+import { familyKey } from "../logic/families.mjs";
+import { FORMULA_ORDER_ROUTES } from "../logic/formula-jobs.mjs";
+import * as formulas from "./formulas.mjs";
 import * as funds from "./funds.mjs";
 import * as orders from "./orders.mjs";
+import * as pledges from "./pledges.mjs";
+import { productFacts } from "./products.mjs";
+import * as services from "./services.mjs";
+import { handOver } from "./custody.mjs";
 import { read, records } from "./store.mjs";
 import { status } from "./state.mjs";
 
@@ -104,6 +111,57 @@ export function buildApi() {
             rows: (filter = {}) => records("rows").filter((r) => (!filter.order || r.order === filter.order) && (!filter.actor || r.actor === filter.actor)),
             claims: (actor = null) => openClaims(read("claims"), resolveActor(actor)?.uuid ?? null).map((claim) => ({ ...claim, row: claimRowInput(claim) })),
             claimAll: () => funds.takeAll(),
+        },
+        // M5 (11.2): formulas, casting pledges, custody and service orders.
+        formulas: {
+            knows: (actor, uuid) => formulas.bookOf(resolveActor(actor)).includes(uuid),
+            routes: (actor, uuid) => formulas.routesFor(resolveActor(actor), uuid),
+            family: async (uuid) => {
+                const facts = await productFacts(uuid);
+                return facts ? familyKey(facts) : null;
+            },
+            provenance: (actor = null) => formulas.provenanceOf(resolveActor(actor)),
+            codex: (actor = null) => formulas.codexData(resolveActor(actor)),
+            /**
+             * Learn a formula (11.1 macro 11): `buy`, `copy-npc`, `scanner` and `grant` (with `source` and `pickLevel`) at
+             * once; `copy-ally` asks the ally (`from`) for a formula-copy service; `invent`, `reverse-engineer` and
+             * `craft-copy` (for `for`, another member) file a formula job with `actor` as the crafter.
+             */
+            acquire: ({ uuid, route, actor = null, from = null, for: learner = null, source = null, pickLevel = null, seller = false } = {}) => {
+                const who = resolveActor(actor);
+                if (!who) return Promise.resolve(noActor());
+                if (route === "copy-ally") return services.requestService({ kind: "formula-copy", requester: who.uuid, performer: resolveActor(from)?.uuid ?? null, uuid });
+                if (FORMULA_ORDER_ROUTES.includes(route)) {
+                    const target = route === "craft-copy" ? resolveActor(learner)?.uuid ?? null : who.uuid;
+                    if (!target) return Promise.resolve(noActor());
+                    return orders.requestOrder({ uuid, requester: who.uuid, recipient: { kind: "actor", uuid: target }, crafter: who.uuid, productType: "formula", route });
+                }
+                return formulas.acquire({ learner: who.uuid, uuid, route, payer: who.uuid, source, pickLevel, confirm: seller ? ["seller"] : [] });
+            },
+        },
+        pledges: {
+            pledge: (order, { caster = null, spell, castings = 1 } = {}) => pledges.pledgeCasting(order, { caster: resolveActor(caster)?.uuid ?? null, spell, castings }),
+            fulfil: (order, pledge, { cost = 0 } = {}) => pledges.fulfilPledge(order, pledge, { costCp: amountCp(cost) ?? 0 }),
+            withdraw: (order, pledge) => pledges.withdrawPledge(order, pledge),
+            buy: (order, { spell, castings = 1, from = null } = {}) => pledges.buyCasting(order, { payer: resolveActor(from)?.uuid ?? null, spell, castings }),
+        },
+        custody: {
+            handOver: (opts) => handOver(opts),
+        },
+        services: {
+            list: (filter = {}) => records("services").filter((s) => !filter.status || s.status === filter.status),
+            get: (id) => read(`services.${id}`) ?? null,
+            request: ({ kind, actor = null, performer = null, target = null, host = null, uuid = null, note = "" } = {}) => {
+                const who = resolveActor(actor);
+                return who ? services.requestService({ kind, requester: who.uuid, performer: resolveActor(performer)?.uuid ?? null, target, host, uuid, note })
+                    : Promise.resolve(noActor());
+            },
+            offer: (id, { actor = null } = {}) => {
+                const who = resolveActor(actor);
+                return who ? services.offer(id, who.uuid) : Promise.resolve(noActor());
+            },
+            perform: (id, options = {}) => services.perform(id, options),
+            cancel: (id) => services.cancel(id),
         },
     };
 }

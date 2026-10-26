@@ -188,15 +188,24 @@ const bound = (value, level) => (value === "level" ? level : value);
  * @param {number} level  the crafter's level
  */
 export function virtualFormula(held, item, options, level, rules = DEFAULT_RULES) {
-    return heldEffects(held, "virtualFormulaList", rules).some(({ effect }) => {
-        if (effect.uuids) return effect.uuids.includes(item.uuid);
-        if (effect.rarity && !effect.rarity.includes(item.rarity ?? "common")) return false;
-        if (effect.maxLevel !== undefined && item.level > bound(effect.maxLevel, level)) return false;
-        if (effect.minLevel !== undefined && item.level < bound(effect.minLevel, level)) return false;
-        if (effect.books && !effect.books.includes(item.book)) return false;
-        return testPredicate(effect.filter, options);
-    });
+    return heldEffects(held, "virtualFormulaList", rules).some(({ effect }) => virtualListCovers(effect, item, options, level));
 }
+
+/**
+ * Whether one `virtualFormulaList` effect covers a product: it names the product's UUID, or the product meets its filter,
+ * rarities, level bounds and books. The Formulas tab lists each list's items with it (M5).
+ */
+export function virtualListCovers(effect, item, options, level) {
+    if (effect.uuids) return effect.uuids.includes(item.uuid);
+    if (effect.rarity && !effect.rarity.includes(item.rarity ?? "common")) return false;
+    if (effect.maxLevel !== undefined && item.level > bound(effect.maxLevel, level)) return false;
+    if (effect.minLevel !== undefined && item.level < bound(effect.minLevel, level)) return false;
+    if (effect.books && !effect.books.includes(item.book)) return false;
+    return testPredicate(effect.filter, options);
+}
+
+/** A level bound of an effect (a number, or "level" for the character's level at that point), resolved. */
+export const levelBound = (value, level) => bound(value, level);
 
 /** The registry inputs of `craftRoute` (formula-jobs.mjs): `{virtual, accessGrant}`. */
 export function routeInputs(held, item, options, level, rules = DEFAULT_RULES) {
@@ -336,4 +345,18 @@ export function formulaPicks(held, { level, gained = [], fromLevel = null, ranks
         }
     }
     return picks;
+}
+
+/* -------------------------------------------- */
+/*  Services (M5)                                */
+/* -------------------------------------------- */
+
+/**
+ * The Hit Points a Repair restores for the held keys (6.13): the Crafter's Eyepiece's `repairHp` numbers `{success,
+ * critSuccess}` (each `n + n × rank`), or null for the Player Core numbers. The eyepiece counts only worn and invested,
+ * which `heldKeysOf` already requires of gear.
+ */
+export function repairEyepiece(held, rules = DEFAULT_RULES) {
+    const effect = heldEffects(held, "repairHp", rules)[0]?.effect;
+    return effect ? { success: effect.success, critSuccess: effect.critSuccess } : null;
 }

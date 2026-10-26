@@ -104,7 +104,11 @@ export function toOperations(descriptors, { ledger, strongbox }) {
                 return { action: "create", documentName: "Item", parent: actorFor(d.target, strongbox),
                     data: d.coins.map(({ denomination, quantity }) => coinItemData(denomination, quantity, d.lot)) };
             case "createItems":
-                return { action: "create", documentName: "Item", parent: actorFor(d.target, strongbox), data: d.data };
+                // Items given their own ids (M5: an earmarked item whose UUID the lock request already wrote) keep them.
+                return { action: "create", documentName: "Item", parent: actorFor(d.target, strongbox), data: d.data,
+                    ...(d.data.length && d.data.every((item) => item._id) ? { keepId: true } : {}) };
+            case "updateItems":
+                return { action: "update", documentName: "Item", parent: actorFor(d.target, strongbox), updates: d.updates.map((u) => ({ ...u })) };
             default:
                 throw new Error(`${MODULE_ID} | unknown batch descriptor ${d.op}`);
         }

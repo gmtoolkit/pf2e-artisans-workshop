@@ -24,15 +24,21 @@ import {
 import { allPass } from "../logic/gates.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
 import {
-    acceptOrder, closedAs, closedRepair, lastEntry, leftAfterSpend, makeOrder, nextWorkDay, refundClaims, releaseOrder,
+    TARGETED, acceptOrder, closedAs, closedRepair, lastEntry, leftAfterSpend, makeOrder, nextWorkDay, refundClaims, releaseOrder,
     settlementRepair, transitionChange, undoPlan, withdrawableCp, workDayRecord,
 } from "../logic/orders.mjs";
 import { remainingCp } from "../logic/progress.mjs";
 import { seqFor } from "../logic/rows.mjs";
 import { allocationsByContributor } from "../logic/split.mjs";
+import { FORMULA_ORDER_ROUTES } from "../logic/formula-jobs.mjs";
 import { planSpend } from "../logic/coins.mjs";
+import { materialsCp } from "../logic/materials.mjs";
+import { spellSupply } from "../logic/pledges.mjs";
 import { postCard } from "../ui/chat.mjs";
+import { givingBack, heldLines } from "./custody.mjs";
+import { applyIfResponsible, knownState } from "./formulas.mjs";
 import { freeStacks, lockedWrite, moveCoins, pledge, reverseRows, withdraw } from "./money.mjs";
+import { finishOutputs } from "./outputs.mjs";
 import { crafterFacts, gatesFor, productFacts, snapshotOf } from "./products.mjs";
 import { isResponsibleFor } from "./responsible.mjs";
 import { rollCraft, settleOrder } from "./rolls.mjs";
@@ -110,7 +116,8 @@ function writeTransition(order, event, patch) {
  * @param {boolean} [p.gift]
  * @returns {Promise<{ok: boolean, reason?: string, orders?: string[]}>}
  */
-export async function requestOrder({ uuid, quantity = 1, requester, recipient = null, crafter = null, note = "", gift = false }) {
+export async function requestOrder({ uuid, quantity = 1, requester, recipient = null, crafter = null, note = "", gift = false,
+    craftType = null, productType = "item", route = null, target = null, variant = {} }) {
     if (!canWrite()) return refuse("not-ready");
     if (!owns(requester)) return refuse("not-owner");
     if (crafter && !owns(crafter)) return refuse("not-owner");
@@ -118,16 +125,25 @@ export async function requestOrder({ uuid, quantity = 1, requester, recipient = 
     const product = await productFacts(uuid);
     if (!product) return refuse("no-product");
     if (!(product.priceCp > 0)) return refuse("no-price");
+    if (productType === "formula" && !FORMULA_ORDER_ROUTES.includes(route)) return refuse("no-route");
     const rules = rulesFromSettings();
-    const target = recipient ?? { kind: "actor", uuid: requester };
-    const max = crafter
-        ? (await gatesFor({ id: "probe", quantity: 1 }, crafterFacts(actorOf(crafter)), product, [], rules)).plan.batchMax
-        : batchMax({ ...product }, {}, rules);
+    const to = recipient ?? { kind: "actor", uuid: requester };
+    // A formula job for a book that has the formula, or will once a claim is applied, would teach nothing (5.5).
+    const already = productType === "formula" ? knownState(actorOf(to.uuid), uuid) : null;
+    if (already) return refuse(already);
+    // M5: a scroll, wand, staff or spellheart is a spell-supplied item (6.9); a formula, an upgrade, an etching and a
+    // transfer are one each.
+    const type = craftType ?? (spellSupply(product) ? "spell-item" : "item");
+    const single = productType === "formula" || TARGETED.includes(type);
+    const max = single ? 1 : crafter
+        ? (await gatesFor({ id: "probe", quantity: 1, craftType: type }, crafterFacts(actorOf(crafter)), product, [], rules)).plan.batchMax
+        : batchMax({ ...product }, { pledgedCastings: 4 }, rules);
+    if (single && quantity !== 1) return refuse("quantity");
     const stamp = stampNow();
     const party = game.actors.party?.id ?? null;
     const made = splitIntoBatches(quantity, Math.max(1, max)).map((qty) => makeOrder({
-        id: newId(), party, requester, recipient: target, product: { uuid, snapshot: snapshotOf(product) }, quantity: qty,
-        crafter, note, visibility: gift ? "gift" : "public",
+        id: newId(), party, requester, recipient: to, product: { uuid, snapshot: snapshotOf(product) }, quantity: qty,
+        crafter, note, visibility: gift ? "gift" : "public", craftType: type, productType, route, target, variant,
     }, stamp));
     await write({ set: Object.fromEntries(made.map((order) => [`orders.${order.id}`, order])) });
     for (const order of made) await postCard("request", order);
@@ -205,7 +221,9 @@ export async function start(id) {
     const result = startOrder(order, plan);
     if (!result.ok) return result;
     const patch = { ...result.patch, route: plan.route, skill: order.skill ?? "crafting", product: { ...order.product, snapshot: { ...order.product.snapshot, priceCp: product.priceCp, per: product.per } } };
-    const commit = result.rows.map((row) => ({ kind: "commit", idem: idemKey("commit", id, patch.attempt, seqFor(rows, idemKey("commit", id, patch.attempt))), cp: row.cp, order: id }));
+    // Earmarked material items count toward the up-front half at their Price (M5, 6.6): the coins commit the rest.
+    const commit = result.rows.map((row) => ({ kind: "commit", idem: idemKey("commit", id, patch.attempt, seqFor(rows, idemKey("commit", id, patch.attempt))),
+        cp: Math.max(0, row.cp - materialsCp(order)), order: id })).filter((row) => row.cp > 0);
     const change = transitionChange(order, "start", patch, { rows: commit.map((row) => hashId(row.idem)) }, stampNow());
     const posted = await lockedWrite([change.lock], commit, { set: change.set, replace: change.replace });
     if (!posted.ok) return posted;
@@ -293,10 +311,10 @@ export async function retry(id) {
     const result = retryOrder(order, { expendedCp: expendedFromRows(rows) });
     if (!result.ok) return result;
     const escrow = rows.reduce((sum, row) => sum + (row.alloc ?? 0), 0);
-    const need = result.rows.reduce((sum, row) => sum + row.cp, 0);
+    const need = Math.max(0, result.rows.reduce((sum, row) => sum + row.cp, 0) - materialsCp(order));
     if (escrow < need) return refuse("underfunded", { shortCp: need - escrow });
     const attempt = result.patch.attempt;
-    const commit = result.rows.map((row) => ({ kind: "commit", idem: idemKey("commit", id, attempt, seqFor(rows, idemKey("commit", id, attempt))), cp: row.cp, order: id }));
+    const commit = need > 0 ? [{ kind: "commit", idem: idemKey("commit", id, attempt, seqFor(rows, idemKey("commit", id, attempt))), cp: need, order: id }] : [];
     const change = transitionChange(order, "retry", result.patch, { rows: commit.map((row) => hashId(row.idem)) }, stampNow());
     const posted = await lockedWrite([change.lock], commit, { set: change.set, replace: change.replace });
     return posted.ok ? { ok: true } : posted;
@@ -306,29 +324,16 @@ export async function retry(id) {
 /*  Finishing, cancelling, undo                  */
 /* -------------------------------------------- */
 
-/** The item a finished order puts on the shelf: the product, its quantity, and the shelf flag for its recipient. */
-async function shelfItemData(order) {
-    const doc = await fromUuid(order.product.uuid);
-    if (!doc) return null;
-    const source = doc.toObject();
-    delete source._id;
-    source.system = { ...source.system, quantity: order.quantity };
-    foundry.utils.setProperty(source, "_stats.compendiumSource", order.product.uuid);
-    const flags = { crafted: { order: order.id, attempt: order.attempt, crafter: order.crafter } };
-    if (order.recipient?.kind === "actor") {
-        flags.shelf = { for: order.recipient.uuid, from: order.crafter, order: order.id,
-            claimKey: idemKey("deliver", order.id, order.attempt), at: stampNow().at };
-    }
-    foundry.utils.setProperty(source, `flags.${MODULE_ID}`, flags);
-    return source;
-}
-
 /**
  * Finish an order in `finishing` (4.2.3, 6.2.3): one lock-first move pays the remainder out of the escrow, pro rata by
- * contributor, puts the item on the pickup shelf (a `shelved` row; the recipient's client delivers it, 5.5), refunds
- * what is left over as refund claims (6.2.4), and marks the order complete. The move is resumable like every coin move,
- * so an apply request lost on the way is sent again and the item is shelved once. Its lock request takes the order's
- * log slot, so a cancel planned from the same copy and a finish never both land.
+ * contributor, makes what the order makes (`finishOutputs`, M5: an item on the pickup shelf, a scroll or wand with its
+ * pledged spell, a formula claim for the learner, or the etched, upgraded or transferred item put back with its
+ * recipient), consumes earmarked material stock and gives back what was handed over for it, refunds what is left over as
+ * refund claims (6.2.4), and marks the order complete. The move is resumable like every coin move, so an apply request
+ * lost on the way is sent again and the item is shelved once. Its lock request takes the order's log slot, so a cancel
+ * planned from the same copy and a finish never both land. A finish that moves no coins and no items (a formula job
+ * with nothing left to pay) is one write behind the same lock. A formula claim is applied at once when this tab is
+ * responsible for the learner.
  */
 export async function finish(id) {
     const { order, refusal } = orderOrRefuse(id);
@@ -341,38 +346,49 @@ export async function finish(id) {
     const allocations = allocationsByContributor(rows);
     const escrow = allocations.reduce((sum, a) => sum + a.cp, 0);
     if (escrow < remainder) return refuse("underfunded", { shortCp: remainder - escrow });
-    const source = await shelfItemData(order);
-    if (!source) return refuse("no-product");
-    const shelved = {
-        kind: "shelved", idem: idemKey("shelve", id, order.attempt), cp: 0, order: id,
-        actor: order.recipient?.kind === "actor" ? order.recipient.uuid : null,
-        items: [{ uuid: order.product.uuid, name: order.product.snapshot?.name ?? null, qty: order.quantity }],
-    };
+    const outputs = await finishOutputs(order);
+    if (outputs.refuse) return refuse(outputs.refuse);
     const stem = idemKey("remainder", id, order.attempt);
     const key = `${stem}:${seqFor(rows, stem)}`;
     const seq = (lastEntry(order)?.seq ?? 0) + 1;
-    const result = await moveCoins((strongbox) => {
-        const debits = [];
-        let shares = [];
-        if (remainder > 0) {
-            const planned = planSpend(freeStacks(strongbox), allocations, remainder);
-            if (!planned) return { refuse: "strongbox-short" };
-            debits.push({ target: "strongbox", plan: planned.strongbox });
-            shares = planned.shares.filter((share) => share.cp > 0);
-        }
-        const spendRows = shares.map((share) => ({ kind: "remainder", idem: `${key}:${share.actor ?? "fund"}`, cp: share.cp, actor: share.actor, order: id }));
-        const { claims, toFund } = refundClaims(order, leftAfterSpend(allocations, remainder), seq, (uuid) => !!actorOf(uuid));
+    const claimsLedger = (stamp, refunds) => Object.fromEntries([...refunds, ...outputs.claims].map((claim) => makeClaim(claim, stamp))
+        .map((claim) => [`claims.${claim.id}`, claim]));
+    const moves = remainder > 0 || outputs.rows.length || outputs.items.length || outputs.itemUpdates.length || outputs.debits.length;
+    let result;
+    if (!moves) {
+        const { claims, toFund } = refundClaims(order, leftAfterSpend(allocations, 0), seq, (uuid) => !!actorOf(uuid));
         const fundRows = returnToFund(id, toFund, seq);
         const stamp = stampNow();
-        const claimRecords = claims.map((claim) => makeClaim(claim, stamp));
-        const change = transitionChange(order, "finish", { status: "complete" },
-            { rows: [shelved, ...spendRows, ...fundRows].map((row) => hashId(row.idem)) }, stamp);
-        return {
-            rows: [shelved, ...spendRows, ...fundRows], debits, items: [{ target: "strongbox", data: [source] }], locks: [change.lock],
-            ledger: { set: { ...change.set, ...Object.fromEntries(claimRecords.map((claim) => [`claims.${claim.id}`, claim])) }, replace: change.replace },
-        };
-    }, {}, [shelved]);
-    if (result.ok && result.outcome !== "already") await postCard("complete", read(`orders.${id}`));
+        const change = transitionChange(order, "finish", { status: "complete" }, { rows: fundRows.map((row) => hashId(row.idem)) }, stamp);
+        result = await lockedWrite([change.lock], fundRows, { set: { ...change.set, ...claimsLedger(stamp, claims) }, replace: change.replace });
+    } else {
+        result = await moveCoins((strongbox) => {
+            const debits = [...outputs.debits];
+            let shares = [];
+            if (remainder > 0) {
+                const planned = planSpend(freeStacks(strongbox), allocations, remainder);
+                if (!planned) return { refuse: "strongbox-short" };
+                debits.unshift({ target: "strongbox", plan: planned.strongbox });
+                shares = planned.shares.filter((share) => share.cp > 0);
+            }
+            const spendRows = shares.map((share) => ({ kind: "remainder", idem: `${key}:${share.actor ?? "fund"}`, cp: share.cp, actor: share.actor, order: id }));
+            const { claims, toFund } = refundClaims(order, leftAfterSpend(allocations, remainder), seq, (uuid) => !!actorOf(uuid));
+            const fundRows = returnToFund(id, toFund, seq);
+            const stamp = stampNow();
+            const all = [...outputs.rows, ...spendRows, ...fundRows];
+            const change = transitionChange(order, "finish", { status: "complete" }, { rows: all.map((row) => hashId(row.idem)) }, stamp);
+            return {
+                rows: all, debits, items: outputs.items, itemUpdates: outputs.itemUpdates, locks: [change.lock, ...outputs.locks],
+                ledger: { set: { ...change.set, ...outputs.marks, ...claimsLedger(stamp, claims) }, replace: change.replace },
+            };
+        }, {}, outputs.rows.slice(0, 1));
+    }
+    if (!result.ok || result.outcome === "already") return result;
+    for (const input of outputs.claims) {
+        const claim = read(`claims.${hashId(input.idem)}`);
+        if (claim) await applyIfResponsible(claim);
+    }
+    await postCard("complete", read(`orders.${id}`));
     return result;
 }
 
@@ -410,12 +426,28 @@ export async function cancel(id) {
         ...result.rows.map((row) => ({ kind: "release", idem: idemKey("release", id, order.attempt, "cancel"), cp: row.cp, order: id })),
         ...returnToFund(id, toFund, seq),
     ];
+    // M5: items handed over for the order go back to whoever handed them over; precious stock a success used is gone
+    // (6.2.4: after a success the up-front materials stay spent).
+    const lines = heldLines(order);
+    // Stock counts toward the up-front half, so it is spent when that half is: once an attempt settled as a success.
+    const succeeded = expendedFromRows(rows) > 0 || (order.settlement?.attempt === order.attempt && order.settlement?.status === "finishing");
+    const given = lines.length ? givingBack({ path: `orders.${id}`, key: "order", id }, lines, { consume: succeeded, ref: `cancel-${seq}` }) : null;
+    const back = given?.rows.length ? given : null;
     const stamp = stampNow();
-    const change = transitionChange(order, "cancel", result.patch, { rows: bookkeeping.map((row) => hashId(row.idem)) }, stamp);
+    const all = [...bookkeeping, ...(back?.rows ?? [])];
+    const change = transitionChange(order, "cancel", result.patch, { rows: all.map((row) => hashId(row.idem)) }, stamp);
     const claimRecords = claims.map((claim) => makeClaim(claim, stamp));
-    const ledger = { set: { ...change.set, ...Object.fromEntries(claimRecords.map((claim) => [`claims.${claim.id}`, claim])) }, replace: change.replace };
+    const ledger = {
+        set: { ...change.set, ...(back?.marks ?? {}), ...Object.fromEntries(claimRecords.map((claim) => [`claims.${claim.id}`, claim])) },
+        replace: change.replace,
+    };
     // Behind the log slot's lock: a finish (or a second cancel) planned from the same copy is refused, and so is this.
-    const posted = await lockedWrite([change.lock], bookkeeping, ledger);
+    const posted = back
+        ? await moveCoins(() => ({
+            rows: all, debits: back.deletes.length ? [{ target: "strongbox", plan: { deletes: back.deletes } }] : [],
+            itemUpdates: back.updates.length ? [{ target: "strongbox", updates: back.updates }] : [], locks: [change.lock], ledger,
+        }), {}, [])
+        : await lockedWrite([change.lock], bookkeeping, ledger);
     if (!posted.ok) return posted;
     await postCard("cancelled", read(`orders.${id}`), { refunds: claims.length });
     return { ok: true, refunds: claims.length };

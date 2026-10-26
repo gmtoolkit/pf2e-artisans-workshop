@@ -22,6 +22,7 @@ import { MODULE_ID } from "../constants.mjs";
 import { compareIds } from "../logic/ids.mjs";
 import { registerBatchWatcher } from "./batch.mjs";
 import { sweepClaims, sweepDeliveries } from "./claims.mjs";
+import { resumeFormulaClaims } from "./formulas.mjs";
 import { loadCoinTemplates } from "./coins.mjs";
 import { resumeStalled } from "./money.mjs";
 import { registerGuards } from "./guards.mjs";
@@ -192,6 +193,7 @@ function sweepAgainIn(step, ms) {
 const SWEEP_STEPS = [
     ["claims", () => sweepClaims()],
     ["deliveries", () => sweepDeliveries()],
+    ["formula claims", () => resumeFormulaClaims()],
     ["roster", () => publishAll()],
     ["resume", async () => sweepAgainIn("resume", (await resumeStalled()).dueInMs)],
     ["pending rows", () => sweepAgainIn("pending rows", reportOwnPending().dueInMs)],
