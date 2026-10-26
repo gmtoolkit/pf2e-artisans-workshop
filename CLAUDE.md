@@ -8,7 +8,9 @@ preparations, GM Earn Income). Public, MIT, `gmtoolkit/pf2e-artisans-workshop`.
 ## Status
 
 M0 scaffold in place (manifest, lint rules, tests, strings gate, asset and manifest
-checks, CI, harness fixtures); no features yet. `DECISIONS.md` holds every decision
+checks, CI, harness fixtures). The M1 rules core is in place as pure functions with
+tests (`scripts/logic/`, its tables in `scripts/data/`, tests in `test/logic/`), not yet
+wired into Foundry; nothing user-facing exists yet. `DECISIONS.md` holds every decision
 made so far, newest first; read it before proposing a design change.
 
 Development commands and layout are in the README's Development section. Use Node 24

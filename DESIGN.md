@@ -294,7 +294,7 @@ what would unlock it.
 | `finishing` | finish | `complete` | the crafter's owner | `remainder` row; items created; delivery or shelf |
 | `failed` | retry | `setup` | the crafter's owner | `attempt` + 1; new `commit`; setup days and the check start again |
 | `failed`, `finishing` | cancel | `cancelled` | requester or crafter | escrow not yet spent becomes refund claims |
-| any active state | crafter swap | `setup` | the new crafter's owner | `attempt` + 1: restart setup and check; escrow and earmarked materials carry over (6.2.5) |
+| any active state but `rolled` | crafter swap | `setup` | the new crafter's owner | `attempt` + 1: restart setup and check; escrow and earmarked materials carry over (6.2.5). A recorded check is settled first, so its outcome is never thrown away |
 | `rolled` (Deconstruct) | settle | `complete` or `failed` | as for any settle | no finishing phase: success writes the components record and, when purpose is `similar` and a `followOn` is named, the follow-on's setup credit (6.16.5) |
 | `accepted` (quest) | start quest | `gathering` | the crafter's owner | no rows; components listed (6.16.9) |
 | `gathering` | component found | `gathering` | any member | `variant.quest.components.<id>.found = {by, day}`; nothing else |
@@ -391,6 +391,7 @@ rows.<id> = {
   alloc,           // signed int cp: change to the allocation of `order`, of `garden` (6.16.7), or of the party fund when both are null
   actor,           // actor UUID: the counterparty
   order, job, garden,  // optional links (garden: 6.16.7)
+  day,             // workshop day (4.8), on `wage` rows: the day the wage pays for (6.10)
   items,           // optional [{uuid, name, qty, valueCp}] for material items
   author,          // user id that wrote the row
   at,              // {world, real}
@@ -429,11 +430,18 @@ rows.<id> = {
   Rounding uses the largest-remainder method in whole copper; ties go to the earliest contribution.
 - **Idempotency keys** are built from the operation, never from wall-clock time. Examples:
   `pledge:<orderId>:<actorId>:<nonce>` (the nonce is generated once when the user confirms),
-  `expend:<orderId>:<attempt>`, `day:<orderId>:<day>`, `wage:<jobId>:<day>`,
+  `expend:<orderId>:<attempt>:<seq>`, `day:<orderId>:<day>`, `wage:<jobId>:<day>:<seq>`,
   `refund:<orderId>:<actorId>:<transitionSeq>`, `plant:<gardenId>`. The row id is a hash of the key, so
   writing the same row twice is harmless; the coin movement is skipped when the row already exists
   (5.4). That check is only a fast path: two clients can both see the row missing, so every batch that
   moves coins starts with a lock operation (5.4).
+- **Correction sequence.** A state-coupled row can be undone and written again (4.2.3): a settlement
+  undone after a reroll conflict (6.12), a wage day corrected. Its lock page lives until the row is
+  archived, so the corrected row needs a key of its own. `<seq>` is the number of rows with the same key
+  stem (`expend:<orderId>:<attempt>`, `wage:<jobId>:<day>`) already reversed: 0 for the first write, one
+  more after each undo. Every client derives it from the same rows, so two clients making the same
+  payment still agree on one key, and a client that has not yet seen the undo loses the lock and re-plans
+  from fresh data (5.4).
 - **Author stamp.** `author` is the user who wrote the row. The UI shows "by <user>" on every row,
   and on behalf of which actor.
 - **Reversal.** The author of a row, or a GM, can reverse purely financial rows (`pledge`, `deposit`,
@@ -442,6 +450,21 @@ rows.<id> = {
   marked `reversedBy`. State-coupled rows (`commit`, `expend`, `release`, `ruin`, `remainder`, `wage`)
   are reversed by undoing the transition that wrote them (4.2.3): the user who made it can undo their
   own last transition, and a GM can undo any.
+- **As built in M1.** The rules engine describes the rows it would post as `{kind, cp}`, `cp` being the
+  unsigned amount; the signed `box`, `purse` and `alloc` follow from the kind (table above). `commit` and
+  `release` move nothing, yet the committed amount is derived from them (`committedFromRows`: commits less
+  expends, releases and ruins), so stored rows carry `cp` as well (M2). Every derivation from `kind` and
+  `cp` (`committedFromRows`, `expendedFromRows`, `daysPaid`, `wageSeq`) reads one reversal model,
+  `liveRows` (`scripts/logic/core.mjs`): a `reversal` row and the row it reverses both drop out, and a row
+  counts as reversed when it is marked `reversedBy` or a reversal names it in `reverses`, so either mark is
+  enough. Sums of the signed `box`, `purse` and `alloc` give the same totals either way, since a reversal
+  carries the inverse amounts. A reversal row is not itself reversible. `splitProRata`
+  (`scripts/logic/split.mjs`) is the largest-remainder split; it never gives a contributor more than their
+  allocation, and it throws when asked to split more than the allocations hold, so callers fund first.
+  `allocationsByContributor` derives each contributor's remaining allocation from an order's (or a
+  garden's) rows: the sum of `alloc` per `actor`, null for the party fund, ordered by first positive
+  contribution (world time, then real time, then row id in code-point order); contributors with nothing
+  left are omitted.
 
 ### 4.7 Strongbox and pickup shelf
 
@@ -693,6 +716,18 @@ results.
    - the planner never updates an existing strongbox coin quantity, and reconciliation tolerates the
      resulting stacks and any stacking the loot sheet does by hand.
    On the purse, an actor written only by its owner's clients, ordinary quantity updates are used.
+   As built in M1 (`scripts/logic/coins.mjs`): a plan is `{updates, deletes, creates}` over stacks
+   `{id, denomination, quantity}` in item order, wherever they are. The amount's own denominations, which
+   pf2e's first step removes, are its gp, sp and cp as pf2e's `Coins.normalized()` writes them (never pp),
+   and minted coins (wages, change, strongbox lots) use the same three. pf2e's third step, which carries
+   digit by digit, is written as "break the smallest coin left", which gives the same coins; the tests
+   compare the planner with a transcription of `removeCurrency` on 5,000 seeded random purses. On a purse,
+   added coins go onto the first stack of that coin in item order, even one inside a container, and
+   removals walk the stacks in item order, as pf2e does (`addCurrency` names its list `topLevelCoins` but
+   never filters out containers). In the strongbox, each denomination's coins come from whole stacks,
+   smallest first (then by id), and the excess of the last stack comes back as a new stack along with any
+   change. A pledge lot holds the amount in gp, sp and cp, not the purse's own coins. `planSpend` pairs one
+   strongbox debit with the pro-rata shares of 4.6 ("debits across contributors").
 2. **Fast path.** The acting client checks that the row's idempotency key is not already present.
 3. **Lock first.** One `foundry.documents.modifyBatch` call holds, in this order:
    1. the lock operation: create a lock page in the ledger whose `_id` is the id of the coin-moving row
@@ -873,6 +908,15 @@ const DEGREE = { critFail: 0, fail: 1, success: 2, critSuccess: 3 };
 const clamp = (x, lo, hi) => Math.min(Math.max(x, lo), hi);
 ```
 
+As built in M1: the tables are frozen data modules in `scripts/data/`, each commented with its book and page:
+`dc.mjs` (level DCs and adjustments), `income.mjs`, `formulas.mjs`, `services.mjs` (spellcasting services
+and cost of living), plus `settlements.mjs` (GM Core p.53), `aid.mjs` (Player Core p.416), `materials.mjs`
+(GM Core p.253), `coins.mjs` (Player Core p.10) and `complex-crafting.mjs` (TV-R p.158). The Income Earned
+critical-success row has no failure entry in the book and holds 0. `DEGREE`, the ranks and the shared
+helpers are in `scripts/logic/core.mjs`, which also states the folder's conventions: integer copper;
+refusals as `{ok: false, reason, data}` with stable codes and no user-facing text; impossible input (a
+non-integer level, an unknown rarity) throws.
+
 ### 6.2 Craft math
 
 #### 6.2.1 DC and income
@@ -902,6 +946,12 @@ function incomePerDay(level, rank, degree) {
   return 0;
 }
 ```
+
+As built in M1 (`scripts/logic/dc.mjs`, `income.mjs`): `craftDC` returns the breakdown an order freezes as
+`order.dc`: `level` is the item level the DC is for (an upgrade's new level), `rarity` the rarity adjustment
+in DC points, `repeat` −2 or 0, `adjust` the registry adjustments plus 5 per rushed setup day, and
+`final = levelDC(level) + rarity + repeat + adjust`. The registry's `dcAdjust` and the easy-repeat history
+arrive as values (`adjust`, `madeBefore`). `incomePerDay` clamps the rank to 1-4 as well as the level to 0-20.
 
 #### 6.2.2 Planning and starting
 
@@ -953,6 +1003,26 @@ const setupDone = (o, days) => daysOf(o, days, "setup").length;      // day reco
 const setupHoursDone = (o, days) => daysOf(o, days, "setup-hours").length > 0;   // a sub-day setup (6.16.1)
 // `setup` -> `check` when setupDone >= o.setup.days && (o.setup.hours === 0 || setupHoursDone)
 ```
+
+As built in M1 (`scripts/logic/craft.mjs`, `progress.mjs`):
+
+- `planCraft` takes `batchMax`, the setup plan and the DC breakdown already computed, and the prepared item's
+  Price as `item.priceCp` for `item.per` items: preparing the ephemeral item at the recipient's size is the
+  Foundry side's job. It returns `{ok: false, reason: "quantity" | "no-price"}` instead of throwing. Under
+  free crafting the plan has `priceCp` and `upfrontCp` 0 and keeps `listPriceCp` for display; G12 still
+  needs the item's own Price.
+- A quantity whose Price rounds to 0 cp (a few pieces of ammunition priced at 1 cp for 10) is refused as
+  `no-price`.
+- Rune transfer's 1 day is a fixed setup of `craftType: "rune-transfer"`, next to Grow and Deconstruct,
+  rather than a registry override: it is the activity's own rule (GM Core p.225). `override` remains for
+  registry entries, and the Craft-like formula jobs pass their own days (6.8).
+- `planCraft` requires `batchMax` (a missing one would let any quantity through). `startOrder` refuses an
+  order that is not `accepted`, refuses a plan that `planCraft` refused with the plan's own reason, and
+  throws when the plan's Price or up-front half is not whole copper. `retryOrder` (from `failed`) commits the
+  up-front half less what the order has already expended (`expendedFromRows`, a required input): the full
+  half after a failure or critical failure, so after a critical failure the escrow must make up the ruined
+  10% first, but nothing when an earlier attempt succeeded before a crafter swap (6.2.5).
+- `setupDaysDone` and `setupComplete` are `setupDone` and the `setup` to `check` condition.
 
 #### 6.2.3 The check and extra days
 
@@ -1031,6 +1101,23 @@ function finish(order, days, ctx) {                 // allowed at any point in `
   priced 65 gp with its formula. `upfrontCp = 3250`, setup 1 day, DC 19. On a success the rate is
   100 cp/day and after 13 extra days `remainingCp = 6500 − 3250 − 1300 = 1950`; on a critical success
   the rate is 200 cp/day and the remainder after 13 days is 650.
+- **As built in M1** (`scripts/logic/craft.mjs`, `progress.mjs`):
+  - `recordCheck`, `settleCheck` and `finishOrder` return `{ok, patch, rows}`, each row `{kind, cp}` (4.6),
+    instead of writing. Zero-copper rows are left out, so free crafting and a zero remainder post nothing.
+    A check that arrives after settlement is refused with `settled` (the conflict of 6.12).
+  - `recordCheck` throws unless the degree is 0-3 and the level, rank and attempt are integers, so an
+    outcome that did not map (6.12) can never settle as a critical failure. It refuses a roll made for
+    another attempt than the order's as `stale-attempt` (checked before `settled`), since a reroll of an old
+    message can arrive after a retry or swap brought a new attempt to `check`.
+  - `settleCheck` expends, releases or ruins the amount still committed (`committedFromRows`), which is the
+    up-front half except after a crafter swap (6.2.5). That amount is a required input: no default can
+    charge a swapped order twice. A stored degree outside 0-3 throws. The alchemical hazard is a notice code.
+  - An extra-day record written while the check is recorded but not settled carries the amounts at the
+    recorded degree; a reroll before settlement does not rewrite it. Settlement normally comes first,
+    because it happens when the order's next day is resolved.
+  - Day records count once per actor, day and kind, on top of their keying, and each order record is one
+    day (`toDay` belongs to the empty spans of 4.8).
+  - `crafterRate(check, crafterToday, rateLevel, rules)` takes the registry `rateLevel` as a value.
 
 #### 6.2.4 Outcomes and refunds
 
@@ -1044,6 +1131,14 @@ function finish(order, days, ctx) {                 // allowed at any point in `
 | Finish | remainder paid from escrow | over-funding refunded |
 | Contributor actor deleted | | refund goes to the party fund; the ledger notes it |
 
+As built in M1: `cancelOrder` accepts any state but `complete`, `cancelled` and `archived` (4.2.3 lists only
+`requested`, `accepted`, `failed` and `finishing`, which would leave an order in `setup`, `check` or
+`paused` impossible to cancel), and `rolled`, which it refuses as `unsettled`: a recorded check is settled
+first, so a critical failure still ruins its 10% and a success still expends the materials, and cancelling
+cannot be used to escape a bad roll. It releases what is still committed and returns each remaining
+allocation (`allocationsByContributor`, 4.6) as a refund; both are required inputs, so a missing one cannot
+leave a commit open or skip the refunds. Sending a deleted contributor's refund to the party fund is M4.
+
 #### 6.2.5 Interpretation settings
 
 | Setting | Default | Basis |
@@ -1051,6 +1146,15 @@ function finish(order, days, ctx) {                 // allowed at any point in `
 | Interrupted setup days persist | on | RAW covers only interrupted extra days (Player Core p.237); the author decided setup days persist too |
 | Recompute the daily rate after a level-up | on | the rate uses the crafter's current level and rank; the degree stays fixed (author decision) |
 | A crafter swap restarts setup and the check | on | escrow and earmarked materials carry over (author decision) |
+
+As built in M1: `resumeOrder` with `setupInterruptionPersists` off opens a new attempt without a new
+`commit`, because nothing was released. `swapCrafter` posts no rows; with the setting off the new crafter
+simply continues the attempt. It refuses an order in `rolled` as `unsettled`, whatever the setting, so a
+swap never throws away a recorded check (a critical failure could otherwise be rerolled by a new crafter
+for free). A swap that comes after the check settled as a success finds the up-front half already
+expended, so the new attempt's settlement expends, releases or ruins only what is still committed (0 in
+that case), and a retry after the new attempt fails commits only the part of the half not yet expended (0
+again): the materials already worked into the item carry over and are not charged twice.
 
 ### 6.3 Batches
 
@@ -1073,6 +1177,11 @@ function batchMax(item, crafter, ctx, order) {
   day (GM Core p.46).
 - The 1-minute snare Craft at full Price makes one snare; it is not an order, it is a note on the
   Morning tab (Player Core 2 p.297).
+- **As built in M1** (`scripts/logic/batches.mjs`): `batchMax(item, {efficientAlchemy, pledgedCastings},
+  rules)` reads the scroll or wand kind (`item.spellcasting`, from `CONFIG.PF2E.spellcastingItems`) and the
+  registry's consumable fix (`item.consumableFix`) as plain fields. A scroll order with no castings pledged
+  yet has a batch of 0, so its quantity is checked again once pledges arrive. `splitIntoBatches` splits a
+  larger request into full batches and one smaller last batch.
 
 ### 6.4 Formula families
 
@@ -1105,6 +1214,19 @@ function batchMax(item, crafter, ctx, order) {
   Hardness, HP and BT, which is not an item bonus. The setting is a string, so a truthiness test is wrong.
 - **Renamed items.** Remaster items reuse legacy `_id`s, so a looted formula book with legacy names
   resolves by UUID first; name search goes through a legacy-to-remaster alias list in the registry.
+- **As built in M1** (`scripts/logic/families.mjs`):
+  - The grades removed from the name are Minor, Lesser, Moderate, Greater, Major, Supreme, True, Type with
+    a Roman numeral, and a potency such as (+1). Besides the list above, the pf2e 8.6.1 compendium uses
+    Supreme (reinforcing runes), Type V-VIII (spellstrike ammunition, smuggler's sack) and (+1)-(+3)
+    (weapon and armor potency, which are GM Core p.223's own example).
+  - Spell-rank suffixes ("(3rd-Rank Spell)") are not grades, so scrolls and wands of each rank are separate
+    families unless the registry joins them.
+  - The key is built from the name it is given; callers pass the untranslated compendium name, so a Babele
+    translation cannot split a family.
+  - When several known grades cover a target, `formulaCoverage` reports the one closest in level (for
+    display; the route is `family` either way).
+  - `hiddenByAbp` takes the rune's kind and whether the gear gives an item bonus as inputs; the Foundry side
+    works those out.
 
 ### 6.5 Eligibility gates
 
@@ -1126,9 +1248,39 @@ i18n keys with data (for example "needs master in Crafting; unlocks at the next 
 | G11 availability | the crafter is not locked as a helper or subject on another order | Communal Crafting |
 | G12 product rules | no artifacts; no Price means no Craft; specific items take only fundamental runes; shields only reinforcing; staves only fundamentals; property runes ≤ potency (+1 with orichalcum); one rune etched at a time per item | GM Core pp.223-225 |
 
-Reverse-engineering skips G5 and the special Craft Requirements but keeps G1-G4, G7 and G8 (Player
-Core p.294: every other requirement to Craft the item still applies); G8 is measured against half the
-formula's Price.
+Reverse-engineering and crafting a copy of a known formula skip G5 and the special Craft Requirements but
+keep G1-G4, G7 and G8 (Player Core p.294 covers both in one paragraph: the formula's Price, the item's
+Craft DC, and every other requirement to Craft the item); G8 is measured against half the formula's Price.
+Inventing keeps the same gates, since the Inventor feat works just like the Craft activity.
+
+As built in M1 (`scripts/logic/gates.mjs`):
+
+- `reason` and `unlock` are stable codes, not i18n keys, with their numbers in `data`: `untrained`/`train`,
+  `item-level`/`level`, `rank`/`rank`, `feats`/`feats`, `no-access` or `needs-formula`/`formula`,
+  `no-route`/`formula` (with the acquisition routes), `tool`/`tool`, `underfunded`/`fund` or
+  `precious`/`materials`, `checklist` or `spells`/`checklist`, `target-not-held`, `no-consent` or
+  `subject-not-locked`/`custody`, `locked`/`release`, and for G12 `artifact`, `no-price` or a rune code. The
+  interface maps the codes to keys (M4), so pure logic names no key and `tools/check-source.mjs` checks each
+  key where it is used.
+- Feats are registry slugs; a feat with a choice is `<slug>:<choice>` (`specialty-crafting:artistry`), and
+  a registry `craftUnlock` arrives as `crafter.unlocks` (`talisman` for Talisman Dabbler). An alchemical
+  talisman would also need Alchemical Crafting (none exists in pf2e 8.6.1); a magical gadget needs no feat,
+  as G4 says; a graft's expert Medicine is reported in `data.ranks`.
+- G5 counts the `known`, `family` and `virtual` routes as having the formula.
+- G7 checks for a snare before the alchemical trait (no 8.6.1 item has both). Grafts, like every other
+  non-alchemical item, need an artisan's toolkit until the registry substitutes another tool.
+- G9 takes requirements as `{key, kind: "narrative" | "cost", confirmed}` and spell supply as
+  `{spellsNeeded, spellsSupplied}`; Craft Anything waives the narrative ones and the spells, never a cost.
+- G12's rune checks apply to `rune-etch` orders: one rune at a time, shields only reinforcing runes,
+  specific items and staves only fundamental runes, property runes up to the potency value (+1 on
+  orichalcum).
+- G8 takes both amounts as required whole copper and throws on a missing one (a missing up-front amount
+  used to pass, as `0 < undefined` is false). The gate sets default a missing escrow to 0, which fails
+  safe.
+- The gate sets are `craftGates` (G1-G12), `reverseEngineerGates` (G1-G4, G7, G8, possession as G10, G11 and
+  G12's artifact and no-Price checks, since the item's own Craft requirements still apply),
+  `inventGates` (G1-G4 with Inventor, the rarity rule as G5, G7, G8, G11) and `craftCopyGates` (G1-G4,
+  knowing the formula as G6, G7, G8, G11) (6.8).
 
 ### 6.6 Precious materials
 
@@ -1145,6 +1297,11 @@ formula's Price.
 - Source: GM Core pp.252-253. Grade validity per item type (for example duskwood only for wooden items,
   tower shields only duskwood) comes from the prepared item data where the system enforces it, otherwise
   from the registry.
+- **As built in M1** (`scripts/logic/materials.mjs`): the share is computed on the order's frozen up-front
+  half (not on any larger amount contributors escrowed) and rounded up to whole copper; for a grade upgrade,
+  on the upgrade's up-front half. The grade's level cap applies to magic items and runes only; a mundane
+  item is limited by the material's level alone. Coin counts toward the share only for a common material
+  with `rules.preciousCoinForCommon` on. Every failed condition is reported, each a code with its numbers.
 
 ### 6.7 Communal Crafting and Aid
 
@@ -1192,6 +1349,21 @@ function helperRate(h, s) {
 - **Aid without the feat.** One Aid on the crafter's check, entered in the roll dialog as a
   circumstance modifier: +1 on a success, +2/+3/+4 on a critical success by the aider's rank (expert or
   lower/master/legendary), −1 on a critical failure; typical DC 15 (Player Core Aid).
+- **As built in M1** (`scripts/logic/communal.mjs`; Aid's numbers in `scripts/data/aid.mjs`, Player Core
+  p.416):
+  - A helper's amount uses the level, rank and degree stored with the helper's roll on the order
+    (`helpers.<id>`); `rules.recomputeRateOnLevelUp` is about the crafter and does not apply to helpers. A
+    helper with no degree yet contributes nothing.
+  - A helper is present from `joinedDay` to the day before `leftDay`. `leftDay` is written only when a
+    helper leaves before the Craft ends; completing the order releases helpers without it, so the
+    retroactive forfeit applies only to helpers who left early.
+  - The helper cap counts the helpers already on the order other than the one being checked.
+  - Warfare Lore is relevant by item type (`weapon`), since weapon is not a trait.
+  - Eligibility reports every failed condition as a code: `no-feat`, `not-pc`, `untrained`,
+    `irrelevant-skill`, `locked`, `cap`.
+  - A helper's entry stays on the order until it is archived: leaving writes `leftDay`, and nothing deletes
+    the entry. Should one be deleted anyway, the cost reduction treats the helper as one who left (their
+    past days forfeited while leaving is retroactive), rather than counting days nobody can account for.
 
 ### 6.8 Formula acquisition jobs
 
@@ -1201,10 +1373,10 @@ function helperRate(h, s) {
 | Buy, uncommon or rare | as above plus the surcharge setting (default 0%) | 1 hour | none | checklist: "a seller is available" (the GM's lever is the fiction) | as above |
 | Copy from an NPC | `FORMULA_PRICE[level]` | 1 hour | none | | provenance `copied-npc` |
 | Copy from an ally | free (`rules.allyCopyCostCp`, default 0) | 1 hour | none | the ally's roster lists it; the ally's owner confirms | provenance `copied-ally` |
-| Invent (Inventor) | formula Price, Craft-like (half up front, extra days reduce) | setup 2 days (`rules.inventorSetupDays`) | Crafting vs the item's Craft DC, which includes the rarity adjustment (+2 uncommon, +5 rare) | Inventor; Alchemical/Magical Crafting for those formulas; uncommon and rare only if the setting allows (default off) | provenance `invented` |
+| Invent (Inventor) | formula Price, Craft-like (half up front, extra days reduce) | setup 2 days (`rules.inventorSetupDays`) | Crafting vs the item's Craft DC, which includes the rarity adjustment (+2 uncommon, +5 rare) | Inventor; Alchemical/Magical Crafting for those formulas; G1-G3, G7 and G8 as for a Craft of the item (the feat works just like the Craft activity); uncommon and rare only if the setting allows (default off) | provenance `invented` |
 | Reverse-engineer | formula Price, Craft-like | setup 2 days; 1 with the Reverse Engineering feat (+2 circumstance) | the item's Craft DC | item possessed (on the crafter or earmarked); G1-G4, G7, G8; no access or special Craft Requirements needed | provenance `reverse-engineered`; the item is kept (Player Core p.294). There is no disassembly option: that was the legacy rule. Reverse Engineering (Scrounger) still assumes disassembly, so only its setup and bonus apply |
 | Schematic scanner | 0 | 10 minutes | none | the crafter holds a schematic scanner and the item | item not destroyed; the scanner also gives +2 to Craft stored formulas (registry `modifier`) |
-| Craft a copy of a known formula | formula Price, Craft-like | setup 1 day | Crafting vs the item's Craft DC | the crafter knows the formula | a formula claim to the recipient (5.5), applied by the recipient's own client; provenance `copied-ally` |
+| Craft a copy of a known formula | formula Price, Craft-like | setup 1 day | Crafting vs the item's Craft DC | the crafter knows the formula; G1-G4, G7, G8 as for reverse-engineering (Player Core p.294 sets both in one paragraph); access and special Craft Requirements are not needed | a formula claim to the recipient (5.5), applied by the recipient's own client; provenance `copied-ally` |
 | Feature picks owed | 0 | at level-up | none | count from the registry: Formula Book +2 per level, Alchemical Scholar +1 of the new level, Alchemist Dedication 4, Alchemical Sciences (investigator) +1 elixir or tool per level (2 with Alchemical Discoveries), Alchemical Crafting 4, Magical Crafting 4 (level ≤ 2), Munitions Crafter 4 plus black powder, Snare Crafting 4, Tattoo Artist 4 (≤ 2) and 4 more (≤ 7) at master, Graft Technician 4 (≤ 3), Snarecrafter +3 per rank, Gadget Specialist +3 per rank, Runic Crafter a property rune (of that level or lower) at 4th and every 2 levels after, Cauldron 4 (1st level) on gain, then +1 of that level or lower at 4th and every 2 levels after | provenance `granted` |
 
 - **Virtual lists** (no book needed): Talisman Dabbler (all common talismans of your level or lower,
@@ -1220,6 +1392,27 @@ function helperRate(h, s) {
   the job was done by someone who does not own the learner (a copy crafted for an ally's book), the
   completion creates a formula claim (5.5) and the learner's responsible client applies it, so nothing
   waits for the learner to be online and no client writes an actor it does not own.
+- **As built in M1** (`scripts/logic/formula-jobs.mjs`; prices in `scripts/data/formulas.mjs`):
+  - Items above level 20 use the level-20 formula Price, the last the table lists.
+  - Surcharges round up to whole copper; a unique formula takes the rare surcharge. Copying from an NPC
+    costs the table Price with no surcharge, as the table above says, but an uncommon or rarer formula
+    needs the same "a seller is available" checklist item as buying.
+  - Inventing applies G1-G4 (trained, item level, proficiency, Inventor and the item's crafting feat), the
+    rarity rule (common; uncommon and rare with `rules.inventorRarity`; unique never), G7, G8 against half
+    the formula Price and G11. The tool gate is an interpretation: the feat "works just like the Craft
+    activity", and the only difference it names is that the extra days go to research and design rather
+    than making, so the Craft's tool requirement (an alchemist's lab for an alchemical formula) stays.
+    Crafting a copy of a known formula applies G1-G4, that the formula is known, G7, G8 against half the
+    formula Price and G11: Player Core p.294's requirement sentence follows both crafting a copy and
+    reverse-engineering, as the Price and DC sentence before it does.
+  - Every Craft-like formula job's DC is the item's `craftDC` without the easy-repeat adjustment. The
+    Reverse Engineering feat's +2 comes back as `bonus` for the roll wrapper (M3).
+  - The schematic scanner is a route of its own (`scanner`, provenance `reverse-engineered`), offered when
+    the crafter holds a scanner and the item.
+  - `formulaRoutes` shows only the Craft route when the crafter has the formula (known, family or virtual),
+    and otherwise `none` (when open) followed by every acquisition route.
+  - Feature picks owed and the virtual lists are registry data (6.11) and arrive with the registry in M3;
+    until then callers pass `virtual` to `craftRoute`.
 
 ### 6.9 Casting pledges
 
@@ -1264,7 +1457,8 @@ function helperRate(h, s) {
   The system dialog doubles without checking rank (verified), another reason to own the roll.
 - **Resume.** After a pause, a good roll is kept; re-rolling is allowed only if the earner's level or
   rank changed (Player Core p.228).
-- **Pay.** One `wage` row per job per day, key `wage:<jobId>:<day>`. The earner's responsible client
+- **Pay.** One `wage` row per job per day, key `wage:<jobId>:<day>:<seq>` (the correction sequence of
+  4.6), with the day in the row's `day`. The earner's responsible client
   mints the coins into the purse; anyone else resolving the day creates a wage claim (5.5). A day
   resolved twice, or by two clients at once, never pays twice: the earner's direct mint and the claim
   share one lock, keyed by the row (5.4).
@@ -1274,6 +1468,23 @@ function helperRate(h, s) {
 - **Cost of living** (Player Core p.295) can be deducted per week after income (setting, default off;
   GM Core p.50 suggests it only for long stretches).
 - **Cooking Lore** jobs are ordinary Lore jobs.
+- **As built in M1** (`scripts/logic/earn-income.mjs`; tables in `scripts/data/settlements.mjs` and
+  `scripts/data/services.mjs`):
+  - A settlement profile is `{size, level, caps: {[skill]: max}}`. A skill's cap is its own entry, else the
+    profile's level, and a new profile starts at the top of its size's range (village 1, town 4, city 7,
+    metropolis 10).
+  - The earner's own level does not cap the task level: neither the book nor this section does, although
+    the system dialog stops at the actor's level. With no profile any level from 0 to 20 is allowed and the
+    job is marked unconfirmed (OQ-17).
+  - A Lore is any skill slug ending in `-lore`.
+  - `wagePerDay` takes the degree after the system's rule elements have run (Experienced Professional's and
+    the Tradecraft Tattoo's critical failure to failure) and never converts it again; the doubling reads the
+    unadjusted degree.
+  - Days paid are the distinct `day`s of the job's `wage` rows that have not been reversed (`liveRows`, 4.6).
+    `wageKey(jobId, day, seq)` requires the sequence, and `wageSeq` derives it: how many of that job's wages
+    for the day have been reversed. A wage day undone and paid again therefore gets a new key and lock page.
+  - Cost of living is a table lookup by standard and period; how many weeks a stretch is charged is the
+    day resolver's (M6).
 
 ### 6.11 Rules registry
 
@@ -1364,7 +1575,7 @@ async function rollCraft(order, crafter, ctx) {
     "action:craft",
     ...item.getRollOptions("item"),
     ...ctx.registry.rollOptions(crafter, item, order),   // Specialty Crafting bare choice, trade tags, item:tag:food
-    `${MOD}:order:${order.id}`,                          // survives Hero Point rerolls inside flags.pf2e
+    `${MOD}:order:${order.id}:${order.attempt}`,         // survives Hero Point rerolls inside flags.pf2e
   ];
   return crafter.skills[order.skill].roll({
     dc: { value: order.dc.final, label: game.i18n.localize("MOD.Roll.CraftDC") },  // explicit: the macro drops rarity
@@ -1380,10 +1591,11 @@ async function rollCraft(order, crafter, ctx) {
 // Recording, first roll and rerolls alike. Fires on every client; the message author records.
 Hooks.on("createChatMessage", (message) => {
   const ctx = message.flags?.pf2e?.context;
-  const id = ctx?.options?.find((o) => o.startsWith(`${MOD}:order:`))?.split(":").pop();
-  if (!id || message.author?.id !== game.user.id) return;
+  const link = ctx?.options?.find((o) => o.startsWith(`${MOD}:order:`));
+  if (!link || message.author?.id !== game.user.id) return;
+  const [id, attempt] = link.slice(`${MOD}:order:`.length).split(":");
   recordCheck(id, {                       // DEGREE_FROM maps pf2e outcome strings ("criticalFailure".."criticalSuccess") to 0..3
-    degree: DEGREE_FROM[ctx.outcome], unadjusted: ctx.unadjustedOutcome,
+    degree: DEGREE_FROM[ctx.outcome], unadjusted: ctx.unadjustedOutcome, attempt: Number(attempt),
     rerolled: !!ctx.isReroll, messageId: message.id, total: message.rolls[0]?.total,
   });
 });
@@ -1395,6 +1607,11 @@ Hooks.on("createChatMessage", (message) => {
 - On a reroll, pf2e deletes the original message and creates a new one carrying only `flags.core` and
   `flags.pf2e`; module flags on the message are lost, which is why the order link is a roll option.
   `pf2e.reroll` is not used: it fires on the rerolling client before the new outcome is computed.
+- The link names the attempt as well as the order, because an old message can be rerolled at any time:
+  a reroll of attempt N's message that arrives after a retry, a crafter swap or a new-attempt resume has
+  brought attempt N + 1 to `check` would otherwise be recorded as the new attempt's check. `recordCheck`
+  refuses it as `stale-attempt`. `recordCheck` also throws on an outcome that did not map to a degree, so
+  such a message is never recorded and can never settle as a critical failure.
 - pf2e lets the message author or a GM reroll (verified, `check.ts`), and a GM reroll is recorded by the
   GM's client, since the new message's author is the rerolling user.
 - Recording is separate from settlement (4.2.3). The first record moves the order to `rolled` and posts
@@ -1622,6 +1839,11 @@ function complexExtraDay(order, day, ctx) {               // wraps extraDayRecor
   below and at 5; the flat-check DC with and without Proficiency without Level (a legendary 15th-level
   crafter rushing a 15th-level item: DC 2 either way, not 17 under Proficiency without Level); a run of
   mixed rushed and normal days.
+- **As built in M1.** `complexSetup` (Table 5-1, the formula day, the rush caps, the sub-day hours and
+  Quick Setup) is in `scripts/logic/complex.mjs`, with its numbers in `scripts/data/complex-crafting.mjs`,
+  because `setupPlan` (6.2.2) calls it. It returns the rush actually applied after the caps, and `quick` is
+  true only when Quick Setup set the hours: a Quick Setup crafter whose setup stays at a day or more gets
+  `quick: false`. `rushedFinishDC`, `complexExtraDay` and the flat check remain M9a.
 
 #### 6.16.2 Crafting items with adjustments (TV-R p.159)
 
@@ -3245,6 +3467,13 @@ member may change (6.10).
 Settings with values that are interpretations show a small "interpretation" badge wherever they change
 a number, linking to the setting.
 
+As built in M1: the defaults the rules engine reads are `DEFAULT_RULES` in `scripts/logic/defaults.mjs`, keyed
+without the `rules.` prefix (`rules.communal.helperCap` is `communal.helperCap`) and with the variant switches
+of 14.4 under `variants`; settings registration (M2) takes its defaults from there. `rules.communal.*` is
+`helperDc` (`"item"`, its only value so far), `helperCritUsesNextRow` (on), `helperFailUsesFailColumn` (on),
+`helperLeaveRetroactive` (on), `helperCap` (0: none) and `countHelpersWithoutFeat` (off). Surcharges are whole
+percents.
+
 ### 14.3 Client and user settings
 
 | Key | Scope | Default |
@@ -3370,6 +3599,15 @@ World settings unless marked U.
     `templates/chat/`, and every quoted `MOD.Xxx` i18n key in `scripts/`, `macros/` and `templates/`
     defined in `lang/en.json`. The strings gate (16.4) rejects a `lang/en.json` key whose first segment
     after `MOD.` is not capitalised, which is what tells keys apart from hook and query names.
+- As built in M1: the rules core is `scripts/logic/` (`core`, `defaults`, `dc`, `income`, `craft`, `complex`,
+  `progress`, `batches`, `families`, `gates`, `materials`, `communal`, `formula-jobs`, `earn-income`, `coins`,
+  `split`) over the tables in `scripts/data/`, tested by `test/logic/*.test.mjs`. Every table row is checked
+  against the book, transcribed a second time in its own units; with `PF2E_SRC` set, the DC and Income Earned
+  tables are also compared with pf2e's `dc.ts`, `EarnIncomeDialog.REWARDS_BY_LEVEL` and the Earn Income
+  compendium text. The coin planner is checked against a line-for-line transcription of pf2e's
+  `removeCurrency` on 5,000 seeded random purses, and strongbox plans for value conservation and no updates
+  on 1,000 random boxes. A purity test checks that `scripts/logic/` imports only itself and `scripts/data/`,
+  that `scripts/data/` imports nothing, and that every module loads in Node.
 - Development runs set `CONFIG.compatibility.mode` to FAILURE with `includePatterns` for this module. A
   development run is a world with the hidden `dev` setting on (14.3). Core matches the patterns against
   the whole stack, so any deprecation warning whose stack passes through this module's files throws,

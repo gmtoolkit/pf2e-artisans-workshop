@@ -4,7 +4,8 @@ A Foundry VTT module for the Pathfinder Second Edition system: one place to run 
 alchemist or crafter, and the party that leans on them.
 
 **Status: early development.** Nothing installable yet: the repository has the M0
-scaffold (manifest, tooling, CI) and no features. The specification is `DESIGN.md`;
+scaffold (manifest, tooling, CI) and the M1 rules core (pure crafting and Earn Income
+rules with tests), which nothing in Foundry uses yet. The specification is `DESIGN.md`;
 decisions land in `DECISIONS.md`.
 
 ## What it is for
@@ -56,10 +57,11 @@ gate in report mode.
 
 Layout: `scripts/` is the shipped code (`module.mjs` is the entry); `lang/` holds the
 strings and `lang/review/` their sign-off hashes; `tools/` holds the dev scripts and
-`tools/harness/` the fixture actors, neither shipped; `test/` the tests. Later milestones
-add `scripts/logic/` (pure rules, no Foundry globals), `scripts/data/`, `templates/`,
-`styles/` and `macros/` (copy-paste macros; the lint rules and key check already cover
-that folder).
+`tools/harness/` the fixture actors, neither shipped; `test/` the tests. `scripts/logic/`
+is the rules engine (pure functions with no Foundry or browser globals, so `node --test`
+imports it directly; tests in `test/logic/`) and `scripts/data/` its numeric tables, each
+cited by book and page. Later milestones add `templates/`, `styles/` and `macros/`
+(copy-paste macros; the lint rules and key check already cover that folder).
 
 Local Foundry harness: symlink the checkout into `Data/modules/`, enable the module in a
 test world, and as GM run `await game.settings.set("pf2e-artisans-workshop", "dev", true)`
