@@ -28,6 +28,7 @@
  *   clock, while `serverTime` follows the server's, as core's `GameTime#serverTime` does (the server time at the last
  *   sync plus the client's elapsed time, `client/helpers/time.mjs`), so a client whose clock is wrong still has it.
  * - `game.socket`, connected; `world.disconnect()` drops the connection for a moment, as socket.io reports it.
+ * - two clients at once: `interleave` lets another client's work (`asUser`) reach the server ahead of a request.
  *
  * `installFoundry()` sets the globals once per test file; `resetWorld()` empties the world before each test.
  */
@@ -349,6 +350,34 @@ export function controlClock(t, server = Date.now()) {
     t.mock.method(Date, "now", () => clock.server + clock.skew);
     world.clock = clock;
     return clock;
+}
+
+/** `action` run as `user` (another client), to the end, then back to the user who was current. */
+export const asUser = (user, action) => async () => {
+    const me = world.currentUser;
+    world.currentUser = user;
+    try {
+        return await action();
+    } finally {
+        world.currentUser = me;
+    }
+};
+
+/**
+ * Two clients racing to the server: hold the first request `match` picks out at the server's door, run `first`
+ * (another client's work, e.g. `asUser`) to the end, then let the request through, so `first` gets there first.
+ * Every client then has a coin mutex of its own, as two devices do. Returns a function that puts the server back.
+ */
+export function interleave(match, first) {
+    Object.defineProperty(globalThis, "navigator", { value: { locks: { request: (_name, task) => task() } }, configurable: true });
+    const real = globalThis.foundry.documents.modifyBatch;
+    let held = false;
+    globalThis.foundry.documents.modifyBatch = (operations) => {
+        if (held || !match(operations)) return real(operations);
+        held = true;
+        return first().then(() => real(operations));
+    };
+    return () => { globalThis.foundry.documents.modifyBatch = real; };
 }
 
 /** Drop the connection for a moment: socket.io's "disconnect", which clears every acknowledgement in flight. */

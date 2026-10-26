@@ -28,9 +28,14 @@ export function isResponsibleFor(actor) {
     return holdsLease() && responsibleUserIdFor(actor) === game.user.id;
 }
 
+/** The id of the user who performs shared-document writes caused by a change `userId` made, or null. */
+export function responsibleUserIdForShared(userId) {
+    return responsibleUserForShared(userId, world());
+}
+
 /** Whether this tab performs shared-document writes caused by a change `userId` made. */
 export function isResponsibleForShared(userId) {
-    return holdsLease() && responsibleUserForShared(userId, world()) === game.user.id;
+    return holdsLease() && responsibleUserIdForShared(userId) === game.user.id;
 }
 
 /** Whether this tab is the elected one for timer-driven shared work (migrations). */

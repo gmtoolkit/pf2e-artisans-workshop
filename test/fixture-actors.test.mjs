@@ -1,7 +1,8 @@
 /**
  * The Foundry side of the fixture tools, against small fakes of the documents it touches: it refuses
  * to run outside a dev world, builds a character level by level with its choices filled in, only
- * rebuilds existing fixtures when asked, and cleans up after a failed build.
+ * rebuilds existing fixtures when asked, cleans up after a failed build, and marks what it makes
+ * (actors and their folder) outside the module's own flags.
  */
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
@@ -11,6 +12,7 @@ import { CLASS, FEAT, FEATURE, FIXTURES } from "../tools/harness/fixtures.mjs";
 
 let calls;
 let worldActors;
+let worldFolders;
 let tables;
 /** The compendium documents `fromUuid` has loaded, by UUID: like a pack's cache, it returns the same copy each time. */
 let loaded;
@@ -57,13 +59,28 @@ function fakeActor(source) {
     return actor;
 }
 
-/** Foundry globals for the tools. `rules` gives the rule elements of compendium items by UUID. */
-function stubFoundry({ dev = true, isGM = true, missing = [], rules = {} } = {}) {
+/**
+ * Foundry globals for the tools. `rules` gives the rule elements of compendium items by UUID; `folders` the world's
+ * actor folders (by default one marked as the fixtures' folder, "folder1"), to which `Folder.implementation.create`
+ * adds.
+ */
+function stubFoundry({ dev = true, isGM = true, missing = [], rules = {}, folders = [{ id: "folder1", type: "Actor", flags: { world: { [`${MODULE_ID}-fixtures`]: true } } }] } = {}) {
+    worldFolders = folders;
     globalThis.game = {
         settings: { get: (namespace, key) => (namespace === MODULE_ID && key === "dev" ? dev : undefined) },
         user: { isGM },
         actors: Object.assign(worldActors, { fromCompendium: (doc) => ({ name: doc.name, type: "npc", flags: {} }) }),
-        folders: { find: () => ({ id: "folder1" }) },
+        folders: { find: (test) => worldFolders.find(test) },
+    };
+    globalThis.Folder = {
+        implementation: {
+            create: async (data) => {
+                calls.push(["createFolder", data]);
+                const folder = { id: `folder${worldFolders.length + 1}`, ...data };
+                worldFolders.push(folder);
+                return folder;
+            },
+        },
     };
     loaded = new Map();
     const compendiumDoc = (uuid) => ({
@@ -178,6 +195,23 @@ test("fixtures are marked outside the module's own flags, and found by their mar
     calls = [];
     assert.deepEqual((await fixtures.create({ only: ["rogue-poisoner-6"] })).map((row) => row.status), ["kept"]);
     assert.deepEqual(calls, []);
+});
+
+test("the fixtures' folder is created marked outside the module's flags, and found again by that mark or the older one", async () => {
+    stubFoundry({ folders: [{ id: "other", type: "Actor", name: "Workshop fixtures", flags: {} }] });   // not ours: no mark
+    await fixtures.create({ only: ["npc-ordinary"] });
+    const created = calls.filter(([kind]) => kind === "createFolder").map(([, data]) => data);
+    assert.equal(created.length, 1);
+    assert.deepEqual([created[0].type, created[0].flags], ["Actor", { world: { [`${MODULE_ID}-fixtures`]: true } }], "a purge leaves this mark be");
+    assert.equal(worldActors[0].source.folder, worldFolders.at(-1).id, "the fixture goes into it");
+    calls = [];
+    await fixtures.create({ only: ["wizard-9"] });
+    assert.equal(calls.filter(([kind]) => kind === "createFolder").length, 0, "found again by its mark");
+    stubFoundry({ folders: [{ id: "old", type: "Actor", flags: { [MODULE_ID]: { fixtures: true } } }] });   // made before the marks moved
+    calls = [];
+    await fixtures.create({ only: ["cleric-5"] });
+    assert.equal(calls.filter(([kind]) => kind === "createFolder").length, 0);
+    assert.equal(worldActors.at(-1).source.folder, "old");
 });
 
 test("a failed build removes the half-built actor and throws the build error", async (t) => {

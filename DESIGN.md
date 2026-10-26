@@ -526,15 +526,23 @@ rows.<id> = {
   report gives expected and actual coins, their difference, the pending rows, `stalled`: those pending
   longer than `PENDING_GRACE_MS` (60 s, by the server's clock, 4.1), since a younger one may belong to a batch
   still in flight on another client, and `lockedStacks`: strongbox coin stacks a move locked to spend but that
-  are still there (it stopped part-way); no move plans with them again (5.4), so a GM resolves them. A GM's
-  `adjust` row books the difference into the strongbox and the party fund; its key comes from the state it
-  corrects (the expected and actual coins and the ids of every row, `adjustNonce`), so two GMs, or a double
-  click, booking the same difference write one row. Each user hears once per session about their own stalled
-  rows. A stalled `delivered` row is finished by the recipient's responsible client: settled if the item
-  (flagged `flags.MOD.delivered.row`) arrived, otherwise re-created from the snapshot in the row
-  (`items[0].source`), with the shelf item deleted in the same move if it is still there. The delivery's own
-  lock pages exist, so the re-creation locks `recreate:<row id>` (hashed), and happens once. The Party-stash alternative is not built yet: the party's own coins would share the stash
-  with the Workshop's, which changes what reconciliation compares, so it comes with the Funds tab (M4).
+  are still there (it stopped part-way); no move plans with them again (5.4), so a GM resolves them. Every pending
+  row is in exactly one of three states (`pendingState`, 5.4 As built: Closing by hand): `inFlight`, which a request
+  may be applying right now (every row younger than the grace time is); `resumable`, which the module finishes by
+  itself (a coin move a connected user's client may resume, a delivery one re-creates); and `needsHand`, for their
+  author or a GM to close. A GM's `adjust` row books the difference into the strongbox and the party fund; its key
+  comes from the state it corrects (the expected and actual coins and the ids of every row, `adjustNonce`), so two
+  GMs, or a double click, booking the same difference write one row. A close and an adjust act only on rows that
+  need a hand: the in-flight and resumable rows are still owed by their own move, so a close of one is refused and the
+  adjust leaves their coins out of the difference (`owedBoxCp`) and their marks alone; for a row that needs a hand,
+  either takes the mark a late request would take, so only one of them lands. Each user hears once per session about
+  their own rows that need a hand, as soon as they do. A stalled `delivered` row is finished by the recipient's
+  responsible client: settled if the item (flagged `flags.MOD.delivered.row`) arrived, otherwise re-created from the
+  snapshot in the row (`items[0].source`), with the shelf item deleted in the same move if it is still there. The
+  delivery's own lock pages exist, so the re-creation locks `recreate:<row id>` (hashed), and happens once; a close
+  of the row by hand, once it needs a hand, takes the same lock, so the two never both land. The Party-stash
+  alternative is not built yet: the party's own coins would share the stash with the Workshop's, which changes what
+  reconciliation compares, so it comes with the Funds tab (M4).
 
 ### 4.8 Downtime: workshop days, per-PC status and day records
 
@@ -684,7 +692,7 @@ says so once per session (`scripts/foundry/state.mjs`, `sync.mjs`).
 | World settings | world | feature toggles, rules-gap settings, settlement profiles, ids of the shared documents | GM and assistant GMs (`SETTINGS_MODIFY`) |
 | **Workshop ledger** | a JournalEntry created by the module, default ownership OWNER, in a "module data" folder | `meta` (current settlement, manual day log, day offset, archive and migration locks), `orders`, `services`, `rows`, `claims`, `pcs`, `days`, `jobs`, `roster`, `formulas`, `standing`, `gardens`, `afflictionDefs`, `ext` | every player |
 | Ledger archive pages | JournalEntryPages inside the ledger | archived orders, rows and day records as flags | every player (page creation needs OWNER of the parent journal, which players have) |
-| Lock pages | JournalEntryPages inside the ledger, `_id` = the id of what they lock (a row, a strongbox item, a purse coin stack at one version, a coin move's apply request) | nothing but the lock stamp, and on a coin move's first row the move itself, for a resume (5.4); their existence is the lock | every player |
+| Lock pages | JournalEntryPages inside the ledger, `_id` = the id of what they lock (a row, a strongbox item, a purse coin stack at one version, a coin move's apply request, a lost delivery's re-creation) | the lock stamp (`lock`); on a coin move's first row, also the move itself (`move`), for a resume (5.4, As built: Resume); and a lock page may carry `hand: {kind, row}`: an apply mark or re-creation lock taken by a close by hand (`kind` "close", `row` the row closed) or a GM's adjust ("adjust", `row` the adjust row) for a row that needed a hand, so reconciliation knows no request is behind it (5.4, As built: Closing by hand); their existence is the lock | every player |
 | **Strongbox** | a pf2e `loot` Actor created by the module, then updated to default ownership OWNER (5.2) | escrowed coins, earmarked materials, shelf items | every player |
 | PC actor flags | each character | loadouts, per-character preferences | the PC's owner |
 | Item flags | items | expiry stamps, inert marks, DC stamps, affix records, crafted-by stamp, coatings, affliction run state, components, gift bindings | the item's owner |
@@ -864,7 +872,9 @@ results.
    refused dry run does not commit on the client either (As built, Dry-run replay). A move that stops
    after its lock leaves a pending row whose lock is already held; its author or a GM closes it, booking
    an `adjust` if the coins are not right. A move whose apply request never reached the server at all is
-   resumed instead (As built, Resume).
+   resumed instead (As built, Resume). A close or an adjust acts only on a row that needs a hand: it leaves alone a
+   move that is in flight or that the module resumes, and takes the mark of one that needs a hand, so only one of
+   them and a late apply request lands (As built, Closing by hand).
 4. **Settle.** The apply request's last operation sets the rows to `"applied"`. Reconciliation (4.7) lists
    rows still pending, locked stacks still there, and balance mismatches, for the author to retry or a GM
    to `adjust`.
@@ -904,7 +914,8 @@ As built in M2 (`scripts/logic/lock-first.mjs`, `scripts/foundry/batch.mjs`, `mo
   by, at}` for reconciliation, and are set back to `pending` only when the request went out without an operation
   the client dropped, "shrunk", since only then can the settle have applied; otherwise the rows are still pending
   on the server, and writing that again could undo a resume's settle); "taken" (the lock and rows are written, and
-  another client's resume sent the apply request first: this one was refused at the apply mark, see Resume);
+  another client's resume sent the apply request first, or a close or an adjust took its mark: this one was refused
+  at the apply mark, see Resume and Closing by hand);
   "error" (the client could not build or send it, nothing applied); "unknown" (the answer was lost with the
   connection, or never came: see Answers; the client goes stale, since the move may have applied or yet apply).
   Each result also says which request (`phase`) and why (`reason`: "locked", "gone", "dry-run", "first",
@@ -947,11 +958,57 @@ As built in M2 (`scripts/logic/lock-first.mjs`, `scripts/foundry/batch.mjs`, `mo
   writer who owns it. The resume runs inside the coin mutex and judges the move again there; a resume that does
   not come back "ok" is not tried again until the client reloads. A resume's apply request refused at the mark
   ("locked" before sending, "first" in the server's real pass, or a dry-run refusal once the mark has reached this
-  client) is "taken": another client sent it first. As built (live harness, behaviour `resume`, which drops the
-  connection as the lock request's answer arrives): after a reload Player One's two devices resumed the move at
-  the same moment, 60.5 s after it was stamped; one applied it and the other was refused at the mark in the
-  server's dry run, showing core's error toasts as any lock race does; with Player One gone, the GM's client
-  resumed it. Either way the coins moved once.
+  client) is "taken": another client sent it first, or a close or an adjust took the mark. As built (live harness,
+  behaviour `resume`, which drops the connection as the lock request's answer arrives): after a reload Player One's
+  two devices resumed the move at the same moment, 60.5 s after it was stamped; one applied it and the other was
+  refused at the mark in the server's dry run, showing core's error toasts as any lock race does; with Player One
+  gone, the GM's client resumed it. Either way the coins moved once.
+- **Closing by hand** (`resolvePending` in `money.mjs`, `bookAdjustment` in `reconcile.mjs`, `pendingState` in
+  `scripts/logic/reconcile.mjs`). Every pending row is in exactly one of three states, judged from the client's copies:
+  - **in flight**: a request may be applying it right now. The row is younger than `PENDING_GRACE_MS` (its move's own
+    apply request may still land), or a request took its mark less than that ago (a resume, a re-creation, or the
+    move's own apply request answered late), or a request for it was refused at its dry run less than that ago.
+  - **resumable**: the module finishes it by itself, and nobody has taken its mark. For a coin move, `resumeDecision`
+    says "resume" and some connected user's client may resume it (`resumerOf`, the rules of Resume above applied to
+    every user, each user's lease-holding tab taken to be there): a move only a disconnected user could resume, or
+    whose author is connected but no longer owns the purse, is not resumable. For a lost delivery (4.7), it has its
+    snapshot and recipient, and a connected user is responsible for the recipient.
+  - **needs a hand**: anything else. A request was answered and noted `stopped`; a request took the mark more than
+    the grace time ago; nobody connected may resume it; the recipient's client failed to re-create a delivery (it
+    notes the row "error", since it does not try again until it reloads); or a close or an adjust took the mark
+    (`hand` on its page), which leaves nothing behind it that could land.
+
+  A close and a GM's adjust act only on rows that need a hand. An in-flight or resumable row is still owed by its own
+  move: a close of one is refused ("in-flight" or "resumable"), since ending a move that would still land is a
+  cancellation (a move that should not have happened is undone with a reversal, 4.6, once it has landed); the adjust
+  leaves its coins out of the difference and its mark alone, booking `differenceCp + owedBoxCp`, so once the move lands
+  the coins and the rows agree, and should it come to need a hand its difference shows then. When that leaves nothing
+  to book, the adjust is refused ("in-flight" while such a row that changes the strongbox is in flight, else
+  "resumable"); coins dragged in by hand that match what such a move will bring are booked although the report
+  balances. For a row that needs a hand a late request can still land (the move's own apply request on a busy server,
+  or a resume once someone may resume it again), so the close, and the adjust for each such row that changes the
+  strongbox (`box` not 0), take that row's mark if nobody has (the apply mark, or for a `delivered` row the lock its
+  re-creation takes, `recreateLockId`), flagged `hand: {kind, row}`, in the same request as their ledger write.
+  Whichever of the two reaches the server first lands, and the other is refused at the mark ("taken": nothing written,
+  or nothing applied). A close closes every pending row of that move, whose coins one request moves; the adjust leaves
+  them pending, for their author or a GM to close. A row with no automatic path, or whose mark exists already, is
+  closed with a plain write. Both run in the coin mutex, so they wait for this client's own move or resume under way.
+
+  Why: the verifier's probes found a close and an adjust unarbitrated against a resume (a close landing while a resume's
+  apply request was on its way left the coins moved and the row closed by hand), and then, once both took the mark of
+  any move, that they cancelled moves the module would have finished: the move never applied but its row still counted
+  in the expected coins and in the member balances (5.9), so a pledger was credited coins she never paid. A dry-run
+  refusal counts as in flight because losing a race at a mark can look like one: the 14.368 server tells the other
+  clients about a request's changes only once its last operation has applied (`#r` in
+  `dist/database/backend/server-backend.mjs` broadcasts after the loop), while it answers a loser refused at its dry run
+  as soon as that dry run ends, so the loser may note its rows "stopped" while the winner's mark and settle are still on
+  their way.
+
+  A user is told about their own rows only once they need a hand, so the device that loses a resume race does not say
+  that a move it just saw applied did not finish (the live `resume` check asserts no module warning on any client once
+  the move is stranded). An in-flight row changes state with time alone, so the notice says when to look again
+  (`pendingDueInMs`) and the sweep comes back then: a resume that stops part-way, or is refused at its dry run, is
+  reported to its author in that session when its in-flight window ends, not at the next unrelated event.
 - **Dry-run replay.** When the server's dry run refuses a request it answers with the dry-run results of
   every operation, and the requesting client processes those that passed as if they had happened
   (`#handleModifyDocumentBatch` in `client/data/client-backend.mjs` does not look at `dryRun`), on that client
@@ -993,7 +1050,7 @@ becomes a claim that the target's owner client applies.
 
 | Claim | Created by | Content | Applied by | Application |
 |---|---|---|---|---|
-| Delivery | crafter's client at completion | a shelf item in the strongbox | recipient's responsible client | one lock-first move (5.4): lock the `delivered` row and the shelf item and write the row with the item's source snapshot, then delete the shelf item and create the item on the recipient. If the move stops after its lock, reconciliation re-creates the item from the snapshot (4.7). |
+| Delivery | crafter's client at completion | a shelf item in the strongbox | recipient's responsible client | one lock-first move (5.4): lock the `delivered` row and the shelf item and write the row with the item's source snapshot, then delete the shelf item and create the item on the recipient. If the move stops after its lock, reconciliation re-creates the item from the snapshot (4.7); only once nobody connected can, its author or a GM closes the row by hand, taking the re-creation lock (5.4, As built: Closing by hand). |
 | Refund | whoever cancels or completes | a `claims.<id>` entry `{actor, cp, order}` | the contributor's responsible client | `refund` row and coin move strongbox to purse |
 | Wage | wizard runner for a PC they don't own | `claims.<id>` `{actor, cp, job, day}` | the earner's responsible client | coins minted into the purse, `wage` row |
 | Formula | the crafter's client when a formula job for someone else's book completes (6.8), or a `formula-copy` service (4.5) | `claims.<id>` `{actor, uuid, provenance, order}` | the learner's responsible client | appends `{uuid}` to its own `_source.system.crafting.formulas`, writes provenance (4.13), fires `formulaAcquired` |
@@ -1021,7 +1078,10 @@ becomes a claim that the target's owner client applies.
   resolved without moving anything, unless the move that wrote the row resolved it already (with its lock), whose
   resolution and author stand. A claim is resolved with its move's lock request, so a move whose lock request
   landed and whose apply request never did leaves the claim resolved with nothing paid: the claim sweep leaves it,
-  and the resume step (5.4, As built: Resume) completes the move. The sweep runs at `ready`, when the lease
+  and the resume step (5.4, As built: Resume) completes the move. While that move is in flight or resumable, a close
+  by hand or a GM's adjust leaves it alone; once it needs a hand (nobody connected may resume it, or it stopped), its
+  author or a GM closes the row, and the close takes the move's apply mark, so a resume cannot pay the claim later as
+  well (5.4, As built: Closing by hand). A lost delivery is the same with its re-creation lock in place of the mark. The sweep runs at `ready`, when the lease
   passes to a tab, when any user connects or disconnects (`userConnected` fires on every other client), when a
   move it waits to resume is due, and shortly after the
   ledger's `claims` change or a shelf item appears. Every client reacts to the same change, so each waits its
@@ -1173,6 +1233,42 @@ change visible instead: every row and record names its author; nothing is silent
 reversals are new rows; the Funds tab and the order log show who did what and when; and the user who
 made a transition, or a GM, can undo it. Client-side checks (field ownership, deletion guards)
 prevent accidents, not determined tampering.
+
+### 5.11 Follow-ups
+
+Low findings from the M2 hardening rounds, left for a later change:
+
+- **Socket lint rule** (`workshop/no-game-socket`, 15.1). A `function` listener that calls `this.emit` and a bare
+  `off("disconnect")` are reported (probed): a listener must be an arrow, whose `this` is never the socket. Still not
+  caught: a listener variable declared without a value and used before its first assignment is `undefined` at the
+  call, so `game.socket.off("disconnect", f)` then removes every "disconnect" listener, core's included; and, as
+  before, a computed name the rule cannot read, or a copy of `game` under another name.
+- **Untested adjust guards.** No test fails without `bookAdjustment`'s own `canWrite` check ("not-ready"; `postRows`
+  still refuses a difference, so only the "balanced" answer differs) or without its de-duplication of marks (a move of
+  several rows that needs a hand would name one lock page twice in a request); nor without `postRows`' "already"
+  answer when marks are given.
+- **A resume that ends "error"** (its apply request could not be built or sent) is not tried again on that client
+  until it reloads, and leaves no note on its rows, so every client still reads the move as resumable: a close is
+  refused and its author is not told until then. Noting the rows "error", as a failed re-creation does, would make it
+  need a hand.
+- **A stale author.** A move only its connected but stale author may resume reads as resumable on every client until
+  that author reloads, as their client asks them to; until then a GM can neither close it nor book its difference.
+- **Fixed after the list was written: an adjust in an in-flight window.** A request that stopped part-way after moving
+  strongbox coins is in flight for the grace time after it took its mark, and an adjust booked then credited the party
+  fund with coins the move had already moved. `bookAdjustment` now refuses ("in-flight") while any strongbox row in
+  flight holds its move's mark (test: "an adjust is refused while a strongbox move that holds its mark is in flight").
+- **Item delivered twice (priority for M4, when deliveries get real use).** A lost delivery's re-creation and the
+  original delivery's late apply request share no lock. pf2e's client drops a delete of an item that is already gone,
+  so the re-creation can create the item a second time. Give both the same lock page before M4 ships the queue.
+- **Two clock reads near the grace boundary.** `pendingPaths` reads the clock inside `decide` and `pendingState` reads
+  it again, in `resolvePending` and in the report. Within a millisecond of the 60 s boundary a close can take the mark
+  of a move about to resume (no coins move twice). Pass one `now` through.
+- **Notice timing for direct moves.** A move a user starts directly that stops schedules no follow-up sweep, so its
+  author's notice waits for the next sweep event; the caller does get "stopped" back.
+- **Socket lint rule, readable computed names.** `const k = "socket"; game[k]` is not reported, though the name is
+  readable.
+- **Test hygiene.** The tests that hold a move's apply request at a busy server's door leave it held when an assertion
+  fails, so a failing run waits out `ANSWER_LIMIT_MS` (5 minutes) before its file ends.
 
 ---
 
@@ -3894,11 +3990,16 @@ World settings unless marked U.
     globals `eslint.config.mjs` lists (the browser globals it needs, and the Foundry globals that Foundry
     14.368's `client/client.mjs` assigns without a deprecation warning), so every v15-removed alias, the
     AppV1 classes, `MeasuredTemplateDocument`, jQuery, `libWrapper`, `socketlib` and
-    `requestAnimationFrame` fail `no-undef`. On top of that: `foundry.appv1`, and `game.socket` however it is
-    reached (a local rule, `workshop/no-game-socket`: dot or computed access, destructuring, `Reflect.get(game,
-    "socket")`, through `globalThis`), where only watching the connection is allowed (`connected`, and `on`/`off`
-    of "disconnect", 5.4); the live driver's page functions, which the module never loads, are exempt, since one
-    drops a page's connection on purpose;
+    `requestAnimationFrame` fail `no-undef`. On top of that: `foundry.appv1`, and `game.socket` wherever the
+    code says so (a local rule, `workshop/no-game-socket`: dot access, computed access with a name it can read,
+    destructuring, `Reflect.get(game, "socket")`, through `globalThis`; a computed name it cannot read, or a copy of
+    `game` under another name, it cannot follow), where only watching the connection is allowed (`connected`, and
+    `on`/`off` of "disconnect" with one arrow listener, as a statement of its own, 5.4: they return the socket, so
+    `game.socket.on("disconnect", f).emit("x")` is reported; socket.io's emitter calls a listener with `this` bound to
+    the socket, so a listener must be an arrow function, written there or held in a variable of the file only ever
+    given arrows, and `function () { this.emit("x"); }` is reported; and `off("disconnect")` without a listener, which
+    would remove core's listeners too, is reported); the live driver's page functions, which the module never loads,
+    are exempt, since one drops a page's connection on purpose;
     monkey-patching (`X.prototype.y = ...`, `X.prototype = ...`, and `Object.assign`, `defineProperty`,
     `defineProperties`, `setPrototypeOf` or `Reflect.set` on `X.prototype`); and in shipped code and
     macros the `document`, `window` and `globalThis` globals (detached windows, and no reaching a banned

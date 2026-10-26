@@ -77,6 +77,26 @@ test("the game socket is out of reach, however it is written; only watching the 
         'game[`socket`].emit("x");',
         'Reflect.get(game, "socket").emit("x");',
         'Object.getOwnPropertyDescriptor(game, "socket").value.emit("x");',
+        // `on` and `off` return the socket: watching the connection is allowed only as a statement of its own.
+        'game.socket.on("disconnect", () => {}).emit("x");',
+        'game.socket?.on("disconnect", () => {})?.emit("x");',
+        'const s = game.socket.on("disconnect", () => {});\ns.emit("x");',
+        'game.socket.off("disconnect", () => {}).emit("x");',
+        'send(game.socket.off("disconnect", () => {}));',
+        // The emitter calls a listener with `this` bound to the socket: only an arrow function is a listener that
+        // cannot reach it. And `off` without a listener removes every disconnect listener, core's included.
+        'game.socket.on("disconnect", function () { this.emit("x"); });',
+        'function f() { this.emit("x"); }\ngame.socket.on("disconnect", f);',
+        'const f = function () { this.emit("x"); };\ngame.socket.on("disconnect", f);',
+        'let f = () => {};\nf = function () { this.emit("x"); };\ngame.socket.on("disconnect", f);',
+        'const { f } = handlers;\ngame.socket.on("disconnect", f);',
+        'function watch(f) { game.socket.on("disconnect", f); }\nwatch(function () { this.emit("x"); });',
+        'import { f } from "./x.mjs";\ngame.socket.on("disconnect", f);',
+        'game.socket.on("disconnect", f.bind(null));',
+        'game.socket.off("disconnect");',
+        'game.socket?.off("disconnect");',
+        'game.socket.off("disconnect", ...listeners);',
+        'game.socket.on("disconnect", () => {}, extra);',
     ];
     for (const file of ["scripts/example.mjs", "macros/example.js", "tools/harness/example.mjs"]) {
         for (const code of banned) await reports(code, /workshop\/no-game-socket: .*CONFIG\.queries/, file);
@@ -85,6 +105,19 @@ test("the game socket is out of reach, however it is written; only watching the 
     await reports('window.game["socket"].emit("x");', /workshop\/no-game-socket/, "tools/harness/example.mjs");
     assert.deepEqual(await lint('const f = () => {};\ngame.socket?.on("disconnect", f);\ngame.socket?.off("disconnect", f);\ngame.socket.on("disconnect", f);\nconsole.log(game.socket.connected, game.socket?.connected);'), [],
         "watching the connection is allowed");
+    assert.deepEqual(await lint([
+        "export function wait() {",
+        "    let onDisconnect;",
+        "    const lost = new Promise((resolve) => {",
+        "        onDisconnect = () => resolve(false);",
+        '        game.socket?.on("disconnect", onDisconnect);',
+        "    });",
+        "    return lost.finally(() => {",
+        '        game.socket?.off("disconnect", onDisconnect);',
+        "    });",
+        "}",
+        'game.socket.on("disconnect", (reason) => console.log(reason));',
+    ].join("\n")), [], "an arrow listener, written in place or held in a variable only ever given arrows (as batch.mjs does)");
     assert.deepEqual(await lint('const socket = new URL("x");\nconsole.log(game.settings, socket, game.user.socket);'), [], "other things named socket are not the game's");
     // The live driver's page functions are not part of the module; one drops a page's connection on purpose.
     assert.deepEqual(await lint('game.socket.io.engine.close();', "tools/harness/live-plans.mjs"), []);

@@ -31,7 +31,10 @@
  * change is written in key paths (`rows.<id>.state`), and Foundry expands a dotted key wherever it appears in flag
  * data it stores (`ObjectField#_cleanType`, Foundry 14.368 `common/data/fields.mjs`); it is made again from the rows.
  *
- * Descriptors: `{op: "lock", ids, move?}`, `{op: "ledger", change: {set, replace, del}}`, `{op: "deleteItems",
+ * A close by hand or a GM's adjust leaves a move that a resume finishes alone; for one that needs a hand it takes the
+ * same mark (with `hand` on its page), so of a late apply request, a close and an adjust exactly one gets past it.
+ *
+ * Descriptors: `{op: "lock", ids, move?, hand?}`, `{op: "ledger", change: {set, replace, del}}`, `{op: "deleteItems",
  * target, ids}`, `{op: "updateCoins", target, updates: [{id, quantity}]}`, `{op: "createCoins", target, coins:
  * [{denomination, quantity}], lot}`, `{op: "createItems", target, data}`. `target` is "strongbox" or an actor UUID.
  */
@@ -98,6 +101,15 @@ export const MOVE_VERSION = 1;
  */
 export function applyMarkId(rowId) {
     return hashId(idemKey("apply", rowId));
+}
+
+/**
+ * The lock page id that re-creating a lost delivery takes (4.7), from its `delivered` row: the delivery's own lock
+ * pages exist already, so the re-creation needs one of its own. A close of that row by hand, once it needs a hand,
+ * takes it too.
+ */
+export function recreateLockId(rowId) {
+    return hashId(idemKey("recreate", rowId));
 }
 
 /** The last operation of an apply request: the ledger update that sets the rows to "applied". */

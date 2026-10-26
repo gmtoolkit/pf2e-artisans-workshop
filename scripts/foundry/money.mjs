@@ -13,7 +13,9 @@
  * Every coin move is resumable (`lockFirstBatch`): if its lock request lands and its apply request never does (the
  * tab closed, or the connection dropped or the answer never came in between), the sweep sends the apply request
  * again under the same lock once the rows are past the grace time and its items are as it planned them
- * (`resumeStalled`); its apply mark lets that request apply once, whoever sends it.
+ * (`resumeStalled`); its apply mark lets that request apply once, whoever sends it. A close by hand
+ * (`resolvePending`) and a GM's adjust (`reconcile.mjs`) leave a move the module resumes alone; for one that needs a
+ * hand they take that mark, so of a close, an adjust and a late apply request exactly one lands.
  *
  * The functions return `{ok, outcome?, reason?, rows?}`. `reason` codes for refusals: "not-ready" (the client
  * may not write), "no-coins" (the coin items did not load), "not-owner" (the purse is not this user's to write),
@@ -22,14 +24,17 @@
 import { hashId, idemKey } from "../logic/ids.mjs";
 import { planPurseCredit, planPurseDebit, planSpend, planStrongboxCredit, planStrongboxDebit } from "../logic/coins.mjs";
 import { MODULE_ID } from "../constants.mjs";
-import { applyMarkId, lockFirstBatch, lockIdsFor, purseLockIds, resumeApply, resumeDecision, stackLockId } from "../logic/lock-first.mjs";
+import {
+    applyMarkId, lockFirstBatch, lockIdsFor, purseLockIds, recreateLockId, resumeApply, resumeDecision, stackLockId,
+} from "../logic/lock-first.mjs";
+import { pendingState } from "../logic/reconcile.mjs";
 import { BOOKKEEPING_KINDS, makeRow } from "../logic/rows.mjs";
 import { coinStacks, coinsLoaded, itemVersion } from "./coins.mjs";
-import { runApply, runLockFirst } from "./batch.mjs";
+import { runApply, runLockFirst, runRequest } from "./batch.mjs";
 import { holdsLease, withCoinMutex } from "./lease.mjs";
-import { isResponsibleFor, isResponsibleForShared } from "./responsible.mjs";
+import { responsibleUserIdFor, responsibleUserIdForShared } from "./responsible.mjs";
 import { canWrite, shared } from "./state.mjs";
-import { exists, read, serverNow, stampNow, write } from "./store.mjs";
+import { exists, read, records, serverNow, stampNow, write } from "./store.mjs";
 
 const refuse = (reason) => ({ ok: false, reason });
 
@@ -108,7 +113,7 @@ const purseOf = (plans) => plans.find(({ target }) => target !== "strongbox")?.t
  * (the server stops at the first error, and a refusal applies nothing), so the rows are still pending on the
  * server, and writing that again could only undo the settle of a client that resumed the move meanwhile.
  */
-async function noteStopped(rows, { applied, total, reason }) {
+export async function noteStopped(rows, { applied, total, reason }) {
     const note = { ...stampNow(), applied, total, reason: reason ?? null };
     const set = {};
     for (const row of rows) {
@@ -139,19 +144,23 @@ function decide(page) {
 }
 
 /**
- * Whether this tab resumes the move on `page`. While the user who took its lock is connected, only that user's
- * tab holding the lease does (5.6): it planned the move, and its coin mutex keeps the resume behind a move of its
- * own still waiting for an answer. Otherwise the tab responsible for the purse the move changes (its connected
- * owner, else the active GM), or for a move on the strongbox alone the one responsible for shared writes after that
- * user (the active GM, else the first connected user). A purse needs a writer who owns it.
+ * The user whose client resumes the move on `page` (5.6), or null when no connected user's does. While the user who
+ * took its lock is connected, that user: they planned the move, and their coin mutex keeps the resume behind a move of
+ * their own still waiting for an answer; but only if they may write the purse it moves. Otherwise the user responsible
+ * for the purse (its connected owner, else the active GM), or for a move on the strongbox alone the one responsible for
+ * shared writes after that user (the active GM, else the first connected user). A purse needs a writer who owns it.
  */
-function mayResume(page) {
+function resumerOf(page) {
     const { lock, move } = page.flags[MODULE_ID];
     const purse = move.actor ? fromUuidSync(move.actor) : null;
-    if (move.actor && !purse?.isOwner) return false;
-    if (game.users.get(lock?.by)?.active) return lock.by === game.user.id && holdsLease();
-    return purse ? isResponsibleFor(purse) : isResponsibleForShared(lock?.by);
+    if (move.actor && !purse) return null;
+    const author = game.users.get(lock?.by);
+    if (author?.active) return !purse || purse.testUserPermission(author, "OWNER") ? author.id : null;
+    return purse ? responsibleUserIdFor(purse) : responsibleUserIdForShared(lock?.by);
 }
+
+/** Whether this tab resumes the move on `page`: its user is the one (`resumerOf`) and it holds that user's lease. */
+const mayResume = (page) => holdsLease() && resumerOf(page) === game.user.id;
 
 /** Moves this client resumed without success this session: left to the manual path until it reloads. */
 const unresumable = new Set();
@@ -177,7 +186,8 @@ export async function resumeStalled() {
 
 /**
  * Resume one move inside the coin mutex, judged again there. An apply request this client sees through to "ok"
- * settles the rows; "taken" means another client sent it first; "stopped" notes the rows for the manual path.
+ * settles the rows; "taken" means another client sent it first, or a close or an adjust took the mark; "stopped" notes
+ * the rows for the manual path.
  */
 function resumeMove(pageId) {
     return withCoinMutex(game.user.id, async () => {
@@ -196,6 +206,60 @@ function resumeMove(pageId) {
 /** For tests only. */
 export function resetResume() {
     unresumable.clear();
+}
+
+/* -------------------------------------------- */
+/*  What finishes a pending row                  */
+/* -------------------------------------------- */
+
+/** A mark's lock page as `pendingState` reads it (when it was taken, and `hand` if by a close or an adjust), or null. */
+function markOf(id) {
+    const page = shared().ledger?.pages.get(id);
+    if (!page) return null;
+    const flags = page.flags?.[MODULE_ID] ?? {};
+    return { at: flags.lock?.at ?? null, hand: flags.hand ?? null };
+}
+
+/**
+ * The automatic path of every pending row that has one, from this client's copies, by row id: for the rows of a
+ * resumable coin move, its apply mark, and whether the move is resumed (`resumeDecision` says "resume" and a connected
+ * user's client resumes it, `resumerOf`; otherwise nothing will, and its author is told); for a `delivered` row, the
+ * lock its re-creation takes, and whether it is re-created (a snapshot, a recipient and a connected user responsible
+ * for the recipient, 4.7). `rows` are the rows that path settles together: every row of the move, or the delivered
+ * row. Reconciliation sorts pending rows by it (`pendingState`); a close or an adjust leaves a path that runs alone,
+ * and takes the mark of one that does not, so that of that path, a close and an adjust exactly one lands.
+ * @returns {Map<string, {markId: string, mark: {at: object, hand: object|null}|null, auto: boolean, rows: string[]}>}
+ */
+export function pendingPaths() {
+    const paths = new Map();
+    for (const page of movePages()) {
+        const { move } = page.flags[MODULE_ID];
+        if (!move.rows.some((id) => read(`rows.${id}.state`) === "pending")) continue;
+        const markId = applyMarkId(move.rows[0]);
+        const path = { markId, mark: markOf(markId), auto: decide(page).action === "resume" && resumerOf(page) !== null, rows: [...move.rows] };
+        for (const id of move.rows) paths.set(id, path);
+    }
+    for (const row of records("rows")) {
+        if (row.kind !== "delivered" || row.state !== "pending") continue;
+        const markId = recreateLockId(row.id);
+        const recipient = fromUuidSync(row.actor);
+        const auto = !!row.items?.[0]?.source && !!recipient && responsibleUserIdFor(recipient) !== null;
+        paths.set(row.id, { markId, mark: markOf(markId), auto, rows: [row.id] });
+    }
+    return paths;
+}
+
+/**
+ * One request: lock pages for `markIds`, flagged as taken by hand (`hand`), then the ledger `change`. The server
+ * creates none of them if one exists, so a resume (or re-creation) that took a mark first refuses the whole request,
+ * and this one, landing first, refuses theirs.
+ * @returns {Promise<{ok: boolean, outcome: string, reason?: string}>}  "taken" when a mark was someone else's
+ */
+async function withMarks(markIds, hand, change) {
+    const result = await runRequest([{ op: "lock", ids: markIds, hand }, { op: "ledger", change }]);
+    if (result.outcome === "ok") return { ok: true, outcome: "ok" };
+    if (result.outcome === "refused") return { ok: false, outcome: "taken", reason: "taken" };
+    return { ok: false, outcome: result.outcome, reason: result.reason };
 }
 
 /** Whether this user may write the actor's purse: its owner, or a GM. */
@@ -279,26 +343,57 @@ export function spend({ kind, stem, cp, allocations, link = {} }) {
 /**
  * Rows that move nothing (`BOOKKEEPING_KINDS`: `commit`, `release`, `allocate`, a GM's `adjust`, `carry`): one
  * key-path write, already applied. They are idempotent by key without a lock: writing one twice writes the
- * same key.
+ * same key. With `marks` (a GM's adjust, `reconcile.mjs`), the write goes in one request after lock pages for those
+ * marks, flagged as taken by hand: it lands only if none of them exists, and once it has, no move behind them can.
+ * @returns {Promise<{ok: boolean, outcome: string, reason?: string, rows: object[]}>}  "taken" when a mark existed
  */
-export async function postRows(inputs, ledger = {}) {
+export async function postRows(inputs, ledger = {}, { marks = [] } = {}) {
     if (!canWrite()) return refuse("not-ready");
     const stamp = stampNow();
     const rows = inputs.map((input) => ({ ...makeRow(input, stamp), state: "applied" }));
     if (rows.some((row) => !BOOKKEEPING_KINDS.includes(row.kind))) throw new RangeError("postRows is for rows that move nothing");
     const fresh = rows.filter((row) => !exists(`rows.${row.id}`));
-    if (fresh.length) await write(withRows(ledger, fresh));
-    return { ok: true, outcome: fresh.length ? "ok" : "already", rows };
+    if (!fresh.length) return { ok: true, outcome: "already", rows };
+    if (!marks.length) {
+        await write(withRows(ledger, fresh));
+        return { ok: true, outcome: "ok", rows };
+    }
+    return { ...(await withMarks(marks, { kind: fresh[0].kind, row: fresh[0].id }, withRows(ledger, fresh))), rows };
 }
 
 /**
- * Close a pending row by hand after checking the coins (5.4 step 4): its author or a GM marks it applied. The
- * money itself is corrected, if needed, with a GM `adjust` row.
+ * Close a pending row by hand after checking the coins (5.4 step 4): its author or a GM marks it applied, with every
+ * other pending row of the same move, since one request moved their coins together. The money itself is corrected,
+ * if needed, with a GM `adjust` row.
+ *
+ * Only a row that needs a hand is closed (`pendingState` "needsHand"). Refused as "in-flight" while a request may still
+ * apply it, and as "resumable" while the module finishes it by itself (a coin move it resumes, a lost delivery it
+ * re-creates): closing it would cancel a move whose row still counts, crediting coins nobody paid. A row
+ * whose automatic path has a mark nobody has taken (its move's own apply request may still land, or the path may run
+ * again later) is closed in one request with that mark (`withMarks`): whichever of the close and that request reaches
+ * the server first lands, and the other is refused there ("taken" here, nothing written). Runs in the coin mutex, so
+ * it waits for a move or a resume of this client's own that is under way.
+ * @returns {Promise<{ok: boolean, rows?: string[], reason?: string}>}  `rows`: the ids closed; reasons "not-ready",
+ *          "not-pending", "not-author", "in-flight", "resumable", "taken", or a batch failure ("disconnected", ...)
  */
-export async function resolvePending(rowId, note = null) {
-    const row = read(`rows.${rowId}`);
-    if (!row || row.state !== "pending") return refuse("not-pending");
-    if (row.author !== game.user.id && !game.user.isGM) return refuse("not-author");
-    await write({ set: { [`rows.${rowId}.state`]: "applied", [`rows.${rowId}.resolved`]: { ...stampNow(), note } } });
-    return { ok: true };
+export function resolvePending(rowId, note = null) {
+    return withCoinMutex(game.user.id, async () => {
+        if (!canWrite()) return refuse("not-ready");
+        const row = read(`rows.${rowId}`);
+        if (!row || row.state !== "pending") return refuse("not-pending");
+        if (row.author !== game.user.id && !game.user.isGM) return refuse("not-author");
+        const path = pendingPaths().get(rowId) ?? null;
+        const state = pendingState(row, { now: serverNow(), auto: path?.auto, mark: path?.mark });
+        if (state === "inFlight") return refuse("in-flight");
+        if (state === "resumable") return refuse("resumable");
+        const ids = (path?.rows ?? [rowId]).filter((id) => read(`rows.${id}.state`) === "pending");
+        const resolved = { ...stampNow(), note };
+        const change = { set: Object.fromEntries(ids.flatMap((id) => [[`rows.${id}.state`, "applied"], [`rows.${id}.resolved`, resolved]])) };
+        if (!path || path.mark) {
+            await write(change);
+            return { ok: true, rows: ids };
+        }
+        const taken = await withMarks([path.markId], { kind: "close", row: rowId }, change);
+        return taken.ok ? { ok: true, rows: ids } : refuse(taken.reason);
+    });
 }

@@ -1,22 +1,26 @@
 /**
  * Claims (DESIGN.md 5.5) and the GM relay (5.7) over the fake world: only the target's responsible tab
  * applies a claim; applying moves the coins and resolves the claim in one move; a delivery locks its row and its
- * shelf item, and a delivery that another one beat is never sent; a lost delivery is finished from its row, once;
+ * shelf item, and a delivery that another one beat is never sent; a lost delivery is finished from its row, once; a
+ * close of its row by hand is refused while it is re-created by itself, and otherwise takes the lock that finishing
+ * takes; one nobody connected re-creates, or whose re-creation failed, is its author's to hear about;
  * the relay checks requests against stored state; one claim that throws holds up no other.
  */
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
-import { MOD, addDocument, coin, flagsOf, installFoundry, resetWorld, serverStamp, setUsers, sharedWorld, world } from "./stubs.mjs";
+import { MOD, addDocument, asUser, coin, flagsOf, installFoundry, interleave, resetWorld, serverStamp, setUsers, sharedWorld, world } from "./stubs.mjs";
 
 installFoundry();
 const { holdingsOf, valueCp } = await import("../../scripts/logic/coins.mjs");
 const { hashId } = await import("../../scripts/logic/ids.mjs");
+const { recreateLockId } = await import("../../scripts/logic/lock-first.mjs");
 const { PENDING_GRACE_MS } = await import("../../scripts/logic/reconcile.mjs");
 const { registerBatchWatcher } = await import("../../scripts/foundry/batch.mjs");
 const claims = await import("../../scripts/foundry/claims.mjs");
 const { coinStacks, setCoinTemplates } = await import("../../scripts/foundry/coins.mjs");
 const { requestLease, resetLease } = await import("../../scripts/foundry/lease.mjs");
 const money = await import("../../scripts/foundry/money.mjs");
+const { reconciliationReport, reportOwnPending } = await import("../../scripts/foundry/reconcile.mjs");
 const relay = await import("../../scripts/foundry/relay.mjs");
 const { registerSettings } = await import("../../scripts/foundry/settings.mjs");
 const state = await import("../../scripts/foundry/state.mjs");
@@ -216,6 +220,69 @@ test("a delivery stopped after its lock is finished from its row, once, removing
     assert.ok(docs.ledger.pages.has(hashId(`recreate:${id}`)), "the re-creation's own lock");
     assert.equal(await claims.sweepDeliveries(), 0);
     assert.equal(await claims.sweepClaims(), 0, "nor does the sweep deliver the shelf item");
+});
+
+test("a close by hand of a lost delivery is refused while it is re-created by itself, and otherwise takes the lock its re-creation takes", async () => {
+    const id = hashId("deliver:o1:5");
+    const source = { type: "consumable", name: "Bomb", flags: { [MOD]: { delivered: { row: id } } } };
+    flagsOf(docs.ledger).rows[id] = { id, v: 1, kind: "delivered", state: "pending", actor: vera.uuid, idem: "deliver:o1:5", author: "p2",
+        items: [{ name: "Bomb", qty: 1, source }], at: serverStamp(PENDING_GRACE_MS + 1) };
+    world.currentUser = "p1";
+    assert.deepEqual(reconciliationReport().resumable.map((row) => row.id), [id], "the module re-creates it: nobody needs to close it");
+    assert.deepEqual(await asUser("gm00000000000000", () => money.resolvePending(id, "handed over at the table"))(), { ok: false, reason: "resumable" });
+    // A re-creation that failed on a client before it reloaded noted the row: it needs a hand, and a GM closes it as the
+    // reloaded client's re-creation goes out. Whichever reaches the server first takes the lock.
+    flagsOf(docs.ledger).rows[id].stopped = { by: "p1", at: serverStamp(), applied: 0, total: null, reason: "error" };
+    assert.deepEqual(reconciliationReport().needsHand.map((row) => row.id), [id]);
+    let closed = null;
+    const pages = (operations) => operations.some((op) => op.documentName === "JournalEntryPage");
+    const restore = interleave(pages, asUser("gm00000000000000", async () => { closed = await money.resolvePending(id, "handed over at the table"); }));
+    const finished = await claims.sweepDeliveries();
+    restore();
+    assert.deepEqual(closed, { ok: true, rows: [id] });
+    assert.equal(finished, 0, "the re-creation lost at its lock");
+    assert.equal(vera.items.filter((i) => i.name === "Bomb").length, 0, "no second item");
+    assert.equal(read(`rows.${id}.state`), "applied");
+    assert.deepEqual(docs.ledger.pages.get(recreateLockId(id)).flags[MOD].hand, { kind: "close", row: id });
+});
+
+test("a lost delivery nobody connected re-creates needs a hand, and so does one whose re-creation failed: its author is told", async (t) => {
+    t.mock.method(console, "table", () => {});
+    t.mock.method(console, "error", () => {});
+    const lost = (n) => {
+        const id = hashId(`deliver:o1:${n}`);
+        const source = { type: "consumable", name: "Bomb", flags: { [MOD]: { delivered: { row: id } } } };
+        flagsOf(docs.ledger).rows[id] = { id, v: 1, kind: "delivered", state: "pending", actor: vera.uuid, idem: `deliver:o1:${n}`, author: "p2",
+            items: [{ name: "Bomb", qty: 1, source }], at: serverStamp(PENDING_GRACE_MS + 1) };
+        return id;
+    };
+    // Vera's player and the GM are away: nobody connected is responsible for her, so nothing re-creates it.
+    const away = lost(6);
+    game.users.get("p1").active = false;
+    game.users.get("gm00000000000000").active = false;
+    world.currentUser = "p2";
+    assert.deepEqual(reconciliationReport().needsHand.map((row) => row.id), [away]);
+    assert.equal(reportOwnPending().reported, 1, "its author is told");
+    game.users.get("p1").active = true;
+    game.users.get("gm00000000000000").active = true;
+    assert.deepEqual(reconciliationReport().resumable.map((row) => row.id), [away], "with her player back, it is re-created by itself");
+    flagsOf(docs.ledger).rows[away].state = "applied";
+    // Her player's client is responsible for it, and its re-creation fails there: it is left until that client
+    // reloads, so the row is noted, and every client reads it as needing a hand.
+    const failing = lost(7);
+    world.currentUser = "p1";
+    const real = foundry.documents.modifyBatch;
+    foundry.documents.modifyBatch = () => { throw new Error("cannot send"); };
+    try {
+        assert.equal(await claims.sweepDeliveries(), 0);
+    } finally {
+        foundry.documents.modifyBatch = real;
+    }
+    assert.equal(read(`rows.${failing}.stopped.reason`), "error");
+    assert.equal(await claims.sweepDeliveries(), 0, "not tried again this session");
+    world.currentUser = "p2";
+    assert.deepEqual(reconciliationReport().needsHand.map((row) => row.id), [failing]);
+    assert.equal(reportOwnPending().reported, 1, "its author is told");
 });
 
 test("a pending delivery younger than the grace time, by the server's clock, is left to its own client", async () => {

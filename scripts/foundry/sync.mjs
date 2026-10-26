@@ -13,7 +13,8 @@
  * lease passes to this tab, and when claims or shelf items appear: apply claims and deliveries this tab is
  * responsible for, finish lost deliveries, publish roster snapshots, resume coin moves whose apply request never
  * landed, and tell the user about their own rows that did not finish. Every step is idempotent, so running it again
- * is always safe. A move too young to resume yet brings the sweep back when it is due.
+ * is always safe. A move too young to resume yet, and a row of the user's own left out of the notice while it is
+ * in flight, bring the sweep back when they are due.
  */
 import { MODULE_ID } from "../constants.mjs";
 import { compareIds } from "../logic/ids.mjs";
@@ -163,23 +164,30 @@ function recheckLater() {
     recheck = setTimeout(() => scheduleRefresh(), MIGRATION_RECHECK_MS);
 }
 
-let due = null;
+const due = new Map();
 
-/** Resume the coin moves this tab is to resume, and sweep again when the next one too young to judge is due. */
-async function resumeMoves() {
-    const { dueInMs } = await resumeStalled();
-    if (dueInMs === null) return;
-    clearTimeout(due);
-    due = setTimeout(() => scheduleSweep(), dueInMs);
+/**
+ * Sweep again in `ms` (nothing when null), for a step whose work changes with time alone: one timer per step, each run
+ * of the step replacing the one before, since each run looks at everything that step is waiting for.
+ */
+function sweepAgainIn(step, ms) {
+    if (ms === null) return;
+    clearTimeout(due.get(step));
+    due.set(step, setTimeout(() => scheduleSweep(), ms));
 }
 
-/** The steps of the catch-up sweep (P5), each on its own so a failure in one does not skip the others. */
+/**
+ * The steps of the catch-up sweep (P5), each on its own so a failure in one does not skip the others. "resume" comes
+ * back when the next move too young to judge is due; "pending rows" when the next of the user's own rows it left out
+ * of the notice while in flight is (`reportOwnPending`): a resume that stops part-way, say, is in flight for the
+ * grace time after it took its mark, and then needs a hand, with nothing else to set off the notice.
+ */
 const SWEEP_STEPS = [
     ["claims", () => sweepClaims()],
     ["deliveries", () => sweepDeliveries()],
     ["roster", () => publishAll()],
-    ["resume", () => resumeMoves()],
-    ["pending rows", () => reportOwnPending()],
+    ["resume", async () => sweepAgainIn("resume", (await resumeStalled()).dueInMs)],
+    ["pending rows", () => sweepAgainIn("pending rows", reportOwnPending().dueInMs)],
 ];
 
 /** The catch-up sweep (P5), one run at a time. */

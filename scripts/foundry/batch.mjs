@@ -77,10 +77,11 @@ function actorFor(target, strongbox) {
 
 /**
  * A lock page: empty, named by its own id; its existence is the lock (5.1). The page of a resumable move's first
- * row also holds the move (`lockFirstBatch`), for a resume.
+ * row also holds the move (`lockFirstBatch`), for a resume. A mark taken by a close or an adjust says so (`hand`:
+ * `{kind, row}`), so reconciliation knows no apply request is behind it.
  */
-function lockPage(id, stamp, move = null) {
-    return { _id: id, name: id, type: "text", flags: { [MODULE_ID]: { lock: stamp, ...(move ? { move } : {}) } } };
+function lockPage(id, stamp, move = null, hand = null) {
+    return { _id: id, name: id, type: "text", flags: { [MODULE_ID]: { lock: stamp, ...(move ? { move } : {}), ...(hand ? { hand } : {}) } } };
 }
 
 /** Foundry operations for the descriptors, in the same order. Throws if a target cannot be found. */
@@ -90,7 +91,7 @@ export function toOperations(descriptors, { ledger, strongbox }) {
         switch (d.op) {
             case "lock":
                 return { action: "create", documentName: "JournalEntryPage", parent: ledger, keepId: true,
-                    data: d.ids.map((id) => lockPage(id, stamp, d.move && id === d.move.rows[0] ? d.move : null)) };
+                    data: d.ids.map((id) => lockPage(id, stamp, d.move && id === d.move.rows[0] ? d.move : null, d.hand ?? null)) };
             case "ledger":
                 return { action: "update", documentName: "JournalEntry", diff: false,
                     updates: [{ _id: ledger.id, ...ledgerChange(d.change) }] };
@@ -202,10 +203,11 @@ const AFTER_APPLY = { ok: "ok", refused: "stopped", partial: "stopped", error: "
 
 /**
  * The outcome of an apply request. One that starts with its move's apply mark (a resumable move, `lockFirstBatch`)
- * and was refused at that mark was sent by another client first, a resume, and is "taken": nothing of this request
- * applied, and the row is that client's to settle. Refused at the mark means: this client already saw the mark
- * ("locked"), the server's real pass refused the request's first operation ("first"), or the server refused it at
- * its dry run and the mark has reached this client since (seen live: two devices of one user resuming at once).
+ * and was refused at that mark was beaten to it, by another client's resume or by a close or an adjust that took the
+ * mark by hand, and is "taken": nothing of this request applied, and the row is the winner's to settle. Refused at the
+ * mark means: this client already saw the mark ("locked"), the server's real pass refused the request's first
+ * operation ("first"), or the server refused it at its dry run and the mark has reached this client since (seen live:
+ * two devices of one user resuming at once).
  */
 function applyOutcome(apply, result, { ledger }) {
     if (apply[0]?.op === "lock" && result.outcome === "refused") {

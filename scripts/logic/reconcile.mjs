@@ -20,23 +20,86 @@ import { allocationsByContributor, splitProRata } from "./split.mjs";
 export const PENDING_GRACE_MS = 60 * 1000;
 
 /**
+ * Where a pending row stands (DESIGN.md 4.7; 5.4, As built: Closing by hand), from one client's copies.
+ * Exactly one of:
+ * - "inFlight": a request may be applying it now, so nothing acts on it yet: the row is younger than the grace time
+ *   (its move's own apply request may still land), or its path's mark was taken less than the grace time ago by a
+ *   request (a resume, a re-creation, or the move's own apply request answered late), or a request for it was refused
+ *   at its dry run less than the grace time ago, which is also how losing a race to that mark looks while the winner's
+ *   changes have not reached this client;
+ * - "resumable": the module finishes it by itself, and nobody has taken that path's mark yet: a coin move whose apply
+ *   request never landed and that a connected user's client may resume, or a lost delivery a connected user's client
+ *   re-creates (`auto`);
+ * - "needsHand": nothing will finish it: its author or a GM closes it (`resolvePending`), and a GM books an `adjust`
+ *   if the coins are not right. A mark a close or an adjust took (`hand`) leaves nothing that could land.
+ * A close and an adjust act only on "needsHand" rows; the other two are still owed by their own move.
+ * @param {object} row  a pending row
+ * @param {object} p
+ * @param {number} p.now  the moment on the server's clock (`serverNow`)
+ * @param {boolean} [p.auto]  whether its automatic path runs, judged from the data and the connected users: a
+ *        resumable move's decision is "resume" (`resumeDecision`) and a connected user's client may resume it, or a
+ *        delivery has its snapshot, its recipient and a connected user responsible for the recipient
+ * @param {{at: object, hand: object|null}|null} [p.mark]  the lock page that path takes (a move's apply mark, a
+ *        delivery's re-creation lock), if it exists: when it was taken, and `hand` if a close or an adjust took it
+ * @returns {"inFlight"|"resumable"|"needsHand"}
+ */
+export function pendingState(row, p) {
+    return judgePending(row, p).state;
+}
+
+/**
+ * How long until a pending row's `pendingState` changes with time alone, or null when only a change to the data moves
+ * it on: while it is "inFlight", until the row, or the mark or dry-run note that makes it so, is past the grace time.
+ * A client that leaves a row out of a notice for now (`reportOwnPending`) looks again then, since nothing else may
+ * happen to set it off.
+ * @param {object} row  a pending row
+ * @param {{now: number, mark?: {at: object, hand: object|null}|null}} p  as `pendingState`
+ * @returns {number|null}  milliseconds
+ */
+export function pendingDueInMs(row, p) {
+    return judgePending(row, p).dueInMs;
+}
+
+/** `pendingState` and `pendingDueInMs` together, so the two cannot disagree. */
+function judgePending(row, { now, auto = false, mark = null }) {
+    const left = (at) => PENDING_GRACE_MS - (now - stampTime(at));
+    const until = (state, at) => ({ state, dueInMs: left(at) });
+    if (left(row.at) > 0) return until("inFlight", row.at);
+    if (mark?.hand) return { state: "needsHand", dueInMs: null };
+    if (mark && left(mark.at) > 0) return until("inFlight", mark.at);
+    if (row.stopped?.reason === "dry-run" && left(row.stopped.at) > 0) return until("inFlight", row.stopped.at);
+    return { state: row.stopped || mark || !auto ? "needsHand" : "resumable", dueInMs: null };
+}
+
+/**
  * The reconciliation report.
  * @param {object} p
  * @param {object[]} p.rows      every live ledger row
  * @param {object[]} p.stacks    the strongbox's coin stacks `{id, denomination, quantity}`
  * @param {number} p.now         the moment on the server's clock (`serverNow`), compared with `stampTime`
  * @param {Set<string>} [p.lockedIds]  ids that have a lock page in the ledger
+ * @param {Map<string, {auto: boolean, mark: object|null}>} [p.paths]  the automatic path of each pending row that has
+ *        one, by row id (`pendingState`)
  * @returns {{expectedCp: number, actualCp: number, differenceCp: number, pending: object[], stalled: object[],
- *            lockedStacks: string[]}}  `stalled`: pending rows older than PENDING_GRACE_MS; `lockedStacks`:
- *            strongbox stacks a batch locked to spend but that are still there (it stopped part-way)
+ *            inFlight: object[], resumable: object[], needsHand: object[], owedBoxCp: number, lockedStacks: string[]}}
+ *            `stalled`: pending rows older than PENDING_GRACE_MS; `inFlight`, `resumable` and `needsHand` divide the
+ *            pending rows (`pendingState`); `owedBoxCp`: what the in-flight and resumable rows will still change in the
+ *            strongbox, still owed by their own moves (so `differenceCp + owedBoxCp` is what a GM's adjust books);
+ *            `lockedStacks`: strongbox stacks a batch locked to spend but that are still there (it stopped part-way)
  */
-export function reconcile({ rows, stacks, now, lockedIds = new Set() }) {
+export function reconcile({ rows, stacks, now, lockedIds = new Set(), paths = new Map() }) {
     const expectedCp = expectedBoxCp(rows);
     const actualCp = valueCp(holdingsOf(stacks));
     const pending = rows.filter((row) => row.state === "pending").sort(compareRows);
     const stalled = pending.filter((row) => now - stampTime(row.at) >= PENDING_GRACE_MS);
+    const states = new Map(pending.map((row) => [row.id, pendingState(row, { now, ...paths.get(row.id) })]));
+    const inState = (state) => pending.filter((row) => states.get(row.id) === state);
+    const [inFlight, resumable] = [inState("inFlight"), inState("resumable")];
     const lockedStacks = stacks.filter((stack) => lockedIds.has(stack.id)).map((stack) => stack.id);
-    return { expectedCp, actualCp, differenceCp: actualCp - expectedCp, pending, stalled, lockedStacks };
+    return {
+        expectedCp, actualCp, differenceCp: actualCp - expectedCp, pending, stalled,
+        inFlight, resumable, needsHand: inState("needsHand"), owedBoxCp: expectedBoxCp([...inFlight, ...resumable]), lockedStacks,
+    };
 }
 
 /**

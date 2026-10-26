@@ -54,7 +54,10 @@ async function pagePrepare({ mod, assistant, assign, fixtures, mark }) {
         }
     }
     const folder = game.folders.find((f) => f.type === "Actor" && f.name === "Workshop fixtures");
-    if (folder && !folder.flags?.[mark.scope]?.[mark.folder]) await folder.update({ [`flags.${mark.scope}.${mark.folder}`]: true });
+    if (folder && !folder.flags?.[mark.scope]?.[mark.folder]) {
+        await folder.update({ [`flags.${mark.scope}.${mark.folder}`]: true });
+        remarked.push("folder");   // reported, so a folder the fixture tools made without the mark shows up
+    }
     const created = [];
     if (!game.users.getName(assistant)) {
         await User.implementation.create({ name: assistant, role: CONST.USER_ROLES.ASSISTANT });
@@ -1212,7 +1215,10 @@ export const BEHAVIOURS = {
      * grace time. Round 1, the author comes back: Player One reloads and opens a second device at the same moment,
      * and both resume when the move is due, racing at its apply mark. Round 2, the author leaves: the GM's client,
      * responsible for the purse with no owner connected, resumes it. Either way the coins move exactly once, and
-     * sweeping again on every client moves nothing more. Each round waits out the 60 s grace time.
+     * sweeping again on every client moves nothing more. No client shows a module warning once the move is stranded
+     * (Player One's stranded client is told it went stale, before): the device that loses the race at the mark sees
+     * the move pending for a moment, and must not tell its user it did not finish. Each round waits out the 60 s grace
+     * time.
      */
     async resume(h, w) {
         const rounds = [];
@@ -1231,6 +1237,7 @@ export const BEHAVIOURS = {
             h.check(`${round}: stranded on the server: the row pending, its lock page holding the move, no apply mark, no coins moved`,
                 row?.state === "pending" && !row.stopped && stranded.pages.some((p) => p.id === strand.row && p.move) && !stranded.pages.some((p) => p.id === markId)
                 && JSON.stringify(coins(stranded)) === JSON.stringify(coins(before)), { row, before: coins(before), stranded: coins(stranded) });
+            const strandNotes = await takeNotes(h);
             if (round === "author returns") {
                 await h.close("p1");
                 await Promise.all([h.open("p1"), h.open("p1@2")]);
@@ -1261,7 +1268,11 @@ export const BEHAVIOURS = {
                 JSON.stringify(coins(later)) === JSON.stringify(coins(view)) && later.pages.filter((p) => p.id === markId).length === 1 && later.rows.length === view.rows.length,
                 { view: coins(view), later: coins(later) });
             await checkStatuses(h, "ready", `${round}: every client is ready`);
-            rounds.push({ round, strand, appliedAfterMs, resumedBy: marks[0]?.lock?.by ?? null, notes: await takeNotes(h) });
+            const notes = await takeNotes(h);
+            const warnings = Object.entries(notes).flatMap(([client, page]) => page.notes
+                .filter((n) => n.type !== "info" && n.message.startsWith(`${MOD}.`)).map((n) => ({ client, ...n })));
+            h.check(`${round}: no module warning on any client once the move was stranded`, warnings.length === 0, warnings);
+            rounds.push({ round, strand, appliedAfterMs, resumedBy: marks[0]?.lock?.by ?? null, strandNotes, notes });
         }
         return { rounds };
     },

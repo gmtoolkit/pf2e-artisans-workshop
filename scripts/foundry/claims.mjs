@@ -12,12 +12,12 @@ import { MODULE_ID } from "../constants.mjs";
 import { claimRowInput, makeClaim, openClaims } from "../logic/claims.mjs";
 import { stampTime } from "../logic/core.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
-import { lockFirstBatch } from "../logic/lock-first.mjs";
+import { lockFirstBatch, recreateLockId } from "../logic/lock-first.mjs";
 import { makeRow } from "../logic/rows.mjs";
 import { PENDING_GRACE_MS } from "../logic/reconcile.mjs";
 import { runLockFirst } from "./batch.mjs";
 import { withCoinMutex } from "./lease.mjs";
-import { mint, payout } from "./money.mjs";
+import { mint, noteStopped, payout } from "./money.mjs";
 import { isResponsibleFor } from "./responsible.mjs";
 import { setting } from "./settings.mjs";
 import { canWrite, shared } from "./state.mjs";
@@ -102,8 +102,8 @@ export function deliver(item, recipient) {
 /**
  * Finish a delivery whose move stopped after its lock (4.7): if the item reached the recipient only the settle is
  * missing; otherwise re-create it from the row's snapshot, removing the shelf item if it is still there. The
- * delivery's own lock pages exist, so the re-creation takes a lock of its own, `recreate:<row id>`, and happens
- * once.
+ * delivery's own lock pages exist, so the re-creation takes a lock of its own, `recreate:<row id>`
+ * (`recreateLockId`), and happens once; a close of the row by hand takes the same lock, so only one of the two lands.
  */
 export function finishDelivery(row, recipient) {
     return withCoinMutex(game.user.id, async () => {
@@ -118,7 +118,7 @@ export function finishDelivery(row, recipient) {
         if (!source) return { ok: false, reason: "no-snapshot" };
         const leftover = shelfItemsFor().filter((i) => shelfKey(i) === row.idem).map((i) => i.id);
         const batch = lockFirstBatch({
-            rowIds: [row.id], lockIds: [hashId(idemKey("recreate", row.id))],
+            rowIds: [row.id], lockIds: [recreateLockId(row.id)],
             ledger: { set: { [`rows.${row.id}.recreated`]: stampNow() } },
             debits: leftover.length ? [{ target: "strongbox", plan: { deletes: leftover } }] : [],
             items: [{ target: recipient.uuid, data: [source] }],
@@ -191,7 +191,13 @@ export async function sweepClaims({ force = false } = {}) {
     return applied;
 }
 
-/** Re-create lost deliveries for the recipients this tab is responsible for (pending rows past the grace time). */
+/**
+ * Re-create lost deliveries for the recipients this tab is responsible for (pending rows past the grace time). A
+ * re-creation that fails on this client is left until it reloads (`attempt`), and nothing else re-creates it while
+ * this client is the recipient's responsible one, so the row is noted as stopped (reason "error"): every client then
+ * reads it as needing a hand, and its author is told (`reportOwnPending`). After a reload it is tried again, and a
+ * close by hand takes the lock that takes, so only one of the two lands.
+ */
 export async function sweepDeliveries() {
     if (!canWrite()) return 0;
     let finished = 0;
@@ -203,6 +209,7 @@ export async function sweepDeliveries() {
             return recipient && isResponsibleFor(recipient) ? finishDelivery(row, recipient) : null;
         });
         if (result?.ok) finished += 1;
+        else if (failed.has(row.id) && !row.stopped) await noteStopped([row], { applied: 0, total: null, reason: "error" });
     }
     return finished;
 }

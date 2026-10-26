@@ -1,7 +1,9 @@
 /** Reconciliation (DESIGN.md 4.7) and the purge's member balances (5.9). */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { PENDING_GRACE_MS, adjustNonce, adjustRowInput, memberBalances, reconcile } from "../../scripts/logic/reconcile.mjs";
+import {
+    PENDING_GRACE_MS, adjustNonce, adjustRowInput, memberBalances, pendingDueInMs, pendingState, reconcile,
+} from "../../scripts/logic/reconcile.mjs";
 import { makeRow, reversalRow } from "../../scripts/logic/rows.mjs";
 
 let clock = 0;
@@ -36,6 +38,51 @@ test("a row left pending in an earlier, longer launch of the world is stalled on
     const at = { world: 0, real: 0, server: now - 2 * PENDING_GRACE_MS - firstLaunch, launch: firstLaunch };   // two minutes ago
     const row = makeRow({ kind: "deposit", idem: "d1", cp: 1, actor: "B" }, { by: "u2", at });
     assert.equal(reconcile({ rows: [row], stacks: [], now }).stalled.length, 1, "its server time is far ahead of today's, but it is old");
+});
+
+test("a pending row is in flight, resumable or needing a hand, by its age, its automatic path and that path's mark", () => {
+    const at = (ms) => ({ world: 0, real: ms });
+    const now = 10 * PENDING_GRACE_MS;
+    const old = { id: "r", state: "pending", at: at(0) };
+    const mark = (ms, hand = null) => ({ at: at(ms), hand });
+    assert.equal(pendingState({ ...old, at: at(now - 1) }, { now, auto: true }), "inFlight", "younger than the grace time: its own apply request may still land");
+    assert.equal(pendingState({ ...old, at: at(now - 1) }, { now }), "inFlight", "even with nothing to finish it later");
+    assert.equal(pendingState(old, { now, auto: true }), "resumable", "the module finishes it, and nobody has taken its mark");
+    assert.equal(pendingState(old, { now }), "needsHand", "nothing finishes it");
+    assert.equal(pendingState(old, { now, auto: true, mark: mark(now - 1) }), "inFlight", "a request took its mark just now");
+    assert.equal(pendingState(old, { now, auto: true, mark: mark(now - PENDING_GRACE_MS) }), "needsHand", "and stopped part-way");
+    assert.equal(pendingState(old, { now, auto: true, mark: mark(now - 1, { kind: "close" }) }), "needsHand", "a close or an adjust took it: nothing is behind it");
+    const noted = (reason, ms) => ({ ...old, stopped: { by: "u", at: at(ms), applied: 0, total: 3, reason } });
+    assert.equal(pendingState(noted("dry-run", now - 1), { now }), "inFlight", "refused at its dry run just now, as a race lost at the mark looks");
+    assert.equal(pendingState(noted("dry-run", now - PENDING_GRACE_MS), { now }), "needsHand");
+    assert.equal(pendingState(noted("stopped", now - 1), { now }), "needsHand", "answered, and part of it applied");
+});
+
+test("an in-flight row says when its state changes with time alone; any other waits for a change to the data", () => {
+    const at = (ms) => ({ world: 0, real: ms });
+    const now = 10 * PENDING_GRACE_MS;
+    const old = { id: "r", state: "pending", at: at(0) };
+    const mark = (ms, hand = null) => ({ at: at(ms), hand });
+    assert.equal(pendingDueInMs({ ...old, at: at(now - 1000) }, { now, auto: true }), PENDING_GRACE_MS - 1000, "a young row: once past the grace time");
+    assert.equal(pendingDueInMs(old, { now, mark: mark(now - 2000) }), PENDING_GRACE_MS - 2000, "in flight: once its mark is");
+    const refused = { ...old, stopped: { by: "u", at: at(now - 3000), applied: 0, total: 3, reason: "dry-run" } };
+    assert.equal(pendingDueInMs(refused, { now }), PENDING_GRACE_MS - 3000, "refused at its dry run: once the note is");
+    assert.equal(pendingState(refused, { now: now + PENDING_GRACE_MS - 3000 }), "needsHand", "and then it needs a hand");
+    assert.equal(pendingDueInMs(old, { now, auto: true }), null, "resumable");
+    assert.equal(pendingDueInMs(old, { now }), null, "needs a hand");
+    assert.equal(pendingDueInMs(old, { now, mark: mark(now - 1, { kind: "close" }) }), null, "a close or an adjust took its mark");
+});
+
+test("the report divides the pending rows into in flight, resumable and needing a hand; the first two are still owed", () => {
+    const at = (ms) => ({ world: 0, real: ms });
+    const rows = ["a", "b", "c", "d"].map((id, i) => ({ id, kind: "deposit", box: 10 ** i, state: "pending", at: at(i) }));
+    const now = 2 + PENDING_GRACE_MS;   // "d" is younger than the grace time
+    const paths = new Map([["a", { auto: true, mark: null }], ["b", { auto: false, mark: { at: at(now - 1), hand: null } }]]);
+    const report = reconcile({ rows, stacks: [], now, paths });
+    const ids = (list) => list.map((row) => row.id);
+    assert.deepEqual([ids(report.pending), ids(report.stalled)], [["a", "b", "c", "d"], ["a", "b", "c"]]);
+    assert.deepEqual([ids(report.inFlight), ids(report.resumable), ids(report.needsHand)], [["b", "d"], ["a"], ["c"]]);
+    assert.equal(report.owedBoxCp, 1 + 10 + 1000, "what the in-flight and resumable rows will still put in the strongbox");
 });
 
 test("coins dragged in by hand show as a difference, booked by a GM's adjust row", () => {

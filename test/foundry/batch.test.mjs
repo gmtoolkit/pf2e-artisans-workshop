@@ -3,10 +3,14 @@
  * lock lost in the server's real pass or at its dry run (which changes nothing, on either side), a lock or a
  * deletion this client can already see is taken (nothing sent), a move stopped after its lock, an apply request
  * refused at the dry run (its embedded operations do not replay here, so nothing is left behind), a deletion pf2e
- * drops on the way out, an answer that is only slow, and one lost with the connection.
+ * drops on the way out, an answer that is only slow, and one lost with the connection; and DESIGN 5.1's storage table
+ * naming every flag a lock page carries.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, test } from "node:test";
+import { ROOT } from "../helpers.mjs";
 import { MOD, coin, disconnect, flagsOf, installFoundry, resetWorld, sharedWorld, world } from "./stubs.mjs";
 
 installFoundry();
@@ -221,4 +225,12 @@ test("a refused request whose replay created or deleted something here: stale, a
     Hooks.callAll("deleteJournalEntryPage", { id: "p", parent: docs.ledger }, { dryRun: true }, game.user.id);
     assert.equal(state.status(), "stale");
     assert.deepEqual(staleNotices(), ["pf2e-artisans-workshop.Sync.Stale.Refused"]);
+});
+
+test("DESIGN 5.1's storage table names every flag a lock page carries", () => {
+    const [op] = toOperations([{ op: "lock", ids: ["r1"], move: { rows: ["r1"] }, hand: { kind: "close", row: "r1" } }], docs);
+    const keys = Object.keys(op.data[0].flags[MOD]).sort();
+    assert.deepEqual(keys, ["hand", "lock", "move"]);
+    const row = readFileSync(join(ROOT, "DESIGN.md"), "utf8").split("\n").find((line) => line.startsWith("| Lock pages |"));
+    for (const key of keys) assert.match(row, new RegExp(`\`${key}[\`:]`), `the Lock pages row of 5.1 names \`${key}\``);
 });

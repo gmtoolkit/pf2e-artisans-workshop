@@ -56,14 +56,21 @@ const BANNED_PROPERTIES = [
 /**
  * `socket` is false in the manifest (DESIGN.md 3.1): the module sends and hears no messages of its own on the game
  * socket. It may only watch the connection: read `game.socket.connected`, and call `game.socket.on` or `off` with
- * "disconnect" (a request's answer is lost when the connection drops, 5.4).
+ * "disconnect" (a request's answer is lost when the connection drops, 5.4) and one listener, as a statement of its
+ * own. socket.io's `on` and `off` return the socket, so a call whose result is used (`game.socket.on("disconnect",
+ * f).emit("x")`, `const s = game.socket.off("disconnect", f)`) reaches it, and is reported. Its emitter calls each
+ * listener with `this` bound to the socket (`callbacks[i].apply(this, args)` in `@socket.io/component-emitter`,
+ * Foundry 14.368), so the listener must be an arrow function, written there or held in a variable of this file that
+ * is only ever given arrow functions: `function () { this.emit("x"); }` would reach it too. And `off("disconnect")`
+ * without a listener removes every disconnect listener, core's included, which is not watching.
  *
  * `no-restricted-properties` cannot allow just those, so this local rule reports every way of reaching the socket
  * that `no-restricted-properties` reports, and a few it does not: `game.socket` and `game?.socket` in any other use;
  * `game["socket"]` and a template literal without expressions, however used; destructuring (`const { socket } =
  * game`, in an assignment, a default parameter, or with a string key); `game` and "socket" passed together to a call
  * (`Reflect.get(game, "socket")`); and the same through `globalThis.game` or `window.game`. A computed name it cannot
- * read (`game[name]`), or a copy of `game` under another name, it cannot follow.
+ * read (`game[name]`), or a copy of `game` under another name, it cannot follow; nor what an arrow listener calls,
+ * which cannot reach the socket without naming it.
  */
 const SOCKET_MESSAGE = "socket is false (DESIGN.md 3.1); use CONFIG.queries. Only the connection may be watched.";
 
@@ -82,8 +89,35 @@ function staticName(key, computed) {
     return null;
 }
 
-/** Whether `member` (a `game.socket` written with a dot) only watches the connection. */
-function watchesConnection(member) {
+/** The variable `identifier` refers to, or null for a global or an undeclared name. */
+function variableOf(identifier, sourceCode) {
+    for (let scope = sourceCode.getScope(identifier); scope; scope = scope.upper) {
+        const reference = scope.references.find((ref) => ref.identifier === identifier);
+        if (reference) return reference.resolved;
+    }
+    return null;
+}
+
+/**
+ * Whether `node`, a listener passed to the socket, is an arrow function (whose `this` is not the socket), or a variable
+ * of this file declared with `let`, `const` or `var` and only ever given arrow functions. A parameter, an import, a
+ * function declaration, or a variable given anything else is not followed, and is reported.
+ */
+function arrowListener(node, sourceCode) {
+    if (node?.type === "ArrowFunctionExpression") return true;
+    if (node?.type !== "Identifier") return false;
+    const variable = variableOf(node, sourceCode);
+    if (!variable?.defs.length || variable.defs.some((def) => def.type !== "Variable")) return false;
+    const writes = variable.references.filter((ref) => ref.isWrite());
+    return writes.length > 0 && writes.every((ref) => ref.writeExpr?.type === "ArrowFunctionExpression");
+}
+
+/**
+ * Whether `member` (a `game.socket` written with a dot) only watches the connection: reads `connected`, or calls `on`
+ * or `off` with "disconnect" and an arrow listener (`arrowListener`), in a statement of its own, so the socket the
+ * call returns goes nowhere.
+ */
+function watchesConnection(member, sourceCode) {
     const use = member.parent;
     if (use.type !== "MemberExpression" || use.object !== member || use.computed) return false;
     const writes = (node) => (node.parent.type === "AssignmentExpression" && node.parent.left === node)
@@ -91,7 +125,10 @@ function watchesConnection(member) {
     if (use.property.name === "connected") return !writes(use);
     if (use.property.name !== "on" && use.property.name !== "off") return false;
     const call = use.parent;
-    return call.type === "CallExpression" && call.callee === use && call.arguments[0]?.type === "Literal" && call.arguments[0].value === "disconnect";
+    const statement = call.parent?.type === "ChainExpression" ? call.parent.parent : call.parent;   // its result (the socket) unused
+    return call.type === "CallExpression" && call.callee === use && call.arguments.length === 2
+        && call.arguments[0].type === "Literal" && call.arguments[0].value === "disconnect"
+        && arrowListener(call.arguments[1], sourceCode) && statement?.type === "ExpressionStatement";
 }
 
 const noGameSocket = {
@@ -107,7 +144,7 @@ const noGameSocket = {
         return {
             MemberExpression(node) {
                 if (!isGame(node.object) || staticName(node.property, node.computed) !== "socket") return;
-                if (node.computed || !watchesConnection(node)) report(node);
+                if (node.computed || !watchesConnection(node, context.sourceCode)) report(node);
             },
             VariableDeclarator: (node) => checkPattern(node.id, node.init),
             AssignmentExpression: (node) => checkPattern(node.left, node.right),

@@ -85,8 +85,8 @@ test("the author hears once about their own rows that did not finish", async (t)
         r1: { id: "r1", v: 1, kind: "deposit", box: 10, state: "pending", author: game.user.id, at: { real: 0 } },
         r2: { id: "r2", v: 1, kind: "deposit", box: 10, state: "pending", author: "someone", at: { real: 0 } },
     };
-    assert.equal(reconcile.reportOwnPending(), 1);
-    assert.equal(reconcile.reportOwnPending(), 0);
+    assert.equal(reconcile.reportOwnPending().reported, 1);
+    assert.equal(reconcile.reportOwnPending().reported, 0);
     assert.equal(world.notes.filter(([, key]) => key === "pf2e-artisans-workshop.Sync.PendingRows").length, 1);
 });
 
@@ -116,11 +116,10 @@ test("a row left pending is stalled, and its author told, once the grace time ha
     assert.equal(read(`rows.${row.id}.state`), "pending");
     assert.deepEqual(reconcile.reconciliationReport().stalled, [], "a pending row this young may be a move in flight");
     clock.server += PENDING_GRACE_MS - 1;
-    assert.deepEqual(reconcile.reconciliationReport().stalled, []);
-    assert.equal(reconcile.reportOwnPending(), 0);
+    assert.deepEqual(reconcile.reportOwnPending(), { reported: 0, dueInMs: 1 }, "it says when to look again");
     clock.server += 1;
     assert.deepEqual(reconcile.reconciliationReport().stalled.map((r) => r.id), [row.id]);
-    assert.equal(reconcile.reportOwnPending(), 1);
+    assert.deepEqual(reconcile.reportOwnPending(), { reported: 1, dueInMs: null });
 });
 
 test("a row left pending in an earlier, longer launch, by a client whose clock ran fast, is stalled by its age on the server's clock", async (t) => {
@@ -334,6 +333,58 @@ test("the sweep resumes a move whose apply request never landed, coming back by 
     assert.deepEqual(vera.items.contents.map((i) => i.quantity), [before[0] - 3], "3 gp moved, once");
     assert.equal(reconcile.reconciliationReport().differenceCp, 0);
 });
+
+/** Two ways a resume fails after the sweep sent it: stopped after its mark, or refused at its dry run. */
+const BROKEN_RESUMES = [
+    ["stops part-way", "stopped", () => {   // the purse is emptied between the apply request's first and second operations
+        world.server.beforeApply = (i, op) => { if (i === 1 && op.parent === vera) vera.items.clear(); };
+    }],
+    ["is refused at its dry run", "dry-run", () => {   // the purse is emptied as the server dry-runs the apply request
+        world.server.beforeDryRun = (operations) => { if (operations.some((op) => op.documentName === "Item")) vera.items.clear(); };
+    }],
+];
+
+for (const [how, reason, breakResume] of BROKEN_RESUMES) {
+    test(`a resume that ${how} is reported to its author once in flight no longer, with no other event to set off the sweep`, async (t) => {
+        t.mock.method(console, "warn", () => {});
+        t.mock.method(console, "info", () => {});
+        t.mock.method(console, "table", () => {});
+        const clock = controlClock(t);
+        mock.timers.tick(2000);   // let the checks and sweeps the setup scheduled run out
+        await settle();
+        // The GM's pledge: its lock request lands, and its answer is lost with the connection.
+        const real = foundry.documents.modifyBatch;
+        foundry.documents.modifyBatch = (operations) => {
+            foundry.documents.modifyBatch = real;
+            real(operations);
+            return new Promise(() => {});
+        };
+        const pending = money.pledge({ actor: vera, cp: 300, nonce: `broken-${reason}` });   // a row of its own: each is told once per session
+        await settle();
+        disconnect();
+        const { rows: [row] } = await pending;
+        // The page reloads past the grace time, and its sweep resumes the move, which fails on the server.
+        clock.server += PENDING_GRACE_MS;
+        state.resetState();
+        money.resetResume();
+        breakResume();
+        await sync.refresh();
+        mock.timers.tick(sync.SWEEP_DELAY_MS);
+        await settle();
+        world.server.beforeApply = null;
+        world.server.beforeDryRun = null;
+        const told = () => world.notes.filter(([, key]) => key === "pf2e-artisans-workshop.Sync.PendingRows").length;
+        assert.equal(read(`rows.${row.id}.stopped.reason`), reason, "the resume failed, and noted how");
+        assert.deepEqual(reconcile.reconciliationReport().inFlight.map((r) => r.id), [row.id], "for the grace time a request may still be applying it");
+        assert.equal(told(), 0, "not yet");
+        clock.server += PENDING_GRACE_MS;
+        mock.timers.tick(PENDING_GRACE_MS);
+        mock.timers.tick(sync.SWEEP_DELAY_MS);
+        await settle();
+        assert.deepEqual(reconcile.reconciliationReport().needsHand.map((r) => r.id), [row.id]);
+        assert.equal(told(), 1, "then the sweep comes back by itself and tells its author");
+    });
+}
 
 test("the harness scenarios cover DESIGN 15.3's M2 scenarios, every step documented", () => {
     const ids = Object.keys(scenarios.definitions);

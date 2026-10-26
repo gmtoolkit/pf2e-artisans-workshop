@@ -48,5 +48,24 @@ All notable changes to this module are documented here. The format follows
   (which could undo a resume), except when the request went out without an operation.
 - A pledge, deposit, withdrawal or wage with no positive amount is refused as "nothing" again, not thrown.
 - A client that has to reload says why: a refused change, a dropped connection or a missing answer.
-- The lint rule against the game socket catches every way of reaching it again (destructuring, computed access).
+- The lint rule against the game socket catches destructuring and computed access with a name it can read again,
+  and counts `on`/`off` of "disconnect" as watching the connection only with one arrow-function listener and as a
+  statement of its own: they return the socket, so `game.socket.on("disconnect", f).emit("x")` reached it; socket.io
+  calls a listener with `this` bound to the socket, so `function () { this.emit("x"); }` did too; and
+  `off("disconnect")` with no listener removed core's listeners as well. A computed name it cannot read, or a copy of
+  `game` under another name, it still cannot follow.
+- A close of a pending row by hand and a GM's adjust act only on rows that need a hand, and no longer race a resume.
+  Reconciliation puts every pending row in one of three states: in flight (younger than the grace time, or a request
+  may be applying it now), resumable (the module finishes it by itself: a coin move a connected user's client may
+  resume, a lost delivery one re-creates), or needing a hand. A close of an in-flight or resumable row is refused, and
+  an adjust leaves their coins out of the difference and books only the rest, so the move still lands and credits the
+  person who paid. Before, a close or an adjust took its mark and the move never landed, while its row still counted,
+  crediting a pledge nobody paid out of the fund. For a row that needs a hand, the close or the adjust takes the mark a
+  late apply request would take (for a lost delivery, the lock its re-creation takes) in the same request, so only one
+  of them lands. A close closes every row of that move.
+- A move nobody connected can resume (its author connected but no longer owning the purse), and a delivery whose
+  re-creation failed, need a hand, so their author is told. A user is told only about their own rows that need a
+  hand: the device that lost a resume race no longer says a move that just applied did not finish; and a resume that
+  stops part-way or is refused at its dry run is reported to its author once its in-flight window ends, without
+  waiting for some other event to run the sweep.
 - The fixture actors' marks live in `flags.world`, outside the module's flags, so a purge no longer strips them.
