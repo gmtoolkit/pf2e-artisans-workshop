@@ -105,15 +105,27 @@ function stopWatch() {
     return Object.fromEntries([...watched].map(([userId, count]) => [game.users.get(userId)?.name ?? userId, count]));
 }
 
-/**
- * A refund claim from the strongbox to `actor`, created by the current user (standing in for a cancelled
- * order). If the strongbox holds less than `cp`, the current user's character deposits it first.
- */
-async function refundClaim(actor, cp, tag) {
-    if (boxCp() < cp) await pledge({ actor: game.user.character, cp, nonce: newId() });
+/** The `createClaims` input of a refund claim from the strongbox to `actor` (standing in for a cancelled order). */
+function refundInput(actor, cp, tag) {
     const idem = idemKey("refund", "scenario", actor.uuid, tag);
-    await createClaims([{ kind: "refund", idem, actor: actor.uuid, cp, parties: [actor.uuid] }]);
-    return read(`claims.${hashId(idem)}`);
+    return { kind: "refund", idem, actor: actor.uuid, cp, parties: [actor.uuid] };
+}
+
+/**
+ * Make sure the strongbox holds `cp`: if it holds less, `from` deposits the difference first. A GM has no character
+ * of their own, so a GM's step passes the refund's own actor, whose purse a GM may write.
+ */
+async function fillStrongbox(cp, from) {
+    const short = cp - boxCp();
+    if (short > 0) await pledge({ actor: from, cp: short, nonce: newId() });
+}
+
+/** One refund claim to `actor`, created by the current user, the strongbox filled first if it is short. */
+async function refundClaim(actor, cp, tag) {
+    await fillStrongbox(cp, game.user.character ?? actor);
+    const input = refundInput(actor, cp, tag);
+    await createClaims([input]);
+    return read(`claims.${hashId(input.idem)}`);
 }
 
 /** Put a compendium item on the pickup shelf for `recipient`. */
@@ -174,7 +186,10 @@ const SCENARIOS = {
             await new Promise((resolve) => setTimeout(resolve, 3000));
             return { writers: stopWatch() };
         } },
-        purseBefore: { about: "3b, the player's first device: its PC's purse now (pass it to purseAfter)", run: (p) => ({ cp: purseCp(actorOf(p)), since: game.time.serverTime }) },
+        purseBefore: { about: "3b, the player's first device: its PC's purse and rows now (pass them to purseAfter)", run: (p) => {
+            const actor = actorOf(p);
+            return { cp: purseCp(actor), rows: records("rows").filter((row) => row.actor === actor.uuid).map((row) => row.id) };
+        } },
         wage: { about: "3b, each of the player's devices at the same moment: mint params.cp into its own PC as a wage claim", run: async (p) => {
             const actor = actorOf(p);
             const idem = idemKey("wage", "scenario", newId(), "0");
@@ -186,10 +201,13 @@ const SCENARIOS = {
             const result = await pledge({ actor: actorOf(p), cp: p.cp ?? 10, order: "scenario-order", nonce: newId() });
             return { outcome: result.outcome ?? result.reason };
         } },
-        purseAfter: { about: "3b, after the sweeps settle: the purse moved by exactly the applied rows (params.before and params.since from purseBefore)", run: async (p) => {
+        purseAfter: { about: "3b, after the sweeps settle: the purse moved by exactly the rows applied since (params.before and params.rows from purseBefore)", run: async (p) => {
             await new Promise((resolve) => setTimeout(resolve, 3000));
             const actor = actorOf(p);
-            const rows = records("rows").filter((row) => row.actor === actor.uuid && row.state === "applied" && row.at.server >= (p.since ?? 0));
+            // The rows that are new since purseBefore, by id: their stamps come from two devices, whose estimates
+            // of the server's time differ by some milliseconds, so a cut-off by time can miss one.
+            const earlier = new Set(p.rows ?? []);
+            const rows = records("rows").filter((row) => row.actor === actor.uuid && row.state === "applied" && !earlier.has(row.id));
             const expected = (p.before ?? 0) + rows.reduce((sum, row) => sum + row.purse, 0);
             return { ok: purseCp(actor) === expected, purse: purseCp(actor), expected, rows: rows.length };
         } },
@@ -199,7 +217,7 @@ const SCENARIOS = {
             const claim = await refundClaim(actor, p.cp ?? 10, p.tag ?? newId());
             await waitFor(() => read(`claims.${claim.id}.resolved`));
             await new Promise((resolve) => setTimeout(resolve, 2000));
-            return { claim: claim.id, rows: rowsWith(claim.idem).length, purseDelta: purseCp(actor) - before, ...snapshot() };
+            return { ...snapshot(), claim: claim.id, claimRows: rowsWith(claim.idem).length, purseDelta: purseCp(actor) - before };
         } },
     },
     "3c": {
@@ -236,6 +254,7 @@ const SCENARIOS = {
             return { claim: claim.id };
         } },
         race: { about: "GM and the owner at the same moment: apply params.claim directly (bypassing the guard); reports where the loser lost", run: async (p) => {
+            await waitFor(() => read(`claims.${p.claim}`), 5000);   // the GM's write may still be on its way to this client
             const claim = read(`claims.${p.claim}`);
             const actor = fromUuidSync(claim.actor);
             const before = purseCp(actor);
@@ -246,9 +265,12 @@ const SCENARIOS = {
         } },
         refunds: { about: "GM: one refund claim to each of params.actors (UUIDs) in one write, for their owners to collect at once", run: async (p) => {
             const tag = p.tag ?? newId();
-            const claims = [];
-            for (const uuid of p.actors ?? []) claims.push((await refundClaim(fromUuidSync(uuid), p.cp ?? 10, tag)).id);
-            return { claims };
+            const cp = p.cp ?? 10;
+            const actors = (p.actors ?? []).map((uuid) => fromUuidSync(uuid));
+            await fillStrongbox(cp * actors.length, game.user.character ?? actors[0]);
+            const inputs = actors.map((actor) => refundInput(actor, cp, tag));
+            await createClaims(inputs);
+            return { claims: inputs.map((input) => hashId(input.idem)) };
         } },
         collected: { about: "each owner, after the refunds: its claim resolved once, its client not stale", run: async (p) => {
             const mine = (p.claims ?? []).filter((id) => fromUuidSync(read(`claims.${id}.actor`))?.isOwner);

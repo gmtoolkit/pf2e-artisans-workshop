@@ -14,7 +14,7 @@ import { hashId } from "../logic/ids.mjs";
 import { flagUpdate, keyPathDiff } from "../logic/keypath.mjs";
 import { SCHEMA_VERSION, migrateFlags, migrationLockState, schemaStatus } from "../logic/migrations.mjs";
 import { isElected } from "./responsible.mjs";
-import { stampNow } from "./store.mjs";
+import { serverNow, stampNow } from "./store.mjs";
 
 const flagsOf = (doc) => doc.flags?.[MODULE_ID] ?? {};
 
@@ -53,7 +53,7 @@ async function takeLock(ledger) {
     if (existing) {
         const lock = existing.flags?.[MODULE_ID]?.lock;
         const activeUserIds = new Set(game.users.filter((u) => u.active).map((u) => u.id));
-        if (migrationLockState(lock, { now: game.time.serverTime, activeUserIds }) !== "stale") return lock?.by === game.user.id;
+        if (migrationLockState(lock, { now: serverNow(), activeUserIds }) !== "stale") return lock?.by === game.user.id;
         await existing.delete({ [MODULE_ID]: { internal: true } });
     }
     try {

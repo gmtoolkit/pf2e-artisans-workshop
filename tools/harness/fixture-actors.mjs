@@ -11,12 +11,16 @@
  *   fixtures.list();                                 // what exists
  *   await fixtures.remove();                         // delete them all
  *
- * Fixture actors carry `flags.pf2e-artisans-workshop.fixture` (their id) and live in a folder flagged
- * `fixtures`; nothing else in the world is touched. Output goes to the console only: this is a
- * developer tool, not part of the module's interface.
+ * Fixture actors carry `flags.world.pf2e-artisans-workshop-fixture` (their id) and live in a folder
+ * flagged `flags.world.pf2e-artisans-workshop-fixtures`, outside the module's own flag scope, so the
+ * module's purge leaves them be (`fixtures.mjs`); nothing else in the world is touched. Output goes to the
+ * console only: this is a developer tool, not part of the module's interface.
  */
 import { MODULE_ID } from "../../scripts/constants.mjs";
-import { ANCESTRY, FIXTURES, applyChoices, characterSource, choicePicker, fixtureUuids, loreSources } from "./fixtures.mjs";
+import {
+    ANCESTRY, FIXTURES, FIXTURE_MARK, FOLDER_MARK, MARK_SCOPE, applyChoices, characterSource, choicePicker, fixtureMarkOf, fixtureUuids,
+    loreSources,
+} from "./fixtures.mjs";
 
 const FOLDER_NAME = "Workshop fixtures";
 
@@ -96,11 +100,23 @@ async function remove({ only = null } = {}) {
  *    lets a feature read what earlier ones set up (the thaumaturge's Implement Adept lists the
  *    implements chosen before it).
  * 4. Add the feats, equipment and Lore skills at the final level.
+ *
+ * Choice sets on items granted two or more grants deep, which the builder's answers do not reach, are
+ * answered beforehand on the compendium copies pf2e loads (`answerNested`), and put back afterwards.
  */
 async function createCharacter(fixture, folder) {
     const [ancestry, cls, ...extras] = await resolve([ANCESTRY.human, fixture.class, ...fixture.feats, ...fixture.items]);
     const pick = choicePicker(fixture.choices);
+    const restoreNested = await answerNested(fixture);
+    try {
+        return await buildCharacter(fixture, folder, { ancestry, cls, extras, pick });
+    } finally {
+        restoreNested();
+    }
+}
 
+/** Steps 1 to 4 of `createCharacter`. */
+async function buildCharacter(fixture, folder, { ancestry, cls, extras, pick }) {
     const actor = await Actor.implementation.create(characterSource(fixture, folder.id));
     try {
         const abc = [ancestry, cls].map((doc) => applyChoices(compendiumSource(doc), pick, fixture.choices));
@@ -129,13 +145,30 @@ async function createCharacter(fixture, folder) {
     return actor;
 }
 
+/**
+ * Answer the choice sets of the fixture's `nested` items on the compendium copies pf2e will load, until the returned
+ * function puts them back. A GrantItem rule applies its `preselectChoices` to the item it grants and no further
+ * (pf2e `src/module/rules/rule-element/grant-item/rule-element.ts`, `#applyChoicePreselections`), so the builder's
+ * answers stop one grant down. A grant inside a granted item (the cleric's First Doctrine (Cloistered Cleric)
+ * granting Domain Initiate) clones its item from `fromUuid`, which returns the pack's cached document: a selection
+ * made on that copy is what the inner grant's choice set starts from, so pf2e does not prompt.
+ * @returns {Promise<() => void>}
+ */
+async function answerNested(fixture) {
+    const docs = await resolve(fixture.nested ?? []);
+    const originals = docs.map((doc) => doc.toObject().system.rules);
+    const pick = choicePicker(fixture.choices);
+    for (const doc of docs) doc.updateSource({ "system.rules": applyChoices(doc.toObject(), pick, fixture.choices).system.rules });
+    return () => docs.forEach((doc, i) => doc.updateSource({ "system.rules": originals[i] }));
+}
+
 /** Import a bestiary actor, renamed and flagged as a fixture. */
 async function createNpc(fixture, folder) {
     const [npc] = await resolve([fixture.npc]);
     const data = game.actors.fromCompendium(npc);
     data.name = `${fixture.name} (${npc.name})`;
     data.folder = folder.id;
-    foundry.utils.setProperty(data, `flags.${MODULE_ID}.fixture`, fixture.id);
+    foundry.utils.setProperty(data, `flags.${MARK_SCOPE}.${FIXTURE_MARK}`, fixture.id);
     return Actor.implementation.create(data);
 }
 
@@ -159,15 +192,15 @@ function selected(only) {
 function fixtureActors() {
     const actors = new Map();
     for (const actor of game.actors) {
-        const id = actor.getFlag(MODULE_ID, "fixture");
+        const id = fixtureMarkOf(actor);
         if (id) actors.set(id, actor);
     }
     return actors;
 }
 
 async function fixtureFolder() {
-    const folder = game.folders.find((f) => f.type === "Actor" && f.getFlag(MODULE_ID, "fixtures"));
-    return folder ?? Folder.implementation.create({ name: FOLDER_NAME, type: "Actor", flags: { [MODULE_ID]: { fixtures: true } } });
+    const folder = game.folders.find((f) => f.type === "Actor" && (f.flags?.[MARK_SCOPE]?.[FOLDER_MARK] || f.flags?.[MODULE_ID]?.fixtures));
+    return folder ?? Folder.implementation.create({ name: FOLDER_NAME, type: "Actor", flags: { [MARK_SCOPE]: { [FOLDER_MARK]: true } } });
 }
 
 /** Load compendium documents by UUID, failing before anything is created if one is missing. */

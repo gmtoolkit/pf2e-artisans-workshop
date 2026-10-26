@@ -14,7 +14,9 @@ storage and sync is in place: the Foundry-facing code in `scripts/foundry/` (sha
 documents, key-path store, migrations, responsible client and lease, lock-first coin
 batches, claims and the GM relay, roster snapshots, guards, purge, reconciliation),
 its pure parts in `scripts/logic/`, tests over Foundry stubs in `test/foundry/`, and
-live-harness scenarios in `tools/harness/sync-scenarios.mjs` not yet run in a world.
+live-harness scenarios in `tools/harness/sync-scenarios.mjs`, which the live driver
+(`npm run harness:live`: `tools/harness/run-live.mjs`, plans and behaviour checks in
+`live-plans.mjs`) runs in a dev world with every user at once, with and without a canvas.
 There is no Workshop window yet. `DECISIONS.md` holds every decision made so far,
 newest first; read it before proposing a design change.
 

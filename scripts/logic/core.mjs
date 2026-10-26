@@ -98,12 +98,15 @@ export function compareRows(a, b) {
 }
 
 /**
- * When a stamp (`at`, 4.1) was made, on a clock every client shares: the server's (`at.server`, Foundry's
- * `game.time.serverTime`), falling back to the author's own clock (`at.real`) for stamps without it. Ages and
- * timeouts compare this with the reader's `game.time.serverTime`, so two machines' clocks never meet.
+ * When a stamp (`at`, 4.1) was made, in milliseconds on the server's own clock, which every client shares: the
+ * moment the server launched the world (`at.launch`) plus the server time since then (`at.server`, Foundry's
+ * `game.time.serverTime`, which counts from that launch). Every client of one launch has the same `launch`, so
+ * within a launch this compares server times exactly, and across a relaunch it stays in order. A stamp without
+ * both falls back to its author's own clock (`at.real`). Ages and timeouts compare this with the reader's moment
+ * on the same clock (`serverNow`, `scripts/foundry/store.mjs`), so two machines' clocks never meet.
  */
 export function stampTime(at) {
-    return at?.server ?? at?.real ?? 0;
+    return Number.isFinite(at?.launch) && Number.isFinite(at?.server) ? at.launch + at.server : at?.real ?? 0;
 }
 
 /** 0 for common up to 3 for unique. */

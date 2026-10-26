@@ -24,7 +24,7 @@ export const PENDING_GRACE_MS = 60 * 1000;
  * @param {object} p
  * @param {object[]} p.rows      every live ledger row
  * @param {object[]} p.stacks    the strongbox's coin stacks `{id, denomination, quantity}`
- * @param {number} p.now         the server time (`game.time.serverTime`)
+ * @param {number} p.now         the moment on the server's clock (`serverNow`), compared with `stampTime`
  * @param {Set<string>} [p.lockedIds]  ids that have a lock page in the ledger
  * @returns {{expectedCp: number, actualCp: number, differenceCp: number, pending: object[], stalled: object[],
  *            lockedStacks: string[]}}  `stalled`: pending rows older than PENDING_GRACE_MS; `lockedStacks`:

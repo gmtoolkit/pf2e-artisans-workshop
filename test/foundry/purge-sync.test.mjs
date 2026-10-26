@@ -22,6 +22,7 @@ const { memberBalances } = await import("../../scripts/logic/reconcile.mjs");
 const { holdingsOf, valueCp } = await import("../../scripts/logic/coins.mjs");
 const { coinStacks } = await import("../../scripts/foundry/coins.mjs");
 const sync = await import("../../scripts/foundry/sync.mjs");
+const { FIXTURES, characterSource, fixtureMarkOf } = await import("../../tools/harness/fixtures.mjs");
 
 sync.initSync();
 const realNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
@@ -121,6 +122,20 @@ test("finishing: flags removed everywhere, the ledger deleted, an empty strongbo
     assert.equal(game.settings.get(MOD, "enabled"), false);
     assert.equal(game.folders.size, 0, "the empty module-data folder goes too");
     assert.ok(game.actors.get(vera.id), "characters stay");
+});
+
+test("the purge removes every module flag, and the harness's fixture marks, kept outside them, survive it", async () => {
+    // A dev world's fixture actor and folder (tools/harness/fixtures.mjs), with real module data on them too.
+    const [fixture] = FIXTURES;
+    const source = characterSource(fixture);
+    const actor = addDocument("Actor", { ...source, flags: { ...source.flags, [MOD]: { loadouts: { a: 1 } } } });
+    const folder = addDocument("Folder", { name: "Workshop fixtures", type: "Actor", flags: { world: { [`${MOD}-fixtures`]: true }, [MOD]: { x: 1 } } });
+    await money.payout({ actor: vera, row: { kind: "withdraw", idem: "withdraw:o1:x:1", cp: 700, actor: vera.uuid, order: "o1" } });
+    assert.equal(await purge.runPurge({ returns: "keep", settleMs: 0 }), "done");
+    assert.equal(actor.flags[MOD], undefined, "the purge is complete for the module's data");
+    assert.equal(folder.flags[MOD], undefined);
+    assert.equal(fixtureMarkOf(actor), fixture.id, "the fixture keeps its mark");
+    assert.equal(folder.flags.world[`${MOD}-fixtures`], true, "and so does its folder");
 });
 
 test("the switch goes off first, so a slow purge does not re-create what it just deleted", async () => {

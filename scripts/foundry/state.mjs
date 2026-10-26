@@ -9,15 +9,34 @@
  * - "newer": a document was written by a newer schema; read-only until the module is updated.
  * - "migrating": another client is migrating; wait and re-read.
  * - "ready": reads and writes are allowed.
- * On top of these, "stale": this client processed the dry-run results of a request the server refused, which
- * created or deleted documents on this client only (5.4, As built in M2), or it never heard back about one; its
- * copies may differ from the server's, so it stops writing until reloaded. A lost lock does not do this: the lock
- * request's only other operation is an update, which a dry run does not commit.
+ * "ready" is checked again on every read: once a document in use is deleted, or this user loses OWNER on one, the
+ * status is "missing" at once, before the sync's next check runs. That check is a hook away, and a hook can be late
+ * (the re-check waits 250 ms) or never come: without a canvas, core's `Actor#_onUpdate` throws on a player's client
+ * when an actor's ownership changes, before any `updateActor` hook (Foundry 14.368 `client/documents/actor.mjs`
+ * calls `canvas.tokens.cycleTokens`), although the client's copy of the actor has the new ownership.
+ *
+ * On top of these, "stale": this client processed the results of a request the server refused at its dry run
+ * that created or deleted documents on this client only (5.4, As built in M2), or it never heard back about one;
+ * its copies may differ from the server's, so it stops writing until reloaded. A lost lock does not do this: in
+ * 14.368 only the world-level operations of a refused request replay, and the lock request's one world-level
+ * operation is an update, which a dry run does not commit.
  */
 import { MODULE_ID } from "../constants.mjs";
 
 let current = { ledger: null, strongbox: null, status: "disabled" };
 let stale = false;
+
+/** Whether every player owns `doc` by default. */
+export const sharedOwnership = (doc) => doc?.ownership?.default === CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
+
+/**
+ * Whether this client may write `doc`: every player owns it by default, and this user owns it too. Foundry reads a
+ * user's own entry before the default (`getUserLevel`), so a GM can give one player less.
+ */
+export const writable = (doc) => sharedOwnership(doc) && doc.testUserPermission(game.user, "OWNER");
+
+/** Whether `doc` is still in its collection: a deleted document stays referenced here, but its collection lost it. */
+const present = (doc) => doc?.collection?.get(doc.id) === doc;
 
 /** The shared documents in use, or null. */
 export function shared() {
@@ -26,7 +45,10 @@ export function shared() {
 
 /** This client's status. */
 export function status() {
-    return stale ? "stale" : current.status;
+    if (stale) return "stale";
+    if (current.status !== "ready") return current.status;
+    const { ledger, strongbox } = current;
+    return [ledger, strongbox].every((doc) => present(doc) && writable(doc)) ? "ready" : "missing";
 }
 
 /** Whether this client may write to the shared documents. */
@@ -39,12 +61,28 @@ export function setShared({ ledger = null, strongbox = null, status: next }) {
     current = { ledger, strongbox, status: next };
 }
 
-/** Stop writing until this client reloads, and say so once. */
-export function markStale() {
+/**
+ * Why a client goes stale, with what it tells its user (one notice per cause, since only the cause differs):
+ * - "refused": the server refused a request at its dry run, and this client replayed a creation or deletion from
+ *   it that happened here only (5.4, Dry-run replay);
+ * - "disconnected": the connection dropped while a request was out, so its answer is lost (5.4, Answers);
+ * - "timeout": no answer came within `ANSWER_LIMIT_MS` (`batch.mjs`).
+ * In the last two the request may have applied on the server, or may yet.
+ */
+const STALE_CAUSES = Object.freeze({
+    refused: { notice: "pf2e-artisans-workshop.Sync.Stale.Refused", log: "the server refused a request that this client had already replayed" },
+    disconnected: { notice: "pf2e-artisans-workshop.Sync.Stale.Disconnected", log: "the connection dropped while a request was out, so its answer is lost" },
+    timeout: { notice: "pf2e-artisans-workshop.Sync.Stale.Timeout", log: "the server did not answer a request in time" },
+});
+
+/** Stop writing until this client reloads, and say why, once. `cause` is a key of `STALE_CAUSES`. */
+export function markStale(cause) {
+    const { notice, log } = STALE_CAUSES[cause] ?? {};
+    if (!notice) throw new TypeError(`${MODULE_ID} | unknown stale cause ${cause}`);
     if (stale) return;
     stale = true;
-    console.warn(`${MODULE_ID} | local copies may differ from the server after a refused batch; reload to continue`);
-    ui.notifications.warn("pf2e-artisans-workshop.Sync.Stale", { localize: true, permanent: true });
+    console.warn(`${MODULE_ID} | local copies may differ from the server: ${log}; reload to continue`);
+    ui.notifications.warn(notice, { localize: true, permanent: true });
 }
 
 /** For tests only: forget everything. */

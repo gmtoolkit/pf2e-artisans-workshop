@@ -132,6 +132,22 @@ test("a player a GM gave less than OWNER on one document only reads; the GM's ch
     assert.deepEqual(strongbox.ownership, { default: OWNER, p1: 2 });
 });
 
+test("a player who loses OWNER on a shared document stops writing at once, even if no update hook reaches it", async () => {
+    await game.settings.set(MOD, "enabled", true);
+    const { strongbox } = await shared.createShared();
+    setUsers([{ id: "p1" }, { id: "gm00000000000000", isGM: true }], "p1");
+    resetLease();
+    requestLease("p1");
+    assert.equal(await sync.refresh(), "ready");
+    // A GM lowers this player to OBSERVER. Without a canvas, core's Actor#_onUpdate throws on this client before any
+    // updateActor hook, but its copy of the actor has the new ownership (seen live), so nothing re-checks the status.
+    strongbox.ownership = { default: OWNER, p1: 2 };
+    assert.equal(state.status(), "missing");
+    assert.equal(state.canWrite(), false);
+    strongbox.ownership = { default: OWNER };
+    assert.equal(state.status(), "ready", "and back to ready once it is restored");
+});
+
 test("ownership is repaired once per session, and the GM is told; a restriction made later stands until the next", async () => {
     await game.settings.set(MOD, "enabled", true);
     const { ledger } = await shared.createShared();

@@ -207,11 +207,23 @@ Target: a `verified` bump within a week of each pf2e release. Upstream issues wo
 | Extension data | Workshop ledger `ext.<moduleId>` | the extension, same rules | extension-defined |
 
 Every record carries `by` (user id) and `at` (`{world: worldTime seconds, real: Date.now(), server:
-game.time.serverTime}`) for the last write. `real` is the author's own clock, for display; ages and timeouts
-compare `server` (the server's clock as the author's client tracks it, falling back to `real` for older stamps)
-with the reader's `game.time.serverTime`, so two machines' clocks are never compared (`stampTime`,
-`scripts/logic/core.mjs`). Ids are random (16 lowercase alphanumerics, so they are safe inside roll options) or
+game.time.serverTime, launch}`) for the last write. `real` is the author's own clock, for display; ages and
+timeouts are read on the server's own clock, `launch + server` (`stampTime`, `scripts/logic/core.mjs`), against the
+reader's moment on the same clock (`serverNow`, `scripts/foundry/store.mjs`), so two machines' clocks are never
+compared. A stamp without `launch` falls back to `real`. Ids are random (16 lowercase alphanumerics, so they are safe inside roll options) or
 16-character hashes of an idempotency key; flag keys never contain dots.
+
+As built (live harness): `game.time.serverTime` is not a clock but the time since the server launched the world
+(`Date.now() - start`, Foundry 14.368 `dist/components/activity.mjs`; measured live, it matched the server's uptime),
+so it starts again at every launch, and a stamp from a launch that ran longer than the current one has so far would
+read as being in the future. `launch` is therefore the moment of that launch on the server's clock: the world's
+`lastPlayed`, which the server sets as it launches the world (to the second, `dist/packages/world.mjs`) and every
+client of that launch receives as the same string (`Date.parse(game.world.lastPlayed)`; measured live, it lay 0.06 s
+from the start of `serverTime`). Within a launch every client has the same `launch`, so ages compare server times
+as each client estimates them, as before; across a relaunch they are right to about a second. A client's
+`serverTime` is core's estimate (`GameTime#sync`, `client/helpers/time.mjs`: the server's time at its last answer
+plus half the average round trip), and a page busy when that answer came runs behind: measured live, clients agreed
+within 1 ms without a canvas and within 0.4 s with one, far inside the 60 s grace and the five-minute lock timeout.
 
 As built in M2 (`scripts/logic/ids.mjs`): a random id maps 32-bit values from `crypto.getRandomValues` onto
 36 lowercase letters and digits, rejecting biased values as Foundry's `randomID` does. A hash id is two
@@ -658,7 +670,7 @@ disconnected and that is older than five minutes is broken and taken again. The 
 hold its user's lease (5.6). Waiting clients are `migrating` and re-check on every ledger change, when a user
 connects or disconnects (the migrating client may be the one that left), and every minute
 (`MIGRATION_RECHECK_MS`), so a lock left by a client that died is broken once it is five minutes old by the
-server's clock (4.1), even if nothing else changes. A client whose code is older is `newer` (read-only), and
+server's clock (4.1), even if nothing else changes, and even when it was taken in an earlier launch of the world. A client whose code is older is `newer` (read-only), and
 says so once per session (`scripts/foundry/state.mjs`, `sync.mjs`).
 
 ---
@@ -672,7 +684,7 @@ says so once per session (`scripts/foundry/state.mjs`, `sync.mjs`).
 | World settings | world | feature toggles, rules-gap settings, settlement profiles, ids of the shared documents | GM and assistant GMs (`SETTINGS_MODIFY`) |
 | **Workshop ledger** | a JournalEntry created by the module, default ownership OWNER, in a "module data" folder | `meta` (current settlement, manual day log, day offset, archive and migration locks), `orders`, `services`, `rows`, `claims`, `pcs`, `days`, `jobs`, `roster`, `formulas`, `standing`, `gardens`, `afflictionDefs`, `ext` | every player |
 | Ledger archive pages | JournalEntryPages inside the ledger | archived orders, rows and day records as flags | every player (page creation needs OWNER of the parent journal, which players have) |
-| Lock pages | JournalEntryPages inside the ledger, `_id` = the id of what they lock (a row, a strongbox item, a purse coin stack at one version) | nothing; their existence is the lock (5.4) | every player |
+| Lock pages | JournalEntryPages inside the ledger, `_id` = the id of what they lock (a row, a strongbox item, a purse coin stack at one version, a coin move's apply request) | nothing but the lock stamp, and on a coin move's first row the move itself, for a resume (5.4); their existence is the lock | every player |
 | **Strongbox** | a pf2e `loot` Actor created by the module, then updated to default ownership OWNER (5.2) | escrowed coins, earmarked materials, shelf items | every player |
 | PC actor flags | each character | loadouts, per-character preferences | the PC's owner |
 | Item flags | items | expiry stamps, inert marks, DC stamps, affix records, crafted-by stamp, coatings, affliction run state, components, gift bindings | the item's owner |
@@ -720,7 +732,14 @@ says so once per session (`scripts/foundry/state.mjs`, `sync.mjs`).
   (and at creation), not on every check, so a GM who restricts a document on purpose is not overruled
   within the second; per-user entries are left alone. A client whose own user has less than OWNER on either
   document (a GM can set that per player, and Foundry reads the user's entry before the default) also counts as
-  "missing" and only reads, since the server would refuse its writes. The ledger goes in
+  "missing" and only reads, since the server would refuse its writes. "Ready" is checked again whenever the status
+  is read (`state.mjs`): once a document in use is deleted, or this user loses OWNER on one, the client is "missing"
+  at once, and the deletion hook also drops the deleted document before the re-check 250 ms later. As built (live
+  harness): without both, a player's client stayed "ready" on a strongbox a GM had just deleted and re-created, and
+  a pledge sent then wrote its lock and a pending row before the server refused the rest; and without a canvas a
+  player's client never hears that its ownership of an actor changed, since core's `Actor#_onUpdate` throws in
+  `canvas.tokens.cycleTokens` before any `updateActor` hook (Foundry 14.368 `client/documents/actor.mjs`), although
+  its copy of the actor has the new ownership. The ledger goes in
   a JournalEntry folder flagged `role: "folder"`; the strongbox stays at the root of the actors directory.
   Clients look the documents up by role flag, oldest first (`_stats.createdTime`, then id), so a two-GM race
   resolves the same way on every client; the active GM keeps the `docs` setting in step as the record of
@@ -783,7 +802,7 @@ Archiving is a timer-driven write, so it follows P4:
 - On read, live records that lack `id` or `v` are discarded. They are stubs that a late key-path write
   re-created after the archive deleted the record (for example a `reversedBy` on an archived row).
 - A reversal of an archived row writes to the archive page, not to the live key.
-- Lock pages (5.4) whose rows are archived are deleted in the same batch.
+- Lock pages (5.4) whose rows are archived are deleted in the same batch, apply marks included.
 
 As built in M2: archiving is not built yet. It needs the order lifecycle (M4) and the workshop day (M6) to
 know what is old; when it comes it also prunes the stack lock pages of 5.4 (strongbox stacks that are gone,
@@ -825,7 +844,11 @@ results.
    smallest first (then by id), and the excess of the last stack comes back as a new stack along with any
    change. A pledge lot holds the amount in gp, sp and cp, not the purse's own coins. `planSpend` pairs one
    strongbox debit with the pro-rata shares of 4.6 ("debits across contributors").
-2. **Fast path.** The acting client checks that the row's idempotency key is not already present.
+2. **Fast path.** The acting client checks that the row's idempotency key is not already present. As built: a move
+   whose rows are known before it is planned (every move but a spend, whose rows follow its shares) checks first;
+   a duplicate that already sees the first move's lock pages would otherwise plan around the stacks they hold and
+   come back "strongbox-short" (seen live). That check reads only the rows' ids (the hashes of their keys), so an
+   amount the plan refuses (0, negative or missing: "nothing") is still refused, not thrown when the row is built.
 3. **Lock first.** Two `foundry.documents.modifyBatch` requests, the second sent once the first applied:
    1. the lock request: create lock pages in the ledger, with `keepId` (the server refuses a page whose id
       exists, under the collection's semaphore), whose `_id`s are the coin-moving rows the move writes,
@@ -840,7 +863,8 @@ results.
    leaves nothing behind on either side: the lock request's only other operation is an update, which a
    refused dry run does not commit on the client either (As built, Dry-run replay). A move that stops
    after its lock leaves a pending row whose lock is already held; its author or a GM closes it, booking
-   an `adjust` if the coins are not right.
+   an `adjust` if the coins are not right. A move whose apply request never reached the server at all is
+   resumed instead (As built, Resume).
 4. **Settle.** The apply request's last operation sets the rows to `"applied"`. Reconciliation (4.7) lists
    rows still pending, locked stacks still there, and balance mismatches, for the author to retry or a GM
    to `adjust`.
@@ -866,7 +890,8 @@ As built in M2 (`scripts/logic/lock-first.mjs`, `scripts/foundry/batch.mjs`, `mo
   their change), credits (coins that arrive, and items created), and last a ledger update that sets the rows to
   `applied`. The settle is the apply request's own last operation, so a row is pending exactly when its move
   stopped after its lock, and no separate settle write can be lost to a closed tab. Debits before credits means a
-  move that stops part-way never creates value. The cost is one more round trip per move.
+  move that stops part-way never creates value. The cost is one more round trip per move. A coin move's apply
+  request starts with its apply mark, one more lock page, so it applies at most once whoever sends it (Resume).
 - **Before sending.** The client checks its own copies first (`preflight`): a lock page it would create exists
   already ("locked"), or an item it would delete or update is gone ("gone"). Either way nothing is sent. The
   second matters because Foundry's client runs every operation through its document class before sending, and
@@ -875,34 +900,84 @@ As built in M2 (`scripts/logic/lock-first.mjs`, `scripts/foundry/batch.mjs`, `mo
   a missing document instead. If an operation still comes back smaller than it was sent (`shrunk`: the item
   went between the check and the client's own dry run), the move is "stopped", its rows marked pending again.
 - **Outcomes.** "ok"; "conflict" (nothing applied: the lock is someone else's, or its items are gone); "stopped"
-  (the lock and rows are written but not everything after them; the rows get `state: "pending"` and `stopped =
-  {applied, total, reason, by, at}` for reconciliation); "error" (the client could not build or send it, nothing
-  applied); "unknown" (no answer within `BATCH_TIMEOUT_MS`, 30 s: socket.io drops the acknowledgement of a
-  request in flight when the connection drops, and Foundry reloads only after five seconds offline, so the move
-  would otherwise wait for ever holding the coin mutex; the client goes stale, since the move may yet apply).
+  (the lock and rows are written but not everything after them; the rows get `stopped = {applied, total, reason,
+  by, at}` for reconciliation, and are set back to `pending` only when the request went out without an operation
+  the client dropped, "shrunk", since only then can the settle have applied; otherwise the rows are still pending
+  on the server, and writing that again could undo a resume's settle); "taken" (the lock and rows are written, and
+  another client's resume sent the apply request first: this one was refused at the apply mark, see Resume);
+  "error" (the client could not build or send it, nothing applied); "unknown" (the answer was lost with the
+  connection, or never came: see Answers; the client goes stale, since the move may have applied or yet apply).
   Each result also says which request (`phase`) and why (`reason`: "locked", "gone", "dry-run", "first",
-  "stopped", "shrunk", "timeout"). The lock is held only if the lock request's first result is its pages. A
-  stopped move is not completed automatically: its author or a GM closes the row (`resolvePending`) once the
-  coins are right, booking an `adjust` if they are not.
+  "stopped", "shrunk", "disconnected", "timeout"). The lock is held only if the lock request's first result is its
+  pages. A stopped move is not completed automatically: its author or a GM closes the row (`resolvePending`) once
+  the coins are right, booking an `adjust` if they are not.
+- **Answers.** The server's answer to a request is a socket.io acknowledgement, which Foundry waits for without a
+  limit (`SocketInterface.dispatch`). socket.io drops the acknowledgement of every request in flight when the
+  connection drops (socket.io-client 4.8 `Socket#_clearAcks`), and Foundry reloads only after five seconds offline,
+  so a short drop would leave the move waiting for ever, holding the coin mutex: the move watches the game socket's
+  "disconnect" while it waits and ends as "unknown" (`reason` "disconnected") when it fires. With the connection up
+  it waits for the answer, however late, up to `ANSWER_LIMIT_MS` (5 minutes; then `reason` "timeout"). As built
+  (live harness): the first version gave up after 30 s; a busy server answered a lock request later than that,
+  the connection up, and the move ended "unknown" with its lock and pending row written, its claim resolved and no
+  coins moved, which nothing retries. Waiting for the late answer completes such a move (behaviour `slow-answer`).
+  A client that goes stale says why, one notice per cause (`markStale` in `state.mjs`: a request refused after this
+  client replayed it, the connection dropped while a request was out, or no answer in time), and asks for a reload.
+- **Resume.** A move whose lock request landed and whose apply request never did (the tab closed between the two, or
+  the lock request's answer was lost with the connection or never came) leaves its rows pending, its lock held, a
+  claim it resolves resolved, and no coins moved; nothing retries it, since the claim sweep sees the claim
+  resolved and the move's own client is gone or stale. The verifier's probe reproduced it live (the transport
+  dropped right after the lock request went out). Every coin move is therefore resumable (`lockFirstBatch` with
+  `resume`, `scripts/logic/lock-first.mjs`): the lock page of its first row also holds the move (`move = {v, rows,
+  apply, touched, actor}`: its apply request less the settle, every item that request deletes or updates with its
+  version `_stats.modifiedTime` at planning, and the purse it moves coins in or out of), and its apply request
+  starts with one more lock page, the apply mark (`apply:<first row id>`, hashed), so the server lets that request
+  through once, whoever sends it, the move itself answering late or a resume. The settle is made again from the
+  rows rather than stored, because Foundry expands a dotted key anywhere in flag data it stores (`ObjectField#
+  _cleanType`, `common/data/fields.mjs`; seen live: the stored `rows.<id>.state` came back as a nested object).
+  The catch-up sweep's "resume" step (`resumeStalled` in `money.mjs`, before "pending rows") sends the apply
+  request again (`runApply`) when, on this client's copies (`resumeDecision`): the rows are all pending, with no
+  `stopped` note (a request that was answered goes the manual way); no apply mark exists (a request that reached
+  the server may have applied in part, which only its author or a GM can judge); the rows are past
+  `PENDING_GRACE_MS` on the server's clock (a younger move may still be in flight, so the sweep comes back when it
+  is due); and every touched item is still there at its planned version (otherwise the planned quantities are wrong,
+  and it goes the manual way). It is this tab's to resume while the user who took the lock is connected only if it
+  is that user's tab holding the lease (the user's coin mutex then keeps it behind a move of its own still waiting
+  for an answer); otherwise it is the tab responsible for the purse (5.6: a connected owner, else the active GM),
+  or for a move on the strongbox alone the one responsible for shared writes after that user; a purse needs a
+  writer who owns it. The resume runs inside the coin mutex and judges the move again there; a resume that does
+  not come back "ok" is not tried again until the client reloads. A resume's apply request refused at the mark
+  ("locked" before sending, "first" in the server's real pass, or a dry-run refusal once the mark has reached this
+  client) is "taken": another client sent it first. As built (live harness, behaviour `resume`, which drops the
+  connection as the lock request's answer arrives): after a reload Player One's two devices resumed the move at
+  the same moment, 60.5 s after it was stamped; one applied it and the other was refused at the mark in the
+  server's dry run, showing core's error toasts as any lock race does; with Player One gone, the GM's client
+  resumed it. Either way the coins moved once.
 - **Dry-run replay.** When the server's dry run refuses a request it answers with the dry-run results of
   every operation, and the requesting client processes those that passed as if they had happened
   (`#handleModifyDocumentBatch` in `client/data/client-backend.mjs` does not look at `dryRun`), on that client
-  only. Created documents are added to their collections and deleted ones removed (`collection.set`,
-  `collection.delete`); updates are not committed, because `DataModel#updateSource` returns before committing
-  on a dry run (`common/abstract/data.mjs`), though their hooks fire. All the replayed hooks carry
-  `options.dryRun`, so a watcher on the create, update and delete hooks of journals, pages, actors and items
-  tells the move it was refused, and marks the client stale (it writes nothing more and asks the user to
-  reload) only for a created or deleted document. A lock request lost at the dry run therefore leaves nothing
-  behind, so the race that is common (a client acting before the winner's broadcast reached it; the server's
-  window for losing in the real pass instead is its own few milliseconds of dry run) costs no reload. An apply
-  request refused at its dry run still goes stale; that needs a document changed outside the module between
-  the two requests, or a permission the server refuses. Read from the 14.368 source; harness scenario 7 checks
-  in a live world which way races fail.
+  only. As built (live harness, correcting what was read from the 14.368 source): only world-level operations get
+  that far. Their hooks fire with `options.dryRun`, and an update is not committed, because
+  `DataModel#updateSource` returns before committing on a dry run (`common/abstract/data.mjs`). Every embedded
+  operation (lock pages, items) fails on the client instead, with core's "A parent Document provided to the
+  database operation must be a Document instance" (`_getParent`, `common/abstract/backend.mjs`: the server's
+  dry-run result still carries the parent it resolved), shown as one more error notification; nothing is created
+  or deleted on the client. A watcher on the create, update and delete hooks of journals, pages, actors and items
+  therefore tells the move it was refused through the ledger update every lock and apply request carries; a
+  request with no world-level operation comes back empty and counts as refused at its first operation ("first").
+  The watcher marks the client stale (it writes nothing more and asks the user to reload) only for a created or
+  deleted document, which only a world-level operation could leave, and the module's requests have none: a lock
+  request lost at the dry run, and an apply request refused at its dry run (a document changed outside the module
+  between the two requests, or a permission the server refuses), leave nothing behind and cost no reload; the
+  apply request's rows stay pending, with `stopped`. Which way races fail (live, scenario 7 and the `lost-lock`
+  check): without a canvas the loser lost in the real pass in 7 races of 8, so the server's window between its dry
+  run and its real pass is not the few milliseconds the source suggests; with a canvas it mostly lost at the dry
+  run; either way it left nothing behind.
 - **Error toasts.** Core shows every error result of a batch as a notification with the server's own text (for
   example "The _id [...] already exists within the parent collection"), in the real pass and in a refused dry
   run alike, and `modifyBatch` has no option to silence it. The checks before sending, and each client sweeping
   in its turn (5.5), make it rare; when two clients do race to the server, the loser's user sees that toast once,
-  and the module only logs the conflict.
+  and the module only logs the conflict. An apply request refused at its dry run also shows one error for each of
+  its embedded operations (see Dry-run replay).
 - **Mutex.** Web Locks exist only in secure contexts (https, or localhost); over plain http the mutex covers
   one tab, and duplicates across tabs are stopped by the lock pages, as across devices.
 - **Coins.** A coin stack is a pf2e treasure item of the coin category with one denomination
@@ -943,13 +1018,17 @@ becomes a claim that the target's owner client applies.
   writes, so claim, row and lock page share one id. M2 applies refunds (strongbox to purse), wages (minted
   into the purse) and deliveries; the other kinds register appliers with their milestones
   (`registerClaimKind`). A claim whose row someone already wrote (a direct move for the same key) is marked
-  resolved without moving anything. The sweep runs at `ready`, when the lease passes to a tab, when any
-  user connects or disconnects (`userConnected` fires on every other client), and shortly after the
+  resolved without moving anything, unless the move that wrote the row resolved it already (with its lock), whose
+  resolution and author stand. A claim is resolved with its move's lock request, so a move whose lock request
+  landed and whose apply request never did leaves the claim resolved with nothing paid: the claim sweep leaves it,
+  and the resume step (5.4, As built: Resume) completes the move. The sweep runs at `ready`, when the lease
+  passes to a tab, when any user connects or disconnects (`userConnected` fires on every other client), when a
+  move it waits to resume is due, and shortly after the
   ledger's `claims` change or a shelf item appears. Every client reacts to the same change, so each waits its
   turn: 500 ms, plus 600 ms for each connected user ahead of it in id order (`sweepDelay`), and usually sees
   the locks of those before it and plans around them instead of racing them to the server. A sweep runs one at
   a time on a client (a call while one runs makes it run once more), each step (claims, deliveries, roster,
-  pending rows) and each claim or shelf item on its own: one that throws, or that this client cannot build a
+  resume, pending rows) and each claim or shelf item on its own: one that throws, or that this client cannot build a
   move for, is logged and left alone until the client reloads, so it cannot hold up the others. A delivery
   looks its shelf item up again inside the coin mutex, and skips it when its row exists ("already") or the item
   is gone, so a sweep or relay call that started before another delivery took the item never sends a move
@@ -3815,7 +3894,11 @@ World settings unless marked U.
     globals `eslint.config.mjs` lists (the browser globals it needs, and the Foundry globals that Foundry
     14.368's `client/client.mjs` assigns without a deprecation warning), so every v15-removed alias, the
     AppV1 classes, `MeasuredTemplateDocument`, jQuery, `libWrapper`, `socketlib` and
-    `requestAnimationFrame` fail `no-undef`. On top of that: `foundry.appv1` and `game.socket`;
+    `requestAnimationFrame` fail `no-undef`. On top of that: `foundry.appv1`, and `game.socket` however it is
+    reached (a local rule, `workshop/no-game-socket`: dot or computed access, destructuring, `Reflect.get(game,
+    "socket")`, through `globalThis`), where only watching the connection is allowed (`connected`, and `on`/`off`
+    of "disconnect", 5.4); the live driver's page functions, which the module never loads, are exempt, since one
+    drops a page's connection on purpose;
     monkey-patching (`X.prototype.y = ...`, `X.prototype = ...`, and `Object.assign`, `defineProperty`,
     `defineProperties`, `setPrototypeOf` or `Reflect.set` on `X.prototype`); and in shipped code and
     macros the `document`, `window` and `globalThis` globals (detached windows, and no reaching a banned
@@ -3952,6 +4035,30 @@ parse result between tags is reported.
   where the loser lost (`reason`: before sending, at the dry run, or in the real pass), and its refund steps
   have two players collect refunds written in one go. Scenario 3b's purse steps have one player's two devices
   mint a wage and pledge from one purse at the same moment, and check the purse against the applied rows.
+- The live driver (`tools/harness/run-live.mjs`, `npm run harness:live`) runs those steps with Playwright: one
+  browser context per user and device (a second tab of a user is a second page in its context, sharing its Web
+  Locks), logged in through `POST /join`. Its plans (`tools/harness/live-plans.mjs`) prepare the world through the
+  Foundry API, start each scenario from fresh shared documents, start simultaneous steps together, check the
+  steps' results against what the server holds (read back with `get` requests), and add checks of single
+  behaviours the stubs cannot settle (lost locks, the dry-run replay, pf2e's dropped deletions, stack versions,
+  server time and a stamp from before a relaunch, sweep stagger, purge returns, the assistant GM's switch, an
+  OBSERVER player, a dead migration lock, relay against sweep, late answers from the server, the cleric fixture's
+  nested choice, a move stranded between its two requests and resumed). The migration-lock checks take their lock
+  through the module's own `stampNow`, as of minutes ago, from a client whose clock runs three hours fast, and
+  for `relaunch-stamp` in an earlier, longer launch (`Date.now`, `game.time.serverTime` and
+  `game.world.lastPlayed` set for that one call), so a stamp that lost its launch, or took it from the client's
+  clock, would keep the lock from being broken. The fixture actors and their folder are marked outside the
+  module's flags (`flags.world.pf2e-artisans-workshop-fixture`, and `-fixtures` on the folder, `fixtures.mjs`), so
+  the purge of scenario 9, which removes every module flag, leaves them; scenario 9 checks that they survive.
+  Preparing the world gives actors built before the marks moved their new mark, by the names the fixture tools
+  give them.
+- As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
+  counts the rows that are new since `purseBefore` by id, not by a server-time cut-off (two devices' estimates of
+  the server's time differ by milliseconds, and one real row was left out); the `claim` step reports its own rows
+  as `claimRows` (the snapshot's row total used to overwrite them); a GM's refund steps fill the strongbox from the
+  claim's own character (a GM has none), and `7/refunds` writes its claims in one write; `7/race` waits until the
+  claim it races on has reached its client, and the plans race it with Player One's auto-claim off, since Player
+  One's own sweep applies the claim half a second after it appears and, with the canvas on, could win the race.
 
 ### 15.4 Fixture actors
 
@@ -3960,6 +4067,15 @@ Generic builds created by a script from compendium items (`tools/harness/fixture
 attribute modifiers; its choice-set answers are part of the definition, so building it raises no
 prompts. The class features are added one feature level at a time, the way levelling up adds them. The
 NPC targets of row 17 are the Monster Core Goblin Warrior, Skeleton Guard and Frost Giant.
+
+As built: the builder fills in the choice sets of the items it creates and gives their GrantItem rules the
+fixture's answers as `preselectChoices`, which pf2e applies to the item each grants and no further
+(`#applyChoicePreselections`, pf2e `src/module/rules/rule-element/grant-item/rule-element.ts`). An item two or more
+grants deep is cloned by the inner grant from the compendium itself, so the cleric's Domain Initiate (First Doctrine
+grants First Doctrine (Cloistered Cleric), which grants Domain Initiate) opened pf2e's prompt live. A fixture lists
+such items as `nested`; the builder sets their choice sets' selections on the compendium copies pf2e loads (the
+pack's cached documents, which `fromUuid` returns) for the length of the build and puts them back afterwards.
+`PF2E_SRC=<checkout> npm test` models how far preselections reach and fails on a deep choice set left unanswered.
 
 | # | Build | Exercises |
 |---|---|---|

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { MODULE_ID } from "../scripts/constants.mjs";
 import {
-    ANCESTRY, FEATURE, FIXTURES, applyChoices, characterSource, choicePicker, choiceSetFlag, fixtureUuids,
+    ANCESTRY, FEATURE, FIXTURES, applyChoices, characterSource, choicePicker, choiceSetFlag, fixtureMarkOf, fixtureUuids,
     loreSources, validateFixtures,
 } from "../tools/harness/fixtures.mjs";
 
@@ -39,7 +39,11 @@ test("characterSource starts at level 0 with manual attributes, ranks and the fi
     assert.deepEqual(source.system.abilities.dex, { mod: 4 });
     assert.deepEqual(source.system.abilities.wis, { mod: 0 });
     assert.deepEqual(source.system.skills, { crafting: { rank: 3 } });
-    assert.equal(source.flags[MODULE_ID].fixture, "rogue-tattoo-7");
+    assert.equal(source.flags.world[`${MODULE_ID}-fixture`], "rogue-tattoo-7");
+    assert.equal(source.flags[MODULE_ID], undefined, "marked outside the module's own flags, which a purge removes");
+    assert.equal(fixtureMarkOf(source), "rogue-tattoo-7");
+    assert.equal(fixtureMarkOf({ flags: { [MODULE_ID]: { fixture: "wizard-9" } } }), "wizard-9", "a fixture built before the marks moved");
+    assert.equal(fixtureMarkOf({ flags: {} }), null);
     assert.deepEqual(loreSources(fixture), [{ name: "Cooking Lore", type: "lore", system: { proficient: { value: 2 } } }]);
 });
 
@@ -146,11 +150,20 @@ test("every fixture UUID exists in the pf2e source", NEEDS_SOURCE, (t) => {
  * until the flags stop changing. Predicates are not evaluated, so a predicated choice set needs an
  * answer too (an answer pf2e never asks for is harmless). A set with one static choice, or with its
  * selection already in the item, needs none.
+ *
+ * Where an answer can come from depends on how deep the item is granted. The builder fills in the items it
+ * creates itself (depth 0) from the fixture's choices, and gives their GrantItem rules the fixture's single-valued
+ * choices as `preselectChoices`, which pf2e applies to the item each grants (depth 1). pf2e passes a grant's
+ * preselections no further (`#applyChoicePreselections` in `grant-item/rule-element.ts`), so an item two or more
+ * grants deep has only the preselections of the compendium's own grant, unless the fixture lists it as `nested`:
+ * the builder then answers it on the compendium copy pf2e loads.
  */
 function promptsIn(fixture, source) {
     // The source files name items in UUIDs by name; the fixtures (like the built packs) use ids.
     const sameChoice = (value, answer) =>
         value === answer || (value.startsWith?.("Compendium.") && source.get(value) === source.get(answer));
+    const singleValued = Object.fromEntries(Object.entries(fixture.choices).filter(([, value]) => !Array.isArray(value)));
+    const nested = new Set((fixture.nested ?? []).map((uuid) => source.get(uuid)));
     const actorFlags = {};
     let flagsBefore;
     let problems;
@@ -158,15 +171,17 @@ function promptsIn(fixture, source) {
         flagsBefore = JSON.stringify(actorFlags);
         problems = new Set();
         const seen = new Set();
-        const visit = (uuid, preset = {}) => {
+        const deep = new Set();
+        const visit = (uuid, preset = {}, depth = 0) => {
             const item = source.get(uuid);
             if (item === undefined) problems.add(`${uuid} is not in the pf2e source`);
             if (!item || seen.has(uuid)) return;
             seen.add(uuid);
+            if (depth >= 2) deep.add(item);
             for (const rule of item.system.rules ?? []) {
                 if (rule.key === "ChoiceSet") {
                     const flag = choiceSetFlag(rule, item);
-                    const answer = fixture.choices[flag] ?? preset[flag];
+                    const answer = depth === 0 || nested.has(item) ? fixture.choices[flag] : preset[flag];
                     const values = Array.isArray(rule.choices) ? rule.choices.map((choice) => choice.value) : null;
                     if (answer === undefined && rule.selection == null && values?.length !== 1) {
                         problems.add(`no answer for ${flag} (${item.name})`);
@@ -181,7 +196,8 @@ function promptsIn(fixture, source) {
                 } else if (rule.key === "GrantItem") {
                     const targets = grantTargets(rule.uuid, fixture.choices, actorFlags);
                     if (!targets.length) problems.add(`cannot follow the grant of ${rule.uuid} (${item.name})`);
-                    for (const target of targets) visit(target, rule.preselectChoices);
+                    const preselect = depth === 0 ? { ...singleValued, ...rule.preselectChoices } : { ...rule.preselectChoices };
+                    for (const target of targets) visit(target, preselect, depth + 1);
                 }
             }
         };
@@ -191,9 +207,32 @@ function promptsIn(fixture, source) {
             if (feature.level <= fixture.level) visit(feature.uuid);
         }
         for (const uuid of [...fixture.feats, ...fixture.items]) visit(uuid);
+        for (const uuid of fixture.nested ?? []) {
+            if (!deep.has(source.get(uuid))) problems.add(`nested ${uuid} is not granted two or more grants deep`);
+        }
     } while (JSON.stringify(actorFlags) !== flagsBefore);
     return [...problems];
 }
+
+test("the walk knows how far pf2e passes a preselection: one grant down, no further", () => {
+    const item = (name, rules) => ({ name, system: { rules } });
+    const items = new Map([
+        ["Compendium.pf2e.classes.Item.cls", item("Class", [])],
+        ["Compendium.pf2e.feats-srd.Item.outer", item("Outer", [{ key: "GrantItem", uuid: "Compendium.pf2e.feats-srd.Item.middle" }])],
+        ["Compendium.pf2e.feats-srd.Item.middle", item("Middle", [
+            { key: "ChoiceSet", flag: "near", choices: [{ value: "a" }, { value: "b" }] },
+            { key: "GrantItem", uuid: "Compendium.pf2e.feats-srd.Item.inner" },
+        ])],
+        ["Compendium.pf2e.feats-srd.Item.inner", item("Inner", [{ key: "ChoiceSet", flag: "far", choices: [{ value: "x" }, { value: "y" }] }])],
+    ]);
+    items.set(ANCESTRY.human, item("Human", []));
+    const source = { get: (uuid) => items.get(uuid) };
+    const fixture = { class: "Compendium.pf2e.classes.Item.cls", level: 1, choices: { near: "a", far: "x" }, feats: ["Compendium.pf2e.feats-srd.Item.outer"], items: [] };
+    assert.deepEqual(promptsIn(fixture, source), ["no answer for far (Inner)"], "two grants deep, the fixture's answer does not reach");
+    assert.deepEqual(promptsIn({ ...fixture, nested: ["Compendium.pf2e.feats-srd.Item.inner"] }, source), []);
+    assert.deepEqual(promptsIn({ ...fixture, nested: ["Compendium.pf2e.feats-srd.Item.middle"] }, source),
+        ["no answer for far (Inner)", "nested Compendium.pf2e.feats-srd.Item.middle is not granted two or more grants deep"]);
+});
 
 /** The compendium UUIDs a GrantItem's `uuid` names, from the fixture's choices and the actor flags. */
 function grantTargets(uuid, choices, actorFlags) {

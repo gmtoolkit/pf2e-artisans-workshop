@@ -11,14 +11,16 @@
  *
  * The sweep (P5), on the tab holding the lease, after `refresh`, when a user connects or disconnects, when the
  * lease passes to this tab, and when claims or shelf items appear: apply claims and deliveries this tab is
- * responsible for, finish lost deliveries, publish roster snapshots, and tell the user about their own rows
- * that did not finish. Every step is idempotent, so running it again is always safe.
+ * responsible for, finish lost deliveries, publish roster snapshots, resume coin moves whose apply request never
+ * landed, and tell the user about their own rows that did not finish. Every step is idempotent, so running it again
+ * is always safe. A move too young to resume yet brings the sweep back when it is due.
  */
 import { MODULE_ID } from "../constants.mjs";
 import { compareIds } from "../logic/ids.mjs";
 import { registerBatchWatcher } from "./batch.mjs";
 import { sweepClaims, sweepDeliveries } from "./claims.mjs";
 import { loadCoinTemplates } from "./coins.mjs";
+import { resumeStalled } from "./money.mjs";
 import { registerGuards } from "./guards.mjs";
 import { holdsLease, requestLease } from "./lease.mjs";
 import { ensureSchema } from "./migrate.mjs";
@@ -161,11 +163,22 @@ function recheckLater() {
     recheck = setTimeout(() => scheduleRefresh(), MIGRATION_RECHECK_MS);
 }
 
+let due = null;
+
+/** Resume the coin moves this tab is to resume, and sweep again when the next one too young to judge is due. */
+async function resumeMoves() {
+    const { dueInMs } = await resumeStalled();
+    if (dueInMs === null) return;
+    clearTimeout(due);
+    due = setTimeout(() => scheduleSweep(), dueInMs);
+}
+
 /** The steps of the catch-up sweep (P5), each on its own so a failure in one does not skip the others. */
 const SWEEP_STEPS = [
     ["claims", () => sweepClaims()],
     ["deliveries", () => sweepDeliveries()],
     ["roster", () => publishAll()],
+    ["resume", () => resumeMoves()],
     ["pending rows", () => reportOwnPending()],
 ];
 
@@ -199,10 +212,16 @@ function onSharedUpdate(doc, changed) {
     if ("claims" in flags) scheduleSweep();
 }
 
-/** A shared document was deleted: this client goes to "missing" until it is re-created. */
+/**
+ * A shared document was deleted: this client goes to "missing" at once, no longer using it, and re-checks shortly
+ * (a GM may be re-creating it). `status()` would say "missing" anyway once the document has left its collection;
+ * this also drops the reference, so nothing reads the deleted copy meanwhile.
+ */
 function onSharedDelete(doc) {
     const { ledger, strongbox } = shared();
-    if (doc === ledger || doc === strongbox) scheduleRefresh();
+    if (doc !== ledger && doc !== strongbox) return;
+    setShared({ ledger: doc === ledger ? null : ledger, strongbox: doc === strongbox ? null : strongbox, status: "missing" });
+    scheduleRefresh();
 }
 
 /** A shelf item appeared in the strongbox: its recipient's client delivers it. */

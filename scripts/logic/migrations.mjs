@@ -73,7 +73,7 @@ export const MIGRATION_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
 /**
  * Whether a migration lock (`{to, by, at}`) still stands: "free" when there is none, "held" while its holder is
  * connected or it is recent, "stale" when the holder has gone and it is older than the timeout. `now` is the
- * server time (`game.time.serverTime`), compared with the lock's (`stampTime`).
+ * moment on the server's clock (`serverNow`), compared with the lock's (`stampTime`).
  */
 export function migrationLockState(lock, { now, activeUserIds }) {
     if (!lock) return "free";

@@ -7,7 +7,7 @@ import { adjustNonce, adjustRowInput, reconcile } from "../logic/reconcile.mjs";
 import { coinStacks } from "./coins.mjs";
 import { postRows } from "./money.mjs";
 import { shared } from "./state.mjs";
-import { records } from "./store.mjs";
+import { records, serverNow } from "./store.mjs";
 
 /**
  * Expected and actual strongbox coins, the rows still pending (`stalled`: past the grace time), and the strongbox
@@ -16,7 +16,7 @@ import { records } from "./store.mjs";
 export function reconciliationReport() {
     const { ledger, strongbox } = shared();
     const lockedIds = new Set(ledger?.pages.keys() ?? []);
-    return reconcile({ rows: records("rows"), stacks: strongbox ? coinStacks(strongbox) : [], now: game.time.serverTime, lockedIds });
+    return reconcile({ rows: records("rows"), stacks: strongbox ? coinStacks(strongbox) : [], now: serverNow(), lockedIds });
 }
 
 const reported = new Set();

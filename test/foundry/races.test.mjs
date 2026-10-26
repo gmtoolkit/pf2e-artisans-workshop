@@ -109,7 +109,7 @@ test("a pledge cannot land between a refund's lock and its coins: the purse's co
     const real = foundry.documents.modifyBatch;
     let held = null;
     foundry.documents.modifyBatch = (operations) => {   // hold the refund's apply request, after its lock went through
-        if (held || operations[0].documentName === "JournalEntryPage") return real(operations);
+        if (held || !operations.some((op) => op.documentName === "Item")) return real(operations);   // the lock request moves no item
         foundry.documents.modifyBatch = real;
         return new Promise((resolve) => { held = () => resolve(real(operations)); });
     };

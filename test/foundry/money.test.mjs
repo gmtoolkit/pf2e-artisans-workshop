@@ -94,6 +94,19 @@ test("refusals: short purse, short strongbox, nothing to move, a purse the user 
     assert.equal(world.batches.length, 0);
 });
 
+test("no positive amount is refused as \"nothing\", for every move, before anything is sent", async () => {
+    // The fast path looks at the row's id before the plan runs; it must not build the row (which throws on such an
+    // amount) and so turn the documented refusal into an exception.
+    for (const cp of [0, -5, undefined]) {
+        assert.deepEqual(await money.pledge({ actor: pc, cp, nonce: "z" }), { ok: false, reason: "nothing" }, `pledge ${cp}`);
+        assert.deepEqual(await money.pledge({ actor: pc, cp, order: "o1", nonce: "z" }), { ok: false, reason: "nothing" }, `pledge to an order ${cp}`);
+        assert.deepEqual(await money.withdraw({ actor: pc, cp, nonce: "z" }), { ok: false, reason: "nothing" }, `withdraw ${cp}`);
+        assert.deepEqual(await money.mint({ actor: pc, row: { kind: "wage", idem: "wage:j1:1:0", cp, actor: pc.uuid } }), { ok: false, reason: "nothing" }, `wage ${cp}`);
+    }
+    assert.equal(world.batches.length, 0);
+    assert.deepEqual(records("rows"), []);
+});
+
 test("a wage mints into the purse; a deposit and withdrawal go through the party fund", async () => {
     await money.mint({ actor: pc, row: { kind: "wage", idem: "wage:j1:3:0", cp: 30, actor: pc.uuid, job: "j1", day: 3 } });
     assert.equal(cpOf(pc), 1060);

@@ -14,10 +14,12 @@
     "check:strings:enforce": "node tools/check-strings.mjs --mode enforce",
     "check:assets": "node tools/check-assets.mjs",
     "check:manifest": "node tools/check-manifest.mjs",
-    "signoff": "node tools/signoff-strings.mjs"
+    "signoff": "node tools/signoff-strings.mjs",
+    "harness:live": "node tools/harness/run-live.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "eslint": "10.13.0"
+    "eslint": "10.13.0",
+    "playwright-core": "1.64.1"
   }
 }

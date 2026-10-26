@@ -48,11 +48,80 @@ const NODE_GLOBALS = [
     "fetch", "performance",
 ];
 
-/** Properties of allowed globals that P12 and DESIGN.md 3.1 rule out. */
+/** Properties of allowed globals that P12 rules out. */
 const BANNED_PROPERTIES = [
     { object: "foundry", property: "appv1", message: "Application V1; use ApplicationV2 (P12)." },
-    { object: "game", property: "socket", message: "socket is false (DESIGN.md 3.1); use CONFIG.queries." },
 ];
+
+/**
+ * `socket` is false in the manifest (DESIGN.md 3.1): the module sends and hears no messages of its own on the game
+ * socket. It may only watch the connection: read `game.socket.connected`, and call `game.socket.on` or `off` with
+ * "disconnect" (a request's answer is lost when the connection drops, 5.4).
+ *
+ * `no-restricted-properties` cannot allow just those, so this local rule reports every way of reaching the socket
+ * that `no-restricted-properties` reports, and a few it does not: `game.socket` and `game?.socket` in any other use;
+ * `game["socket"]` and a template literal without expressions, however used; destructuring (`const { socket } =
+ * game`, in an assignment, a default parameter, or with a string key); `game` and "socket" passed together to a call
+ * (`Reflect.get(game, "socket")`); and the same through `globalThis.game` or `window.game`. A computed name it cannot
+ * read (`game[name]`), or a copy of `game` under another name, it cannot follow.
+ */
+const SOCKET_MESSAGE = "socket is false (DESIGN.md 3.1); use CONFIG.queries. Only the connection may be watched.";
+
+/** Whether `node` is `game`, `globalThis.game` or `window.game`. */
+function isGame(node) {
+    if (node?.type === "Identifier") return node.name === "game";
+    return node?.type === "MemberExpression" && !node.computed && node.property.name === "game"
+        && node.object.type === "Identifier" && ["globalThis", "window", "self"].includes(node.object.name);
+}
+
+/** The name a member expression or object-pattern key reads, when it can be known without running the code. */
+function staticName(key, computed) {
+    if (!computed) return key.type === "Identifier" ? key.name : null;
+    if (key.type === "Literal") return String(key.value);
+    if (key.type === "TemplateLiteral" && key.expressions.length === 0) return key.quasis[0].value.cooked;
+    return null;
+}
+
+/** Whether `member` (a `game.socket` written with a dot) only watches the connection. */
+function watchesConnection(member) {
+    const use = member.parent;
+    if (use.type !== "MemberExpression" || use.object !== member || use.computed) return false;
+    const writes = (node) => (node.parent.type === "AssignmentExpression" && node.parent.left === node)
+        || node.parent.type === "UpdateExpression" || (node.parent.type === "UnaryExpression" && node.parent.operator === "delete");
+    if (use.property.name === "connected") return !writes(use);
+    if (use.property.name !== "on" && use.property.name !== "off") return false;
+    const call = use.parent;
+    return call.type === "CallExpression" && call.callee === use && call.arguments[0]?.type === "Literal" && call.arguments[0].value === "disconnect";
+}
+
+const noGameSocket = {
+    meta: { type: "problem", schema: [], messages: { socket: SOCKET_MESSAGE } },
+    create(context) {
+        const report = (node) => context.report({ node, messageId: "socket" });
+        const checkPattern = (pattern, source) => {
+            if (pattern?.type !== "ObjectPattern" || !isGame(source)) return;
+            for (const property of pattern.properties) {
+                if (property.type === "Property" && staticName(property.key, property.computed) === "socket") report(property);
+            }
+        };
+        return {
+            MemberExpression(node) {
+                if (!isGame(node.object) || staticName(node.property, node.computed) !== "socket") return;
+                if (node.computed || !watchesConnection(node)) report(node);
+            },
+            VariableDeclarator: (node) => checkPattern(node.id, node.init),
+            AssignmentExpression: (node) => checkPattern(node.left, node.right),
+            AssignmentPattern: (node) => checkPattern(node.left, node.right),
+            CallExpression(node) {
+                const args = node.arguments;
+                if (args.some(isGame) && args.some((arg) => staticName(arg, true) === "socket")) report(node);
+            },
+        };
+    },
+};
+
+/** This repository's own rules. */
+const workshop = { rules: { "no-game-socket": noGameSocket } };
 
 // The regex of DESIGN.md 15.1 (["'`.][=-]=), applied to string and template-literal contents.
 const UPDATE_KEY = String.raw`/(^|\.)[-=]=/`;
@@ -159,9 +228,11 @@ export default [
         files: FOUNDRY_CODE,
         ignores: PURE_CODE,
         languageOptions: { globals: readonly([...BROWSER_GLOBALS, ...FOUNDRY_GLOBALS]) },
+        plugins: { workshop },
         rules: {
             "no-restricted-properties": ["error", ...BANNED_PROPERTIES],
             "no-restricted-syntax": ["error", ...BANNED_SYNTAX],
+            "workshop/no-game-socket": "error",
         },
     },
     {
@@ -185,6 +256,15 @@ export default [
         // Node tooling, tests and this config.
         files: ["tools/*.mjs", "test/**/*.mjs", "eslint.config.mjs"],
         languageOptions: { globals: readonly(NODE_GLOBALS) },
+    },
+    {
+        // The live-harness driver runs in Node and hands functions to the browser pages it drives
+        // (`page.evaluate`), so it sees both Node's globals and the Foundry ones above. Those functions are not part
+        // of the module (it never loads these files); one drops a page's connection on purpose, through its socket,
+        // to check what the module does then (the `resume` behaviour).
+        files: ["tools/harness/run-live.mjs", "tools/harness/live-plans.mjs"],
+        languageOptions: { globals: readonly(NODE_GLOBALS) },
+        rules: { "workshop/no-game-socket": "off" },
     },
     {
         // Tests of Foundry-facing code read the globals that test/foundry/stubs.mjs installs.

@@ -18,6 +18,7 @@ import { compareIds } from "../logic/ids.mjs";
 import { SCHEMA_VERSION } from "../logic/migrations.mjs";
 import { holdsLease } from "./lease.mjs";
 import { isEnabled, setting } from "./settings.mjs";
+import { sharedOwnership, writable } from "./state.mjs";
 
 const ownerLevel = () => CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
 
@@ -31,15 +32,6 @@ const oldestFirst = (a, b) => (a._stats?.createdTime ?? 0) - (b._stats?.createdT
 function withRole(collection, role) {
     return collection.filter((doc) => roleOf(doc) === role).sort(oldestFirst);
 }
-
-/** Whether every player owns `doc` by default. */
-export const sharedOwnership = (doc) => doc?.ownership?.default === ownerLevel();
-
-/**
- * Whether this client may write `doc`: every player owns it by default, and this user owns it too. Foundry
- * reads a user's own entry before the default (`getUserLevel`), so a GM can give one player less.
- */
-const writable = (doc) => sharedOwnership(doc) && doc.testUserPermission(game.user, "OWNER");
 
 /**
  * Find the shared documents. `ready` is false when one is missing, not owned by every player, or not owned by

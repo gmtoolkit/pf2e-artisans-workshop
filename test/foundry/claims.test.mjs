@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
-import { MOD, addDocument, coin, flagsOf, installFoundry, resetWorld, setUsers, sharedWorld, world } from "./stubs.mjs";
+import { MOD, addDocument, coin, flagsOf, installFoundry, resetWorld, serverStamp, setUsers, sharedWorld, world } from "./stubs.mjs";
 
 installFoundry();
 const { holdingsOf, valueCp } = await import("../../scripts/logic/coins.mjs");
@@ -103,6 +103,33 @@ test("two clients applying the same claim: the second loses at its lock, moves n
     assert.equal(cpOf(vera), 1200, "paid once");
 });
 
+test("a second client that already sees the first's lock and row is told \"already\", whatever the coins now allow", async () => {
+    const [claim] = await claims.createClaims([refundFor(vera, 500)]);   // all of the strongbox's coins, in one stack
+    // Two devices: each has its own lock manager, so the coin mutex does not hold the second back.
+    Object.defineProperty(globalThis, "navigator", { value: { locks: { request: (_name, task) => task() } }, configurable: true });
+    const real = foundry.documents.modifyBatch;
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    let requests = 0;
+    // The first client's lock request lands; its apply request is still on its way when the GM's client looks.
+    foundry.documents.modifyBatch = async (operations) => (++requests === 2 ? held.then(() => real(operations)) : real(operations));
+    world.currentUser = "p1";
+    const first = claims.applyClaim(claim, vera);
+    while (read(`rows.${claim.id}.state`) !== "pending") await new Promise((resolve) => setImmediate(resolve));
+    try {
+        world.currentUser = "gm00000000000000";
+        const second = await claims.applyClaim(claim, vera);
+        assert.deepEqual([second.ok, second.outcome], [true, "already"], "not strongbox-short: the stack it would spend is the first move's");
+        assert.equal(read(`claims.${claim.id}.resolved.by`), "p1", "the first client's resolution stands");
+    } finally {
+        release();
+        world.currentUser = "p1";
+        assert.equal((await first).outcome, "ok");
+        foundry.documents.modifyBatch = real;
+    }
+    assert.equal(cpOf(vera), 1500, "paid once");
+});
+
 test("with auto-claim off the user is told once instead", async () => {
     await claims.createClaims([refundFor(vera)]);
     world.currentUser = "p1";
@@ -168,7 +195,7 @@ test("pf2e dropping the shelf item's deletion on the way out stops the delivery;
     assert.equal(elixirs(), 1, "the request went out without the deletion: the item arrived");
     const id = hashId("deliver:o1:1");
     flagsOf(docs.ledger).rows[id].state = "pending";   // as noted by a stopped move
-    flagsOf(docs.ledger).rows[id].at = { real: 0, server: Date.now() - PENDING_GRACE_MS - 1 };
+    flagsOf(docs.ledger).rows[id].at = serverStamp(PENDING_GRACE_MS + 1);
     assert.equal(await claims.sweepDeliveries(), 1, "it arrived, so only the settle was missing");
     assert.equal(read(`rows.${id}.state`), "applied");
     assert.equal(elixirs(), 1);
@@ -177,7 +204,7 @@ test("pf2e dropping the shelf item's deletion on the way out stops the delivery;
 test("a delivery stopped after its lock is finished from its row, once, removing the shelf item if it is still there", async () => {
     const id = hashId("deliver:o1:2");
     const source = { type: "consumable", name: "Bomb", flags: { [MOD]: { delivered: { row: id } } } };
-    const stale = { real: Date.now(), server: Date.now() - PENDING_GRACE_MS - 1 };
+    const stale = { ...serverStamp(PENDING_GRACE_MS + 1), real: Date.now() };   // its author's clock runs fast
     flagsOf(docs.ledger).rows[id] = { id, v: 1, kind: "delivered", state: "pending", actor: vera.uuid, idem: "deliver:o1:2",
         items: [{ name: "Bomb", qty: 1, source }], at: stale };
     const leftover = shelve("Bomb", "deliver:o1:2");   // its apply request never ran
@@ -195,9 +222,22 @@ test("a pending delivery younger than the grace time, by the server's clock, is 
     const id = hashId("deliver:o1:3");
     flagsOf(docs.ledger).rows[id] = { id, v: 1, kind: "delivered", state: "pending", actor: vera.uuid, idem: "deliver:o1:3",
         items: [{ name: "Bomb", qty: 1, source: { type: "consumable", name: "Bomb" } }],
-        at: { real: Date.now() - 10 * PENDING_GRACE_MS, server: Date.now() } };   // its author's clock runs slow
+        at: { ...serverStamp(0), real: Date.now() - 10 * PENDING_GRACE_MS } };   // its author's clock runs slow
     world.currentUser = "p1";
     assert.equal(await claims.sweepDeliveries(), 0);
+});
+
+test("a delivery left pending in an earlier, longer launch is finished once past the grace time", async () => {
+    const id = hashId("deliver:o1:4");
+    const previousLaunch = world.launch - 12 * 60 * 60 * 1000;
+    const written = Date.now() - 2 * PENDING_GRACE_MS;
+    const at = { world: 0, real: written, server: written - previousLaunch, launch: previousLaunch };
+    assert.ok(at.server > game.time.serverTime, "its server time is ahead of today's");
+    flagsOf(docs.ledger).rows[id] = { id, v: 1, kind: "delivered", state: "pending", actor: vera.uuid, idem: "deliver:o1:4",
+        items: [{ name: "Bomb", qty: 1, source: { type: "consumable", name: "Bomb", flags: { [MOD]: { delivered: { row: id } } } } }], at };
+    world.currentUser = "p1";
+    assert.equal(await claims.sweepDeliveries(), 1);
+    assert.equal(read(`rows.${id}.state`), "applied");
 });
 
 test("a claim that throws, or that cannot be built, holds up no other, and is not retried this session", async (t) => {

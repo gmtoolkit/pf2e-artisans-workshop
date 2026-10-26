@@ -100,5 +100,7 @@
   "pf2e-artisans-workshop.Sync.Newer": "Artisan's Workshop data was saved by a newer version of the module. It is read-only here until this module is updated.",
   "pf2e-artisans-workshop.Sync.OwnershipRepaired": "{name} was given back to every player as Owner, so the Artisan's Workshop can use it.",
   "pf2e-artisans-workshop.Sync.PendingRows": "{count} of your Workshop ledger entries did not finish. Details are in the console; a GM can settle them.",
-  "pf2e-artisans-workshop.Sync.Stale": "The Artisan's Workshop data in this window may be out of date after a conflicting change. Reload to continue."
+  "pf2e-artisans-workshop.Sync.Stale.Disconnected": "The connection to the server dropped while a change to the Artisan's Workshop data was being saved, so this window cannot tell whether it went through. Reload to continue.",
+  "pf2e-artisans-workshop.Sync.Stale.Refused": "The server turned down a change to the Artisan's Workshop data that this window had already shown, so this window may be out of date. Reload to continue.",
+  "pf2e-artisans-workshop.Sync.Stale.Timeout": "The server did not answer a change to the Artisan's Workshop data in time, so this window cannot tell whether it went through. Reload to continue."
 }

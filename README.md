@@ -35,8 +35,9 @@ rules first.
 
 ## Development
 
-No build step and no runtime dependencies: `npm` installs only ESLint for the dev
-tools. Use Node 24.13.1 or a later 24.x (`DESIGN.md` 3.2); `npm ci` refuses any other.
+No build step and no runtime dependencies: `npm` installs only ESLint and, for the live
+harness, `playwright-core` (which downloads no browser). Use Node 24.13.1 or a later 24.x
+(`DESIGN.md` 3.2); `npm ci` refuses any other.
 
 ```sh
 npm ci
@@ -47,6 +48,7 @@ npm run check:assets     # no images, audio, video or fonts (DESIGN.md 16.5)
 npm run check:strings    # strings still waiting for the author's sign-off (DESIGN.md 16.4)
 npm run check:strings:enforce   # the same, failing if any is left (stable releases)
 npm run signoff -- --keys <key> [<key> ...]   # sign off strings the author has rewritten
+npm run harness:live     # the sync scenarios in a running dev world (below)
 ```
 
 Every user-facing string lives in `lang/en.json` under `pf2e-artisans-workshop.` keys.
@@ -58,25 +60,57 @@ gate in report mode.
 
 Layout: `scripts/` is the shipped code (`module.mjs` is the entry); `lang/` holds the
 strings and `lang/review/` their sign-off hashes; `tools/` holds the dev scripts and
-`tools/harness/` the fixture actors, neither shipped; `test/` the tests. `scripts/logic/`
-is the rules engine (pure functions with no Foundry or browser globals, so `node --test`
-imports it directly; tests in `test/logic/`) and `scripts/data/` its numeric tables, each
-cited by book and page. `scripts/foundry/` is the code that talks to Foundry (storage and
-sync so far), tested in `test/foundry/` against the small fake of Foundry in
-`test/foundry/stubs.mjs`. Later milestones add `templates/`, `styles/` and `macros/`
-(copy-paste macros; the lint rules and key check already cover that folder).
+`tools/harness/` the fixture actors, the sync scenarios and their live driver, neither
+shipped; `test/` the tests. `scripts/logic/` is the rules engine (pure functions with no
+Foundry or browser globals, so `node --test` imports it directly; tests in `test/logic/`)
+and `scripts/data/` its numeric tables, each cited by book and page. `scripts/foundry/`
+is the code that talks to Foundry (storage and sync so far), tested in `test/foundry/`
+against the small fake of Foundry in `test/foundry/stubs.mjs`. Later milestones add
+`templates/`, `styles/` and `macros/` (copy-paste macros; the lint rules and key check
+already cover that folder).
 
 Local Foundry harness: symlink the checkout into `Data/modules/`, enable the module in a
 test world, and as GM run `await game.settings.set("pf2e-artisans-workshop", "dev", true)`
 in the console, then reload. In a dev world any deprecation warning whose stack passes
 through this module's files throws, even one raised inside pf2e, core or another module
 that this module called, and `game.modules.get("pf2e-artisans-workshop").dev.fixtures.create()`
-builds the fixture actors of `DESIGN.md` 15.4 (`{ reset: true }` rebuilds them). The sync
+builds the fixture actors of `DESIGN.md` 15.4 (`{ reset: true }` rebuilds them), marked in
+`flags.world` so the module's purge leaves the marks alone. The sync
 scenarios of `DESIGN.md` 15.3 load on every client of a dev world:
 `game.modules.get("pf2e-artisans-workshop").dev.scenarios.list()` shows each step, and
 `.run("3c", "pledge", { order: "test", cp: 120 })` runs one on that client. To check
 the fixtures' compendium UUIDs and choice-set answers against a pf2e source checkout, run
 `PF2E_SRC=<checkout> npm test`.
+
+`npm run harness:live` runs those scenarios with every user at once
+(`tools/harness/run-live.mjs`, plans in `tools/harness/live-plans.mjs`). It needs the dev
+world running with the fixture actors built and users without passwords (Gamemaster,
+Player One, Player Two; it creates an "Assistant GM" user), and a Chromium on the
+machine; it then drives one headless browser context per user and device (a second tab
+shares its device's context). Through the Foundry API it assigns Player One fixture 3 and
+Player Two fixture 6 as owners and party members, and before every plan it deletes and
+re-creates the shared documents and refills both purses, so use a world kept for testing.
+Each scenario runs `--runs` times (default 2), then the behaviour checks (`--behaviours
+all|none|<ids>`; `migration-lock` waits out the five-minute lock and takes about six
+minutes, `slow-answer` holds two answers back 35 s each, `resume` drops Player One's
+connection between a move's two requests and waits out the 60 s grace time twice, and
+`cleric-fixture` rebuilds fixture 13 and fails if pf2e opens a choice prompt):
+
+```sh
+npm run harness:live -- --runs 2 --behaviours all --out /tmp/live     # everything
+npm run harness:live -- --scenarios 3c --runs 1 --behaviours none --canvas
+```
+
+Options: `--url` (default `http://localhost:30000`), `--chromium` (the browser binary; on
+Arch the default is `/usr/lib/chromium/chromium`, behind the `/usr/bin/chromium` launcher
+that adds the desktop's flags), `--headed`, `--canvas` (pages load the game canvas;
+without it a player's client throws in core's `Actor#_onUpdate` whenever an actor's
+ownership changes, so that client never runs its `updateActor` hooks, as at a table where
+a player turned the canvas off; the module copes, and `--canvas` covers the usual case). It prints each
+check, exits non-zero if any fails, and writes every step's JSON result, every check,
+each page's console errors, notifications and dry-run hooks, and any slow answer from the
+server to `<out>/results.json` (by default in a new folder under the system's temporary
+directory). At the end it resets the world once more (switch on, fresh shared documents).
 
 ## License
 

@@ -63,12 +63,30 @@ export async function write(change, options = {}) {
 }
 
 /**
+ * When the server launched the world, in ms on the server's clock: `game.world.lastPlayed`, which the server sets to
+ * the moment of the launch (to the second, Foundry 14.368 `dist/packages/world.mjs`) and sends every client of that
+ * launch as the same string. `game.time.serverTime` counts from about then (`Date.now() - start` in
+ * `dist/components/activity.mjs`; measured live, the two starts lie well within a second of each other). If the
+ * string does not parse, this client's own estimate stands in: its clock less the server time.
+ */
+function launchTime() {
+    const parsed = Date.parse(game.world?.lastPlayed ?? "");
+    return Number.isFinite(parsed) ? parsed : Date.now() - game.time.serverTime;
+}
+
+/** Now, on the server's clock that stamps are read on (`stampTime`): the launch plus the server time since. */
+export function serverNow() {
+    return launchTime() + game.time.serverTime;
+}
+
+/**
  * `by` and `at` for a record (4.1): the writing user, world time in seconds, and in ms this client's own clock
- * (`real`, for display) and the server's (`server`, `game.time.serverTime`), which ages and timeouts compare
- * across clients (`stampTime`).
+ * (`real`, for display) and the server's: the server time since the world was launched (`server`,
+ * `game.time.serverTime`) and that launch (`launch`), which ages and timeouts compare across clients and across
+ * relaunches (`stampTime`).
  */
 export function stampNow() {
-    return { by: game.user.id, at: { world: game.time.worldTime, real: Date.now(), server: game.time.serverTime } };
+    return { by: game.user.id, at: { world: game.time.worldTime, real: Date.now(), server: game.time.serverTime, launch: launchTime() } };
 }
 
 /** A new random record id: 16 lowercase letters and digits (4.1). */

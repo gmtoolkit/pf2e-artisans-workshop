@@ -51,7 +51,43 @@ test("deprecated Foundry globals, jQuery, libWrapper and socketlib are undefined
         for (const name of names) await reports(`${name}();`, new RegExp(`no-undef: '${RegExp.escape(name)}' is not defined`), file);
     }
     await reports("foundry.appv1.api.Application;", /no-restricted-properties: .*Application V1/);
-    await reports('game.socket.emit("x");', /CONFIG\.queries/);
+});
+
+test("the game socket is out of reach, however it is written; only watching the connection is allowed", async () => {
+    const banned = [
+        'game.socket.emit("x");',
+        'game.socket.on("module.pf2e-artisans-workshop", () => {});',
+        "game.socket.on(event, () => {});",
+        'game.socket.off("module.pf2e-artisans-workshop");',
+        "const socket = game.socket;",
+        "send(game.socket);",
+        'game.socket?.timeout(5).emit("x");',
+        'game?.socket.emit("x");',
+        'game.socket["emit"]("x");',
+        'game.socket.io.engine.close();',
+        "const on = game.socket.on;",
+        "game.socket.connected = false;",
+        'const { socket } = game;\nsocket.emit("x");',
+        'const { socket: s } = game;\ns.emit("x");',
+        'const { ["socket"]: s } = game;\ns.emit("x");',
+        'let s;\n({ socket: s } = game);\ns.emit("x");',
+        'function send({ socket } = game) { socket.emit("x"); }\nsend();',
+        'game["socket"].emit("x");',
+        'game["socket"].on("disconnect", () => {});',
+        'game[`socket`].emit("x");',
+        'Reflect.get(game, "socket").emit("x");',
+        'Object.getOwnPropertyDescriptor(game, "socket").value.emit("x");',
+    ];
+    for (const file of ["scripts/example.mjs", "macros/example.js", "tools/harness/example.mjs"]) {
+        for (const code of banned) await reports(code, /workshop\/no-game-socket: .*CONFIG\.queries/, file);
+    }
+    await reports('globalThis.game.socket.emit("x");', /workshop\/no-game-socket/, "tools/harness/example.mjs");
+    await reports('window.game["socket"].emit("x");', /workshop\/no-game-socket/, "tools/harness/example.mjs");
+    assert.deepEqual(await lint('const f = () => {};\ngame.socket?.on("disconnect", f);\ngame.socket?.off("disconnect", f);\ngame.socket.on("disconnect", f);\nconsole.log(game.socket.connected, game.socket?.connected);'), [],
+        "watching the connection is allowed");
+    assert.deepEqual(await lint('const socket = new URL("x");\nconsole.log(game.settings, socket, game.user.socket);'), [], "other things named socket are not the game's");
+    // The live driver's page functions are not part of the module; one drops a page's connection on purpose.
+    assert.deepEqual(await lint('game.socket.io.engine.close();', "tools/harness/live-plans.mjs"), []);
 });
 
 test("shipped code reaches no global through window or globalThis, and not the main document", async () => {

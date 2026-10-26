@@ -3,19 +3,31 @@
  *
  * It models what M2 relies on (DESIGN.md 5, verified against Foundry 14.368):
  * - documents with flags, ownership and `update`/`delete`, embedded items and journal pages;
- * - key-path updates into flags with `_del` (delete the key) and `_replace` (no merge), merged otherwise;
+ * - key-path updates into flags with `_del` (delete the key) and `_replace` (no merge), merged otherwise; a dotted
+ *   key anywhere inside stored data, arrays included, is expanded into nested objects, as core's
+ *   `ObjectField#_cleanType` does to flags on every create and update (14.368 `common/data/fields.mjs`);
  * - pre-hooks that cancel a deletion, and all-client hooks after each change;
  * - `foundry.documents.modifyBatch` as the 14.368 client and server run it. The client first runs each
  *   operation as a dry run through its document class: pf2e's `ItemPF2e.deleteDocuments` drops the ids of items
  *   the actor no longer holds, core throws for an update (or another deletion) of a document it does not have,
  *   and operations left empty are not sent. The server then dry-runs every operation and refuses the whole batch
- *   if one fails (and the client, like 14.368's, replays the passing dry-run results with `options.dryRun`,
- *   without changing anything), otherwise it applies the operations in order, stopping at the first error and
- *   returning one result per operation applied. A page or item id that exists already, or an item to delete or
+ *   if one fails, otherwise it applies the operations in order, stopping at the first error and returning one
+ *   result per operation applied. Of a refused batch the client, like 14.368's, replays the dry-run results that
+ *   passed: a world-level operation fires its hook with `options.dryRun` (changing nothing, as an update dry run
+ *   commits nothing) and returns its documents; an embedded one fails on the client with core's "A parent Document
+ *   provided to the database operation must be a Document instance" (the server's dry-run result keeps a parent the
+ *   client cannot use), shown as an error, with no hook and no result. A page or item id that exists already, or an item to delete or
  *   update that does not, is an error. `world.client.beforeSend(operations)` lands a change on this client
  *   before its dry run, `world.server.beforeDryRun(operations)` one on the server before its dry run, and
  *   `world.server.beforeApply(index, operation)` one between the server's operations.
  * - item and journal updates bump `_stats.modifiedTime`, as the server does on every write.
+ * - time as 14.368 gives it: `game.world.lastPlayed` is when the server launched the world (`world.launch`, to the
+ *   second, as `Date#toString` writes it), and `game.time.serverTime` counts the milliseconds since; a test moves
+ *   to another launch by setting `world.launch`. `serverStamp(agoMs)` is the `at` of a stamp written `agoMs` ago.
+ *   `controlClock(t)` hands a test the server's clock and this client's skew from it: `Date.now()` is the client's
+ *   clock, while `serverTime` follows the server's, as core's `GameTime#serverTime` does (the server time at the last
+ *   sync plus the client's elapsed time, `client/helpers/time.mjs`), so a client whose clock is wrong still has it.
+ * - `game.socket`, connected; `world.disconnect()` drops the connection for a moment, as socket.io reports it.
  *
  * `installFoundry()` sets the globals once per test file; `resetWorld()` empties the world before each test.
  */
@@ -32,6 +44,22 @@ export const replaced = (value) => ({ [REPLACED]: value });
 
 const isPlain = (v) => v !== null && typeof v === "object" && !Array.isArray(v) && v !== DELETION && !(REPLACED in v);
 const clone = (v) => (v === undefined ? v : structuredClone(v));
+
+/** Dotted keys expanded at every depth, arrays included, as core cleans the flags it stores. */
+function expandDeep(value) {
+    if (Array.isArray(value)) return value.map(expandDeep);
+    if (!isPlain(value)) return value;
+    const out = {};
+    for (const [key, v] of Object.entries(value)) {
+        const path = key.split(".");
+        let target = out;
+        for (const segment of path.slice(0, -1)) target = isPlain(target[segment]) ? target[segment] : (target[segment] = {});
+        const last = path.at(-1);
+        const inner = expandDeep(v);
+        target[last] = isPlain(target[last]) && isPlain(inner) ? { ...target[last], ...inner } : inner;
+    }
+    return out;
+}
 
 /** Merge `value` into `target[key]`, applying the operators. */
 function mergeInto(target, key, value) {
@@ -73,6 +101,7 @@ const newDocId = () => `doc${String(nextId++).padStart(13, "0")}`;
 class FakeDocument {
     constructor(documentName, data, parent = null) {
         Object.assign(this, { flags: {}, ownership: { default: 0 }, ...clone(data) });
+        this.flags = expandDeep(this.flags);
         this.documentName = documentName;
         this.id = this._id ?? newDocId();
         delete this._id;
@@ -91,7 +120,7 @@ class FakeDocument {
     get isOwner() { return this.testUserPermission(game.user, "OWNER"); }
     /** Apply an update now and fire the update hook, as the client does when the server's answer arrives. */
     applyUpdate(update, options = {}) {
-        for (const [key, value] of Object.entries(expand(update))) mergeInto(this, key, value);
+        for (const [key, value] of Object.entries(expand(update))) mergeInto(this, key, expandDeep(value));
         this._stats.modifiedTime = (this._stats.modifiedTime ?? 0) + 1;
         if (update["ownership.default"] !== undefined) this.ownership.default = update["ownership.default"];
         Hooks.callAll(`update${this.documentName}`, this, expand(update), options, game.user.id);
@@ -253,9 +282,13 @@ export async function modifyBatch(operations) {
                 ui.notifications.error(dryRun[i]);
                 return;
             }
-            const doc = op.parent ?? collectionOf(op).get(op.updates?.[0]?._id);
+            if (op.parent) {
+                ui.notifications.error("A parent Document provided to the database operation must be a Document instance");
+                return;
+            }
+            const doc = collectionOf(op).get(op.updates?.[0]?._id);
             Hooks.callAll(`${op.action}${op.documentName}`, doc, ...(op.action === "update" ? [{}] : []), { dryRun: true }, game.user.id);
-            results.push([]);
+            results.push([doc]);
         });
         return results;
     }
@@ -297,6 +330,32 @@ function users() {
     return collection;
 }
 
+/** A launch an hour before `now`, on a whole second (`game.world.lastPlayed` keeps no milliseconds). */
+const launchBefore = (now) => Math.floor(now / 1000) * 1000 - 60 * 60 * 1000;
+
+/** The `at` of a stamp written `agoMs` ago in the current launch, as `stampNow` writes it (DESIGN.md 4.1). */
+export function serverStamp(agoMs = 0) {
+    const now = Date.now();
+    return { world: 1000, real: now - agoMs, server: now - world.launch - agoMs, launch: world.launch };
+}
+
+/**
+ * Put the clocks in the test's hands until it ends: `clock.server` is the server's clock (ms), `clock.skew` how far
+ * this client's clock (`Date.now()`) runs ahead of it. `game.time.serverTime` follows the server's clock.
+ * @returns {{server: number, skew: number}}
+ */
+export function controlClock(t, server = Date.now()) {
+    const clock = { server, skew: 0 };
+    t.mock.method(Date, "now", () => clock.server + clock.skew);
+    world.clock = clock;
+    return clock;
+}
+
+/** Drop the connection for a moment: socket.io's "disconnect", which clears every acknowledgement in flight. */
+export function disconnect() {
+    for (const fn of [...(world.socketHandlers.get("disconnect") ?? [])]) fn("transport close");
+}
+
 /** Empty the world: documents, settings, hooks, notifications and recorded calls. */
 export function resetWorld() {
     nextId = 0;
@@ -304,7 +363,8 @@ export function resetWorld() {
         collections: { Actor: new FakeCollection(), JournalEntry: new FakeCollection(), Item: new FakeCollection(),
             User: new FakeCollection(), Folder: new FakeCollection(), ChatMessage: new FakeCollection() },
         uuids: new Map(), calls: [], batches: [], notes: [], queries: [], server: {}, client: {}, settings: new Map(),
-        dialog: null, queryAnswer: null, hooks: new Map(), currentUser: null,
+        dialog: null, queryAnswer: null, hooks: new Map(), currentUser: null, launch: launchBefore(Date.now()),
+        socketHandlers: new Map(), clock: null,
     });
     setUsers([{ id: "gm00000000000000", name: "GM", isGM: true }]);
 }
@@ -355,8 +415,13 @@ export function installFoundry() {
         get items() { return world.collections.Item; },
         get folders() { return world.collections.Folder; },
         get messages() { return world.collections.ChatMessage; },
-        time: { worldTime: 1000, get serverTime() { return Date.now(); } },
-        world: { title: "Test World" },
+        time: { worldTime: 1000, get serverTime() { return (world.clock ? world.clock.server : Date.now()) - world.launch; } },
+        world: { title: "Test World", get lastPlayed() { return new Date(world.launch).toString(); } },
+        socket: {
+            get connected() { return true; },
+            on(event, fn) { (world.socketHandlers.get(event) ?? world.socketHandlers.set(event, []).get(event)).push(fn); },
+            off(event, fn) { const list = world.socketHandlers.get(event) ?? []; if (list.includes(fn)) list.splice(list.indexOf(fn), 1); },
+        },
         i18n: { localize: (key) => key, format: (key, data) => `${key} ${JSON.stringify(data)}` },
         modules: new Map([[MODULE_ID, { id: MODULE_ID, version: "0.0.0" }]]),
         settings: {

@@ -23,9 +23,19 @@ test("expected coins are the rows' sum of box; actual coins every stack; pending
 });
 
 test("ages are read on the server's clock when a stamp has it, so two machines' clocks never meet", () => {
-    const slowAuthor = { ...makeRow({ kind: "deposit", idem: "d1", cp: 1, actor: "B" }, { by: "u2", at: { world: 0, real: 0, server: 5000 } }) };
-    assert.deepEqual(reconcile({ rows: [slowAuthor], stacks: [], now: 5000 + PENDING_GRACE_MS - 1 }).stalled, []);
-    assert.equal(reconcile({ rows: [slowAuthor], stacks: [], now: 5000 + PENDING_GRACE_MS }).stalled.length, 1);
+    const launch = 1_000_000;
+    const slowAuthor = { ...makeRow({ kind: "deposit", idem: "d1", cp: 1, actor: "B" }, { by: "u2", at: { world: 0, real: 0, server: 5000, launch } }) };
+    assert.deepEqual(reconcile({ rows: [slowAuthor], stacks: [], now: launch + 5000 + PENDING_GRACE_MS - 1 }).stalled, []);
+    assert.equal(reconcile({ rows: [slowAuthor], stacks: [], now: launch + 5000 + PENDING_GRACE_MS }).stalled.length, 1);
+});
+
+test("a row left pending in an earlier, longer launch of the world is stalled once past the grace time", () => {
+    const firstLaunch = 1_790_000_000_000;
+    const secondLaunch = firstLaunch + 11 * 60 * 60 * 1000;
+    const now = secondLaunch + 30 * 1000;   // half a minute after the relaunch
+    const at = { world: 0, real: 0, server: now - 2 * PENDING_GRACE_MS - firstLaunch, launch: firstLaunch };   // two minutes ago
+    const row = makeRow({ kind: "deposit", idem: "d1", cp: 1, actor: "B" }, { by: "u2", at });
+    assert.equal(reconcile({ rows: [row], stacks: [], now }).stalled.length, 1, "its server time is far ahead of today's, but it is old");
 });
 
 test("coins dragged in by hand show as a difference, booked by a GM's adjust row", () => {

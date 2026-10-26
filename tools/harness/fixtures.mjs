@@ -16,6 +16,25 @@ import { MODULE_ID } from "../../scripts/constants.mjs";
 
 const pf2e = (pack, id, type = "Item") => `Compendium.pf2e.${pack}.${type}.${id}`;
 
+/**
+ * Where the fixture actors and their folder are marked: in core's `world` flag scope (which every document accepts
+ * and no package owns, Foundry 14.368 `ClientDatabaseBackend#getFlagScopes`), under keys named for this module, as
+ * `flags.world.pf2e-artisans-workshop-fixture` (the fixture's id) and `flags.world.pf2e-artisans-workshop-fixtures`
+ * (the folder). Not under the module's own scope: the purge (DESIGN.md 5.9) removes `flags.pf2e-artisans-workshop`
+ * from every document, as it must for real data, and the fixtures' marks would go with it.
+ */
+export const MARK_SCOPE = "world";
+export const FIXTURE_MARK = `${MODULE_ID}-fixture`;
+export const FOLDER_MARK = `${MODULE_ID}-fixtures`;
+
+/**
+ * The fixture id a document is marked with, or null. Actors built before the marks moved carry it under the module's
+ * scope (`flags.pf2e-artisans-workshop.fixture`) until rebuilt, or until a purge removes it.
+ */
+export function fixtureMarkOf(doc) {
+    return doc.flags?.[MARK_SCOPE]?.[FIXTURE_MARK] ?? doc.flags?.[MODULE_ID]?.fixture ?? null;
+}
+
 export const ANCESTRY = {
     human: pf2e("ancestries", "IiG7DgeLWYrSNXuX"),
 };
@@ -58,6 +77,7 @@ export const FEATURE = {
 export const FEAT = {
     communalCrafting: pf2e("feats-srd", "lUXVmSFJbaPos5pY"),
     cauldron: pf2e("feats-srd", "zUtdBd3IbM7UX0AD"),
+    domainInitiate: pf2e("feats-srd", "hT4INKGtly4QY8KN"),
     doubleDouble: pf2e("feats-srd", "wwnhnV3balaVdMu5"), // Double, Double
     efficientAlchemy: pf2e("feats-srd", "c7jNms3ZQ8eaMUqv"), // Efficient Alchemy (Alchemist)
     enduringAlchemy: pf2e("feats-srd", "jBeuyq0Aged45YAc"),
@@ -110,6 +130,9 @@ export const NPC = {
  * - `choices`: answers to the system's choice prompts, by the choice set's flag: on the class itself,
  *   its features, the feats and items, and whatever those grant. A flag that appears on more than one
  *   class feature (the thaumaturge's implements) takes a list, used in level order.
+ * - `nested`: items granted two or more grants deep whose choice sets `choices` answers. pf2e hands a
+ *   grant's preselections to the item it grants and no further, so the builder answers these on the
+ *   compendium copy pf2e loads (`fixture-actors.mjs`); `PF2E_SRC=<checkout> npm test` finds any missing.
  * - `feats` and `items`: added after the class features, unslotted.
  *
  * NPC fields: `npc`, the bestiary actor to import.
@@ -245,11 +268,13 @@ export const FIXTURES = [
         class: CLASS.cleric,
         attributes: { wis: 4, cha: 2, con: 2, int: 1 },
         skills: { crafting: 1, religion: 2 },
-        // The cloistered cleric's first doctrine grants Domain Initiate, which picks one of the deity's domains.
+        // The cloistered cleric's first doctrine grants Domain Initiate, which picks one of the deity's domains:
+        // First Doctrine grants First Doctrine (Cloistered Cleric), which grants Domain Initiate, two grants deep.
         choices: {
             deity: DEITY.erastil, sanctification: "none", doctrine: FEATURE.cloisteredCleric, divineFont: "heal",
             domainInitiate: "family",
         },
+        nested: [FEAT.domainInitiate],
         feats: [],
         items: [EQUIPMENT.artisansToolkit],
     },
@@ -309,7 +334,7 @@ export function characterSource(fixture, folder = null) {
         name: fixture.name,
         type: "character",
         folder,
-        flags: { [MODULE_ID]: { fixture: fixture.id } },
+        flags: { [MARK_SCOPE]: { [FIXTURE_MARK]: fixture.id } },
         system: {
             details: { level: { value: 0 } },
             abilities: Object.fromEntries(ATTRIBUTES.map((key) => [key, { mod: fixture.attributes?.[key] ?? 0 }])),
@@ -384,7 +409,7 @@ export function fixtureUuids(fixture) {
     const choiceUuids = Object.values(fixture.choices ?? {})
         .flat()
         .filter((value) => typeof value === "string" && value.startsWith("Compendium."));
-    return [ANCESTRY.human, fixture.class, ...fixture.feats, ...fixture.items, ...choiceUuids];
+    return [ANCESTRY.human, fixture.class, ...fixture.feats, ...fixture.items, ...(fixture.nested ?? []), ...choiceUuids];
 }
 
 /** Problems with the definitions themselves; the tests require none. */

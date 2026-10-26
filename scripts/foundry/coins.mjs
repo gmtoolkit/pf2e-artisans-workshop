@@ -50,15 +50,19 @@ export function coinItemData(denomination, quantity, lot = null) {
 }
 
 /**
+ * An item's version: when it last changed (`_stats.modifiedTime`, which the server sets on every write), for the
+ * purse stack locks of 5.4 and for telling whether a move's items are still as it planned them (a resume).
+ */
+export const itemVersion = (item) => item._stats?.modifiedTime ?? 0;
+
+/**
  * The actor's coin stacks `{id, denomination, quantity, version}` in item order, wherever they are (a container
  * included), as pf2e's change-making reads them: treasure items of the coin category with one denomination.
- * `version` is when the stack last changed (`_stats.modifiedTime`, which the server sets on every write), for
- * the purse stack locks of 5.4.
  */
 export function coinStacks(actor) {
     return actor.itemTypes.treasure
         .filter((item) => item.isCoinage && DENOMINATIONS.includes(item.unit))
-        .map((item) => ({ id: item.id, denomination: item.unit, quantity: item.quantity, version: item._stats?.modifiedTime ?? 0 }));
+        .map((item) => ({ id: item.id, denomination: item.unit, quantity: item.quantity, version: itemVersion(item) }));
 }
 
 /** For tests only. */

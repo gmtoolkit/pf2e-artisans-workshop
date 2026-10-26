@@ -7,11 +7,13 @@ import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { MODULE_ID } from "../scripts/constants.mjs";
 import { fixtures } from "../tools/harness/fixture-actors.mjs";
-import { CLASS, FEATURE, FIXTURES } from "../tools/harness/fixtures.mjs";
+import { CLASS, FEAT, FEATURE, FIXTURES } from "../tools/harness/fixtures.mjs";
 
 let calls;
 let worldActors;
 let tables;
+/** The compendium documents `fromUuid` has loaded, by UUID: like a pack's cache, it returns the same copy each time. */
+let loaded;
 /** How the fakes misbehave: `failBuild` rejects the class features, `failDelete` rejects deletions. */
 let faults;
 
@@ -29,8 +31,10 @@ function fakeActor(source) {
         uuid: `Actor.actor${worldActors.length}`,
         name: source.name,
         source,
-        getFlag: (scope, key) => (scope === MODULE_ID ? source.flags?.[MODULE_ID]?.[key] : undefined),
-        createEmbeddedDocuments: async (type, data, options = {}) => calls.push(["embed", data, options]),
+        flags: source.flags ?? {},
+        // Each creation also records the Domain Initiate copy's choice selection at that moment, as pf2e would see it.
+        createEmbeddedDocuments: async (type, data, options = {}) =>
+            calls.push(["embed", data, options, loaded.get(FEAT.domainInitiate)?.toObject().system.rules[0]?.selection]),
         update: async (data) => calls.push(["update", data]),
         delete: async () => {
             calls.push(["delete", actor.id]);
@@ -61,10 +65,20 @@ function stubFoundry({ dev = true, isGM = true, missing = [], rules = {} } = {})
         actors: Object.assign(worldActors, { fromCompendium: (doc) => ({ name: doc.name, type: "npc", flags: {} }) }),
         folders: { find: () => ({ id: "folder1" }) },
     };
-    globalThis.fromUuid = async (uuid) =>
-        missing.includes(uuid)
-            ? null
-            : { uuid, name: uuid.split(".").pop(), toObject: () => ({ _id: "x", name: uuid, system: { rules: structuredClone(rules[uuid] ?? []) } }) };
+    loaded = new Map();
+    const compendiumDoc = (uuid) => ({
+        uuid, name: uuid.split(".").pop(),
+        _source: { _id: "x", name: uuid, system: { rules: structuredClone(rules[uuid] ?? []) } },
+        toObject() { return structuredClone(this._source); },
+        updateSource(changes) {
+            for (const [path, value] of Object.entries(changes)) globalThis.foundry.utils.setProperty(this._source, path, structuredClone(value));
+        },
+    });
+    globalThis.fromUuid = async (uuid) => {
+        if (missing.includes(uuid)) return null;
+        if (!loaded.has(uuid)) loaded.set(uuid, compendiumDoc(uuid));
+        return loaded.get(uuid);
+    };
     globalThis.foundry = {
         utils: {
             setProperty: (object, path, value) => {
@@ -154,6 +168,18 @@ test("the ancestry and class get their own choice sets filled in", async () => {
     assert.equal(cls.system.rules[0].selection, "athletics");
 });
 
+test("fixtures are marked outside the module's own flags, and found by their mark, an older mark included", async () => {
+    stubFoundry();
+    await fixtures.create({ only: ["npc-ordinary", "wizard-9"] });
+    const marks = worldActors.map((actor) => [actor.flags.world?.[`${MODULE_ID}-fixture`], actor.flags[MODULE_ID]]);
+    assert.deepEqual(marks.sort(), [["npc-ordinary", undefined], ["wizard-9", undefined]]);
+    // A fixture built before the marks moved is still found (and kept) by its old mark.
+    fakeActor({ name: "Fixture 16: Rogue poisoner", flags: { [MODULE_ID]: { fixture: "rogue-poisoner-6" } } });
+    calls = [];
+    assert.deepEqual((await fixtures.create({ only: ["rogue-poisoner-6"] })).map((row) => row.status), ["kept"]);
+    assert.deepEqual(calls, []);
+});
+
 test("a failed build removes the half-built actor and throws the build error", async (t) => {
     stubFoundry();
     faults.failBuild = true;
@@ -174,6 +200,24 @@ test("a failed rebuild keeps the old fixture", async () => {
     faults.failBuild = true;
     await assert.rejects(fixtures.create({ only: ["wizard-9"], reset: true }), /build failed/);
     assert.deepEqual(worldActors.map((actor) => actor.uuid), [first.uuid]);
+});
+
+test("a choice set two grants deep is answered on the compendium copy pf2e loads, for the build only", async () => {
+    // The cleric's First Doctrine grants First Doctrine (Cloistered Cleric), which grants Domain Initiate. pf2e hands
+    // a grant's preselections only to the item it grants, so the domain must already be chosen on the copy of Domain
+    // Initiate that the inner grant clones (seen live: a Domain Initiate prompt opened during the build).
+    const choiceSet = { key: "ChoiceSet", flag: "domainInitiate", choices: "system.details.deities.domains" };
+    stubFoundry({ rules: { [FEAT.domainInitiate]: [choiceSet] } });
+    await fixtures.create({ only: ["cleric-5"] });
+    const embeds = calls.filter(([kind]) => kind === "embed");
+    assert.ok(embeds.length > 1);
+    assert.deepEqual([...new Set(embeds.map(([, , , selection]) => selection))], ["family"], "answered while every item was created");
+    assert.deepEqual(loaded.get(FEAT.domainInitiate).toObject().system.rules, [choiceSet], "and the copy is put back afterwards");
+
+    calls = [];
+    faults.failBuild = true;
+    await assert.rejects(fixtures.create({ only: ["cleric-5"], reset: true }), /build failed/);
+    assert.deepEqual(loaded.get(FEAT.domainInitiate).toObject().system.rules, [choiceSet], "also after a failed build");
 });
 
 test("unknown ids are rejected", async () => {

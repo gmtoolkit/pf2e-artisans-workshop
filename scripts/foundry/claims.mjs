@@ -21,7 +21,7 @@ import { mint, payout } from "./money.mjs";
 import { isResponsibleFor } from "./responsible.mjs";
 import { setting } from "./settings.mjs";
 import { canWrite, shared } from "./state.mjs";
-import { exists, read, records, stampNow, write } from "./store.mjs";
+import { exists, read, records, serverNow, stampNow, write } from "./store.mjs";
 
 /** Appliers by claim kind: `(claim, actor) => Promise<{ok, outcome}>`. */
 const APPLIERS = new Map([
@@ -46,12 +46,15 @@ export async function createClaims(inputs) {
     return claims;
 }
 
-/** Apply one claim to its (local) target actor. A row someone already wrote for the same key resolves it. */
+/**
+ * Apply one claim to its (local) target actor. A row someone already wrote for the same key resolves it, unless the
+ * move that wrote it resolved the claim already (with its lock), whose resolution stands.
+ */
 export async function applyClaim(claim, actor) {
     const applier = APPLIERS.get(claim.kind);
     if (!applier) return { ok: false, reason: "unsupported" };
     const result = await applier(claim, actor);
-    if (result.outcome === "already") await write(resolved(claim));
+    if (result.outcome === "already" && !read(`claims.${claim.id}.resolved`)) await write(resolved(claim));
     return result;
 }
 
@@ -192,7 +195,7 @@ export async function sweepClaims({ force = false } = {}) {
 export async function sweepDeliveries() {
     if (!canWrite()) return 0;
     let finished = 0;
-    const now = game.time.serverTime;
+    const now = serverNow();
     for (const row of records("rows")) {
         if (row.kind !== "delivered" || row.state !== "pending" || now - stampTime(row.at) < PENDING_GRACE_MS) continue;
         const result = await attempt(row.id, async () => {

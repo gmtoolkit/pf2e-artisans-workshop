@@ -1,9 +1,10 @@
 /** The key-path store over the ledger (DESIGN.md 5.3) and the client's write status (5.2, 4.14). */
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
-import { DELETION, MOD, flagsOf, installFoundry, resetWorld, sharedWorld, world } from "./stubs.mjs";
+import { DELETION, MOD, controlClock, flagsOf, installFoundry, resetWorld, sharedWorld, world } from "./stubs.mjs";
 
 installFoundry();
+const { stampTime } = await import("../../scripts/logic/core.mjs");
 const store = await import("../../scripts/foundry/store.mjs");
 const state = await import("../../scripts/foundry/state.mjs");
 
@@ -51,13 +52,36 @@ test("writes are refused while the client may not write, and when it is stale", 
     state.setShared({ ...docs, status: "migrating" });
     assert.equal(await store.write({ set: { "meta.x": 1 } }), false);
     state.setShared({ ...docs, status: "ready" });
-    state.markStale();
+    assert.throws(() => state.markStale("bored"), TypeError, "every cause has its notice");
+    state.markStale("disconnected");
     assert.equal(state.status(), "stale");
     assert.equal(await store.write({ set: { "meta.x": 1 } }), false);
     assert.equal(flagsOf(docs.ledger).meta, undefined);
-    assert.equal(world.notes.filter(([, key]) => key === "pf2e-artisans-workshop.Sync.Stale").length, 1);
-    state.markStale();
+    assert.equal(world.notes.filter(([, key]) => key === "pf2e-artisans-workshop.Sync.Stale.Disconnected").length, 1);
+    state.markStale("refused");
     assert.equal(world.notes.length, 1, "told once");
+});
+
+test("a stamp is a moment on the server's clock: the launch the server sent plus the server time, whatever this client's clock says", (t) => {
+    const HOUR = 60 * 60 * 1000;
+    const clock = controlClock(t);
+    for (const skew of [3 * HOUR, -3 * HOUR, 0]) {
+        clock.skew = skew;
+        const { at } = store.stampNow();
+        assert.equal(at.launch, world.launch, `the launch read from game.world.lastPlayed (client clock ${skew / HOUR} h off)`);
+        assert.equal(at.server, clock.server - world.launch, "the server time since that launch");
+        assert.equal(at.real, clock.server + skew, "and this client's own clock, for display only");
+        assert.equal(stampTime(at), clock.server, "read back on the server's clock");
+        assert.equal(store.serverNow(), clock.server, "the moment a reader compares it with, on the same clock");
+    }
+    // The next launch: the server time starts again from 0, the launch moves on, and the moment stays in order.
+    const earlier = store.stampNow().at;
+    clock.server += 60 * 1000;
+    world.launch = Math.floor(clock.server / 1000) * 1000;
+    clock.skew = -3 * HOUR;
+    const later = store.stampNow().at;
+    assert.ok(later.server < earlier.server, "the new launch's server time is behind the old one's");
+    assert.equal(stampTime(later) - stampTime(earlier), 60 * 1000);
 });
 
 test("stamps, random ids and the extension store", async () => {

@@ -5,6 +5,7 @@ import {
     MIGRATIONS, MIGRATION_LOCK_TIMEOUT_MS, SCHEMA_VERSION, migrate1, migrateFlags, migrationLockState, schemaOf, schemaStatus,
 } from "../../scripts/logic/migrations.mjs";
 import { keyPathDiff } from "../../scripts/logic/keypath.mjs";
+import { stampTime } from "../../scripts/logic/core.mjs";
 
 test("the schema is version 1, and v1 is a migration that changes nothing", () => {
     assert.equal(SCHEMA_VERSION, 1);
@@ -59,6 +60,38 @@ test("a migration lock stands while its holder is connected or it is recent; oth
     assert.equal(migrationLockState(lock(MIGRATION_LOCK_TIMEOUT_MS * 2), { now, activeUserIds: new Set(["u1"]) }), "held");
     assert.equal(migrationLockState(lock(1000), { now, activeUserIds: new Set() }), "held");
     assert.equal(migrationLockState(lock(MIGRATION_LOCK_TIMEOUT_MS + 1), { now, activeUserIds: new Set(["u2"]) }), "stale");
-    const skewed = { to: 1, by: "u1", at: { real: now - MIGRATION_LOCK_TIMEOUT_MS * 3, server: now - 1000 } };
+    const launch = 1000;
+    const skewed = { to: 1, by: "u1", at: { real: now - MIGRATION_LOCK_TIMEOUT_MS * 3, server: now - launch - 1000, launch } };
     assert.equal(migrationLockState(skewed, { now, activeUserIds: new Set() }), "held", "the server's clock, not the holder's own");
+});
+
+/** Two launches of one world: the first ran for 11 hours; the server was relaunched a minute after it stopped. */
+const HOUR = 60 * 60 * 1000;
+const firstLaunch = 1_790_000_000_000;
+const secondLaunch = firstLaunch + 11 * HOUR + 60 * 1000;
+/** A stamp made `agoMs` before `now`, in the first launch: `game.time.serverTime` then was far ahead of today's. */
+const fromFirstLaunch = (now, agoMs) => ({ real: 0, server: now - agoMs - firstLaunch, launch: firstLaunch });
+
+test("a stamp is a moment on the server's own clock: its launch plus the server time since then", () => {
+    assert.equal(stampTime({ real: 5, server: 2000, launch: 1_000_000 }), 1_002_000);
+    assert.equal(stampTime({ real: 5, server: 2000 }), 5, "a stamp without its launch falls back to its author's clock");
+    assert.equal(stampTime({ real: 5 }), 5);
+    assert.equal(stampTime(undefined), 0);
+    // game.time.serverTime counts from the launch (Foundry 14.368 dist/components/activity.mjs), so a stamp from a
+    // longer earlier launch has the larger server time although it is the older one.
+    const now = secondLaunch + 5 * 60 * 1000;
+    const old = fromFirstLaunch(now, 6 * 60 * 1000);
+    const recent = { real: 0, server: now - 1000 - secondLaunch, launch: secondLaunch };
+    assert.ok(old.server > recent.server);
+    assert.ok(stampTime(old) < stampTime(recent));
+    assert.equal(now - stampTime(old), 6 * 60 * 1000);
+});
+
+test("a migration lock from an earlier, longer launch is judged by its age on the server's clock", () => {
+    const now = secondLaunch + 30 * 1000;   // half a minute into the second launch
+    const gone = { activeUserIds: new Set() };
+    const lock = (agoMs) => ({ to: 1, by: "u1", at: fromFirstLaunch(now, agoMs) });
+    assert.equal(migrationLockState(lock(6 * 60 * 1000), { now, ...gone }), "stale",
+        "six minutes old: broken, although its server time is 11 hours ahead of today's");
+    assert.equal(migrationLockState(lock(90 * 1000), { now, ...gone }), "held", "taken just before the relaunch: it stands");
 });

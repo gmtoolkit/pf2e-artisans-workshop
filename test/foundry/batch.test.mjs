@@ -2,15 +2,16 @@
  * Running a lock-first move (DESIGN.md 5.4) against the fake client and batch server: every operation applied, a
  * lock lost in the server's real pass or at its dry run (which changes nothing, on either side), a lock or a
  * deletion this client can already see is taken (nothing sent), a move stopped after its lock, an apply request
- * refused at the dry run (replayed locally: stale), a deletion pf2e drops on the way out, and no answer at all.
+ * refused at the dry run (its embedded operations do not replay here, so nothing is left behind), a deletion pf2e
+ * drops on the way out, an answer that is only slow, and one lost with the connection.
  */
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
-import { MOD, coin, flagsOf, installFoundry, resetWorld, sharedWorld, world } from "./stubs.mjs";
+import { MOD, coin, disconnect, flagsOf, installFoundry, resetWorld, sharedWorld, world } from "./stubs.mjs";
 
 installFoundry();
 const { lockFirstBatch } = await import("../../scripts/logic/lock-first.mjs");
-const { BATCH_TIMEOUT_MS, registerBatchWatcher, runLockFirst, runRequest, toOperations } = await import("../../scripts/foundry/batch.mjs");
+const { ANSWER_LIMIT_MS, registerBatchWatcher, runLockFirst, runRequest, toOperations } = await import("../../scripts/foundry/batch.mjs");
 const { setCoinTemplates } = await import("../../scripts/foundry/coins.mjs");
 const state = await import("../../scripts/foundry/state.mjs");
 
@@ -35,6 +36,8 @@ const spendStack = (id) => lockFirstBatch({
     debits: [{ target: "strongbox", plan: { updates: [], deletes: ["stackgp000000001"], creates: [{ denomination: "gp", quantity: 2 }] } }], lot: id,
 });
 const silence = (t) => { t.mock.method(console, "warn", () => {}); t.mock.method(console, "error", () => {}); };
+/** The stale notices shown so far (`markStale`). */
+const staleNotices = () => world.notes.filter(([level, key]) => level === "warn" && key.startsWith("pf2e-artisans-workshop.Sync.Stale")).map(([, key]) => key);
 
 test("descriptors become Foundry operations: lock pages with keepId, an undiffed ledger update, coin items", () => {
     const { lock, apply } = deposit("row0000000000001");
@@ -118,15 +121,18 @@ test("stopped: the apply request fails part-way; the lock and the pending row st
     assert.ok(docs.ledger.pages.has("row0000000000006"));
 });
 
-test("an apply request refused at the dry run: replayed creates make this client stale; the row stays pending", async (t) => {
+test("an apply request refused at the dry run: its embedded operations do not replay here, so the client stays ready", async (t) => {
     silence(t);
     world.server.beforeDryRun = (ops) => {
         if (ops[0].documentName === "Item") docs.strongbox.items.delete("stackgp000000001");   // removed by hand meanwhile
     };
     const result = await runLockFirst(spendStack("row0000000000007"));
-    assert.deepEqual([result.outcome, result.reason], ["stopped", "dry-run"]);
-    assert.equal(state.status(), "stale");
-    assert.ok(world.notes.some(([, key]) => key === "pf2e-artisans-workshop.Sync.Stale"));
+    assert.deepEqual([result.outcome, result.reason], ["stopped", "dry-run"], "told by the settle's replayed update hook");
+    assert.equal(state.status(), "ready", "the change it would have created was never created on this client");
+    assert.equal(docs.strongbox.items.filter((i) => i.unit === "gp").length, 0, "no stack of change appeared here");
+    const errors = world.notes.filter(([level]) => level === "error").map(([, message]) => message);
+    assert.deepEqual(errors, ["does not exist", "A parent Document provided to the database operation must be a Document instance"],
+        "the server's error, then one for the creation core could not replay");
     assert.equal(flagsOf(docs.ledger).rows.row0000000000007.state, "pending");
 });
 
@@ -148,7 +154,7 @@ test("an operation the client cannot build is an error and nothing is sent", asy
     assert.equal(world.batches.length, 0);
 });
 
-test("no answer from the server: unknown, and this client goes stale rather than wait for ever", async (t) => {
+test("no answer from the server at all, the connection up: unknown once the limit passes, and this client goes stale", async (t) => {
     silence(t);
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const real = foundry.documents.modifyBatch;
@@ -156,11 +162,63 @@ test("no answer from the server: unknown, and this client goes stale rather than
     try {
         const pending = runLockFirst(deposit("row0000000000009"));
         await new Promise((resolve) => setImmediate(resolve));
-        t.mock.timers.tick(BATCH_TIMEOUT_MS);
+        t.mock.timers.tick(ANSWER_LIMIT_MS);
         const result = await pending;
         assert.deepEqual([result.outcome, result.reason], ["unknown", "timeout"]);
         assert.equal(state.status(), "stale");
+        assert.deepEqual(staleNotices(), ["pf2e-artisans-workshop.Sync.Stale.Timeout"], "the user is told the answer never came");
     } finally {
         foundry.documents.modifyBatch = real;
     }
+});
+
+/** Let the promise chains started so far run to the end. */
+const flush = async () => { for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve)); };
+
+test("an answer that is only slow, with the connection up, is waited for: the move completes and nothing goes stale", async (t) => {
+    silence(t);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const real = foundry.documents.modifyBatch;
+    // A busy server: each request is answered 40 s after it was sent (seen live: a lock request answered late).
+    foundry.documents.modifyBatch = (ops) => new Promise((resolve) => setTimeout(() => resolve(real(ops)), 40 * 1000));
+    try {
+        const pending = runLockFirst(deposit("row000000000000c"));
+        for (let second = 0; second < 90; second++) {
+            await flush();
+            t.mock.timers.tick(1000);
+        }
+        const result = await pending;
+        assert.deepEqual([result.outcome, result.phase], ["ok", "apply"]);
+        assert.equal(flagsOf(docs.ledger).rows.row000000000000c.state, "applied", "the apply request went out after the late answer");
+        assert.equal(state.status(), "ready");
+    } finally {
+        foundry.documents.modifyBatch = real;
+    }
+});
+
+test("an answer lost with the connection: unknown at once, and this client goes stale", async (t) => {
+    silence(t);
+    const real = foundry.documents.modifyBatch;
+    foundry.documents.modifyBatch = () => new Promise(() => {});   // socket.io drops the acknowledgement on a disconnect
+    try {
+        const pending = runLockFirst(deposit("row000000000000d"));
+        await flush();
+        disconnect();
+        const result = await pending;
+        assert.deepEqual([result.outcome, result.phase, result.reason], ["unknown", "lock", "disconnected"]);
+        assert.equal(state.status(), "stale", "the lock request may have applied, and this client would never hear");
+        assert.deepEqual(staleNotices(), ["pf2e-artisans-workshop.Sync.Stale.Disconnected"], "the user is told the connection dropped, not that a change was refused");
+        assert.deepEqual(world.socketHandlers.get("disconnect"), [], "it stops listening once the move has its answer");
+    } finally {
+        foundry.documents.modifyBatch = real;
+    }
+});
+
+test("a refused request whose replay created or deleted something here: stale, and the user is told the change was refused", (t) => {
+    silence(t);
+    Hooks.callAll("updateJournalEntry", docs.ledger, {}, { dryRun: true }, game.user.id);
+    assert.equal(state.status(), "ready", "a replayed update commits nothing");
+    Hooks.callAll("deleteJournalEntryPage", { id: "p", parent: docs.ledger }, { dryRun: true }, game.user.id);
+    assert.equal(state.status(), "stale");
+    assert.deepEqual(staleNotices(), ["pf2e-artisans-workshop.Sync.Stale.Refused"]);
 });
