@@ -1,0 +1,40 @@
+{
+  "id": "pf2e-artisans-workshop",
+  "title": "PF2e Artisan's Workshop",
+  "description": "A crafting manager for PF2e parties: a shared request queue, pooled funding, crafting time and progress, daily preparations and downtime income. Development build; not released yet.",
+  "version": "0.0.0",
+  "compatibility": {
+    "minimum": "14.361",
+    "verified": "14.361",
+    "maximum": "14"
+  },
+  "authors": [
+    { "name": "Cliff Colvin" }
+  ],
+  "url": "https://github.com/gmtoolkit/pf2e-artisans-workshop",
+  "bugs": "https://github.com/gmtoolkit/pf2e-artisans-workshop/issues",
+  "readme": "https://github.com/gmtoolkit/pf2e-artisans-workshop/blob/main/README.md",
+  "changelog": "https://github.com/gmtoolkit/pf2e-artisans-workshop/blob/main/CHANGELOG.md",
+  "license": "LICENSE",
+  "manifest": "https://github.com/gmtoolkit/pf2e-artisans-workshop/releases/latest/download/module.json",
+  "download": "https://github.com/gmtoolkit/pf2e-artisans-workshop/releases/download/0.0.0/module.zip",
+  "esmodules": [
+    "scripts/module.mjs"
+  ],
+  "languages": [
+    { "lang": "en", "name": "English", "path": "lang/en.json" }
+  ],
+  "relationships": {
+    "systems": [
+      {
+        "id": "pf2e",
+        "type": "system",
+        "compatibility": { "minimum": "8.6.0", "verified": "8.6.0" }
+      }
+    ]
+  },
+  "socket": false,
+  "flags": {
+    "pf2e-artisans-workshop": { "unreleased": true }
+  }
+}

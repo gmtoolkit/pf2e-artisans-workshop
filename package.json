@@ -1,0 +1,23 @@
+{
+  "name": "pf2e-artisans-workshop",
+  "private": true,
+  "description": "Development tooling for the pf2e-artisans-workshop Foundry VTT module. The module itself has no build step and no runtime dependencies.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24.13.1 <25"
+  },
+  "scripts": {
+    "lint": "eslint . && node tools/check-source.mjs",
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "check:strings": "node tools/check-strings.mjs",
+    "check:strings:enforce": "node tools/check-strings.mjs --mode enforce",
+    "check:assets": "node tools/check-assets.mjs",
+    "check:manifest": "node tools/check-manifest.mjs",
+    "signoff": "node tools/signoff-strings.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.13.0"
+  }
+}

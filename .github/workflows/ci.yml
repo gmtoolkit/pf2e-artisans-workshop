@@ -1,0 +1,47 @@
+# Checks for every pull request and every push to main (DESIGN.md 16.2). The release workflow, the
+# registry validation against a pinned pf2e tag (M3) and the churn watch (3.3) come later.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned by commit SHA; the comment names the release.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dev dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Strings gate (report mode)
+        run: npm run check:strings
+
+      - name: Asset check
+        run: npm run check:assets
+
+      - name: Manifest check
+        run: npm run check:manifest

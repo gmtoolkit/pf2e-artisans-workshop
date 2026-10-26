@@ -7,8 +7,12 @@ preparations, GM Earn Income). Public, MIT, `gmtoolkit/pf2e-artisans-workshop`.
 
 ## Status
 
-Design phase (started 2026-10-25). No code yet. `DECISIONS.md` holds every decision
+M0 scaffold in place (manifest, lint rules, tests, strings gate, asset and manifest
+checks, CI, harness fixtures); no features yet. `DECISIONS.md` holds every decision
 made so far, newest first; read it before proposing a design change.
+
+Development commands and layout are in the README's Development section. Use Node 24
+(`DESIGN.md` 3.2); `npm run lint` and `npm test` must pass before a PR.
 
 `DESIGN.md` is the specification (domain model, storage and sync, rules engine,
 UI, extension API, build order M0-M13, open questions). Change it in the same PR as

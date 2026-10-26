@@ -126,6 +126,10 @@ No Foundry v15 build exists in any channel.
 | `relationships.requires` | Empty. | Core `CONFIG.queries` and `foundry.documents.modifyBatch` replace socketlib; nothing needs libWrapper. |
 | `socket` | `false`. | Document updates propagate by themselves; the relay rides the core query channel. |
 
+Until the section 15 tests first run in a live world, the unreleased scaffold sets both `verified` fields (Foundry
+and the pf2e relationship) equal to their `minimum`, the weakest claim the manifest check accepts; the first harness
+run raises them to the builds it ran on.
+
 Behaviour that differs between pf2e versions is handled by feature detection, not version checks.
 Example: Quick Alchemy ammunition gets the infused trait only after pf2e #23495 (merged after 8.6.1),
 so expiry stamping checks the created item's traits rather than assuming either behaviour.
@@ -134,7 +138,9 @@ so expiry stamping checks the created item's traits rather than assuming either 
 
 Foundry v14 declares Node `>=24.13.1 <25` and refuses to start below 24. Local Foundry, lint and unit
 tests all run on Node 24 (CI uses the same major). Newer Node majors pass Foundry's start-up check but
-are outside its declared range and are not used.
+are outside its declared range and are not used. `package.json` declares the same range, and `.npmrc`
+sets `engine-strict` so that `npm ci` refuses any other Node (the tools rely on `import.meta.main`,
+which Node 24.0 and 24.1 lack).
 
 ### 3.3 Tracking pf2e churn
 
@@ -3251,8 +3257,9 @@ a number, linking to the setting.
 | `ui.lastTab` | U | `queue` |
 
 Internal (not shown): `docs` (W, ids of the shared documents, written by the GM client that creates
-them). The schema version is not a setting; it lives in `flags.MOD.schema` on the shared documents
-(4.14).
+them); `dev` (W, default off, set from the console in a test world only): development runs (15.1) and
+the local harness's fixture tools (15.3). The schema version is not a setting; it lives in
+`flags.MOD.schema` on the shared documents (4.14).
 
 ### 14.4 Treasure Vault (Remastered) variants
 
@@ -3342,8 +3349,33 @@ World settings unless marked U.
   `ContextMenu`, `DragDrop`, `duplicate`, `$`, `jQuery`), `instanceof HTML*`, `requestAnimationFrame`, the
   `-=`/`==` update keys (regex ``["'`\.][=-]=``), `data-action` in chat templates, and string literals in
   templates and notifications.
-- Development runs set `CONFIG.compatibility.mode` to FAILURE with `includePatterns` for this module, so
-  any deprecated call throws.
+  - As built in M0: code that runs in Foundry (`scripts/`, `macros/`, `tools/harness/`) may use only the
+    globals `eslint.config.mjs` lists (the browser globals it needs, and the Foundry globals that Foundry
+    14.368's `client/client.mjs` assigns without a deprecation warning), so every v15-removed alias, the
+    AppV1 classes, `MeasuredTemplateDocument`, jQuery, `libWrapper`, `socketlib` and
+    `requestAnimationFrame` fail `no-undef`. On top of that: `foundry.appv1` and `game.socket`;
+    monkey-patching (`X.prototype.y = ...`, `X.prototype = ...`, and `Object.assign`, `defineProperty`,
+    `defineProperties`, `setPrototypeOf` or `Reflect.set` on `X.prototype`); and in shipped code and
+    macros the `document`, `window` and `globalThis` globals (detached windows, and no reaching a banned
+    global through them). Notification messages (the first argument) must be an i18n key passed with
+    `{localize: true}` or `{format}`, or text already localized; the `hint`, `label`, `title`,
+    `placeholder`, `content` and `tooltip` properties, however the key is written, must hold an i18n key
+    (`pf2e-artisans-workshop.*`, or an upper-case namespace such as `PF2E.*` or core's `COMMON.*`), and
+    `name` must not hold a capitalised word or one with a space. i18n keys are written out in full:
+    `` `${MODULE_ID}.Xxx` `` is rejected so that the key check below can see every key. Files under
+    `scripts/logic/` and `scripts/data/` get no Foundry or browser globals. Macros are parsed as modules
+    (top-level `await` works, a top-level `return` does not) with Foundry's macro arguments defined.
+  - What ESLint cannot see is in `tools/check-source.mjs`, run by `npm run lint`: no literal text in
+    `.hbs` templates (text nodes, user-facing attributes, and partial arguments), no `data-action` in
+    `templates/chat/`, and every quoted `MOD.Xxx` i18n key in `scripts/`, `macros/` and `templates/`
+    defined in `lang/en.json`. The strings gate (16.4) rejects a `lang/en.json` key whose first segment
+    after `MOD.` is not capitalised, which is what tells keys apart from hook and query names.
+- Development runs set `CONFIG.compatibility.mode` to FAILURE with `includePatterns` for this module. A
+  development run is a world with the hidden `dev` setting on (14.3). Core matches the patterns against
+  the whole stack, so any deprecation warning whose stack passes through this module's files throws,
+  including one raised inside pf2e, core or another module that this module (or the fixture builder in
+  `tools/harness/`) called; and other packages' warnings whose stacks do not pass through it are not
+  reported at all in that world.
 
 ### 15.2 Registry validation
 
@@ -3361,6 +3393,10 @@ parse result between tags is reported.
   else can get past its login). The developer installs Foundry and enters the licence key.
 - pf2e pinned by release manifest (`releases/download/pf2e-<version>/system.json`); the module symlinked
   in (no packs).
+- Fixture tools live in `tools/harness/`, which is not in the release zip. With the `dev` setting on
+  (14.3), the GM's client imports them at `ready` and publishes them as
+  `game.modules.get(MOD).dev.fixtures` (`create`, `create({reset: true})`, `list`, `remove`) for the
+  console and for Playwright.
 - Users: GM, assistant GM, Player 1, Player 2, each in its own browser profile, driven by Playwright.
 - Companion modules toggled per scenario: pf2e-dailies with libWrapper, Toolbelt, Workbench, Item Piles
   with socketlib, Duct Tape, one calendar module.
@@ -3428,7 +3464,11 @@ parse result between tags is reported.
 
 ### 15.4 Fixture actors
 
-Generic builds created by a script from compendium items:
+Generic builds created by a script from compendium items (`tools/harness/fixtures.mjs`, built by
+`fixture-actors.mjs`). Every build is a human with no heritage or background and directly entered
+attribute modifiers; its choice-set answers are part of the definition, so building it raises no
+prompts. The class features are added one feature level at a time, the way levelling up adds them. The
+NPC targets of row 17 are the Monster Core Goblin Warrior, Skeleton Guard and Frost Giant.
 
 | # | Build | Exercises |
 |---|---|---|
@@ -3503,6 +3543,9 @@ URL. Nothing is listed on foundryvtt.com until the whole scope in section 1 is d
   (GitHub "latest" skips pre-releases, which makes it the stable channel). Pre-releases set their own
   `manifest` to their version-specific URL, so testers stay on the pre-release channel.
 - `download`: `https://github.com/gmtoolkit/pf2e-artisans-workshop/releases/download/<tag>/module.zip`.
+- The tag is the bare version (`0.3.0`, no "v"), so both URLs follow from `version`. Until the first
+  pre-release, `module.json` has version `0.0.0`, `flags.MOD.unreleased: true` and placeholder URLs of
+  this form; `tools/check-manifest.mjs` checks all of this.
 - Package Release API: `POST https://foundryvtt.com/_api/packages/release_version/` with the package
   release token from a repository secret; the body carries `id` and `release: {version, manifest, notes,
   compatibility}`, where `manifest` is the version-specific URL, never `/latest`. The first run uses
@@ -3519,12 +3562,18 @@ machine-drafted placeholders; the author rewrites all of them before listing.
 - `lang/review/en.signoff.json` maps each key to the SHA-256 of its normalised value (trimmed, Unicode
   NFC, whitespace collapsed) at the time the author signed it off.
 - `tools/signoff-strings.mjs --keys ...` is run by the author to record hashes for strings they have
-  rewritten; the commit is the author's.
+  rewritten; the commit is the author's. Keys may end in `*` to match a prefix; `--all` signs off every
+  current string, for use only after the full rewrite. Entries for keys that no longer exist are
+  dropped.
 - `tools/check-strings.mjs` fails when any key is missing from the sign-off file or its hash differs;
-  it prints the offending keys. Report mode in pull requests and pre-releases, enforce mode on stable
-  releases (16.2).
+  it prints the offending keys. Report mode in pull requests and pre-releases (`npm run check:strings`),
+  enforce mode on stable releases (16.2; `npm run check:strings:enforce`). A malformed language or
+  sign-off file fails in both modes, and a usage error (an unknown argument, or `--mode` missing its
+  value or given twice) exits 2 rather than falling back to report mode.
 - The same mechanism covers `README.md` and the package description file (`docs/package-description.md`),
-  hashed whole.
+  hashed whole under the keys `file:README.md` and `file:docs/package-description.md`, and the
+  `module.json` `title` and `description` that Foundry shows, under `module.json:title` and
+  `module.json:description`.
 - The gate proves sign-off, not authorship; the rewrite itself is the author's process.
 
 ### 16.5 No AI assets
@@ -3532,6 +3581,14 @@ machine-drafted placeholders; the author rewrites all of them before listing.
 The repository contains no images, audio or fonts. Icons are Font Awesome classes (bundled with Foundry
 v14), Foundry core icons or pf2e system icon paths; item images come from the compendium. A CI check
 fails if any image, audio or font file appears outside an empty allowlist.
+
+`tools/check-assets.mjs` looks at every file git would track: media by extension (images including SVG
+and SVGZ, audio, video, fonts), media under another name by its leading bytes, and any file that is not
+UTF-8 text at all. In the files that ship or are published (the release zip of 16.2, the package
+description and `macros/`) it also fails media embedded as a `data:` URI of a media type, any base64
+`data:` URI (a font or image declared as `application/*`), or inline `<svg>`; files that never ship, such
+as this one and the tests, may name those patterns. The allowlist is a constant in that script; adding a
+path to it needs a `DECISIONS.md` entry.
 
 ### 16.6 Licences and notices
 
