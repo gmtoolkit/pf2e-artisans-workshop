@@ -8,7 +8,10 @@ scaffold (manifest, tooling, CI), the M1 rules core (pure crafting and Earn Inco
 rules with tests), the M2 storage and sync layer (the shared ledger and strongbox,
 safe coin moves, claims, roster snapshots, purge) and the M3 rules registry and roll
 wrapper (Craft and Earn Income checks rolled with the item's options and recorded once,
-rerolls included), with no Workshop window yet. The
+rerolls included), and the M4 Workshop window: the Queue and Funds tabs, the order lifecycle
+from request to delivery, escrow and refunds, chat cards and the request form. Open it from
+the "Workshop" button in the Actors directory or on the Party sheet, or with
+`game.modules.get("pf2e-artisans-workshop").api.ui.open()`. The
 specification is `DESIGN.md`; decisions land in `DECISIONS.md`.
 
 ## What it is for
@@ -68,15 +71,17 @@ shipped; `test/` the tests. `scripts/logic/` is the rules engine (pure functions
 Foundry or browser globals, so `node --test` imports it directly; tests in `test/logic/`)
 and `scripts/data/` its numeric tables, each cited by book and page. `scripts/foundry/`
 is the code that talks to Foundry (storage and sync so far), tested in `test/foundry/`
-against the small fake of Foundry in `test/foundry/stubs.mjs`. Later milestones add
-`templates/`, `styles/` and `macros/` (copy-paste macros; the lint rules and key check
-already cover that folder).
+against the small fake of Foundry in `test/foundry/stubs.mjs`. `scripts/ui/` is the
+Workshop window, its chat cards and entry points (M4), with its Handlebars templates in `templates/` (no literal text:
+every word is a key) and its stylesheet in `styles/`; `scripts/logic/views.mjs` holds the window's view models as pure
+functions. A later milestone adds `macros/` (copy-paste macros; the lint rules and key check already cover that folder).
 
 Local Foundry harness: symlink the checkout into `Data/modules/`, enable the module in a
 test world, and as GM run `await game.settings.set("pf2e-artisans-workshop", "dev", true)`
 in the console, then reload. In a dev world any deprecation warning whose stack passes
 through this module's files throws, even one raised inside pf2e, core or another module
-that this module called, and `game.modules.get("pf2e-artisans-workshop").dev.fixtures.create()`
+that this module called (except Application V1's own warning, which pf2e's V1 check dialog
+raises; `DESIGN.md` 15.1), and `game.modules.get("pf2e-artisans-workshop").dev.fixtures.create()`
 builds the fixture actors of `DESIGN.md` 15.4 (`{ reset: true }` rebuilds them), marked in
 `flags.world` so the module's purge leaves the marks alone. The sync
 scenarios of `DESIGN.md` 15.3 load on every client of a dev world:
@@ -105,9 +110,20 @@ connection between a move's two requests and waits out the 60 s grace time twice
 ```sh
 npm run harness:live -- --runs 2 --behaviours all --out /tmp/live     # everything
 npm run harness:live -- --scenarios 3c --runs 1 --behaviours none --canvas
+npm run harness:live -- --scenarios none --behaviours m4-lifecycle,m4-no-gm,m4-cancel,m4-double-delivery,m4-reroll-race,m4-shots,m4-ui --runs 1 --shots /tmp/m4-shots
 ```
 
-Options: `--url` (default `http://localhost:30000`), `--chromium` (the browser binary; on
+The M4 behaviours run the order lifecycle with a GM and two players (`m4-lifecycle`), with two players and no GM, the
+recipient offline at the finish (`m4-no-gm`), a cancel with refunds (`m4-cancel`), the double-delivery race
+(`m4-double-delivery`, which waits out the 60 s grace time) and the reroll-against-settlement race (`m4-reroll-race`);
+`m4-shots` seeds orders and saves screenshots of the Queue and Funds tabs as the GM and as a player at 1440x900 and
+1024x768, dark and light, into `--shots` (default `<out>/shots`); `m4-ui` drives the window as Player One with real
+clicks and keys (tabs, both searches, focus through a refresh, the narrow tier, a detached Workshop, the chat cards
+after a reload). A world launched before `module.json` named
+`styles/workshop.css` serves pages without it; the driver then adds it to each page and says so in `results.json`
+(`styleAdded`).
+
+Options: `--shots` (where screenshots go), `--url` (default `http://localhost:30000`), `--chromium` (the browser binary; on
 Arch the default is `/usr/lib/chromium/chromium`, behind the `/usr/bin/chromium` launcher
 that adds the desktop's flags), `--headed`, `--canvas` (pages load the game canvas;
 without it a player's client throws in core's `Actor#_onUpdate` whenever an actor's

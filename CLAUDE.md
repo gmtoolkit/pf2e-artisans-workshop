@@ -22,8 +22,13 @@ lookups in `scripts/logic/registry.mjs`, `tools/validate-registry.mjs`) and the 
 and Earn Income roll (`scripts/foundry/rolls.mjs`, pure parts in `scripts/logic/rolls.mjs`;
 live checks in `tools/harness/roll-scenarios.mjs`). The registry stores slugs, UUIDs,
 numbers and predicates only; check a new entry with `npm run validate:registry`.
-There is no Workshop window yet. `DECISIONS.md` holds every decision made so far,
-newest first; read it before proposing a design change.
+M4 is in place: the Workshop window with its Queue and Funds tabs (`scripts/ui/`,
+`templates/`, `styles/workshop.css`; view models in `scripts/logic/views.mjs`), the order
+lifecycle (`scripts/logic/orders.mjs`, `scripts/foundry/orders.mjs`), funds actions, chat
+cards, notifications, the request form with drag and drop, the entry points (Actors
+directory header, Party sheet header, `api.ui.open`) and the public API's first part
+(`scripts/foundry/api.mjs`); DESIGN 10.10 says what was built. `DECISIONS.md` holds every
+decision made so far, newest first; read it before proposing a design change.
 
 Development commands and layout are in the README's Development section. Use Node 24
 (`DESIGN.md` 3.2); `npm run lint` and `npm test` must pass before a PR.

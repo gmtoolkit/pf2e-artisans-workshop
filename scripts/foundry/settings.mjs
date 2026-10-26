@@ -78,6 +78,24 @@ export function registerSettings(handlers) {
         scope: "world", config: true, type: String, default: "party",
         choices: { party: "pf2e-artisans-workshop.Settings.Members.Party", all: "pf2e-artisans-workshop.Settings.Members.All" },
     });
+    // M4 (DESIGN.md 14.1, 14.3): who sees the Workshop's chat cards, which order changes a user is told about, and
+    // the tab the window opens on.
+    game.settings.register(MODULE_ID, "chat.visibility", {
+        name: "pf2e-artisans-workshop.Settings.ChatVisibility.Name",
+        hint: "pf2e-artisans-workshop.Settings.ChatVisibility.Hint",
+        scope: "world", config: true, type: String, default: "involved",
+        choices: { involved: "pf2e-artisans-workshop.Settings.ChatVisibility.Involved", public: "pf2e-artisans-workshop.Settings.ChatVisibility.Public" },
+    });
+    game.settings.register(MODULE_ID, "notify.level", {
+        name: "pf2e-artisans-workshop.Settings.NotifyLevel.Name",
+        hint: "pf2e-artisans-workshop.Settings.NotifyLevel.Hint",
+        scope: "user", config: true, type: String, default: "mine",
+        choices: {
+            all: "pf2e-artisans-workshop.Settings.NotifyLevel.All", mine: "pf2e-artisans-workshop.Settings.NotifyLevel.Mine",
+            none: "pf2e-artisans-workshop.Settings.NotifyLevel.None",
+        },
+    });
+    game.settings.register(MODULE_ID, "ui.lastTab", { scope: "user", config: false, type: String, default: "queue" });
     game.settings.register(MODULE_ID, "claims.auto", {
         name: "pf2e-artisans-workshop.Settings.AutoClaim.Name",
         hint: "pf2e-artisans-workshop.Settings.AutoClaim.Hint",

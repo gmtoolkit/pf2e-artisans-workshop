@@ -1,0 +1,18 @@
+<div class="pf2e-artisans-workshop-amount standard-form">
+    {{#if single}}
+    {{#each actors}}<input type="hidden" name="actor" value="{{uuid}}"><p class="hint">{{localize "pf2e-artisans-workshop.Prompt.From" name=name}}</p>{{/each}}
+    {{else}}
+    <div class="form-group">
+        <label for="pf2e-artisans-workshop-amount-actor">{{localize "pf2e-artisans-workshop.Prompt.Character"}}</label>
+        <select name="actor" id="pf2e-artisans-workshop-amount-actor">
+            {{#each actors}}<option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{name}}</option>{{/each}}
+        </select>
+    </div>
+    {{/if}}
+    <div class="form-group">
+        <label for="pf2e-artisans-workshop-amount-value">{{localize "pf2e-artisans-workshop.Prompt.Amount"}}</label>
+        <input type="text" name="amount" id="pf2e-artisans-workshop-amount-value" autofocus placeholder="{{localize 'pf2e-artisans-workshop.Prompt.AmountPlaceholder'}}">
+    </div>
+    {{#if max}}<p class="hint">{{localize "pf2e-artisans-workshop.Prompt.Max" max=max}}</p>{{/if}}
+    <p class="hint">{{localize "pf2e-artisans-workshop.Prompt.AmountHint"}}</p>
+</div>

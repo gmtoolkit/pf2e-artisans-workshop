@@ -159,7 +159,8 @@ test("a delivery locks its row and its shelf item, then moves the item to the re
     assert.deepEqual([row.kind, row.state, row.items[0].qty], ["delivered", "applied", 2]);
     const [lock, apply] = world.batches.slice(-2);
     assert.deepEqual(lock[0].data.map((d) => d._id), [row.id, shelfItem.id], "a lock page, not a deletion, is the lock");
-    assert.deepEqual(apply.map((op) => op.action), ["delete", "create", "update"]);
+    assert.deepEqual(apply.map((op) => op.action), ["create", "delete", "create", "update"]);
+    assert.deepEqual(apply[0].data.map((d) => d._id), [hashId(`recreate:${row.id}`)], "the apply request takes the re-creation's lock first (5.11)");
 });
 
 test("the relay's 'deliver now' and the GM's own sweep on one tab deliver the item once", async () => {
@@ -192,7 +193,7 @@ test("pf2e dropping the shelf item's deletion on the way out stops the delivery;
     t.mock.method(console, "warn", () => {});
     world.currentUser = "p1";
     const item = shelve();
-    world.client.beforeSend = (ops) => { if (ops[0].action === "delete") docs.strongbox.items.delete(item.id); };
+    world.client.beforeSend = (ops) => { if (ops.some((op) => op.action === "delete")) docs.strongbox.items.delete(item.id); };
     const result = await claims.deliver(item, vera);
     world.client.beforeSend = null;
     assert.deepEqual([result.outcome, result.reason], ["stopped", "shrunk"]);

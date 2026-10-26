@@ -28,7 +28,7 @@ import {
     applyMarkId, lockFirstBatch, lockIdsFor, purseLockIds, recreateLockId, resumeApply, resumeDecision, stackLockId,
 } from "../logic/lock-first.mjs";
 import { pendingState } from "../logic/reconcile.mjs";
-import { BOOKKEEPING_KINDS, makeRow } from "../logic/rows.mjs";
+import { BOOKKEEPING_KINDS, makeRow, reversalRow } from "../logic/rows.mjs";
 import { coinStacks, coinsLoaded, itemVersion } from "./coins.mjs";
 import { runApply, runLockFirst, runRequest } from "./batch.mjs";
 import { holdsLease, withCoinMutex } from "./lease.mjs";
@@ -54,11 +54,18 @@ export function freeStacks(actor) {
     return coinStacks(actor).filter((stack) => !pages.has(stack.id) && !pages.has(stackLockId(stack.id, stack.version)));
 }
 
+/** Two ledger changes as one. */
+function mergeChanges(a = {}, b = {}) {
+    return { set: { ...a.set, ...b.set }, replace: { ...a.replace, ...b.replace }, del: [...(a.del ?? []), ...(b.del ?? [])] };
+}
+
 /**
  * The common path of every coin move.
- * @param {(strongbox: Actor) => ({rows: object[], debits?: object[], credits?: object[], locks?: string[]} | {refuse: string})} plan
- *        called inside the mutex with the strongbox; returns the `makeRow` inputs, the coin plans and the purse
- *        stack locks
+ * @param {(strongbox: Actor) => ({rows: object[], debits?: object[], credits?: object[], locks?: string[], items?: object[],
+ *        ledger?: object} | {refuse: string})} plan
+ *        called inside the mutex with the strongbox; returns the `makeRow` inputs (or rows already built, such as
+ *        reversals), the coin plans, the purse stack locks, items the apply request creates (`{target, data}`: a
+ *        finished order's shelf items, M4) and ledger keys that depend on the plan (written with the lock)
  * @param {object} [ledger]  other ledger keys written with the rows, e.g. a claim's `resolved`
  * @param {object[]} [known] the `makeRow` inputs of the rows, when they are known before planning (every move but a
  *        spend, whose rows follow its shares). The fast path then comes first: a move whose row exists is "already",
@@ -77,14 +84,15 @@ export function moveCoins(plan, ledger = {}, known = []) {
         const planned = plan(shared().strongbox);
         if (planned.refuse) return refuse(planned.refuse);
         const stamp = stampNow();
-        const rows = planned.rows.map((input) => makeRow(input, stamp));
+        const rows = planned.rows.map((input) => (input.id && input.v ? input : makeRow(input, stamp)));
         if (rows.some((row) => exists(`rows.${row.id}`))) return { ok: true, outcome: "already", rows };   // fast path
         const rowIds = rows.map((row) => row.id);
         const debits = planned.debits ?? [];
         const credits = planned.credits ?? [];
         const batch = lockFirstBatch({
-            rowIds, lockIds: lockIdsFor([...rowIds, ...(planned.locks ?? [])], debits), ledger: withRows(ledger, rows),
-            debits, credits, lot: rows[0].id, resume: { touched: touchedBy([...debits, ...credits]), actor: purseOf([...debits, ...credits]) },
+            rowIds, lockIds: lockIdsFor([...rowIds, ...(planned.locks ?? [])], debits), ledger: withRows(mergeChanges(ledger, planned.ledger), rows),
+            debits, credits, items: planned.items ?? [], lot: rows[0].id,
+            resume: { touched: touchedBy([...debits, ...credits]), actor: purseOf([...debits, ...credits]) },
         });
         const result = await runLockFirst(batch);
         if (result.outcome === "stopped") await noteStopped(rows, result);
@@ -328,8 +336,9 @@ export function mint({ actor, row, ledger = {} }) {
  * @param {{actor: string|null, cp: number}[]} p.allocations  `allocationsByContributor` over its rows
  * @param {object} [p.link] `{order}` or `{garden}`, and `day`
  * @param {object} [p.ledger] other ledger keys written with the rows (a settled order's new state, 6.12)
+ * @param {string[]} [p.locks] other lock pages its lock request takes (the order's log slot, `logLockId`)
  */
-export function spend({ kind, stem, cp, allocations, link = {}, ledger = {} }) {
+export function spend({ kind, stem, cp, allocations, link = {}, ledger = {}, locks = [] }) {
     return moveCoins((strongbox) => {
         if (!(cp > 0)) return { refuse: "nothing" };
         const planned = planSpend(freeStacks(strongbox), allocations, cp);
@@ -337,8 +346,73 @@ export function spend({ kind, stem, cp, allocations, link = {}, ledger = {} }) {
         const rows = planned.shares.filter((share) => share.cp > 0).map((share) => ({
             kind, idem: `${stem}:${share.actor ?? "fund"}`, cp: share.cp, actor: share.actor, ...link,
         }));
-        return { rows, debits: [{ target: "strongbox", plan: planned.strongbox }] };
+        return { rows, debits: [{ target: "strongbox", plan: planned.strongbox }], locks };
     }, ledger);
+}
+
+/**
+ * Reverse rows (4.6): one `reversal` row each, keyed `reversal:<row id>`, with the inverse amounts, and the original
+ * marked `reversedBy`. Coins move back where that is what the rows moved: out of or into the strongbox (`box`), and into
+ * or out of the purse of the rows' counterparty (`purse`); a reversal of an `expend` or `ruin` mints the spent coins back
+ * into the strongbox (an undone settlement, 4.2.3). Reversals of rows that moved nothing (`commit`, `release`) are
+ * written applied in one key-path write. All rows' purse amounts must belong to one actor. `ledger` holds other keys
+ * written with them (an undone transition's fields), and `locks` lock pages the write takes first (the undo's log slot,
+ * `logLockId`): with them it lands only if none exists ("taken" otherwise).
+ * @returns {Promise<{ok: boolean, outcome?: string, reason?: string, rows?: object[]}>}
+ */
+export async function reverseRows(targets, ledger = {}, note = null, { locks = [] } = {}) {
+    if (!targets.length) {
+        if (!canWrite()) return refuse("not-ready");
+        if (locks.length) return { ...(await withMarks(locks, null, ledger)), rows: [] };
+        await write(ledger);
+        return { ok: true, outcome: "ok", rows: [] };
+    }
+    const purses = [...new Set(targets.filter((row) => (row.purse ?? 0) !== 0).map((row) => row.actor))];
+    if (purses.length > 1) throw new RangeError("one reversal moves one purse's coins");
+    const boxCp = -targets.reduce((sum, row) => sum + (row.box ?? 0), 0);
+    const purseCp = -targets.reduce((sum, row) => sum + (row.purse ?? 0), 0);
+    const marks = (reversals) => ({ set: Object.fromEntries(reversals.map((r) => [`rows.${r.reverses}.reversedBy`, r.id])) });
+    if (boxCp === 0 && purseCp === 0) {
+        if (!canWrite()) return refuse("not-ready");
+        const stamp = stampNow();
+        const reversals = targets.map((row) => ({ ...reversalRow(row, stamp, note), state: "applied" }));
+        const fresh = reversals.filter((row) => !exists(`rows.${row.id}`));
+        if (!fresh.length) return { ok: true, outcome: "already", rows: reversals };
+        const change = withRows(mergeChanges(ledger, marks(fresh)), fresh);
+        if (locks.length) return { ...(await withMarks(locks, null, change)), rows: reversals };
+        await write(change);
+        return { ok: true, outcome: "ok", rows: reversals };
+    }
+    const purse = purses.length ? fromUuidSync(purses[0]) : null;
+    return moveCoins((strongbox) => {
+        if (purses.length && !purse) return { refuse: "no-actor" };
+        if (purse && !ownsPurse(purse)) return { refuse: "not-owner" };
+        const stamp = stampNow();
+        const reversals = targets.map((row) => reversalRow(row, stamp, note));
+        const debits = [];
+        const credits = [];
+        const purseLocks = [];
+        if (boxCp < 0) {
+            const box = planStrongboxDebit(freeStacks(strongbox), -boxCp);
+            if (!box) return { refuse: "strongbox-short" };
+            debits.push({ target: "strongbox", plan: box });
+        }
+        if (purseCp < 0) {
+            const stacks = freeStacks(purse);
+            const plan = planPurseDebit(stacks, -purseCp);
+            if (!plan) return { refuse: "purse-short" };
+            debits.push({ target: purse.uuid, plan });
+            purseLocks.push(...purseLockIds(stacks, plan));
+        }
+        if (boxCp > 0) credits.push({ target: "strongbox", plan: planStrongboxCredit(boxCp) });
+        if (purseCp > 0) {
+            const stacks = freeStacks(purse);
+            const plan = planPurseCredit(stacks, purseCp);
+            credits.push({ target: purse.uuid, plan });
+            purseLocks.push(...purseLockIds(stacks, plan));
+        }
+        return { rows: reversals, debits, credits, locks: [...locks, ...purseLocks], ledger: marks(reversals) };
+    }, ledger, targets.map((row) => ({ idem: `reversal:${row.id}` })));
 }
 
 /**
@@ -360,6 +434,22 @@ export async function postRows(inputs, ledger = {}, { marks = [] } = {}) {
         return { ok: true, outcome: "ok", rows };
     }
     return { ...(await withMarks(marks, { kind: fresh[0].kind, row: fresh[0].id }, withRows(ledger, fresh))), rows };
+}
+
+/**
+ * Rows that move nothing (`BOOKKEEPING_KINDS`) and other ledger keys in one request behind lock pages `lockIds`
+ * (As built in M4: an order's transition, behind its log slot's page, `logLockId`): the server creates none of the
+ * pages if one exists, so the write lands only if none did, and nothing of it lands otherwise ("taken"). Rows that
+ * exist already are not written again; the ledger keys always are.
+ * @returns {Promise<{ok: boolean, outcome: string, reason?: string, rows: object[]}>}
+ */
+export async function lockedWrite(lockIds, inputs, ledger = {}) {
+    if (!canWrite()) return refuse("not-ready");
+    const stamp = stampNow();
+    const rows = inputs.map((input) => ({ ...makeRow(input, stamp), state: "applied" }));
+    if (rows.some((row) => !BOOKKEEPING_KINDS.includes(row.kind))) throw new RangeError("lockedWrite is for rows that move nothing");
+    const fresh = rows.filter((row) => !exists(`rows.${row.id}`));
+    return { ...(await withMarks(lockIds, null, withRows(ledger, fresh))), rows };
 }
 
 /**

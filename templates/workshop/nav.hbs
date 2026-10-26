@@ -1,0 +1,10 @@
+<nav class="tabs workshop-tabs" role="tablist" aria-orientation="vertical" aria-label="{{localize 'pf2e-artisans-workshop.Window.Tabs'}}">
+    {{#each tabs as |tab|}}
+    <button type="button" role="tab" class="workshop-tab {{tab.cssClass}}" data-action="tab" data-group="{{tab.group}}" data-tab="{{tab.id}}"
+            id="pf2e-artisans-workshop-tab-{{tab.id}}" aria-controls="pf2e-artisans-workshop-panel-{{tab.id}}"
+            aria-selected="{{#if tab.active}}true{{else}}false{{/if}}" tabindex="{{#if tab.active}}0{{else}}-1{{/if}}"
+            aria-label="{{localize tab.label}}" data-tooltip="{{localize tab.label}}">
+        <i class="{{tab.icon}}" inert></i><span class="label">{{localize tab.label}}</span>
+    </button>
+    {{/each}}
+</nav>

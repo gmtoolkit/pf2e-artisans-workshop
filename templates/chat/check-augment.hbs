@@ -1,0 +1,21 @@
+<section class="pf2e-artisans-workshop-augment">
+    <header class="augment-header"><i class="fa-solid fa-hammer" inert></i> <strong>{{view.title}}</strong>
+        {{> "modules/pf2e-artisans-workshop/templates/partials/status.hbs" status=view.status statusIcon=view.statusIcon statusWord=view.statusWord}}</header>
+    {{#if stale}}
+    <p class="augment-line">{{localize "pf2e-artisans-workshop.Augment.Stale"}}</p>
+    {{else}}
+    {{#if degreeText}}<p class="augment-line degree {{degreeClass}}">{{localize "pf2e-artisans-workshop.Augment.Degree" degree=degreeText}}</p>{{/if}}
+    {{#if success}}<p class="augment-line">{{localize "pf2e-artisans-workshop.Augment.Success" perDay=view.perDayText days=view.daysToZero left=view.finishText}}</p>{{/if}}
+    {{#if failure}}<p class="augment-line">{{localize "pf2e-artisans-workshop.Augment.Failure" amount=salvage}}</p>{{/if}}
+    {{#if critFailure}}<p class="augment-line">{{localize "pf2e-artisans-workshop.Augment.CritFailure" amount=ruined}}</p>
+    {{#if alchemical}}<p class="augment-line hazard"><i class="fa-solid fa-flask" inert></i> {{localize "pf2e-artisans-workshop.Augment.Hazard"}}</p>{{/if}}{{/if}}
+    {{#if fortune}}<p class="augment-line warning"><i class="fa-solid fa-clover" inert></i> {{localize "pf2e-artisans-workshop.Augment.Fortune"}}</p>{{/if}}
+    {{#if notUsed}}<p class="augment-line warning"><i class="fa-solid fa-code-compare" inert></i> {{localize "pf2e-artisans-workshop.Augment.NotUsed"}}</p>{{/if}}
+    {{#if conflict}}<p class="augment-line warning"><i class="fa-solid fa-code-compare" inert></i> {{localize "pf2e-artisans-workshop.Augment.Conflict"}}</p>{{/if}}
+    {{/if}}
+    <div class="card-buttons">
+        {{#if canSettle}}<button type="button" data-pf2e-artisans-workshop-op="settle"><i class="fa-solid fa-scale-balanced" inert></i>{{localize "pf2e-artisans-workshop.Action.Settle"}}</button>{{/if}}
+        {{#if canUndo}}<button type="button" data-pf2e-artisans-workshop-op="undo"><i class="fa-solid fa-rotate-left" inert></i>{{localize "pf2e-artisans-workshop.Action.UndoSettle"}}</button>{{/if}}
+        <button type="button" data-pf2e-artisans-workshop-op="open"><i class="fa-solid fa-up-right-from-square" inert></i>{{localize "pf2e-artisans-workshop.Action.Open"}}</button>
+    </div>
+</section>

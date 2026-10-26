@@ -1,0 +1,6 @@
+<footer class="workshop-status">
+    {{#if banner}}
+    <p class="workshop-banner" role="status"><i class="fa-solid fa-triangle-exclamation" inert></i> {{localize banner}}</p>
+    {{/if}}
+    <p class="workshop-live" aria-live="polite" aria-atomic="true">{{lastEvent}}</p>
+</footer>

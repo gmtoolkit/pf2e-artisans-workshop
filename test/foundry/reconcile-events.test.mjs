@@ -386,9 +386,9 @@ for (const [how, reason, breakResume] of BROKEN_RESUMES) {
     });
 }
 
-test("the harness scenarios cover DESIGN 15.3's M2 scenarios and M3's rolls, every step documented", () => {
+test("the harness scenarios cover DESIGN 15.3's M2 scenarios, M3's rolls and M4's orders, every step documented", () => {
     const ids = Object.keys(scenarios.definitions);
-    assert.deepEqual(ids.sort(), ["1", "2", "3", "3c", "7", "7b", "9", "m3"]);
+    assert.deepEqual(ids.sort(), ["1", "2", "3", "3c", "7", "7b", "9", "m3", "m4"]);
     for (const [id, scenario] of Object.entries(scenarios.definitions)) {
         assert.equal(typeof scenario.about, "string", id);
         const steps = Object.entries(scenario).filter(([key]) => key !== "about");

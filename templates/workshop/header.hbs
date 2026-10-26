@@ -1,0 +1,39 @@
+<header class="workshop-header">
+    <div class="workshop-party">
+        <i class="fa-solid fa-people-group" inert></i>
+        {{#if party}}
+        <span class="label">{{localize "pf2e-artisans-workshop.Window.Party"}}</span>
+        <strong class="party-name">{{party}}</strong>
+        {{else}}
+        <span class="label">{{localize "pf2e-artisans-workshop.Window.NoParty"}}</span>
+        {{/if}}
+    </div>
+    {{#if strongboxText}}
+    <div class="workshop-strongbox" data-tooltip="{{localize 'pf2e-artisans-workshop.Window.StrongboxHint'}}">
+        <i class="fa-solid fa-sack-dollar" inert></i>
+        <span class="label">{{localize "pf2e-artisans-workshop.Window.Strongbox"}}</span>
+        <span class="money">{{strongboxText}}</span>
+    </div>
+    {{/if}}
+    {{#if ready}}
+    <div class="workshop-shelf{{#if shelfCount}} waiting{{/if}}">
+        <i class="fa-solid fa-box-open" inert></i>
+        <span>{{localize "pf2e-artisans-workshop.Window.Shelf" count=shelfCount}}</span>
+        {{#if shelfCount}}
+        <button type="button" class="take" data-action="take">
+            <i class="fa-solid fa-hand-holding" inert></i><span>{{localize "pf2e-artisans-workshop.Window.Take"}}</span>
+        </button>
+        {{/if}}
+    </div>
+    {{/if}}
+    {{#if acting.length}}
+    <label class="workshop-acting">
+        <span class="label">{{localize "pf2e-artisans-workshop.Window.ActingAs"}}</span>
+        <select name="acting">
+            {{#each acting}}
+            <option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{localize "pf2e-artisans-workshop.Window.ActingOption" name=name level=level}}</option>
+            {{/each}}
+        </select>
+    </label>
+    {{/if}}
+</header>

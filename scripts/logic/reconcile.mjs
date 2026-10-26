@@ -177,3 +177,22 @@ export function memberBalances(allRows) {
         unassignedCp: fundCp - shareable,
     };
 }
+
+/**
+ * What a purge's refunds still have to pay (5.9, As built in M4): `byAllocation` (`memberBalances`) less what open
+ * refund claims of the same member and allocation already owe (a cancel's or a finish's, 6.2.4, not collected yet),
+ * so nobody is paid one allocation twice. The purge's own claims (`purge-refund:`) are not subtracted: issuing one again
+ * is the same claim.
+ * @param {{actor: string, order: string|null, garden: string|null, cp: number}[]} byAllocation
+ * @param {object[]} claims  the open claims (`openClaims`)
+ */
+export function unclaimedAllocations(byAllocation, claims) {
+    const key = (actor, order, garden) => [actor, order ?? "", garden ?? ""].join("|");
+    const owed = new Map();
+    for (const claim of claims) {
+        if (claim.kind !== "refund" || claim.resolved || String(claim.idem).startsWith("purge-refund:")) continue;
+        const k = key(claim.actor, claim.order, claim.garden);
+        owed.set(k, (owed.get(k) ?? 0) + (claim.cp ?? 0));
+    }
+    return byAllocation.map((a) => ({ ...a, cp: a.cp - (owed.get(key(a.actor, a.order, a.garden)) ?? 0) })).filter((a) => a.cp > 0);
+}

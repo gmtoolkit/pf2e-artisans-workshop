@@ -106,7 +106,8 @@ export function applyMarkId(rowId) {
 /**
  * The lock page id that re-creating a lost delivery takes (4.7), from its `delivered` row: the delivery's own lock
  * pages exist already, so the re-creation needs one of its own. A close of that row by hand, once it needs a hand,
- * takes it too.
+ * takes it too, and so does the delivery's own apply request (As built in M4: the 5.11 follow-up "item delivered
+ * twice"), so of a late apply request, a re-creation and a close exactly one lands.
  */
 export function recreateLockId(rowId) {
     return hashId(idemKey("recreate", rowId));
@@ -136,15 +137,19 @@ export function resumeApply(move) {
  * @param {{touched: {target: string, id: string, version: number}[], actor: string|null}} [p.resume]  makes the move
  *        resumable: every item its apply request deletes or updates with the version it was planned from, and the
  *        purse it moves coins in or out of (an actor UUID; null for the strongbox alone). Needs rows.
+ * @param {string|null} [p.mark]  a lock page id the apply request takes first, for a move that is not resumable but
+ *        shares its apply with another path: a delivery's apply request and the re-creation of a lost delivery take
+ *        the same page (`recreateLockId`), so only one of them ever creates the item (DESIGN.md 5.11, As built in M4)
  * @returns {{lock: object[], apply: object[]}}
  */
-export function lockFirstBatch({ rowIds = [], lockIds = rowIds, ledger = {}, debits = [], credits = [], items = [], lot = null, resume = null }) {
+export function lockFirstBatch({ rowIds = [], lockIds = rowIds, ledger = {}, debits = [], credits = [], items = [], lot = null, resume = null, mark = null }) {
     const ids = [...new Set(lockIds)];
     if (!ids.length) throw new RangeError("a lock-first move takes at least one lock");
     if (resume && (!rowIds.length || ids[0] !== rowIds[0])) throw new RangeError("a resumable move locks its rows first");
+    if (resume && mark) throw new RangeError("a resumable move's mark is its apply mark");
     const settle = settleOf(rowIds);
     const apply = [
-        ...(resume ? [{ op: "lock", ids: [applyMarkId(rowIds[0])] }] : []),
+        ...(resume ? [{ op: "lock", ids: [applyMarkId(rowIds[0])] }] : mark ? [{ op: "lock", ids: [mark] }] : []),
         ...debits.flatMap((d) => coinOps(d.target, d.plan, d.target === "strongbox" ? lot : null)),
         ...credits.flatMap((c) => coinOps(c.target, c.plan, c.target === "strongbox" ? lot : null)),
         ...items.map((i) => ({ op: "createItems", target: i.target, data: i.data })),

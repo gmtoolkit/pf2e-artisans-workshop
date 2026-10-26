@@ -8,7 +8,8 @@
  *
  * `refresh` (at `ready`, when the master switch or the shared documents change): with the switch on, the active
  * GM creates or repairs the shared documents; every client locates them, checks the schema (migrating if it is
- * the elected client) and sets its status. Nothing is written while the switch is off (P10).
+ * the elected client) and sets its status, then fires `pf2e-artisans-workshop.status` (the Workshop window and the
+ * entry points follow it, M4). Nothing is written while the switch is off (P10).
  *
  * The sweep (P5), on the tab holding the lease, after `refresh`, when a user connects or disconnects, when the
  * lease passes to this tab, and when claims or shelf items appear: apply claims and deliveries this tab is
@@ -136,6 +137,7 @@ let recheck = null;
 async function checkShared() {
     if (!isEnabled()) {
         setShared({ status: "disabled" });
+        Hooks.callAll("pf2e-artisans-workshop.status", status());
         return status();
     }
     try {
@@ -147,6 +149,7 @@ async function checkShared() {
     const found = locateShared();
     if (!found.ready) {
         setShared({ ...found, status: "missing" });
+        Hooks.callAll("pf2e-artisans-workshop.status", status());
         return status();
     }
     setShared({ ...found, status: "migrating" });   // no writes until the schema is checked
@@ -158,6 +161,7 @@ async function checkShared() {
     }
     if (schema === "migrating") recheckLater();
     if (canWrite()) scheduleSweep();
+    Hooks.callAll("pf2e-artisans-workshop.status", status());
     return status();
 }
 

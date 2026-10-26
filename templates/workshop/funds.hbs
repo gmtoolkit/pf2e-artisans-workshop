@@ -1,0 +1,89 @@
+<section class="tab workshop-funds {{tab.cssClass}}" data-group="primary" data-tab="funds" role="tabpanel"
+         id="pf2e-artisans-workshop-panel-funds" aria-labelledby="pf2e-artisans-workshop-tab-funds">
+    {{#if readable}}
+    <div class="funds-summary">
+        <div class="funds-card">
+            <span class="label"><i class="fa-solid fa-sack-dollar" inert></i> {{localize "pf2e-artisans-workshop.Funds.Strongbox"}}</span>
+            <span class="money big">{{funds.actualText}}</span>
+            {{#if isGM}}{{#unless funds.balanced}}<span class="warning">{{localize "pf2e-artisans-workshop.Funds.Difference" amount=funds.differenceText expected=funds.expectedText}}</span>{{/unless}}{{/if}}
+        </div>
+        <div class="funds-card">
+            <span class="label"><i class="fa-solid fa-piggy-bank" inert></i> {{localize "pf2e-artisans-workshop.Funds.PartyFund"}}</span>
+            <span class="money big">{{funds.fundText}}</span>
+        </div>
+        <div class="funds-card">
+            <span class="label"><i class="fa-solid fa-lock" inert></i> {{localize "pf2e-artisans-workshop.Funds.Escrow"}}</span>
+            <span class="money big">{{funds.escrowText}}</span>
+        </div>
+    </div>
+    <div class="funds-actions">
+        <button type="button" data-action="deposit" {{#unless ready}}disabled{{/unless}}><i class="fa-solid fa-piggy-bank" inert></i>{{localize "pf2e-artisans-workshop.Action.Deposit"}}</button>
+        <button type="button" data-action="withdrawFund" {{#unless funds.withdrawable}}disabled{{/unless}}><i class="fa-solid fa-hand-holding-dollar" inert></i>{{localize "pf2e-artisans-workshop.Action.WithdrawFund"}}</button>
+        <button type="button" data-action="take" {{#unless ready}}disabled{{/unless}}><i class="fa-solid fa-hand-holding" inert></i>{{localize "pf2e-artisans-workshop.Action.Collect"}}</button>
+    </div>
+    <h3>{{localize "pf2e-artisans-workshop.Funds.Members"}}</h3>
+    {{#if funds.members.length}}
+    <table class="funds-members">
+        <thead><tr>
+            <th scope="col">{{localize "pf2e-artisans-workshop.Funds.Member"}}</th>
+            <th scope="col" class="money">{{localize "pf2e-artisans-workshop.Funds.InOrders"}}</th>
+            <th scope="col" class="money">{{localize "pf2e-artisans-workshop.Funds.FundShare"}}</th>
+            <th scope="col" class="money">{{localize "pf2e-artisans-workshop.Funds.Total"}}</th>
+        </tr></thead>
+        <tbody>
+            {{#each funds.members}}
+            <tr class="{{#if mine}}mine{{/if}}"><th scope="row">{{name}}</th><td class="money">{{inOrders}}</td><td class="money">{{inFund}}</td><td class="money">{{total}}</td></tr>
+            {{/each}}
+        </tbody>
+    </table>
+    {{else}}
+    <p class="empty">{{localize "pf2e-artisans-workshop.Funds.NoBalances"}}</p>
+    {{/if}}
+    {{#if funds.reconciliation}}
+    <h3>{{localize "pf2e-artisans-workshop.Funds.Reconciliation"}}</h3>
+    <div class="funds-reconcile">
+        <p>{{localize "pf2e-artisans-workshop.Funds.ReconcileSummary" expected=funds.expectedText actual=funds.actualText inFlight=funds.reconciliation.inFlight resumable=funds.reconciliation.resumable locked=funds.reconciliation.lockedStacks}}</p>
+        {{#if funds.reconciliation.needsHand.length}}
+        <ul class="detail-list">
+            {{#each funds.reconciliation.needsHand}}
+            <li data-row-id="{{id}}"><span>{{localize kind}}</span><span class="money">{{amount}}</span><span class="by">{{localize "pf2e-artisans-workshop.Common.By" by=by}}</span>
+                <button type="button" data-action="closeRow">{{localize "pf2e-artisans-workshop.Action.CloseRow"}}</button></li>
+            {{/each}}
+        </ul>
+        {{/if}}
+        <button type="button" data-action="adjust" {{#unless funds.reconciliation.canAdjust}}disabled{{/unless}}><i class="fa-solid fa-scale-unbalanced" inert></i>{{localize "pf2e-artisans-workshop.Action.Adjust"}}</button>
+    </div>
+    {{/if}}
+    <h3>{{localize "pf2e-artisans-workshop.Funds.Ledger"}}</h3>
+    {{#if funds.ledger.length}}
+    <table class="funds-ledger">
+        <thead><tr>
+            <th scope="col">{{localize "pf2e-artisans-workshop.Funds.When"}}</th>
+            <th scope="col">{{localize "pf2e-artisans-workshop.Funds.Entry"}}</th>
+            <th scope="col" class="money">{{localize "pf2e-artisans-workshop.Funds.Amount"}}</th>
+            <th scope="col">{{localize "pf2e-artisans-workshop.Funds.Who"}}</th>
+            <th scope="col" class="low">{{localize "pf2e-artisans-workshop.Funds.Order"}}</th>
+            <th scope="col">{{localize "pf2e-artisans-workshop.Funds.By"}}</th>
+            <th scope="col"><span class="sr-only">{{localize "pf2e-artisans-workshop.Funds.Actions"}}</span></th>
+        </tr></thead>
+        <tbody>
+            {{#each funds.ledger}}
+            <tr data-row-id="{{id}}" class="state-{{state}}{{#if reversed}} reversed{{/if}}{{#if mine}} mine{{/if}}">
+                <td class="when">{{when}}</td>
+                <td>{{localize kindLabel}}{{#if (eq state "pending")}} <span class="pending">{{localize "pf2e-artisans-workshop.Funds.Pending"}}</span>{{/if}}{{#if reversed}} <span class="reversed-mark">{{localize "pf2e-artisans-workshop.Funds.Reversed"}}</span>{{/if}}</td>
+                <td class="money">{{amount}}</td>
+                <td>{{actor}}</td>
+                <td class="low">{{order}}</td>
+                <td>{{author}}</td>
+                <td>{{#if canReverse}}<button type="button" class="small" data-action="reverse">{{localize "pf2e-artisans-workshop.Action.Reverse"}}</button>{{/if}}</td>
+            </tr>
+            {{/each}}
+        </tbody>
+    </table>
+    {{else}}
+    <p class="empty">{{localize "pf2e-artisans-workshop.Funds.NoRows"}}</p>
+    {{/if}}
+    {{else}}
+    <p class="queue-empty">{{localize "pf2e-artisans-workshop.Window.Unavailable"}}</p>
+    {{/if}}
+</section>

@@ -38,6 +38,20 @@ All notable changes to this module are documented here. The format follows
   Each check's chat message is recorded on its order or job by its author's client, once, Hero Point rerolls
   included; settling a Craft check posts its money rows, and an Earn Income day is paid once however often it is
   resolved.
+- The Workshop window (milestone M4), with its Queue and Funds tabs. The Queue lists the party's orders with a status
+  chip, a progress bar of the up-front half, the reduction earned and what is left, the days to zero and the amount to
+  finish now, the reasons an order cannot start, filters and a detail panel with the order's history and ledger rows.
+  Orders go from a request (a form, or an item dropped on the Queue) through pledges into escrow, acceptance, start once
+  every requirement is met, days of work, the Craft check and its settlement, to finishing: the remainder is paid from
+  escrow, over-funding is refunded, and the item goes on the pickup shelf for the recipient's own client to collect,
+  with no GM needed. Cancelling refunds every contributor; the last step can be undone. The Funds tab shows the
+  strongbox, the party fund, escrow, member balances and the ledger with authors, with deposits, withdrawals and
+  reversals, and reconciliation for GMs. Chat cards follow each order, notifications tell the people involved, and
+  the window opens from the Actors directory, the Party sheet or the API. A delivery can no longer arrive twice, and a
+  reroll that lands after its check was settled is kept as a conflict instead of replacing it. When two people act on
+  the same order at the same moment (a cancel and a finish, two offers to craft), only the first goes through, and the
+  purge's refunds never pay a contributor whose refund is still waiting a second time. Typing and keyboard focus survive
+  the window's live updates, and a detached window keeps its forms and dialogs with it.
 
 ### Fixed
 
@@ -50,7 +64,9 @@ All notable changes to this module are documented here. The format follows
   "strongbox-short", and leaves the first one's resolution of the claim alone.
 - Live harness: the scenario steps that failed on their own (the purse check across two devices, the claim
   step's row count, a GM's refunds, refunds written in one go, a race started before its claim arrived); the
-  cleric fixture's Domain Initiate, granted two grants deep, no longer opens pf2e's choice prompt.
+  cleric fixture's Domain Initiate, granted two grants deep, no longer opens pf2e's choice prompt. In a dev
+  world, a Craft check rolled from the Workshop with pf2e's own dialog no longer throws at Application V1's
+  deprecation warning (pf2e's check dialog is still V1).
 - A coin move whose lock request landed but whose apply request never did (a tab closed, or the connection
   dropped, between the two) is resumed by the catch-up sweep once it is past the grace time and its coins are as
   it planned them; an apply mark makes its apply request land once, whoever sends it. Before, its row stayed

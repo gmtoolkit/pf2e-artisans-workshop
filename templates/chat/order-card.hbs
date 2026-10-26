@@ -1,0 +1,30 @@
+<div class="card-content">
+    <p class="card-item"><strong>{{view.title}}</strong>{{#if view.quantityText}} <span class="order-qty">{{view.quantityText}}</span>{{/if}}</p>
+    <p class="card-line">{{localize "pf2e-artisans-workshop.Card.ForBy" for=view.forText by=view.requester}}</p>
+    {{#if view.crafter}}<p class="card-line">{{localize "pf2e-artisans-workshop.Queue.Crafter" name=view.crafter}}</p>{{/if}}
+    <div class="card-state">
+        {{#with view}}{{> "modules/pf2e-artisans-workshop/templates/partials/status.hbs"}}{{> "modules/pf2e-artisans-workshop/templates/partials/progress.hbs"}}{{/with}}
+    </div>
+    {{#if (eq kind "request")}}
+    <p class="card-line">{{localize "pf2e-artisans-workshop.Card.Estimate" price=view.priceText upfront=view.upfrontText}}</p>
+    {{/if}}
+    {{#if (eq kind "started")}}
+    <p class="card-line">{{#if view.dc}}{{localize "pf2e-artisans-workshop.Card.StartedLine" days=view.setup.days committed=view.upfrontText dc=view.dc}}{{else}}{{localize "pf2e-artisans-workshop.Card.StartedLineNoDc" days=view.setup.days committed=view.upfrontText}}{{/if}}</p>
+    {{/if}}
+    {{#if (eq kind "complete")}}
+    <p class="card-line">{{localize "pf2e-artisans-workshop.Card.CompleteLine" price=view.priceText days=view.extraDays}}</p>
+    {{#if onShelf}}<p class="card-line"><i class="fa-solid fa-box-open" inert></i> {{localize "pf2e-artisans-workshop.Card.OnShelf"}}</p>
+    {{else}}{{#unless view.toStrongbox}}<p class="card-line"><i class="fa-solid fa-circle-check" inert></i> {{localize "pf2e-artisans-workshop.Card.Delivered"}}</p>{{/unless}}{{/if}}
+    {{/if}}
+    {{#if view.blockedText.length}}
+    <ul class="card-blockers">{{#each view.blockedText}}<li><i class="fa-solid fa-lock" inert></i> {{this}}</li>{{/each}}</ul>
+    {{/if}}
+</div>
+<div class="card-buttons">
+    {{#if ready}}
+    {{#if view.actions.pledge}}<button type="button" data-pf2e-artisans-workshop-op="pledge"><i class="fa-solid fa-coins" inert></i>{{localize "pf2e-artisans-workshop.Action.Pledge"}}</button>{{/if}}
+    {{#if view.actions.accept}}<button type="button" data-pf2e-artisans-workshop-op="accept"><i class="fa-solid fa-handshake" inert></i>{{localize "pf2e-artisans-workshop.Action.Accept"}}</button>{{/if}}
+    {{#if canTake}}<button type="button" data-pf2e-artisans-workshop-op="take"><i class="fa-solid fa-hand-holding" inert></i>{{localize "pf2e-artisans-workshop.Window.Take"}}</button>{{/if}}
+    {{/if}}
+    <button type="button" data-pf2e-artisans-workshop-op="open"><i class="fa-solid fa-up-right-from-square" inert></i>{{localize "pf2e-artisans-workshop.Action.Open"}}</button>
+</div>

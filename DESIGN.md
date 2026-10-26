@@ -350,6 +350,26 @@ The wizard runner writes day records only, never an order's `setup`, `check` or 
 resolver computes the same deterministic content for a given day (6.2.3), so a day resolved twice
 leaves one record.
 
+As built in M4 (`scripts/logic/orders.mjs`, `scripts/foundry/orders.mjs`):
+
+- **The record** carries, besides 4.2.1: `created` (the filing stamp; queue numbers follow it), `specialty`, `log`,
+  `settlement` and `conflict`. A request names a product by compendium UUID with its snapshot read from an unsaved,
+  prepared copy of the item (`productFacts`); a quantity above one batch (6.3, the named crafter's `batchMax`, else the
+  plain one) splits into several orders. Naming a crafter the filing user owns takes the order at once (`accepted`).
+- **Transition log.** Every transition writes `orders.<id>.log.<seq> = {seq, event, from, to, prev, rows, by, at}` in
+  the same request as its fields and rows: `prev` is what the changed fields held, `rows` the ledger rows it posted
+  (their ids follow from their keys, so a settlement names its pro-rata spend rows before it plans the coins). Undo
+  (`undoPlan`) takes back the last entry only, while the order is still in the state it left (`moved-on` otherwise),
+  for the user who made it, an owner of the actor it was made for, or a GM; it restores `prev` and reverses `rows`
+  (`reverseRows`, 4.6). Undoable in M4: accept, release, start, settle, pause, resume, retry. A start's or retry's
+  `attempt` stays counted when undone, so day records of the undone attempt never count for a later one. An undo is
+  logged (`event: "undo"`) and is not itself undone. Finish, cancel and work days are not undoable in M4.
+- **Who may act** (`orderActions`): the crafter's steps belong to the crafter's owners (a GM owns every actor); a cancel
+  to the requester's or the crafter's owners or a GM; pledges to any member with a character while the order is open
+  and not `rolled`; a withdrawal to a contributor with an uncommitted share (`withdrawableCp`: their own allocation, no
+  more than the order holds beyond what is committed). "Mine" (highlighting, the "mine" filter, notifications) is a
+  user's assigned character or one they own by name; for a GM, only actors no player owns.
+
 ### 4.3 Formula routes
 
 For each candidate crafter and item, the module computes every legal route with its cost, time and
@@ -502,6 +522,16 @@ rows.<id> = {
   (`material-in`, `material-out` and `delivered` record item movements, 4.1) and is written by a lock-first
   batch together with what it moves (5.4). A reversal is keyed `reversal:<row id>`. Every ordering of rows and
   claims by time uses one comparator, `compareRows` (`scripts/logic/core.mjs`), so clients cannot disagree.
+- **As built in M4.** One more kind, `shelved` (0, 0, 0; items): a finished order's items put on the pickup shelf, keyed
+  `shelve:<orderId>:<attempt>`, written by the finish's lock-first move with the `remainder` rows (4.7). `allocate` takes
+  `back` as well as `side`, flipping the signs, for an allocation returned to the party fund (a cancelled order's share
+  of a contributor whose actor is gone, 6.2.4). Reversals (`reverseRows`, `scripts/foundry/money.mjs`) move the coins
+  back where the reversed rows moved them: out of or into the strongbox, and into or out of the one purse involved; a
+  reversal of `expend` or `ruin` mints the spent coins back into the strongbox (an undone settlement). Reversals of rows
+  that moved nothing are one key-path write, already applied. The Funds tab offers a reversal (`canReverse`,
+  `scripts/logic/views.mjs`) of an applied financial row that still counts, to its author or a GM (an `adjust` to a GM
+  only), when the purse is the reverser's to write, a pledge's order is open and keeps what it has committed, and the
+  contributor (or the fund) still holds the amount.
 
 ### 4.7 Strongbox and pickup shelf
 
@@ -543,6 +573,14 @@ rows.<id> = {
   of the row by hand, once it needs a hand, takes the same lock, so the two never both land. The Party-stash
   alternative is not built yet: the party's own coins would share the stash with the Workshop's, which changes what
   reconciliation compares, so it comes with the Funds tab (M4).
+- **As built in M4.** Finishing an order puts its item (the compendium item, `system.quantity` the order's quantity) in
+  the strongbox in the apply request of the finish's coin move, flagged `flags.MOD.crafted = {order, attempt, crafter}`
+  and, for an actor recipient, `shelf = {for, from, order, claimKey: deliver:<orderId>:<attempt>, at}`; the move is
+  resumable like every coin move, so a lost apply request shelves the item once. Every finished item goes through the
+  shelf, even for a recipient the crafter's user owns, so there is one delivery path (5.5); an order for the strongbox
+  leaves its item there with no shelf flag. The header shows the shelf count for the user's characters with "Take it",
+  which runs the claim sweep for the tab now (auto-claim on or off). The party-stash alternative is still not built
+  (follow-up, 10.10).
 
 ### 4.8 Downtime: workshop days, per-PC status and day records
 
@@ -592,6 +630,13 @@ rows.<id> = {
   `resolvedThrough`. Order totals (setup days done, extra days, reductions, last day worked) are sums
   and maxima over day and variant records for the order's current attempt (4.2.1). Old records are
   archived (5.3.3).
+- **As built in M4** (M6 builds the clock accrual, the day resolver and the wizard): a crafter's owner logs one day of
+  work on an order with "Work a day" (`workDay`), which writes the crafter's day record (`days.<actorId>-<day>`, kind
+  `setup` or `extra`, `workDayRecord`) for the clock's whole day (`floor(worldTime / secondsPerDay)`, without the 4.8
+  offset yet) or the day after the crafter's last record, whichever is later, so days can be logged ahead of the clock
+  as the wizard does. A setup day that completes the setup moves the order to `check` in the same write (4.2.3); an
+  order in `rolled` is settled first, as the order's next day settles it (4.2.3), and the day then counts as an extra
+  day. The record is deterministic, so a day written twice is one record.
 
 ### 4.9 Earn Income jobs
 
@@ -1225,7 +1270,9 @@ go from actors and their items, world items, users, journal entries and their pa
 messages; the ledger is deleted; the strongbox is deleted only if empty, otherwise it stays an ordinary loot
 actor (5.8); the module-data folder goes if empty; the world settings return to their defaults, except
 `dev`. Stripping inert suffixes comes with the inert marks (M7); flags on unlinked tokens' actor deltas are
-not reached.
+not reached. As built in M4: "Refunds" issues only what no open refund claim of a cancel or a finish already owes for
+the same member and allocation (`unclaimedAllocations`), and waits while any refund claim is open, so a contributor
+whose refund was not collected yet is not paid twice.
 
 ### 5.10 Trust model and audit
 
@@ -1258,9 +1305,14 @@ Low findings from the M2 hardening rounds, left for a later change:
   strongbox coins is in flight for the grace time after it took its mark, and an adjust booked then credited the party
   fund with coins the move had already moved. `bookAdjustment` now refuses ("in-flight") while any strongbox row in
   flight holds its move's mark (test: "an adjust is refused while a strongbox move that holds its mark is in flight").
-- **Item delivered twice (priority for M4, when deliveries get real use).** A lost delivery's re-creation and the
-  original delivery's late apply request share no lock. pf2e's client drops a delete of an item that is already gone,
-  so the re-creation can create the item a second time. Give both the same lock page before M4 ships the queue.
+- **Fixed in M4: item delivered twice.** A lost delivery's re-creation and the original delivery's late apply request
+  shared no lock, and pf2e's client drops a delete of an item that is already gone, so the re-creation could create the
+  item a second time. The delivery's apply request now starts with the re-creation's lock page (`recreateLockId`, the
+  `mark` of `lockFirstBatch`), the page a close by hand takes too: of the late apply request, the re-creation and a
+  close, exactly one lands (`claims.mjs`; test "a delivery's late apply request and the re-creation of the lost
+  delivery take the same lock", live behaviour `m4-double-delivery`). The price: a delivery whose apply request reached
+  the server and stopped part-way after taking that page is no longer re-created by itself; it needs a hand (its
+  author or a GM closes it), as a coin move that stopped part-way does.
 - **Two clock reads near the grace boundary.** `pendingPaths` reads the clock inside `decide` and `pendingState` reads
   it again, in `resolvePending` and in the report. Within a millisecond of the 60 s boundary a close can take the mark
   of a move about to resume (no coins move twice). Pass one `now` through.
@@ -1541,6 +1593,12 @@ first, so a critical failure still ruins its 10% and a success still expends the
 cannot be used to escape a bad roll. It releases what is still committed and returns each remaining
 allocation (`allocationsByContributor`, 4.6) as a refund; both are required inputs, so a missing one cannot
 leave a commit open or skip the refunds. Sending a deleted contributor's refund to the party fund is M4.
+
+As built in M4: a cancel writes, in one request, the `release` row (`release:<orderId>:<attempt>:cancel`), the order's
+new state and log entry, and one refund claim per contributor (`refund:<orderId>:<actor UUID>:<log seq>`), which each
+contributor's responsible client collects (5.5); the share of a contributor whose actor is gone, and the party fund's
+own, go back to the fund as two `allocate` rows with `back` (4.6). A finish refunds the over-funding the same way, from
+what each contributor has left after the remainder's pro-rata split (`leftAfterSpend`), in the finish's own request.
 
 #### 6.2.5 Interpretation settings
 
@@ -2200,12 +2258,31 @@ Hooks.on("createChatMessage", (message) => {
     link and `isReroll`, so it is recorded as a reroll of the attempt (orders and jobs alike). Refusing it needs the
     record to remember refused message ids, or the reroll to name the message it rerolls (pf2e's new message does
     not).
-  - The settled-rows test reads the recording client's own copy. A reroll write that lands on the server after a
-    settlement still overwrites the settled check with an unsettled one, and settling again then posts nothing (the
-    committed half is already released or spent). M4, when settlement runs automatically: after the reroll's write
-    resolves, if settlement rows for the attempt exist, restore the settled check (`settleCheck(previous).patch`) and
-    move the reroll to `conflict`; or store checks per message (`orders.<id>.checks.<messageId>`) with settlement
-    stamping the message it settled, so neither write overwrites the other.
+  - **Fixed in M4: a reroll write landing after the settlement.** The settled-rows test read the recording client's own
+    copy, so a reroll write that landed on the server after a settlement overwrote the settled check with an unsettled
+    one. Now (`scripts/logic/orders.mjs`, `scripts/foundry/orders.mjs`, `rolls.mjs`):
+    - a settle writes, in the same request as its rows, the settlement record `orders.<id>.settlement = {attempt,
+      check, status, rows, by, at}`, which nothing but a settle and its undo writes; a check recorded for an attempt
+      with a settlement record counts as settled, and is kept as the conflict;
+    - a reroll writes `check` alone, never `status` (the order is `rolled` already), so a late reroll cannot undo the
+      settlement's state;
+    - whenever the stored check disagrees with the settlement record of the current attempt, the crafter's responsible
+      client (P4) puts the settled check back and keeps the overwriting roll as `conflict` (`settlementRepair`, on every
+      ledger change that touches orders, `registerOrderHooks`; deterministic, so two clients write the same keys), and
+      the recording client does the same right after its own write;
+    - when the settlement landed after the reroll and replaced it, the reroll survives only on the recording client,
+      which remembers its own rerolls for five minutes and writes the lost one as the conflict once it sees the
+      settlement (`rememberReroll`); a reroll that another roll superseded before any settlement is forgotten;
+    - undoing a settlement takes the conflict of the same attempt as the check (`undoPlan`), so the crafter settles the
+      reroll with no GM. The check augment on the chat card says "not used" on any roll of a settled attempt that is
+      not its settled check, and offers that undo.
+
+    Tests in `test/foundry/orders.test.mjs` and `test/logic/orders.test.mjs`; live behaviour `m4-reroll-race`.
+  - After the M4 review: an extra day keeps the rate of the degree settled first (its record stores `crafterCp`), so when
+    a settlement is undone to settle a late reroll the days already worked still count at the old rate ("work a day"
+    settles and logs an extra day in one click, so this is the common case). Store the crafter's level, rank and rate
+    level in the record and compute its share from the settled check's degree, or rewrite the attempt's extra-day
+    records when it is settled again.
   - The Earn Income `paid` guard counts wage rows, not open wage claims: a reroll recorded after another client filed
     a wage claim but before the earner's client applied it changes `perDayCp`, and the claim pays that day at the old
     rate (its `cp` was fixed when filed) while later days pay the new one. Count unresolved wage claims for the job
@@ -3781,6 +3858,193 @@ min-height: 0`.
   data are not rendered (4.10); orders, funding and progress bars are always shown to every member.
   GM-only numbers are not rendered for players at all, rather than hidden with CSS.
 
+### 10.10 As built in M4
+
+M4 builds the window shell with the Queue and Funds tabs; Morning, Formulas, Downtime and Settings come with M5-M7 and
+M11 (`scripts/ui/`, `templates/`, `styles/workshop.css`; view models in `scripts/logic/views.mjs`).
+
+- **The window** (`WorkshopApp`, `scripts/ui/workshop.mjs`): one ApplicationV2 with `HandlebarsApplicationMixin`, parts
+  `header`, `nav`, `queue`, `funds`, `status`; one window per client (`WorkshopApp.instance`). Store changes (the
+  ledger, the strongbox and its items, members and their items, the module's status, `pf2e-artisans-workshop.status`)
+  re-render the header, the tabs and the status bar through `foundry.utils.debounce` (150 ms). The tab is remembered per
+  user (`ui.lastTab`). Listeners are delegated from the window's own element; DragDrop is core's, rebound on each render.
+- **Header**: the active party's name, the strongbox's coins, the pickup shelf for the user's characters with "Take it",
+  and "acting as" (the user's member characters; every member for a GM), which accept, pledge, deposit and requests
+  use. Not built: the party selector (orders are tagged with `party`, the window shows every order) and the workshop day
+  and world date (M6).
+- **Queue** (10.3): filters (all, mine, open, blocked; state; crafter; recipient; a name search), the party summary,
+  and one row per order: number (by filing time), image, name, quantity, recipient, rarity chip (pf2e's own classes),
+  crafter; the status chip (icon and word; setup shows `n/m` days); the multi-segment progress bar (`orderProgress`:
+  escrow against the up-front half before start; after it, up-front paid solid, reduction earned hatched, the rest
+  empty; `role="progressbar"` with a sentence as `aria-valuetext`); the funding or what is left; "Day n of at most m"
+  from the day records and the rate; facts (formula route, DC, reduction per day, the check, a conflict); the blockers
+  of an accepted order, each a sentence from its gate's reason (6.5; the crafter's gates computed from the actor and
+  the strongbox's tools, `scripts/foundry/products.mjs`); and the viewer's actions (offer to craft, start, work a day,
+  roll, settle, "Finish: pay X", resume, retry, pledge, open). The detail drawer adds every fact, each requirement with
+  its gate, the contributors, the history (log entries with author and time), the order's ledger rows with authors,
+  and every action including release, pause, withdraw, undo and cancel (confirmed). Dropping an item from a sheet, the
+  compendium browser, the sidebar or a chat link on the Queue opens the request form with it (its compendium source
+  when it has one).
+- **Request form** (`RequestForm`, `scripts/ui/request.mjs`): the item (dropped, or found by name in
+  `pf2e.equipment-srd`'s index, so the drag has a keyboard alternative), quantity, requester, recipient (a member or the
+  strongbox), an optional crafter of the user's own, a gift flag (hides the product from the recipient's owners in the
+  window and on cards) and a note; it shows the estimate and, for every member trained in Crafting, the route, setup
+  days, DC, batch split and days to zero at a success, or the gates that block them.
+- **Funds** (10.1): the strongbox's coins (and for a GM the difference from the ledger's expectation), the party fund,
+  the escrow held for open orders; deposit, withdraw (up to the character's net deposits) and collect; member balances
+  (`memberBalances`: in orders, fund share, total); the ledger newest first (time, kind, amount, counterparty, order,
+  author, pending and reversed marks, and Reverse where `canReverse` allows). A GM also sees reconciliation (expected
+  and counted coins, rows in flight, resumable and locked stacks), closes rows that need a hand (`resolvePending`) and
+  books the difference (`bookAdjustment`).
+- **Status bar**: an `aria-live="polite"` region that says what the user's last action did and what other users changed,
+  and the banner while the shared documents are disabled, missing, newer, migrating or stale.
+- **Chat cards** (10.5, `scripts/ui/chat.mjs`): request, accepted, started, complete (with "on the shelf" or
+  "delivered", and "Take it" for the recipient's owners) and cancelled. The message holds a one-line summary its author
+  wrote inside `.pf2e.chat-card.pf2e-artisans-workshop-card` (`flags.MOD.card = {kind, order}`); the live part is
+  rendered in `renderChatMessageHTML` from the ledger and rendered again with `ui.chat.updateMessage` when the order
+  changes, so a card of an order that is gone keeps its summary. The Craft check augment goes under pf2e's check card:
+  the degree, the reduction per day and days to zero, the salvage or the ruined amount with the alchemical hazard
+  reminder, the fortune warning, Settle while the order is `rolled`, and the "not used" or conflict notice with undo
+  (6.12). Buttons carry `data-pf2e-artisans-workshop-op`. Cards are whispered to the involved users and GMs (a request
+  to every member's owners); the world setting `chat.visibility` (`involved`, `public`) posts them to everyone.
+- **Notifications** (10.7, `scripts/ui/notify.mjs`): every client watches the ledger and tells its own user, once per
+  state change made by someone else, by the user setting `notify.level` (`all`, `mine` default, `none`), as a toast and
+  in the status bar.
+- **Entry points** (10.4, 11.1, `scripts/ui/entry.mjs`): a "Workshop" button in the Actors directory's header (core's
+  ApplicationV2 directory, which pf2e 8.6.1 extends without changing its header; shown while the master switch is on),
+  a "Workshop" header button on the pf2e Party sheet (Application V1 in pf2e 8.6.1, `getPartySheetPF2eHeaderButtons`),
+  and `game.modules.get("pf2e-artisans-workshop").api.ui.open({tab, order, actor, filter})`. The character-sheet
+  buttons, the Crafting tab strip, macros, the shelf and keybindings stay in M11.
+- **API** (11.2, `scripts/foundry/api.mjs`), published at `ready` with the `pf2e-artisans-workshop.ready` hook:
+  `version`, `apiVersion` 1, `isReady`; `ui.open`, `ui.openOrder`, `ui.requestForm`; `orders.list`, `get`, `request`,
+  `accept`, `release`, `start`, `workDay`, `rollCheck`, `settle`, `pause`, `resume`, `retry`, `finish`, `cancel`,
+  `undo`; `funds.balance`, `pledge`, `deposit`, `withdraw`, `reverse`, `rows`, `claims`, `claimAll`. Actors resolve as
+  11.1 says; amounts take copper, "20 gp" or `{gp: 20}`.
+- **Layout and theming** (10.8, 10.9): container queries on the window (`container: workshop`), wide >= 1040 px (rail,
+  list, detail docked right), medium (detail as a slide-over, low-priority ledger columns dropped), narrow < 720 px
+  (icon tab strip, the detail in place of the list). Default size `clamp(720, innerWidth - 380, 1180)` by
+  `clamp(600, innerHeight - 120, 860)` from the main window. Colours are Foundry's application tokens and pf2e's, with
+  the module's own `--paw-*` tokens for the bar, degrees and panels in both schemes (degree colours darker than pf2e's
+  on light and lighter on dark); rem units; `prefers-reduced-motion` turns the bar's transition off. DCs are hidden from
+  players when pf2e's "show DCs" metagame setting is off.
+- **Keyboard** (10.9): every control is a `<button type="button">`; the tabs are a `tablist` with arrow keys; the order
+  rows use a roving tabindex (Up, Down, Home, End; Enter or Space opens the detail); Escape in the detail closes it and
+  returns focus to its row.
+- **Live harness** (15.3): scenario `m4` (`tools/harness/order-scenarios.mjs`) and the behaviours `m4-lifecycle`
+  (GM and two players), `m4-no-gm` (two players, no GM, the recipient offline at the finish and collecting at login),
+  `m4-cancel`, `m4-double-delivery` (5.11), `m4-reroll-race` (6.12: the late write repaired once by the crafter's client,
+  then three real settle-against-reroll races) and `m4-shots` (seeded orders; Queue, Funds and the detail as the GM and
+  as a player at 1440x900 and 1024x768 in both schemes, `--shots <dir>`). The driver adds the module's stylesheet to a
+  page whose world was launched before `module.json` named it (the server links `styles` from the manifest it read at
+  launch) and reports that it did (`styleAdded`); it also records every HTTP error a page gets. First live run
+  (2026-10-26, Foundry 14.368, pf2e 8.6.1, no canvas): the six M4 behaviours pass, and so do scenarios 2 and 7b and
+  `craft-hero-reroll` and `craft-second-roll`, rerun for the changes to deliveries and reroll recording. In all three
+  settle-against-reroll races the settlement landed first and the GM's reroll was kept as the conflict; the late
+  delivery apply request was refused at the server's dry run.
+- **After the M4 review** (2026-10-26):
+  - *Transitions planned from the same copy of an order.* Every transition (accept, release, start, settle, pause,
+    resume, retry, finish, cancel, undo) takes the lock page of its log slot, `log:<order>:<seq>` (`logLockId`), in the
+    request that writes its log entry: a plain write goes through `lockedWrite` (bookkeeping rows and ledger keys behind
+    lock pages, `money.mjs`), a coin move adds the page to its lock request (`spend` and `reverseRows` take `locks`).
+    The server refuses a page that exists, so of two transitions planned from the same copy (a cancel and a finish, two
+    offers to craft, an undo and a finish) only the first lands, and one planned from a copy that missed a transition is
+    refused ("taken" or "conflict"). Before this a cancel planned from a stale copy could land after a finish: the item
+    was delivered and the contributors refunded, out of other members' coins, with reconciliation still balanced. A work
+    day and a first roll write `status` without a log entry, so neither takes a slot; one planned before a close and
+    landing after it moves the closed order's status. The log still says it is closed (`closedAs`: its last entry is a
+    finish or a cancel), so every transition, the roll wrapper and a check's recording refuse it ("state"), and the
+    crafter's responsible client writes the status back (`closedRepair`, with the settlement repair). Tests: the four
+    orderings in `test/foundry/orders.test.mjs`.
+  - *Purge refunds.* "Refunds" leaves out what an open refund claim of a cancel or a finish already owes for the same
+    member and allocation (`unclaimedAllocations`, `reconcile.mjs`), and goes on waiting while any refund claim is open,
+    so nobody is paid one allocation twice out of other members' coins.
+  - *The window.* The tab nav carries core's `tabs` class, which `ApplicationV2#changeTab` looks the buttons up by (tab
+    clicks and arrow keys threw before; its row layout and borders are undone in the stylesheet), and each tab button has
+    an `aria-label`, since the narrow tier hides its word. A re-render gives focus back to the control that had it, found
+    by its data attributes inside its order or ledger row, with its caret and selection (`scripts/ui/focus.mjs`, in
+    `_preSyncPartState` and `_syncPartState` of the window and the request form): typing on in the Queue's search or the
+    request form's search continues where it was, and a store refresh no longer drops focus from a filter, an order row
+    or a detail button. The order list's tab stop stays on the row the user was on (`activeRow`). The detail drawer
+    carries its order's id, so its buttons (release, pause, withdraw, undo, cancel) act on it. From the Workshop, the
+    request form is its child (`renderChild`) and the dialogs take its `windowId`, so a detached Workshop asks in its own
+    window. "Finish now for" shows only once crafting; before it the amount is "Still needed up front". The progress bar
+    has a name. In the request form Enter in the search picks the first match, and its element ids carry the form's id.
+  - *Chat cards.* The log's first messages render before `ready` reads the ledger, so every shown card and check augment
+    is rendered again when this client's status turns "ready"; and only messages the log (or its popout) shows are
+    rendered again, since core posts one it does not show at the bottom of the log. The check augment's "Undo
+    settlement" shows, and acts, only while the settlement is the order's last transition (`undo(id, {event})`).
+  - Live behaviour `m4-ui` drives the window as Player One with real clicks and keys: the tabs by mouse and arrows, both
+    searches typed across their re-renders, focus on a row, a filter and a detail button through a store refresh, the
+    narrow tier's tab names, a detached Workshop opening the request form and a dialog in its own window, the cards and
+    the Settle button after a reload, the log kept in time order, and the detail's Settle button. Run 2026-10-26 with
+    `m4-lifecycle`, `m4-no-gm`, `m4-cancel`, `m4-reroll-race` and `m4-shots`: all pass.
+- **M4 live pass** (2026-10-26, Foundry 14.368, pf2e 8.6.1, no canvas): the eight sync scenarios and all 27
+  behaviours, once each, pass; the screenshots (Queue, Funds and the detail as the GM and as Player One, 1440x900 and
+  1024x768, dark and light) were checked by eye: no overflow, no raw keys, readable. Then one lifecycle as a real
+  imported real character (a level-1 alchemist with his own formula book and Alchemist's Lab, made Player One's
+  character for the run and put back after it), driven through the window with clicks: the Actors directory and Party
+  sheet buttons, the request form (four Alchemist's Fire (Lesser) for the strongbox), pledges from the imported character's purse and
+  Player Two's, the offer to craft, start, a setup day, the Craft check in pf2e's own dialog, settle, the rest pledged
+  from both purses, and "Finish: pay 6 gp": one stack of four in the strongbox flagged as crafted by the imported character, the
+  ledger's pledge, commit, materials-used, remainder and shelved rows, the strongbox reconciled at zero, the four
+  cards, no page errors. Rolling through pf2e's dialog first threw in the dev world (15.1, fixed); an earlier try
+  rolled a critical failure, and the retry asked for the 6 sp the ruined materials cost ("6 sp more is needed in
+  escrow") before it would start.
+
+#### Follow-ups (M4, low)
+
+- No context menu (10.3): secondary actions are in the detail drawer. The slide-over and narrow detail do not trap focus.
+- The window's size is not remembered per client (`ui.windowSize`), and the Parchment client setting is not built.
+- The party selector and the workshop day and world date in the header (10.2) wait for M6's day and multi-party use.
+- The Party-stash strongbox (4.7, `strongbox: party`) is not built.
+- A product's Price is the compendium item's, not the prepared item at the recipient's size (6.2.2).
+- Fixed after the M4 review: a cancel and a finish planned from the same copy both landed (the item delivered and the
+  allocation refunded, paid from other members' coins with reconciliation balanced), and a late work day or first roll
+  could reopen a cancelled order for a second refund. See "After the M4 review" above.
+- A withdrawal racing a start can leave the escrow below the commit. The order is then stuck in `rolled`: settling and a
+  work day refuse ("underfunded"), pledges are refused in `rolled`, cancel refuses an unsettled check and undo has moved
+  on. The way out is for the withdrawal's author or a GM to reverse the withdrawal (Funds tab), which works while the
+  coins are still in that purse. Allowing pledges in `rolled` (4.2.2 does) would give a second way out.
+- Settle and finish read the pro-rata allocations before the coin mutex; a withdrawal queued ahead on the same client
+  then changes them, and the spend is split over the old ones: one contributor's allocation goes negative, another
+  keeps one no coins back. Compute the shares inside the move's plan.
+- One user on two devices working two orders in the same instant writes the same day key twice, and one of the two days
+  is lost.
+- A transition's request that stops between its log slot's page and its ledger update (the server stops at an error
+  after its dry run passed) leaves the slot taken with no entry, and every later transition of that order is refused
+  until the page goes; not seen, and there is no tool to release it yet (M11's data tools).
+- A work day or first roll written late onto an order that was paused (not closed) moves its status; only a closed
+  order's status is repaired.
+- Undo does not cover finish, cancel or work days.
+- The detail's Requirements list shows each gate by its code (G1 to G9); a passing gate shows only the code and a check
+  mark. Give each gate a short name key.
+- With the applications in the dark scheme and the interface in the light one, chat cards take the dark `--paw-*`
+  tokens (`body.theme-dark`) on the light chat background, and the degree colours lose their contrast. Scope the dark
+  card tokens to the nearest themed ancestor.
+- "Funded by" lists each contributor's remaining allocation, not what they put in: after the commit it under-reports,
+  and on a complete order it is empty. Label it "Still held for", or sum their pledges.
+- A cancelled order still shows its funding bar and text, and the Funds ledger lists item rows (delivered, shelved) as
+  "0 gp"; show the refunds instead, and no amount for an item row.
+- The purge dialog shows each member's whole balance, including what an open refund claim already owes them.
+- Dropping a material item on an order to earmark it (10.6) waits for M5's materials.
+- `ui.lastTab` is written on every tab change (one user-document write each).
+- The request card's summary hides a gift's product from everyone, not only the recipient (the live part hides it only
+  from the recipient's owners).
+- Found in the M4 live pass (2026-10-26):
+  - The check augment of a complete order still shows the success sentence ("0 more days to pay nothing more, or
+    finish now for 0 gp"). Show it only while the order is `rolled` or `finishing`.
+  - An order for the strongbox books its `shelved` row as "Put on the pickup shelf" (Funds ledger and the detail),
+    though its item goes into the strongbox with no shelf flag. Label the row by the order's recipient.
+  - Counts are not made singular: "1 days at 8 gp" in the request form's candidates, "1 of 1 days" for the detail's
+    setup. Give each a key for one.
+  - The request form's candidates keep the DC column, empty, for a player who may not see DCs. Leave the column out.
+  - "Acting as" cuts long character names short at every width, with no tooltip holding the whole name.
+  - Every live plan rolls the Craft check with `skipDialog`; only the imported-character pass clicked "Roll Craft check" through
+    pf2e's dialog, which is how the dev-world throw (15.1) went unseen. Add that click to `m4-ui`.
+  - The driver's closing world reset throws, and the run exits non-zero, when a session it did not open is connected
+    (an Assistant GM was, at the end of that run, after every plan had passed). Name the stray session in the results
+    and leave the exit code to the plans.
+
 ---
 
 ## 11. Macros and public API
@@ -4090,7 +4354,8 @@ the local harness's fixture tools (15.3). The schema version is not a setting; i
 As built in M2 (`scripts/foundry/settings.mjs`): registered are `enabled`, `docs`, `members`, `claims.auto`,
 every rule of `DEFAULT_RULES` as `rules.<key>` (`rules.communal.<key>`; `rules.communal.helperDc` hidden while
 it has one value) and `variants.complexCrafting`, with their defaults read from `DEFAULT_RULES`, and the
-GM-only purge menu (5.9). The other settings of 14.1 and 14.3-14.5 are registered by the milestones that
+GM-only purge menu (5.9). As built in M4: `chat.visibility` (W), `notify.level` (U) and `ui.lastTab` (U, hidden);
+`features.queue`, `features.funds`, `ui.windowSize` and `ui.parchment` are not registered yet. The other settings of 14.1 and 14.3-14.5 are registered by the milestones that
 read them, with the defaults listed here; `strongbox: party` comes with the Funds tab (M4, 4.7).
 
 ### 14.4 Treasure Vault (Remastered) variants
@@ -4236,7 +4501,10 @@ World settings unless marked U.
   the whole stack, so any deprecation warning whose stack passes through this module's files throws,
   including one raised inside pf2e, core or another module that this module (or the fixture builder in
   `tools/harness/`) called; and other packages' warnings whose stacks do not pass through it are not
-  reported at all in that world.
+  reported at all in that world. One warning is excluded (`excludePatterns`): Application V1's own, raised by
+  its constructor. pf2e 8.6.1's check dialog is still V1, so a Craft check rolled from the Workshop with pf2e's
+  dialog threw at the dialog's constructor in a dev world and never rolled (found in the M4 live pass, where every
+  plan had rolled with `skipDialog`); this module's own code cannot use V1, which the lint rules above check.
 
 ### 15.2 Registry validation
 
@@ -4361,6 +4629,9 @@ churn watch come with M8a and the release workflow.
   does not), `craft-rarity-dc` (an uncommon item: the roll's DC is the order's frozen DC with +2), `craft-hero-reroll`
   (OQ-3, above) and `wage-once` (both players resolve day 1 at once and the earner once more: one wage row, the purse
   up once, the other player's claim resolved) run it.
+- As built in M4: scenario `m4` (`tools/harness/order-scenarios.mjs`) and the behaviours `m4-lifecycle`, `m4-no-gm`,
+  `m4-cancel`, `m4-double-delivery`, `m4-reroll-race`, `m4-shots` (screenshots with `--shots <dir>`) and `m4-ui` (the
+  window driven with real clicks and keys), described in 10.10.
 - As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
   counts the rows that are new since `purseBefore` by id, not by a server-time cut-off (two devices' estimates of
   the server's time differ by milliseconds, and one real row was left out); the `claim` step reports its own rows
@@ -4547,7 +4818,7 @@ draft; the letters keep the existing milestone numbers stable.
 | M1 | Rules core | 6.1-6.8 and 6.10 as pure modules with tests; coin planner; pro-rata splitter | M0 |
 | M2 | Storage and sync | shared documents and bootstrap, schema and migrations, key-path store, responsible-client resolver, claims, `modifyBatch` coin moves, roster snapshots, deletion guards, purge, reconciliation | M1 |
 | M3 | Registry and roll wrapper | registry tiers 1-2, validation script, roll wrapper with reroll recording, Earn Income roll | M1, M2 |
-| M4 | Queue and Funds | Workshop shell, Queue and Funds tabs, order lifecycle, escrow and refunds, pickup shelf, chat cards, request drag and drop | M2, M3 |
+| M4 | Queue and Funds | Workshop shell, Queue and Funds tabs, order lifecycle, escrow and refunds, pickup shelf, chat cards, request drag and drop; built, with the 5.11 and 6.12 follow-ups (10.10) | M2, M3 |
 | M5 | Formulas | codex, families, provenance, acquisition jobs, picks owed, casting pledges, precious materials, service orders, rune etching, upgrades and transfers | M4 |
 | M6 | Downtime | per-PC status, clock accrual and prompts, day resolver, Advance days wizard, Communal Crafting helpers, Earn Income jobs, settlement profiles | M4 |
 | M7 | Morning | daily sources panel, loadouts, standing orders, Talisman Dabbler and Esoterica lists, the Dabbler DC stamp, affix records, party-wide expiry, rest ordering, pf2e-dailies custom daily | M5 |

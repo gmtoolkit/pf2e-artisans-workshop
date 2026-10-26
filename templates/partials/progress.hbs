@@ -1,0 +1,4 @@
+<div class="workshop-progress phase-{{progress.phase}}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{progress.pct}}"
+     aria-label="{{localize 'pf2e-artisans-workshop.Queue.ProgressLabel'}}" aria-valuetext="{{progressText}}">
+    {{#each segments}}<span class="segment {{kind}}" style="width: {{pct}}%"></span>{{/each}}
+</div>

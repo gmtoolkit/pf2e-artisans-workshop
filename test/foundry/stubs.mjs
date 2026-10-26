@@ -428,11 +428,18 @@ export function installFoundry() {
             deepClone: clone,
             setProperty: (object, path, value) => { const keys = path.split("."); const last = keys.pop(); let t = object; for (const k of keys) t = t[k] ??= {}; t[last] = value; },
             escapeHTML: (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`),
+            debounce: (fn) => fn,
+            mergeObject: (a, b) => ({ ...a, ...b }),
+            isElementInstanceOf: () => true,
             flattenObject: (o, prefix = "") => Object.entries(o).reduce((flat, [k, v]) => (isPlain(v) ? Object.assign(flat, globalThis.foundry.utils.flattenObject(v, `${prefix}${k}.`)) : Object.assign(flat, { [`${prefix}${k}`]: v })), {}),
         },
         documents: { modifyBatch: (operations) => modifyBatch(operations) },
         applications: {
-            api: { ApplicationV2: class {}, DialogV2: { wait: async (config) => world.dialog?.(config) ?? null } },
+            api: {
+                ApplicationV2: class {}, HandlebarsApplicationMixin: (Base) => class extends Base {},
+                DialogV2: { wait: async (config) => world.dialog?.(config) ?? null },
+            },
+            handlebars: { renderTemplate: async (path, data) => world.render?.(path, data) ?? "", loadTemplates: async () => [] },
             ux: { FormDataExtended: class { constructor(form) { this.object = form.values; } } },
         },
     };

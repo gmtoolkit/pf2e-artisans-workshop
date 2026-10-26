@@ -27,11 +27,13 @@ import { earnIncomeFlags } from "../logic/registry.mjs";
 import {
     checkFromContext, craftDegree, craftRollPlan, earnIncomeRollPlan, guardCheck, jobCheckPatch, parseLink,
 } from "../logic/rolls.mjs";
+import { closedAs, settlementRecord, transitionChange } from "../logic/orders.mjs";
 import { makeRow, seqFor } from "../logic/rows.mjs";
-import { allocationsByContributor } from "../logic/split.mjs";
+import { allocationsByContributor, splitProRata } from "../logic/split.mjs";
 import { createClaims } from "./claims.mjs";
 import { holdsLease } from "./lease.mjs";
-import { mint, spend } from "./money.mjs";
+import { lockedWrite, mint, spend } from "./money.mjs";
+import { rememberReroll } from "./orders.mjs";
 import { featKeysOf, heldKeysOf, ranksOf } from "./registry.mjs";
 import { isResponsibleFor } from "./responsible.mjs";
 import { rulesFromSettings } from "./settings.mjs";
@@ -67,7 +69,8 @@ function pf2eModifiers(list) {
 export async function rollCraft(orderId, { skipDialog } = {}) {
     const order = read(`orders.${orderId}`);
     if (!order) return refuse("no-order");
-    if (order.status !== "check") return refuse("state", { status: order.status });
+    const status = closedAs(order) ?? order.status;
+    if (status !== "check") return refuse("state", { status });
     const crafter = fromUuidSync(order.crafter);
     if (!crafter?.isOwner) return refuse("not-owner");
     const statistic = statisticOf(crafter, order.skill ?? "crafting");
@@ -162,6 +165,8 @@ export async function onCheckMessage(message) {
 async function recordOrderCheck({ id, attempt }, check, actor, options) {
     const order = read(`orders.${id}`);
     if (!order) return refuse("no-order");
+    // A closed order records nothing, whatever a late write left in its status (`closedAs`, As built in M4).
+    if (closedAs(order)) return refuse("state", { status: closedAs(order) });
     const crafter = actor ?? fromUuidSync(order.crafter);
     if (!crafter) return refuse("no-crafter");
     const degree = craftDegree(heldKeysOf(crafter), options, check.degree, rulesFromSettings());
@@ -169,13 +174,20 @@ async function recordOrderCheck({ id, attempt }, check, actor, options) {
         ...check, degree, shifted: degree !== check.degree, attempt,
         level: crafter.level, rank: statisticOf(crafter, order.skill ?? "crafting")?.rank ?? 0,
     };
-    const result = recordCheck(order, full, { settledRows: hasSettlementRows(rowsOf("order", id), id, attempt) });
+    // A settlement record for this attempt (As built in M4) counts as settled too, whatever the check's flag says now.
+    const settledRows = hasSettlementRows(rowsOf("order", id), id, attempt) || order.settlement?.attempt === attempt;
+    const result = recordCheck(order, full, { settledRows });
     if (!result.ok) {
         if (result.reason === "settled") await write({ replace: { [`orders.${id}.conflict`]: { ...full, ...stampNow() } } });
         if (result.reason === "rolled") ui.notifications.warn("pf2e-artisans-workshop.Roll.AlreadyRolled", { localize: true });
         return result;
     }
-    await write({ replace: { [`orders.${id}.check`]: result.patch.check }, set: { [`orders.${id}.status`]: result.patch.status } });
+    // A reroll writes the check alone: the order is in `rolled` already, and a status written from a copy that has not
+    // seen a settlement yet would undo the settlement's state. The check it may overwrite is repaired from the
+    // settlement record (`rememberReroll`, `scripts/foundry/orders.mjs`).
+    const reroll = !!order.check;
+    await write({ replace: { [`orders.${id}.check`]: result.patch.check }, set: reroll ? {} : { [`orders.${id}.status`]: result.patch.status } });
+    if (reroll) await rememberReroll(id, result.patch.check);
     return { ok: true, check: result.patch.check };
 }
 
@@ -216,12 +228,16 @@ async function recordJobCheck(jobId, check, actor) {
  * state: on a success the committed materials are spent out of the strongbox (`expend`, pro rata by contributor);
  * a failure releases them (`release`, bookkeeping); a critical failure spends 10% (`ruin`) and releases the rest.
  * Row keys carry the attempt and a correction sequence (`<kind>:<orderId>:<attempt>:<seq>`), so settling twice
- * posts nothing twice. Refusals come from `settleCheck` or the coin move.
+ * posts nothing twice. The same request writes the transition log entry (undo reverses its rows) and the settlement
+ * record (`orders.<id>.settlement`, As built in M4), which a reroll never writes, and takes the order's log slot like
+ * every transition. Refusals come from `settleCheck`, a closed order ("state"), an escrow smaller than the spend
+ * ("underfunded") or the coin move ("conflict" when another transition took the slot first).
  */
 export async function settleOrder(orderId) {
     if (!canWrite()) return refuse("not-ready");
     const order = read(`orders.${orderId}`);
     if (!order) return refuse("no-order");
+    if (closedAs(order)) return refuse("state", { status: closedAs(order) });
     const rows = rowsOf("order", orderId);
     const alchemical = (order.product?.snapshot?.traits ?? []).includes("alchemical");
     const result = settleCheck(order, { committedCp: committedFromRows(rows), alchemical });
@@ -232,19 +248,25 @@ export async function settleOrder(orderId) {
     const stamp = stampNow();
     const releases = result.rows.filter((row) => row.kind === "release")
         .map((row) => ({ ...makeRow({ kind: "release", idem: keyed("release"), cp: row.cp, order: orderId }, stamp), state: "applied" }));
-    const ledger = {
-        replace: { [`orders.${orderId}.check`]: check },
-        set: {
-            ...Object.fromEntries(Object.entries(fields).map(([key, value]) => [`orders.${orderId}.${key}`, value])),
-            ...Object.fromEntries(releases.map((row) => [`rows.${row.id}`, row])),
-        },
-    };
     const spent = result.rows.find((row) => row.kind === "expend" || row.kind === "ruin");
+    const allocations = allocationsByContributor(rows);
+    const held = allocations.reduce((sum, a) => sum + a.cp, 0);
+    if (spent && spent.cp > held) return refuse("underfunded", { shortCp: spent.cp - held });
+    // The ids of the spend's rows follow from the allocations, as `spend` splits them, so the record can name them.
+    const spendIds = spent
+        ? splitProRata(spent.cp, allocations.map((a) => ({ key: a.actor, cp: a.cp }))).filter((share) => share.cp > 0)
+            .map((share) => hashId(`${keyed(spent.kind)}:${share.key ?? "fund"}`))
+        : [];
+    const rowIds = [...spendIds, ...releases.map((row) => row.id)];
+    // The settlement record (As built in M4) freezes what was settled, so a reroll that lands later cannot change it.
+    const settlement = settlementRecord(order, result.patch, rowIds, stamp);
+    const change = transitionChange(order, "settle", { check, status: fields.status, settlement }, { rows: rowIds }, stamp);
+    const ledger = { replace: change.replace, set: { ...change.set, ...Object.fromEntries(releases.map((row) => [`rows.${row.id}`, row])) } };
     if (!spent) {
-        await write(ledger);
-        return { ok: true, outcome: "ok", status: fields.status, notices: result.notices };
+        const written = await lockedWrite([change.lock], [], ledger);
+        return written.ok ? { ok: true, outcome: "ok", status: fields.status, notices: result.notices } : written;
     }
-    const moved = await spend({ kind: spent.kind, stem: keyed(spent.kind), cp: spent.cp, allocations: allocationsByContributor(rows), link: { order: orderId }, ledger });
+    const moved = await spend({ kind: spent.kind, stem: keyed(spent.kind), cp: spent.cp, allocations, link: { order: orderId }, ledger, locks: [change.lock] });
     return { ...moved, status: fields.status, notices: result.notices };
 }
 

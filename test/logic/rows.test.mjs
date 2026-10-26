@@ -95,7 +95,7 @@ test("the expected strongbox balance is the sum of box over every row", () => {
 });
 
 test("bookkeeping kinds are exactly the kinds that move neither coins nor items", () => {
-    const ITEM_KINDS = ["material-in", "material-out", "delivered"];
+    const ITEM_KINDS = ["material-in", "material-out", "delivered", "shelved"];
     for (const kind of ROW_KINDS) {
         if (["reversal", "adjust", "carry", "allocate", "purchase", "income"].includes(kind)) continue;
         const { box, purse } = signedAmounts(kind, 10);

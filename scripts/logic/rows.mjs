@@ -30,17 +30,23 @@ const SIGNS = Object.freeze({
     expense: [-1, 0, -1],
     plant: [-1, 0, -1],
     delivered: [0, 0, 0],
+    shelved: [0, 0, 0],
     "material-in": [0, 0, 1],
     "material-out": [0, 0, -1],
 });
 
 /**
- * Kinds whose signs depend on the movement: `allocate` is +n on the order and -n on the fund (`side`);
+ * Kinds whose signs depend on the movement: `allocate` is +n on the order and -n on the fund (`side`), or the
+ * other way with `back` (an allocation returned to the fund: a cancelled order's share of a contributor whose actor is
+ * gone, 6.2.4);
  * `purchase` and `income` move coins through the purse or the strongbox (`via`). Income paid into a purse
  * allocates nothing: the party fund only holds what is in the strongbox.
  */
 const VARIABLE = Object.freeze({
-    allocate: ({ side }) => (side === "fund" ? [0, 0, -1] : side === "order" ? [0, 0, 1] : null),
+    allocate: ({ side, back = false }) => {
+        const sign = side === "fund" ? -1 : side === "order" ? 1 : null;
+        return sign === null ? null : [0, 0, back ? -sign : sign];
+    },
     purchase: ({ via }) => (via === "box" ? [-1, 0, 0] : via === "purse" ? [0, -1, 0] : null),
     income: ({ via }) => (via === "box" ? [1, 0, 1] : via === "purse" ? [0, 1, 0] : null),
 });
@@ -54,7 +60,8 @@ export const ROW_KINDS = Object.freeze([...Object.keys(SIGNS), ...Object.keys(VA
 /**
  * Kinds that move nothing, neither coins nor items: bookkeeping between allocations, markers the derivations
  * read, and corrections of the expected balance. They are written by a plain key-path write; every other kind
- * moves coins or items (`material-in`, `material-out` and `delivered` record item movements) and is written by a
+ * moves coins or items (`material-in`, `material-out`, `delivered` and `shelved` record item movements; `shelved` is a
+ * finished order's items put on the pickup shelf, M4) and is written by a
  * lock-first batch together with what it moves (4.1, 5.4).
  */
 export const BOOKKEEPING_KINDS = Object.freeze(["commit", "release", "allocate", "adjust", "carry"]);

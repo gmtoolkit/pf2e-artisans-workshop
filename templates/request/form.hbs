@@ -1,0 +1,101 @@
+<div class="request-form standard-form">
+    {{#unless ready}}<p class="workshop-banner"><i class="fa-solid fa-triangle-exclamation" inert></i> {{localize "pf2e-artisans-workshop.Window.Unavailable"}}</p>{{/unless}}
+    <fieldset class="request-item">
+        <legend>{{localize "pf2e-artisans-workshop.Request.Item"}}</legend>
+        <div class="request-drop{{#if product}} filled{{/if}}">
+            {{#if product}}
+            <img src="{{product.img}}" alt="">
+            <div class="request-product">
+                <strong>{{product.name}}</strong>
+                <span class="tags paizo-style"><span class="tag rarity {{product.rarity}}">{{rarityLabel}}</span></span>
+                <span>{{localize "pf2e-artisans-workshop.Request.LevelPrice" level=product.level price=priceText}}</span>
+                {{#if perText}}<span>{{localize "pf2e-artisans-workshop.Request.Per" per=perText}}</span>{{/if}}
+            </div>
+            <button type="button" class="icon" data-action="clear" aria-label="{{localize 'pf2e-artisans-workshop.Request.Clear'}}"
+                    data-tooltip="{{localize 'pf2e-artisans-workshop.Request.Clear'}}"><i class="fa-solid fa-xmark" inert></i></button>
+            {{else}}
+            <p class="hint"><i class="fa-solid fa-hand-pointer" inert></i> {{localize "pf2e-artisans-workshop.Request.DropHere"}}</p>
+            {{/if}}
+        </div>
+        {{#unless product}}
+        <div class="form-group">
+            <label for="{{formId}}-search">{{localize "pf2e-artisans-workshop.Request.Search"}}</label>
+            <input type="search" name="search" id="{{formId}}-search" value="{{state.search}}" autocomplete="off"
+                   placeholder="{{localize 'pf2e-artisans-workshop.Request.SearchPlaceholder'}}">
+        </div>
+        {{#if matches.length}}
+        <ul class="request-matches" aria-label="{{localize 'pf2e-artisans-workshop.Request.Matches'}}">
+            {{#each matches}}
+            <li><button type="button" data-action="pick" data-uuid="{{uuid}}"><img src="{{img}}" alt=""><span>{{name}}</span>
+                {{#if (ne level null)}}<span class="level">{{localize "pf2e-artisans-workshop.Request.Level" level=level}}</span>{{/if}}</button></li>
+            {{/each}}
+        </ul>
+        {{/if}}
+        {{/unless}}
+    </fieldset>
+    <div class="form-group">
+        <label for="{{formId}}-quantity">{{localize "pf2e-artisans-workshop.Request.Quantity"}}</label>
+        <input type="number" name="quantity" id="{{formId}}-quantity" min="1" step="1" value="{{state.quantity}}">
+    </div>
+    <div class="form-group">
+        <label for="{{formId}}-requester">{{localize "pf2e-artisans-workshop.Request.Requester"}}</label>
+        <select name="requester" id="{{formId}}-requester">
+            {{#each requesters}}<option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{name}}</option>{{/each}}
+        </select>
+    </div>
+    <div class="form-group">
+        <label for="{{formId}}-recipient">{{localize "pf2e-artisans-workshop.Request.Recipient"}}</label>
+        <select name="recipient" id="{{formId}}-recipient">
+            {{#each recipients}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{#if name}}{{name}}{{else}}{{localize label}}{{/if}}</option>{{/each}}
+        </select>
+    </div>
+    <div class="form-group">
+        <label for="{{formId}}-crafter">{{localize "pf2e-artisans-workshop.Request.Crafter"}}</label>
+        <select name="crafter" id="{{formId}}-crafter">
+            <option value="">{{localize "pf2e-artisans-workshop.Request.AnyCrafter"}}</option>
+            {{#each crafters}}<option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{name}}</option>{{/each}}
+        </select>
+        <p class="hint">{{localize "pf2e-artisans-workshop.Request.CrafterHint"}}</p>
+    </div>
+    <div class="form-group">
+        <label for="{{formId}}-gift">{{localize "pf2e-artisans-workshop.Request.Gift"}}</label>
+        <input type="checkbox" name="gift" id="{{formId}}-gift" {{#if state.gift}}checked{{/if}}>
+    </div>
+    <div class="form-group stacked">
+        <label for="{{formId}}-note">{{localize "pf2e-artisans-workshop.Request.Note"}}</label>
+        <textarea name="note" id="{{formId}}-note" rows="2">{{state.note}}</textarea>
+    </div>
+    {{#if estimate}}
+    <p class="request-estimate">{{localize "pf2e-artisans-workshop.Request.Estimate" price=estimate.price upfront=estimate.upfront}}</p>
+    {{/if}}
+    {{#if candidates.length}}
+    <table class="request-candidates">
+        <caption>{{localize "pf2e-artisans-workshop.Request.Candidates"}}</caption>
+        <thead><tr>
+            <th scope="col">{{localize "pf2e-artisans-workshop.Request.Member"}}</th>
+            <th scope="col">{{localize "pf2e-artisans-workshop.Detail.Route"}}</th>
+            <th scope="col">{{localize "pf2e-artisans-workshop.Detail.Setup"}}</th>
+            <th scope="col">{{localize "pf2e-artisans-workshop.Detail.Dc"}}</th>
+            <th scope="col">{{localize "pf2e-artisans-workshop.Request.Batches"}}</th>
+            <th scope="col">{{localize "pf2e-artisans-workshop.Request.DaysToZero"}}</th>
+        </tr></thead>
+        <tbody>
+            {{#each candidates}}
+            <tr class="{{#if ok}}ok{{else}}blocked{{/if}}">
+                <th scope="row"><i class="fa-solid {{#if ok}}fa-check{{else}}fa-lock{{/if}}" inert></i> {{name}}</th>
+                {{#if ok}}
+                <td>{{route}}</td><td>{{setup}}</td><td>{{dc}}</td>
+                <td>{{localize "pf2e-artisans-workshop.Request.BatchesOf" count=batches max=batchMax}}</td>
+                <td>{{#if daysToZero}}{{localize "pf2e-artisans-workshop.Request.DaysAt" days=daysToZero perDay=perDay}}{{/if}}</td>
+                {{else}}
+                <td colspan="5">{{#each reasons}}<span class="blocker">{{this}}</span> {{/each}}</td>
+                {{/if}}
+            </tr>
+            {{/each}}
+        </tbody>
+    </table>
+    {{else}}{{#if product}}<p class="hint">{{localize "pf2e-artisans-workshop.Request.NoCandidates"}}</p>{{/if}}{{/if}}
+    <footer class="form-footer">
+        <button type="submit" {{#unless ready}}disabled{{/unless}}><i class="fa-solid fa-file-circle-plus" inert></i>{{localize "pf2e-artisans-workshop.Request.Submit"}}</button>
+    </footer>
+</div>

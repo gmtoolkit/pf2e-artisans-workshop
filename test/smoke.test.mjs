@@ -74,6 +74,24 @@ test("in a dev world, deprecated calls from this module throw", (t) => {
     assert.ok(globalThis.CONFIG.compatibility.includePatterns.some((re) => re.test(`/modules/${MODULE_ID}/scripts/module.mjs`)));
 });
 
+/**
+ * Whether core would report a deprecation warning, as Foundry 14.368's `logCompatibilityWarning` filters one
+ * (`common/utils/logging.mjs`): an include pattern must match its message or stack, and no exclude pattern may.
+ */
+function reported(message, stack) {
+    const { includePatterns, excludePatterns } = globalThis.CONFIG.compatibility;
+    const hit = (rgx) => rgx.test(message) || rgx.test(stack);
+    return (!includePatterns.length || includePatterns.some(hit)) && !(excludePatterns.length && excludePatterns.some(hit));
+}
+
+test("in a dev world, Application V1's own warning does not throw: pf2e's check dialog, opened by the Workshop's roll", (t) => {
+    runInit(t, { dev: true });
+    const stack = `at new Application (/client/appv1/api/application-v1.mjs)\nat rollCraft (/modules/${MODULE_ID}/scripts/foundry/rolls.mjs)`;
+    const v1 = "The V1 Application framework is deprecated, and will be removed in a later core software version.";
+    assert.equal(reported(v1, stack), false);
+    assert.equal(reported("SomeClass#method is deprecated in favor of SomeClass#other.", stack), true, "every other warning still throws");
+});
+
 test("ready with the master switch off writes nothing", async (t) => {
     runInit(t);
     await ready();

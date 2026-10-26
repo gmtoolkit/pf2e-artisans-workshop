@@ -1,0 +1,170 @@
+<section class="tab workshop-queue {{tab.cssClass}}" data-group="primary" data-tab="queue" role="tabpanel"
+         id="pf2e-artisans-workshop-panel-queue" aria-labelledby="pf2e-artisans-workshop-tab-queue">
+    {{#if readable}}
+    <div class="queue-toolbar" role="group" aria-label="{{localize 'pf2e-artisans-workshop.Queue.Filters'}}">
+        <select data-filter="scope" aria-label="{{localize 'pf2e-artisans-workshop.Queue.Filter.Scope'}}">
+            {{#each scopeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{localize label}}</option>{{/each}}
+        </select>
+        <select data-filter="status" aria-label="{{localize 'pf2e-artisans-workshop.Queue.Filter.Status'}}">
+            {{#each statusOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{localize label}}</option>{{/each}}
+        </select>
+        <select data-filter="crafter" aria-label="{{localize 'pf2e-artisans-workshop.Queue.Filter.Crafter'}}">
+            {{#each crafterOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{#if name}}{{name}}{{else}}{{localize label}}{{/if}}</option>{{/each}}
+        </select>
+        <select data-filter="recipient" aria-label="{{localize 'pf2e-artisans-workshop.Queue.Filter.Recipient'}}">
+            {{#each recipientOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{#if name}}{{name}}{{else}}{{localize label}}{{/if}}</option>{{/each}}
+        </select>
+        <input type="search" data-filter="search" value="{{filters.search}}" placeholder="{{localize 'pf2e-artisans-workshop.Queue.Search'}}"
+               aria-label="{{localize 'pf2e-artisans-workshop.Queue.Search'}}">
+        {{#if filtered}}
+        <button type="button" class="clear" data-action="clearFilters" data-tooltip="{{localize 'pf2e-artisans-workshop.Queue.ClearFilters'}}"
+                aria-label="{{localize 'pf2e-artisans-workshop.Queue.ClearFilters'}}"><i class="fa-solid fa-filter-circle-xmark" inert></i></button>
+        {{/if}}
+        <button type="button" class="request primary" data-action="request" {{#unless ready}}disabled{{/unless}}>
+            <i class="fa-solid fa-plus" inert></i><span>{{localize "pf2e-artisans-workshop.Queue.Request"}}</span>
+        </button>
+    </div>
+    <p class="queue-summary">{{localize "pf2e-artisans-workshop.Queue.Summary" open=summary.open requested=summary.requested working=summary.working complete=summary.complete}}</p>
+    <div class="queue-body{{#if selected}} has-detail{{/if}}">
+        <div class="queue-main">
+            {{#if orders.length}}
+            <ol class="order-list" aria-label="{{localize 'pf2e-artisans-workshop.Queue.Orders'}}">
+                {{#each orders}}
+                <li class="order-row status-{{status}}{{#if mine}} mine{{/if}}{{#if blocked.length}} blocked{{/if}}{{#if (eq id ../selected.id)}} selected{{/if}}"
+                    data-order-id="{{id}}" tabindex="{{#if tabStop}}0{{else}}-1{{/if}}"
+                    aria-label="{{localize 'pf2e-artisans-workshop.Queue.RowLabel' no=no name=title status=statusWord}}">
+                    <div class="order-line">
+                        <span class="order-no">{{localize "pf2e-artisans-workshop.Queue.Number" no=no}}</span>
+                        {{#if img}}<img class="order-img" src="{{img}}" alt="">{{else}}<i class="order-img fa-solid fa-gift" inert></i>{{/if}}
+                        <span class="order-title">{{title}}</span>
+                        {{#if quantityText}}<span class="order-qty">{{quantityText}}</span>{{/if}}
+                        <span class="order-for"><i class="fa-solid fa-arrow-right" inert></i> {{forText}}</span>
+                        {{#unless giftHidden}}<span class="tags paizo-style"><span class="tag rarity {{rarity}}">{{rarityLabel}}</span></span>{{/unless}}
+                        <span class="order-crafter">{{#if crafter}}{{localize "pf2e-artisans-workshop.Queue.Crafter" name=crafter}}{{else}}{{localize "pf2e-artisans-workshop.Queue.NoCrafter"}}{{/if}}</span>
+                    </div>
+                    <div class="order-state">
+                        {{> "modules/pf2e-artisans-workshop/templates/partials/status.hbs"}}
+                        {{> "modules/pf2e-artisans-workshop/templates/partials/progress.hbs"}}
+                        <span class="order-numbers">
+                            {{#if (eq progress.phase "funding")}}{{localize "pf2e-artisans-workshop.Queue.Funding" escrow=escrowText upfront=upfrontText}}
+                            {{else if (eq progress.phase "crafting")}}{{localize "pf2e-artisans-workshop.Queue.Left" left=finishText}}
+                            {{else}}{{localize "pf2e-artisans-workshop.Queue.PaidInFull" price=priceText}}{{/if}}
+                        </span>
+                        {{#if daysText}}<span class="order-days">{{daysText}}</span>{{/if}}
+                    </div>
+                    <div class="order-facts">
+                        {{#if routeText}}<span class="fact">{{localize "pf2e-artisans-workshop.Queue.Route" route=routeText}}</span>{{/if}}
+                        {{#if dc}}<span class="fact">{{localize "pf2e-artisans-workshop.Queue.Dc" dc=dc}}</span>{{/if}}
+                        {{#if perDayText}}{{#unless isClosed}}<span class="fact">{{localize "pf2e-artisans-workshop.Queue.PerDay" amount=perDayText}}</span>{{/unless}}{{/if}}
+                        {{#if checkText}}<span class="fact degree {{checkClass}}">{{localize "pf2e-artisans-workshop.Queue.Check" degree=checkText}}</span>{{/if}}
+                        {{#if conflictText}}<span class="fact conflict"><i class="fa-solid fa-code-compare" inert></i> {{localize "pf2e-artisans-workshop.Queue.Conflict" degree=conflictText}}</span>{{/if}}
+                        {{#each blockedText}}<span class="blocker"><i class="fa-solid fa-lock" inert></i> {{this}}</span>{{/each}}
+                    </div>
+                    <div class="order-actions">
+                        {{#if actions.accept}}<button type="button" data-action="op" data-op="accept"><i class="fa-solid fa-handshake" inert></i>{{localize "pf2e-artisans-workshop.Action.Accept"}}</button>{{/if}}
+                        {{#if actions.start}}<button type="button" data-action="op" data-op="start" {{#unless actions.startReady}}disabled{{/unless}}><i class="fa-solid fa-play" inert></i>{{localize "pf2e-artisans-workshop.Action.Start"}}</button>{{/if}}
+                        {{#if actions.work}}<button type="button" data-action="op" data-op="work"><i class="fa-solid fa-calendar-plus" inert></i>{{localize "pf2e-artisans-workshop.Action.Work"}}</button>{{/if}}
+                        {{#if actions.roll}}<button type="button" data-action="op" data-op="roll"><i class="fa-solid fa-dice-d20" inert></i>{{localize "pf2e-artisans-workshop.Action.Roll"}}</button>{{/if}}
+                        {{#if actions.settle}}<button type="button" data-action="op" data-op="settle"><i class="fa-solid fa-scale-balanced" inert></i>{{localize "pf2e-artisans-workshop.Action.Settle"}}</button>{{/if}}
+                        {{#if actions.finish}}<button type="button" class="primary" data-action="op" data-op="finish"><i class="fa-solid fa-flag-checkered" inert></i>{{localize "pf2e-artisans-workshop.Action.Finish" amount=finishText}}</button>{{/if}}
+                        {{#if actions.resume}}<button type="button" data-action="op" data-op="resume"><i class="fa-solid fa-play" inert></i>{{localize "pf2e-artisans-workshop.Action.Resume"}}</button>{{/if}}
+                        {{#if actions.retry}}<button type="button" data-action="op" data-op="retry"><i class="fa-solid fa-rotate-right" inert></i>{{localize "pf2e-artisans-workshop.Action.Retry"}}</button>{{/if}}
+                        {{#if actions.pledge}}<button type="button" data-action="pledge"><i class="fa-solid fa-coins" inert></i>{{localize "pf2e-artisans-workshop.Action.Pledge"}}</button>{{/if}}
+                        <button type="button" data-action="select"><i class="fa-solid fa-up-right-from-square" inert></i>{{localize "pf2e-artisans-workshop.Action.Open"}}</button>
+                    </div>
+                </li>
+                {{/each}}
+            </ol>
+            {{else}}
+            <p class="queue-empty">{{#if total}}{{localize "pf2e-artisans-workshop.Queue.NoMatch"}}{{else}}{{localize "pf2e-artisans-workshop.Queue.Empty"}}{{/if}}</p>
+            {{/if}}
+            <p class="drop-hint"><i class="fa-solid fa-hand-pointer" inert></i> {{localize "pf2e-artisans-workshop.Queue.DropHint"}}</p>
+        </div>
+        {{#if selected}}
+        <aside class="order-detail" tabindex="-1" role="region" data-order-id="{{selected.id}}"
+               aria-label="{{localize 'pf2e-artisans-workshop.Detail.Label' name=selected.title}}">
+            {{#with selected}}
+            <header class="detail-header">
+                {{#if img}}<img src="{{img}}" alt="">{{/if}}
+                <h3>{{title}}{{#if quantityText}} <span class="order-qty">{{quantityText}}</span>{{/if}}</h3>
+                <button type="button" class="icon" data-action="closeDetail" aria-label="{{localize 'pf2e-artisans-workshop.Detail.Close'}}"
+                        data-tooltip="{{localize 'pf2e-artisans-workshop.Detail.Close'}}"><i class="fa-solid fa-xmark" inert></i></button>
+            </header>
+            <div class="detail-state">
+                {{> "modules/pf2e-artisans-workshop/templates/partials/status.hbs"}}
+                {{> "modules/pf2e-artisans-workshop/templates/partials/progress.hbs"}}
+                <p class="detail-progress">{{progressText}}</p>
+                {{#if daysText}}<p>{{daysText}}</p>{{/if}}
+            </div>
+            <dl class="detail-facts">
+                <dt>{{localize "pf2e-artisans-workshop.Detail.Requester"}}</dt><dd>{{requesterName}}</dd>
+                <dt>{{localize "pf2e-artisans-workshop.Detail.For"}}</dt><dd>{{forText}}</dd>
+                <dt>{{localize "pf2e-artisans-workshop.Detail.Crafter"}}</dt><dd>{{#if crafter}}{{crafter}}{{else}}{{localize "pf2e-artisans-workshop.Queue.NoCrafter"}}{{/if}}</dd>
+                <dt>{{localize "pf2e-artisans-workshop.Detail.Price"}}</dt><dd>{{priceText}}</dd>
+                <dt>{{localize "pf2e-artisans-workshop.Detail.Upfront"}}</dt><dd>{{upfrontText}}</dd>
+                <dt>{{localize "pf2e-artisans-workshop.Detail.Escrow"}}</dt><dd>{{escrowText}}</dd>
+                {{#if routeText}}<dt>{{localize "pf2e-artisans-workshop.Detail.Route"}}</dt><dd>{{routeText}}</dd>{{/if}}
+                {{#if dc}}<dt>{{localize "pf2e-artisans-workshop.Detail.Dc"}}</dt><dd>{{dc}}</dd>{{/if}}
+                {{#if setup}}<dt>{{localize "pf2e-artisans-workshop.Detail.Setup"}}</dt><dd>{{localize "pf2e-artisans-workshop.Detail.SetupDays" done=setup.done days=setup.days}}</dd>{{/if}}
+                {{#if checkText}}<dt>{{localize "pf2e-artisans-workshop.Detail.Check"}}</dt><dd class="degree {{checkClass}}">{{checkText}}</dd>{{/if}}
+                {{#if perDayText}}<dt>{{localize "pf2e-artisans-workshop.Detail.PerDay"}}</dt><dd>{{perDayText}}</dd>{{/if}}
+                {{#unless isClosed}}<dt>{{localize finishLabel}}</dt><dd>{{finishText}}</dd>{{/unless}}
+            </dl>
+            {{#if conflictText}}
+            <p class="detail-conflict"><i class="fa-solid fa-code-compare" inert></i> {{localize "pf2e-artisans-workshop.Detail.Conflict" degree=conflictText}}</p>
+            {{/if}}
+            {{#if gates.length}}
+            <h4>{{localize "pf2e-artisans-workshop.Detail.Gates"}}</h4>
+            <ul class="detail-gates">
+                {{#each gates}}
+                <li class="{{#if ok}}ok{{else}}fail{{/if}}">
+                    <i class="fa-solid {{#if ok}}fa-check{{else}}fa-xmark{{/if}}" inert></i>
+                    <span class="gate-id">{{id}}</span>
+                    {{#if ok}}<span class="sr-only">{{localize "pf2e-artisans-workshop.Detail.GateOk"}}</span>{{else}}<span>{{text}}</span>{{/if}}
+                </li>
+                {{/each}}
+            </ul>
+            {{/if}}
+            <div class="detail-actions">
+                {{#if actions.accept}}<button type="button" data-action="op" data-op="accept">{{localize "pf2e-artisans-workshop.Action.Accept"}}</button>{{/if}}
+                {{#if actions.release}}<button type="button" data-action="op" data-op="release">{{localize "pf2e-artisans-workshop.Action.Release"}}</button>{{/if}}
+                {{#if actions.start}}<button type="button" data-action="op" data-op="start" {{#unless actions.startReady}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Action.Start"}}</button>{{/if}}
+                {{#if actions.work}}<button type="button" data-action="op" data-op="work">{{localize "pf2e-artisans-workshop.Action.Work"}}</button>{{/if}}
+                {{#if actions.roll}}<button type="button" data-action="op" data-op="roll">{{localize "pf2e-artisans-workshop.Action.Roll"}}</button>{{/if}}
+                {{#if actions.settle}}<button type="button" data-action="op" data-op="settle">{{localize "pf2e-artisans-workshop.Action.Settle"}}</button>{{/if}}
+                {{#if actions.finish}}<button type="button" class="primary" data-action="op" data-op="finish">{{localize "pf2e-artisans-workshop.Action.Finish" amount=finishText}}</button>{{/if}}
+                {{#if actions.pause}}<button type="button" data-action="op" data-op="pause">{{localize "pf2e-artisans-workshop.Action.Pause"}}</button>{{/if}}
+                {{#if actions.resume}}<button type="button" data-action="op" data-op="resume">{{localize "pf2e-artisans-workshop.Action.Resume"}}</button>{{/if}}
+                {{#if actions.retry}}<button type="button" data-action="op" data-op="retry">{{localize "pf2e-artisans-workshop.Action.Retry"}}</button>{{/if}}
+                {{#if actions.pledge}}<button type="button" data-action="pledge">{{localize "pf2e-artisans-workshop.Action.Pledge"}}</button>{{/if}}
+                {{#if actions.withdraw}}<button type="button" data-action="withdraw">{{localize "pf2e-artisans-workshop.Action.Withdraw" amount=withdrawText}}</button>{{/if}}
+                {{#if actions.undo}}<button type="button" data-action="op" data-op="undo">{{localize "pf2e-artisans-workshop.Action.Undo"}}</button>{{/if}}
+                {{#if actions.cancel}}<button type="button" class="danger" data-action="op" data-op="cancel">{{localize "pf2e-artisans-workshop.Action.Cancel"}}</button>{{/if}}
+            </div>
+            {{#if contributorsText.length}}
+            <h4>{{localize "pf2e-artisans-workshop.Detail.Contributors"}}</h4>
+            <ul class="detail-list">
+                {{#each contributorsText}}<li><span>{{name}}</span><span class="money">{{amount}}</span></li>{{/each}}
+            </ul>
+            {{/if}}
+            {{#if notes}}<h4>{{localize "pf2e-artisans-workshop.Detail.Notes"}}</h4><p class="detail-notes">{{notes}}</p>{{/if}}
+            {{#if history.length}}
+            <h4>{{localize "pf2e-artisans-workshop.Detail.History"}}</h4>
+            <ul class="detail-list">
+                {{#each history}}<li><span>{{localize eventLabel}}</span><span class="by">{{localize "pf2e-artisans-workshop.Common.ByWhen" by=by when=when}}</span></li>{{/each}}
+            </ul>
+            {{/if}}
+            {{#if rows.length}}
+            <h4>{{localize "pf2e-artisans-workshop.Detail.Rows"}}</h4>
+            <ul class="detail-list">
+                {{#each rows}}<li class="{{#if reversed}}reversed{{/if}}"><span>{{localize kind}}{{#if actor}} {{localize "pf2e-artisans-workshop.Common.For" name=actor}}{{/if}}</span><span class="money">{{amount}}</span><span class="by">{{localize "pf2e-artisans-workshop.Common.By" by=by}}</span></li>{{/each}}
+            </ul>
+            {{/if}}
+            {{/with}}
+        </aside>
+        {{/if}}
+    </div>
+    {{else}}
+    <p class="queue-empty">{{localize "pf2e-artisans-workshop.Window.Unavailable"}}</p>
+    {{/if}}
+</section>

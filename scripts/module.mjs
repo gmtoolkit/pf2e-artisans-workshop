@@ -1,5 +1,11 @@
 import { MODULE_ID } from "./constants.mjs";
+import { publishApi } from "./foundry/api.mjs";
+import { registerOrderHooks } from "./foundry/orders.mjs";
 import { initSync, readySync } from "./foundry/sync.mjs";
+import { registerChatHooks } from "./ui/chat.mjs";
+import { registerEntryPoints } from "./ui/entry.mjs";
+import { primeNotifications, registerNotifications } from "./ui/notify.mjs";
+import { registerWindowHooks } from "./ui/workshop.mjs";
 
 /* -------------------------------------------- */
 /*  Setup                                        */
@@ -22,17 +28,31 @@ Hooks.once("init", () => {
     // against the whole stack, so a warning throws whenever this module's files are on the stack, even
     // one raised inside pf2e, core or another module that this module (or the fixture builder) called.
     // Warnings whose stacks do not pass through this module are not reported at all in a dev world.
+    // One is left out: Application V1's own warning. pf2e 8.6.1's check dialog is still V1, so a Craft check rolled
+    // from the Workshop with its dialog (the ground rules want pf2e's dialog) would throw at the dialog's constructor;
+    // this module's own code never uses V1, which the lint rules check (DESIGN.md 15.1).
     if (isDev()) {
         CONFIG.compatibility.mode = CONST.COMPATIBILITY_MODES.FAILURE;
         CONFIG.compatibility.includePatterns.push(new RegExp(`/modules/${MODULE_ID}/`));
+        CONFIG.compatibility.excludePatterns.push(/^The V1 Application framework is deprecated/);
     }
 
     // Storage and sync (DESIGN.md 5): settings, the GM relay, deletion guards and the all-client hooks.
     initSync();
+
+    // The order lifecycle's one hook-driven write (the settlement repair, 6.12), and the Workshop window, its chat cards,
+    // notifications and where it opens from (DESIGN.md 10, M4).
+    registerOrderHooks();
+    registerChatHooks();
+    registerNotifications();
+    registerWindowHooks();
+    registerEntryPoints();
 });
 
 Hooks.once("ready", async () => {
     await readySync();
+    primeNotifications();
+    publishApi();
     if (isDev()) await loadDevHarness();
 });
 

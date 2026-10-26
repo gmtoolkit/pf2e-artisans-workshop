@@ -1453,3 +1453,439 @@ export const BEHAVIOURS = {
         return { job, earned, together, again, wages, before, after };
     },
 };
+
+/* -------------------------------------------- */
+/*  M4: the order lifecycle and the window       */
+/* -------------------------------------------- */
+
+/** Healing Potion (Minor): magical, so a crafter without Magical Crafting is blocked (G4). */
+const HEALING_POTION = "Compendium.pf2e.equipment-srd.Item.2RuepCemJhrpKKao";
+/** Antidote (Lesser) and Alchemist's Fire (Lesser): common 1st-level alchemical consumables. */
+const ANTIDOTE = "Compendium.pf2e.equipment-srd.Item.ktjFOp3U0wQD9t0Z";
+const ALCHEMISTS_FIRE = "Compendium.pf2e.equipment-srd.Item.yd3kEK21YknZLlcT";
+/** Alchemist's Lab: the tool alchemical items need (G7); in the strongbox it counts for every crafter. */
+const LAB = "Compendium.pf2e.equipment-srd.Item.k6xZkDUpF7E1Totd";
+
+/** What is left to pay on an order in finishing, from its brief (6.2.3). */
+function leftToPay(order) {
+    const earned = order.check && order.check.degree >= 2 ? order.days.filter((d) => d.kind === "extra").reduce((s, d) => s + (d.crafterCp ?? 0), 0) : 0;
+    return Math.max(0, order.priceCp - order.upfrontCp - earned);
+}
+
+/**
+ * The lifecycle (4.2.3) with Player Two requesting and paying and Player One crafting: request, pledge, accept, start,
+ * setup days, the Craft check, the next day settling it and counting as an extra day, the remainder pledged, finish
+ * onto the pickup shelf, and delivery by the recipient's client. With `gm`, the GM is online throughout; without, no GM
+ * is, and Player Two is offline at the finish, so the item waits on the shelf until Player Two's login sweep takes it.
+ */
+async function m4Lifecycle(h, w, { gm }) {
+    await resetWorld(h, w);
+    await h.evaluate("gm", pageStoreItem, { mod: MOD, uuid: LAB }, "an alchemist's lab in the strongbox");
+    const online = gm ? ["gm", "p1", "p2"] : ["p1", "p2"];
+    await h.only(online);
+    await h.settle("ready");
+    const filed = await h.step("p2", "m4", "request", { product: ELIXIR, quantity: 2 });
+    h.check("the request is filed as one order of two", filed.ok === true && !!filed.order, filed);
+    const id = filed.order;
+    const pledge = await h.step("p2", "m4", "pledge", { order: id, cp: 300 });
+    h.check("Player Two pledges the up-front half", pledge.ok === true, pledge);
+    const accept = await h.step("p1", "m4", "accept", { order: id });
+    h.check("Player One accepts", accept.ok === true, accept);
+    const start = await h.step("p1", "m4", "start", { order: id });
+    h.check("every gate passes and the order starts (P1)", start.ok === true, start);
+    const setup = await h.step("p1", "m4", "work", { order: id, until: "check" });
+    h.check("setup days move the order to its check", setup.order?.status === "check", setup.order);
+    const rolled = await h.step("p1", "m4", "roll", { order: id });
+    h.check("the Craft check is rolled through the wrapper and recorded", rolled.recorded === true, rolled);
+    const worked = await h.step("p1", "m4", "work", { order: id });
+    const success = worked.order?.check?.degree >= 2;
+    h.check("the next day settles the check (4.2.3)", worked.order?.check?.settled === true && worked.order?.settlement?.attempt === 1, worked.order);
+    if (!success) {
+        h.check("a failed check leaves the order failed with its materials released", worked.order?.status === "failed", worked.order);
+        return { id, worked };
+    }
+    h.check("a success expends the materials and counts the day as an extra day", worked.order.status === "finishing" && worked.order.days.some((d) => d.kind === "extra"), worked.order);
+    const left = leftToPay(worked.order);
+    if (left > 0) {
+        const more = await h.step("p2", "m4", "pledge", { order: id, cp: left });
+        h.check("Player Two pledges what is left", more.ok === true, more);
+    }
+    if (!gm) await h.only(["p1"]);
+    const finished = await h.step("p1", "m4", "finish", { order: id });
+    h.check("Player One finishes: remainder paid, item shelved, order complete", finished.result?.ok === true && finished.order?.status === "complete", finished);
+    if (!gm) {
+        const waiting = await h.step("p1", "m4", "state", { order: id, ms: 2500 });
+        h.check("with Player Two away and no GM, the item waits on the pickup shelf", waiting.shelf.length === 1, waiting.shelf);
+        await h.only(["p1", "p2"]);
+        await h.settle("ready");
+    }
+    const arrived = await h.step("p2", "m4", "waitDelivered", { name: "Elixir of Life (Minor)", ms: 30000 });
+    h.check("Player Two's client collects the item, once", arrived.delivered === true && arrived.count === 1, arrived);
+    const state = await h.step("p2", "m4", "state", { order: id, ms: 1500 });
+    h.check("chat cards were posted for the request, the acceptance, the start and the completion",
+        ["request", "accepted", "started", "complete"].every((kind) => state.cards.includes(kind)), state.cards);
+    const view = await serverView(h, online[0], w);
+    checkReconciles(h, view);
+    h.check("server: one shelved row, the remainder paid, nothing left on the shelf", rowsWith(view, "shelve:").length === 1 && view.strongboxes[0].shelf === 0, rowsWith(view, "shelve:"));
+    await checkStatuses(h);
+    return { id, finished, arrived, state };
+}
+
+/**
+ * A cancel (6.2.4): both players pledge to an order Player One starts, Player Two cancels; what was committed is released,
+ * each contributor's share comes back as a refund their own client collects, and the strongbox ends empty.
+ */
+async function m4Cancel(h, w) {
+    await resetWorld(h, w);
+    await h.evaluate("gm", pageStoreItem, { mod: MOD, uuid: LAB }, "an alchemist's lab in the strongbox");
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const before = await serverView(h, "gm", w);
+    const filed = await h.step("p2", "m4", "request", { product: ANTIDOTE, quantity: 2 });
+    const id = filed.order;
+    await h.step("p1", "m4", "pledge", { order: id, cp: 100 });
+    await h.step("p2", "m4", "pledge", { order: id, cp: 250 });
+    await h.step("p1", "m4", "accept", { order: id });
+    const start = await h.step("p1", "m4", "start", { order: id });
+    h.check("the order starts with 350 cp in escrow", start.ok === true, start);
+    const cancelled = await h.step("p2", "m4", "cancel", { order: id });
+    h.check("the requester cancels it: two refunds", cancelled.result?.ok === true && cancelled.result.refunds === 2 && cancelled.order?.status === "cancelled", cancelled);
+    h.check("the commit is released", cancelled.order.rows.some((r) => r.kind === "release"), cancelled.order.rows);
+    const done = await h.step("gm", "m4", "state", { order: id, ms: 5000 });
+    h.check("both refund claims are collected", done.claims.length === 2 && done.claims.every((c) => c.resolved), done.claims);
+    const after = await serverView(h, "gm", w);
+    const purse = (view, role) => view.actors[w.pcs[role].id].coinsCp;
+    h.check("server: both purses are back where they were", purse(after, "p1") === purse(before, "p1") && purse(after, "p2") === purse(before, "p2"),
+        { before: { p1: purse(before, "p1"), p2: purse(before, "p2") }, after: { p1: purse(after, "p1"), p2: purse(after, "p2") } });
+    checkReconciles(h, after);
+    h.check("server: the strongbox holds no coins", after.actualCp === 0, after.actualCp);
+    return { id, cancelled, done };
+}
+
+/**
+ * The double-delivery race (5.11 follow-up): Player Two's delivery of a shelf item lands its lock request and its apply
+ * request is held back; after the grace time Player Two's client re-creates the lost delivery; then the held apply
+ * request is sent to the server past every check on the client. It must be refused at the lock the re-creation took:
+ * the item arrives once.
+ */
+async function m4DoubleDelivery(h, w) {
+    await resetWorld(h, w);
+    await h.only(["gm", "p2"]);
+    await h.settle("ready");
+    const stranded = await h.step("p2", "m4", "strandDelivery", { product: ELIXIR });
+    h.check("the delivery's lock request lands and its apply request is held back", stranded.locked?.outcome === "ok" && !!stranded.mark, stranded);
+    await sleep(PENDING_GRACE_MS + 2000);
+    await h.step("p2", "m4", "recreate", {});
+    const recreated = await h.step("p2", "m4", "waitDelivered", { name: "Elixir of Life (Minor)", ms: 20000 });
+    h.check("the lost delivery is re-created once the grace time is past", recreated.delivered === true && recreated.count === 1, recreated);
+    const late = await h.step("p2", "m4", "sendHeldApply", {});
+    const after = await h.step("p2", "m4", "state", { ms: 1500 });
+    h.check("the late apply request reaches the server, which refuses it at its dry run", late.sent === true && late.dryRun.length > 0, late);
+    h.check("the item arrived once", after.delivered.filter((d) => d.name === "Elixir of Life (Minor)").length === 1, after.delivered);
+    const view = await serverView(h, "gm", w);
+    const row = view.rows.find((r) => r.id === stranded.row);
+    h.check("server: the delivery's row is applied and one item carries it", row?.state === "applied" &&
+        view.actors[w.pcs.p2.id].delivered.filter((d) => d.row === stranded.row).length === 1, { row, delivered: view.actors[w.pcs.p2.id].delivered });
+    await checkStatuses(h);
+    return { stranded, recreated, late, after };
+}
+
+/**
+ * The reroll-against-settlement race (6.12 follow-up). First the state a late reroll write leaves, written on purpose
+ * by the GM's client after Player One settled: Player One's client, responsible for the crafter, must restore the
+ * settled check from the settlement record and keep the reroll as the conflict, by itself and once. Then the real race,
+ * several times: Player One settles while the GM rerolls the check with a Hero Point at the same moment; whatever the
+ * order of arrival, the stored check is the settled one and any other roll is kept as the conflict.
+ */
+async function m4RerollRace(h, w) {
+    await resetWorld(h, w);
+    await h.evaluate("gm", pageStoreItem, { mod: MOD, uuid: LAB }, "an alchemist's lab in the strongbox");
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    const prepare = async () => {
+        const filed = await h.step("p1", "m4", "request", { product: ELIXIR, quantity: 1, crafter: w.pcs.p1.uuid });
+        await h.step("p1", "m4", "pledge", { order: filed.order, cp: 150 });
+        await h.step("p1", "m4", "start", { order: filed.order });
+        await h.step("p1", "m4", "work", { order: filed.order, until: "check" });
+        const rolled = await h.step("p1", "m4", "roll", { order: filed.order });
+        return { id: filed.order, rolled };
+    };
+    const first = await prepare();
+    h.check("an order of Player One's own reaches its recorded check", first.rolled.recorded === true, first.rolled);
+    const settled = await h.step("p1", "m4", "settle", { order: first.id });
+    h.check("Player One settles it", settled.result?.ok === true, settled);
+    await h.step("gm", "m3", "watch", { path: `orders.${first.id}.check` });
+    await h.step("gm", "m4", "lateReroll", { order: first.id, degree: 0 });
+    const count = await h.step("gm", "m3", "count", { ms: 3000 });
+    const repaired = await h.step("gm", "m4", "state", { order: first.id });
+    h.check("the crafter's client restores the settled check and keeps the late roll as the conflict", repaired.order?.check?.messageId === settled.order?.settlement?.messageId &&
+        repaired.order.check.settled === true && repaired.order.conflict?.messageId === "late-reroll", repaired.order);
+    h.check("one repair, from Player One's client (P4)", count.writers?.["Player One"] === 1, count.writers);
+    const races = [];
+    for (let i = 0; i < 3; i++) {
+        await h.evaluate("gm", pageHeroPoints, { actorId: w.pcs.p1.id, value: 1 }, "one Hero Point");
+        const next = await prepare();
+        await h.together([["p1", "m4", "settle", { order: next.id }], ["gm", "m4", "reroll", { order: next.id, ms: 3000 }]]);
+        const end = await h.step("p1", "m4", "state", { order: next.id, ms: 3000 });
+        const o = end.order;
+        const consistent = !!o && ["finishing", "failed"].includes(o.status) && o.check?.settled === true && o.check.messageId === o.settlement?.messageId;
+        races.push({ id: next.id, status: o?.status, check: o?.check, settlement: o?.settlement, conflict: o?.conflict });
+        h.check(`race ${i + 1}: the stored check is the settled one, whichever write landed last`, consistent, o);
+    }
+    checkReconciles(h, await serverView(h, "gm", w));
+    await checkStatuses(h);
+    return { first, settled, repaired, count, races };
+}
+
+/**
+ * Screenshots of the Workshop window (10.3, 10.8, 10.9): orders in every state the Queue shows, seeded by the GM through
+ * the module's own functions, then the Queue and Funds tabs as the GM and as Player One, at 1440x900 and 1024x768, in
+ * the dark and the light colour scheme, and the Queue with an order's detail open.
+ */
+async function m4Shots(h, w) {
+    await resetWorld(h, w);
+    await h.evaluate("gm", pageStoreItem, { mod: MOD, uuid: LAB }, "an alchemist's lab in the strongbox");
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    const seeded = await h.step("gm", "m4", "seed", {
+        products: [ELIXIR, HEALING_POTION, ALCHEMISTS_FIRE, ANTIDOTE], crafter: w.pcs.p1.uuid, requester: w.pcs.p2.uuid, other: w.pcs.p1.uuid,
+    });
+    h.check("orders were seeded in several states", Object.keys(seeded.states ?? {}).length >= 6, seeded.states);
+    const sizes = [{ width: 1440, height: 900 }, { width: 1024, height: 768 }];
+    const opened = [];
+    for (const role of ["gm", "p1"]) {
+        for (const scheme of ["dark", "light"]) {
+            await h.step(role, "m4", "theme", { scheme });
+            for (const size of sizes) {
+                for (const tab of ["queue", "funds"]) {
+                    const file = `m4-${role}-${tab}-${size.width}x${size.height}-${scheme}.png`;
+                    await h.screenshot(role, file, size, async () => {
+                        const open = await h.step(role, "m4", "open", { tab });
+                        opened.push({ role, scheme, ...size, tab, ...open });
+                        return open;
+                    });
+                }
+            }
+            const detail = `m4-${role}-queue-detail-1440x900-${scheme}.png`;
+            await h.screenshot(role, detail, sizes[0], () => h.step(role, "m4", "open", { tab: "queue", order: seeded.finishing }));
+        }
+        await h.step(role, "m4", "close", {});
+    }
+    h.check("the window opened with the module's styles every time", opened.every((o) => o.open && o.hasStyles), opened.filter((o) => !o.open || !o.hasStyles));
+    h.check("the Queue listed the seeded orders for both", opened.filter((o) => o.tab === "queue").every((o) => o.rows >= 6), opened.filter((o) => o.tab === "queue").map((o) => o.rows));
+    const styled = [...h.styleAdded];
+    h.check("stylesheet: linked by the server, or added by the harness because the world predates it (reported)", true, { addedByHarness: styled });
+    await h.step("gm", "m4", "theme", { scheme: "dark" });
+    await h.step("p1", "m4", "theme", { scheme: "dark" });
+    return { seeded, opened, shots: h.shots.filter((s) => s.label === h.label).map((s) => s.file) };
+}
+
+/* -------------------------------------------- */
+/*  M4: the window driven like a user            */
+/* -------------------------------------------- */
+
+/** In the page: what has focus, the Workshop's tab, the search field and the order rows' tab stops. */
+function pageFocus({ mod }) {
+    const app = foundry.applications.instances.get(mod);
+    const active = document.activeElement;
+    const search = app?.element?.querySelector('input[data-filter="search"]');
+    return {
+        open: !!app?.rendered, tab: app?.tabGroups.primary ?? null, lastTab: game.settings.get(mod, "ui.lastTab"),
+        fundsShown: !!app && getComputedStyle(app.element.querySelector(".workshop-funds")).display !== "none",
+        active: { tag: active?.tagName ?? null, filter: active?.dataset?.filter ?? null, op: active?.dataset?.op ?? null,
+            orderId: active?.dataset?.orderId ?? active?.closest?.("[data-order-id]")?.dataset.orderId ?? null,
+            inDetail: !!active?.closest?.(".order-detail"), caret: active?.selectionStart ?? null, value: active?.value ?? null },
+        search: search?.value ?? null, rows: [...(app?.element?.querySelectorAll(".order-row") ?? [])].map((r) => ({ id: r.dataset.orderId, tabIndex: r.tabIndex })),
+        paused: game.paused,
+    };
+}
+
+/** In the page: the Workshop's position (a width), or its detach and attach; returns its window and size. */
+async function pageWorkshop({ mod, width = null, detach = false, attach = false }) {
+    const app = foundry.applications.instances.get(mod);
+    if (width) app.setPosition({ width });
+    if (detach) await app.detachWindow();
+    if (attach) await app.attachWindow();
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    return { width: app.element.offsetWidth, detached: !!app.window.windowId, sameDocument: app.element.ownerDocument === document };
+}
+
+/** In the page: the open request forms and dialogs, and the browser window each is in. */
+function pageWindows({ mod }) {
+    const apps = [...foundry.applications.instances.values()];
+    const where = (app) => (app.element?.ownerDocument === document ? "main" : "detached");
+    return {
+        forms: apps.filter((a) => a.id.startsWith(`${mod}-request-`)).map((a) => ({ id: a.id, in: where(a), item: !!a.element.querySelector(".request-drop.filled"),
+            search: a.element.querySelector('input[name="search"]')?.value ?? null })),
+        dialogs: apps.filter((a) => a instanceof foundry.applications.api.DialogV2).map((a) => ({ id: a.id, in: where(a) })),
+    };
+}
+
+/** In the page: close the request forms and dialogs. */
+async function pageCloseWindows({ mod }) {
+    for (const app of [...foundry.applications.instances.values()]) {
+        if (app.id.startsWith(`${mod}-request-`) || app instanceof foundry.applications.api.DialogV2) await app.close();
+    }
+    return true;
+}
+
+/**
+ * In the page: the Workshop's cards of orders that still exist (a card of an order gone keeps its summary) and the check
+ * augments in the chat log, and whether each card shows its live part.
+ */
+function pageChat({ mod, order }) {
+    const log = ui.chat.element.querySelector(".chat-log");
+    const api = game.modules.get(mod).api;
+    const cards = [...log.querySelectorAll(`.${mod}-card`)].filter((c) => api.orders.get(c.dataset.pf2eArtisansWorkshopOrder));
+    const live = cards.filter((c) => c.querySelector(".card-buttons"));
+    const augments = [...log.querySelectorAll(`.${mod}-augment`)];
+    const settle = log.querySelector(`.message [data-${mod}-op="settle"]`);
+    const ids = [...log.querySelectorAll(".message")].map((m) => m.dataset.messageId);
+    const sorted = ids.map((id) => game.messages.get(id)?.timestamp ?? 0);
+    return { cards: cards.length, live: live.length, augments: augments.length, settle: !!settle,
+        inOrder: sorted.every((t, i) => i === 0 || t >= sorted[i - 1]), order };
+}
+
+/**
+ * The window driven like a user, with real clicks and keys (10.9; the M4 review's findings): the tabs by mouse and arrow
+ * keys; typing on in the Queue's and the request form's searches after their re-renders; focus kept on a filter, an
+ * order row and a detail button through a store refresh; the narrow tier's tab names; chat cards with their live part
+ * and the Settle button after a reload; a detached Workshop opening the request form and a dialog in its own window;
+ * and a button in the detail drawer acting on its order.
+ */
+async function m4Ui(h, w) {
+    await resetWorld(h, w);
+    await h.evaluate("gm", pageStoreItem, { mod: MOD, uuid: LAB }, "an alchemist's lab in the strongbox");
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    const seeded = await h.step("gm", "m4", "seed", {
+        products: [ELIXIR, HEALING_POTION, ALCHEMISTS_FIRE, ANTIDOTE], crafter: w.pcs.p1.uuid, requester: w.pcs.p2.uuid, other: w.pcs.p1.uuid,
+    });
+    const own = await h.step("p1", "m4", "request", { product: ELIXIR, quantity: 1, crafter: w.pcs.p1.uuid });
+    await h.step("p1", "m4", "pledge", { order: own.order, cp: 150 });
+    await h.step("p1", "m4", "start", { order: own.order });
+    await h.step("p1", "m4", "work", { order: own.order, until: "check" });
+    const rolled = await h.step("p1", "m4", "roll", { order: own.order });
+    h.check("Player One's own order is rolled, for the chat checks", rolled.recorded === true, rolled);
+    const focus = () => h.evaluate("p1", pageFocus, { mod: MOD });
+    const { page } = h.clients.get("p1");
+    const errorsBefore = h.console.filter((c) => c.client === "p1" && c.type === "pageerror").length;
+
+    await h.step("p1", "m4", "open", { tab: "queue" });
+    await page.click("#pf2e-artisans-workshop-tab-funds");
+    await sleep(500);
+    const clicked = await focus();
+    h.check("a click on the Funds tab shows the Funds tab, and remembers it", clicked.tab === "funds" && clicked.fundsShown && clicked.lastTab === "funds", clicked);
+    await page.focus("#pf2e-artisans-workshop-tab-funds");
+    await page.keyboard.press("ArrowUp");
+    await sleep(500);
+    const keyed = await focus();
+    h.check("ArrowUp on the tabs moves to the Queue tab", keyed.tab === "queue" && !keyed.fundsShown, keyed);
+
+    await page.click('input[data-filter="search"]');
+    await page.keyboard.type("Eli");
+    await sleep(900);
+    await page.keyboard.type("xir");
+    await sleep(900);
+    const typed = await focus();
+    h.check("the Queue search keeps focus and the caret through its re-render", typed.search === "Elixir" && typed.active.filter === "search" && typed.active.caret === 6, typed);
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Backspace");
+    await sleep(900);
+
+    await page.focus(".order-row");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    const third = (await focus()).active.orderId;
+    await h.step("p1", "m4", "deposit", { cp: 1 });
+    await sleep(1200);
+    const afterRow = await focus();
+    h.check("a store refresh leaves focus on the order row it was on, and that row the tab stop", afterRow.active.orderId === third && afterRow.active.tag === "LI"
+        && afterRow.rows.filter((r) => r.tabIndex === 0).map((r) => r.id).join() === third, { third, afterRow });
+    await page.focus('select[data-filter="status"]');
+    await page.keyboard.press("ArrowDown");
+    await sleep(900);
+    const afterSelect = await focus();
+    h.check("changing a filter with the keyboard keeps focus on it", afterSelect.active.filter === "status", afterSelect);
+    await page.keyboard.press("ArrowUp");
+    await sleep(900);
+
+    await page.click(`li[data-order-id="${own.order}"] button[data-action="select"]`);
+    await sleep(800);
+    await page.focus('aside.order-detail button[data-op="settle"]');
+    await h.step("p1", "m4", "deposit", { cp: 1 });
+    await sleep(1200);
+    const afterDetail = await focus();
+    h.check("a store refresh leaves focus on the detail's button", afterDetail.active.inDetail && afterDetail.active.op === "settle", afterDetail);
+
+    await page.click('button[data-action="request"]');
+    await sleep(1200);
+    await page.click('.workshop-request input[name="search"]');
+    await page.keyboard.type("elix");
+    await sleep(1400);
+    await page.keyboard.type("ir");
+    await sleep(1400);
+    const form = await h.evaluate("p1", pageWindows, { mod: MOD });
+    h.check("the request form's search keeps the caret through its re-render", form.forms[0]?.search === "elixir", form);
+    await page.keyboard.press("Enter");
+    await sleep(1400);
+    const picked = await h.evaluate("p1", pageWindows, { mod: MOD });
+    h.check("Enter in the request form's search picks the first match", picked.forms[0]?.item === true, picked);
+    await h.evaluate("p1", pageCloseWindows, { mod: MOD });
+
+    const narrow = await h.evaluate("p1", pageWorkshop, { mod: MOD, width: 700 });
+    const names = await page.getByRole("tab", { name: "Funds" }).count() + await page.getByRole("tab", { name: "Queue" }).count();
+    h.check("in the narrow tier the tab buttons keep their names", narrow.width <= 720 && names === 2, { narrow, names });
+    await h.evaluate("p1", pageWorkshop, { mod: MOD, width: 1100 });
+
+    const popupOpened = page.context().waitForEvent("page", { timeout: 15000 }).catch(() => null);
+    const detached = await h.evaluate("p1", pageWorkshop, { mod: MOD, detach: true });
+    const popup = await popupOpened;
+    let formWindows = null;
+    if (popup) {
+        await popup.waitForLoadState().catch(() => {});
+        await sleep(800);
+        await popup.click('button[data-action="request"]').catch((error) => h.check("click Request in the detached window", false, error.message));
+        await sleep(1200);
+        formWindows = await h.evaluate("p1", pageWindows, { mod: MOD });
+        await h.evaluate("p1", pageCloseWindows, { mod: MOD });
+        await popup.click('.order-row button[data-action="pledge"]').catch((error) => h.check("click Pledge in the detached window", false, error.message));
+        await sleep(1200);
+    }
+    const windows = await h.evaluate("p1", pageWindows, { mod: MOD });
+    h.check("a detached Workshop opens the request form and the pledge dialog in its own window", !!popup && detached.detached
+        && formWindows?.forms.length === 1 && formWindows.forms[0].in === "detached" && windows.dialogs.length === 1 && windows.dialogs[0].in === "detached",
+    { detached, formWindows, windows });
+    await h.evaluate("p1", pageCloseWindows, { mod: MOD });
+    await h.evaluate("p1", pageWorkshop, { mod: MOD, attach: true });
+
+    await h.close("p1");
+    await h.open("p1");
+    await h.settle("ready", ["p1"]);
+    await sleep(2000);
+    const chatView = await h.evaluate("p1", pageChat, { mod: MOD, order: own.order });
+    h.check("after a reload every Workshop card in the log has its live part, and the check augment its Settle button",
+        chatView.cards > 0 && chatView.live === chatView.cards && chatView.augments > 0 && chatView.settle, chatView);
+
+    const reloaded = h.clients.get("p1").page;
+    await h.step("p1", "m4", "open", { tab: "queue", order: own.order });
+    await reloaded.click('aside.order-detail button[data-op="settle"]');
+    const settled = await h.step("p1", "m4", "state", { order: own.order, ms: 2500 });
+    h.check("the detail drawer's Settle button settles its order", ["finishing", "failed"].includes(settled.order?.status), settled.order);
+    const chatAfter = await h.evaluate("p1", pageChat, { mod: MOD, order: own.order });
+    h.check("the chat log stays in time order as cards are rendered again", chatAfter.inOrder, chatAfter);
+    const errors = h.console.filter((c) => c.client === "p1" && c.type === "pageerror").slice(errorsBefore);
+    h.check("no page errors on Player One's client", errors.length === 0, errors);
+    await h.step("p1", "m4", "close", {});
+    return { seeded: seeded.states, own: own.order, clicked, keyed, typed, afterRow, afterSelect, afterDetail, form, picked, narrow, names, windows, chatView, settled: settled.order?.status };
+}
+
+Object.assign(BEHAVIOURS, {
+    "m4-lifecycle": (h, w) => m4Lifecycle(h, w, { gm: true }),
+    "m4-no-gm": (h, w) => m4Lifecycle(h, w, { gm: false }),
+    "m4-cancel": m4Cancel,
+    "m4-double-delivery": m4DoubleDelivery,
+    "m4-reroll-race": m4RerollRace,
+    "m4-shots": m4Shots,
+    "m4-ui": m4Ui,
+});

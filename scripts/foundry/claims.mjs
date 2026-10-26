@@ -76,6 +76,11 @@ function deliveredSource(item, rowId) {
  * strongbox item a move deletes); the row carries the item's source snapshot; then the shelf item is deleted and
  * the item created on the recipient, flagged with the row so reconciliation can tell whether it arrived.
  *
+ * The apply request starts with the row's re-creation lock (`recreateLockId`), the page a re-creation of a lost
+ * delivery and a close by hand take too (As built in M4, the 5.11 follow-up "item delivered twice"): an apply request
+ * answered late, after the row was re-created or closed, is refused at that page ("taken") instead of creating the
+ * item a second time.
+ *
  * The item is looked up again inside the mutex: a sweep (or the relay) that started earlier may hold an item
  * another delivery has since taken, and pf2e would quietly drop its deletion from the request.
  */
@@ -93,6 +98,7 @@ export function deliver(item, recipient) {
         const batch = lockFirstBatch({
             rowIds: [row.id], lockIds: [row.id, current.id], ledger: { set: { [`rows.${row.id}`]: row } },
             debits: [{ target: "strongbox", plan: { deletes: [current.id] } }], items: [{ target: recipient.uuid, data: [source] }],
+            mark: recreateLockId(row.id),
         });
         const result = await runLockFirst(batch);
         return { ok: result.outcome === "ok", outcome: result.outcome, reason: result.reason, rows: [row] };
@@ -103,7 +109,9 @@ export function deliver(item, recipient) {
  * Finish a delivery whose move stopped after its lock (4.7): if the item reached the recipient only the settle is
  * missing; otherwise re-create it from the row's snapshot, removing the shelf item if it is still there. The
  * delivery's own lock pages exist, so the re-creation takes a lock of its own, `recreate:<row id>`
- * (`recreateLockId`), and happens once; a close of the row by hand takes the same lock, so only one of the two lands.
+ * (`recreateLockId`), and happens once; a close of the row by hand takes the same lock, and so does the delivery's
+ * own apply request, so only one of the three lands. When that page exists already (the delivery's apply request
+ * reached the server and stopped part-way), the re-creation is refused at its lock and the row needs a hand.
  */
 export function finishDelivery(row, recipient) {
     return withCoinMutex(game.user.id, async () => {

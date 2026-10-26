@@ -6,8 +6,10 @@
  * 2. The GM picks what happens to the coins and items first:
  *    - "refunds": a refund claim per member and allocation (each order, each garden, their share of the fund),
  *      keyed `purge-refund:<allocation>:<actor>` so a second run issues none twice, and carrying its order or
- *      garden so the refund pays that allocation back. The owners' clients apply them as usual (or this GM's,
- *      for offline owners). The purge stops there; the GM runs it again once they are collected.
+ *      garden so the refund pays that allocation back; less what an open refund claim of a cancel or a finish
+ *      already owes for it (`unclaimedAllocations`), so nobody is paid twice. The owners' clients apply them as
+ *      usual (or this GM's, for offline owners). The purge stops there while anything is owed or any refund claim
+ *      is open; the GM runs it again once they are collected.
  *    - "party": everything in the strongbox moves to the pf2e party actor's stash.
  *    - "keep": nothing moves.
  * 3. Then it turns the master switch off, so every client stops writing (and none re-creates what is about to
@@ -20,7 +22,7 @@
 import { MODULE_ID } from "../constants.mjs";
 import { idemKey } from "../logic/ids.mjs";
 import { openClaims } from "../logic/claims.mjs";
-import { memberBalances } from "../logic/reconcile.mjs";
+import { memberBalances, unclaimedAllocations } from "../logic/reconcile.mjs";
 import { runRequest } from "./batch.mjs";
 import { createClaims } from "./claims.mjs";
 import { internal } from "./guards.mjs";
@@ -50,11 +52,13 @@ function summary() {
     const { byActor, byAllocation, unassignedCp } = memberBalances(records("rows"));
     const items = strongbox ? [...strongbox.items] : [];
     const flagged = (key) => items.filter((i) => i.flags?.[MODULE_ID]?.[key]).length;
+    const open = openClaims(read("claims"));
     return {
         balances: byActor.map(({ actor, cp }) => ({ name: fromUuidSync(actor)?.name ?? actor, actor, cp })),
         byActor, byAllocation, unassignedCp,
+        unclaimed: unclaimedAllocations(byAllocation, open), refundsOpen: open.filter((claim) => claim.kind === "refund").length,
         shelf: flagged("shelf"), earmarked: flagged("earmark"), items: items.length,
-        claims: openClaims(read("claims")).length,
+        claims: open.length,
     };
 }
 
@@ -108,12 +112,15 @@ function refundKey({ actor, order, garden }) {
     return idemKey("purge-refund", allocation, actor);
 }
 
-/** Issue the refund claims of the "refunds" choice; report how many are new and how many still wait. */
-async function issueRefunds(byAllocation) {
-    const claims = await createClaims(byAllocation.map(({ actor, order, garden, cp }) => ({
+/**
+ * Issue the refund claims of the "refunds" choice for what no open claim owes yet (`unclaimedAllocations`); report how
+ * many are new and how many refunds, the purge's or a cancel's or a finish's, still wait to be collected.
+ */
+async function issueRefunds(unclaimed) {
+    const claims = await createClaims(unclaimed.map(({ actor, order, garden, cp }) => ({
         kind: "refund", idem: refundKey({ actor, order, garden }), actor, cp, order, garden, parties: [actor],
     })));
-    const waiting = openClaims(read("claims")).filter((claim) => claim.idem.startsWith("purge-refund:")).length - claims.length;
+    const waiting = openClaims(read("claims")).filter((claim) => claim.kind === "refund").length - claims.length;
     ui.notifications.info("pf2e-artisans-workshop.Purge.RefundsIssued", { format: { count: String(claims.length), waiting: String(waiting) } });
 }
 
@@ -125,8 +132,8 @@ async function issueRefunds(byAllocation) {
 export async function runPurge({ returns, chat = false, settleMs = PURGE_SETTLE_MS }) {
     if (!game.user.isGM) throw new Error(`${MODULE_ID} | only a GM can purge`);
     const info = summary();
-    if (returns === "refunds" && info.byAllocation.length) {
-        await issueRefunds(info.byAllocation);
+    if (returns === "refunds" && (info.unclaimed.length || info.refundsOpen)) {
+        await issueRefunds(info.unclaimed);
         return "refunds";
     }
     const docs = shared();

@@ -4,7 +4,7 @@
  *
  *   npm run harness:live -- [--url http://localhost:30000] [--chromium <browser binary>]
  *                           [--scenarios 1,2,3,3b,3c,7,7b,9] [--runs 2] [--behaviours all|none|<id>,...]
- *                           [--out <dir>] [--headed] [--canvas]
+ *                           [--out <dir>] [--headed] [--canvas] [--shots <dir>]
  *
  * The world must exist and be running with this checkout symlinked into `Data/modules`, the module's hidden `dev`
  * setting on, the fixture actors built, and users without passwords. `live-plans.mjs` prepares the rest (the
@@ -33,7 +33,7 @@
  * batch the server refused, DESIGN.md 5.4). Instrumentation is added by an init script in each page; it observes
  * and changes nothing. Meanwhile the server's `/api/status` is polled, and every slow answer is recorded.
  */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -128,6 +128,9 @@ export class Harness {
         this.console = [];          // console lines and page errors of every page
         this.pageLog = [];          // notifications and dry-run hooks, taken from the pages
         this.stalls = [];           // moments the server took more than STALL_MS to answer /api/status
+        this.shots = [];            // screenshots taken (`screenshot`)
+        this.styleAdded = new Set(); // clients whose page the harness gave the module's stylesheet (`ensureStyles`)
+        this.shotsDir = join(tmpdir(), `${MODULE_ID}-shots`);
     }
 
     /**
@@ -215,12 +218,56 @@ export class Harness {
         const client = { name, role, device, page };
         page.on("console", (message) => this.onConsole(client, message));
         page.on("pageerror", (error) => this.console.push({ label: this.label, client: name, type: "pageerror", text: error.message, at: Date.now() }));
+        page.on("response", (response) => {
+            if (response.status() >= 400) this.console.push({ label: this.label, client: name, type: "http", text: `${response.status()} ${response.url()}`, at: Date.now() });
+        });
         const started = Date.now();
         await page.goto(`${this.url}/game`);
         await page.waitForFunction(harnessReady, MODULE_ID, { timeout: READY_TIMEOUT_MS, polling: 100 });
         client.readyMs = Date.now() - started;
+        client.styleAdded = await this.ensureStyles(page);
+        if (client.styleAdded) this.styleAdded.add(name);
         this.clients.set(name, client);
         return client;
+    }
+
+    /**
+     * The module's stylesheet, added to the page if the server did not link it. Foundry links a module's `styles` from
+     * the manifest it read when the world was launched (`global.game.world.modules`, `dist/server/views/view.mjs`), so a
+     * world launched before `module.json` named the stylesheet serves pages without it until it is launched again. The
+     * harness adds the same file the manifest names, so the window looks as it will; the run's results say whether it
+     * had to (`styleAdded` on each client, and a check in the screenshot plan).
+     * @returns {Promise<boolean>} whether it was added
+     */
+    async ensureStyles(page) {
+        const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "../../module.json"), "utf8"));
+        let added = false;
+        for (const style of manifest.styles ?? []) {
+            const path = `modules/${MODULE_ID}/${typeof style === "string" ? style : style.src}`;
+            const linked = await page.evaluate((href) => [...document.querySelectorAll("link[rel=stylesheet]")].some((l) => l.href.includes(href)), path);
+            if (!linked) {
+                await page.addStyleTag({ url: `${this.url}/${path}` });
+                added = true;
+            }
+        }
+        return added;
+    }
+
+    /**
+     * A screenshot of a client's page at a viewport size, saved as `<shotsDir>/<file>`; the viewport goes back to the
+     * harness's own size afterwards. `prepare` runs once the page has the new size (to open the window at it).
+     */
+    async screenshot(name, file, { width, height }, prepare = null) {
+        const client = this.clients.get(name) ?? await this.open(name);
+        mkdirSync(this.shotsDir, { recursive: true });
+        await client.page.setViewportSize({ width, height });
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const prepared = prepare ? await prepare() : null;
+        const path = join(this.shotsDir, file);
+        await client.page.screenshot({ path });
+        this.shots.push({ label: this.label, client: name, file: path, width, height, prepared });
+        await client.page.setViewportSize(VIEWPORT);
+        return path;
     }
 
     /** Close a client's tab, and its device once it has no tab left (that user's socket goes away). */
@@ -366,6 +413,7 @@ async function main() {
             out: { type: "string", default: join(tmpdir(), `${MODULE_ID}-live-${new Date().toISOString().replace(/[:.]/g, "-")}`) },
             headed: { type: "boolean", default: false },
             canvas: { type: "boolean", default: false },
+            shots: { type: "string", default: "" },
         },
     });
     const scenarios = values.scenarios === "none" ? [] : values.scenarios.split(",");
@@ -374,10 +422,12 @@ async function main() {
     for (const id of behaviours) if (!BEHAVIOURS[id]) throw new Error(`no behaviour check ${id} (have ${Object.keys(BEHAVIOURS).join(", ")})`);
 
     const h = new Harness({ url: values.url, executablePath: values.chromium, headed: values.headed, canvas: values.canvas });
+    h.shotsDir = values.shots || join(values.out, "shots");
     const report = { url: values.url, started: new Date().toISOString(), runs: [] };
     mkdirSync(values.out, { recursive: true });
     const file = join(values.out, "results.json");
-    const save = () => writeFileSync(file, JSON.stringify({ ...report, records: h.records, checks: h.checks, console: h.console, pages: h.pageLog, stalls: h.stalls }, null, 2));
+    const save = () => writeFileSync(file, JSON.stringify({ ...report, records: h.records, checks: h.checks, console: h.console, pages: h.pageLog, stalls: h.stalls,
+        shots: h.shots, styleAdded: [...h.styleAdded] }, null, 2));
 
     await h.start();
     const stopWatch = h.watchServer();
