@@ -4831,6 +4831,22 @@ draft; the letters keep the existing milestone numbers stable.
 | M12 | Hardening | full section 15 matrix, performance, pre-release to a test table by manifest URL; the first pre-release run at a real table hosted on the Forge is the Forge smoke test (15.6) | M10, M11 |
 | M13 | Listing | author rewrites every string, README and description; sign-off gate passes; notices final; release workflow dry run; listing submission; 1.0.0 | M12 |
 
+### 17.1 Scheduled task: README screenshots
+
+- **When:** a first pass right after M5's live pass; refreshed whenever a milestone adds a tab, and a mandatory
+  refresh at M13 after the author's strings rewrite (until then the captures show draft wording).
+- **How:** `npm run screenshots` (`tools/harness/screenshots.mjs`, reusing `run-live.mjs`) stages a demo party
+  with generic character names (no fixture labels, no real player's character), orders in several states and
+  some funds, then captures the Workshop window cropped to its frame: Queue, an order's detail, the request form,
+  Funds, and Formulas once M5 lands. Dark theme at 1440x900, plus one light capture.
+- **Where:** `docs/screenshots/`, which the release zip leaves out; the asset check (16.5) allows that folder
+  only. README gets a Screenshots section that links them.
+- **Policy:** captures of the module's own UI are not AI-generated images, so Foundry's AI Content Policy
+  permits them.
+- **Open question for the author:** pf2e item icons appear in the captures. They come from the pf2e system,
+  which uses Paizo material under its own agreement; other pf2e modules show them in their READMEs. Accept that,
+  or stage the demo orders with items whose icons are generic.
+
 ---
 
 ## 18. Open questions
