@@ -190,7 +190,7 @@ Target: a `verified` bump within a week of each pf2e release. Upstream issues wo
 | Per-PC downtime status | Workshop ledger `pcs.<actorId>` | the PC's owner | actor id |
 | Downtime-day record | Workshop ledger `days` | the resolving client: the PC's owner or the wizard runner (9.2) | `<actorId>-<day>`; variant records `<actorId>-<day>-<orderId>` (4.8) |
 | Manual day log | Workshop ledger `meta.manual.<runId>` | the wizard runner (9.2) | random id |
-| Lock page | JournalEntryPage in the Workshop ledger | created first in every batch that moves coins, items or formulas (5.4); pruned when its row is archived | id of the row it locks |
+| Lock page | JournalEntryPage in the Workshop ledger | created first in every batch that moves coins, items or formulas (5.4); pruned when its row is archived | id of what it locks: a row, a strongbox item, a purse coin stack at one version (5.4) |
 | Earn Income job | Workshop ledger `jobs` | the earner's owner | random id |
 | Roster snapshot | Workshop ledger `roster.<actorId>` | the PC's responsible client | actor id |
 | Standing order | Workshop ledger `standing` | requester, crafter | random id |
@@ -206,9 +206,20 @@ Target: a `verified` bump within a week of each pf2e release. Upstream issues wo
 | Gift binding | flags on the item (6.16.8) | the item's owner | item |
 | Extension data | Workshop ledger `ext.<moduleId>` | the extension, same rules | extension-defined |
 
-Every record carries `by` (user id) and `at` (`{world: worldTime seconds, real: Date.now()}`) for the
-last write. Ids are random (16 lowercase alphanumerics, so they are safe inside roll options) or
+Every record carries `by` (user id) and `at` (`{world: worldTime seconds, real: Date.now(), server:
+game.time.serverTime}`) for the last write. `real` is the author's own clock, for display; ages and timeouts
+compare `server` (the server's clock as the author's client tracks it, falling back to `real` for older stamps)
+with the reader's `game.time.serverTime`, so two machines' clocks are never compared (`stampTime`,
+`scripts/logic/core.mjs`). Ids are random (16 lowercase alphanumerics, so they are safe inside roll options) or
 16-character hashes of an idempotency key; flag keys never contain dots.
+
+As built in M2 (`scripts/logic/ids.mjs`): a random id maps 32-bit values from `crypto.getRandomValues` onto
+36 lowercase letters and digits, rejecting biased values as Foundry's `randomID` does. A hash id is two
+64-bit FNV-1a hashes of the key (with two offset bases) joined into one 128-bit number, written in base 36,
+last 16 digits. Both are valid Foundry document ids (16 characters of `[a-zA-Z0-9]`, Foundry 14.368
+`common/data/validators.mjs` `isValidId`), which is what lets a row's id name its lock page (5.4). `idemKey`
+joins a key's parts with `:` and refuses a part that is empty or contains `:`, so two operations never
+share a key.
 
 ### 4.2 Order: one Craft activity
 
@@ -465,6 +476,20 @@ rows.<id> = {
   garden's) rows: the sum of `alloc` per `actor`, null for the party fund, ordered by first positive
   contribution (world time, then real time, then row id in code-point order); contributors with nothing
   left are omitted.
+- **As built in M2** (`scripts/logic/rows.mjs`, `scripts/foundry/money.mjs`). `makeRow` turns a `{kind, cp}`
+  row into the stored shape: the signed amounts of the table, `id` the hash of `idem`, `v: 1` and
+  `state: "pending"`. Where the table leaves a sign open the caller says how: `allocate` takes `side`
+  ("fund" is −n, "order" +n), `purchase` and `income` take `via` ("purse" or "box"); income paid into a purse
+  allocates nothing (the table's "+n fund" can only hold for coins that reach the strongbox). `adjust` and
+  `carry` carry explicit signed amounts. A spend split across contributors is one row per contributor
+  keyed `<stem>:<actor UUID, or fund>` (for example `expend:<orderId>:<attempt>:<seq>:Actor.x`), and
+  `seqFor(rows, stem)` counts the reversed rows whose key starts with `<stem>:` (those `liveRows` leaves out),
+  so undoing a spend shared by two contributors raises the next `seq` by two; every client still derives the
+  same key. Kinds that move nothing (`BOOKKEEPING_KINDS`: commit, release, allocate, adjust, carry) are written
+  by one key-path write, already `applied`, without a lock page; every other kind moves coins or items
+  (`material-in`, `material-out` and `delivered` record item movements, 4.1) and is written by a lock-first
+  batch together with what it moves (5.4). A reversal is keyed `reversal:<row id>`. Every ordering of rows and
+  claims by time uses one comparator, `compareRows` (`scripts/logic/core.mjs`), so clients cannot disagree.
 
 ### 4.7 Strongbox and pickup shelf
 
@@ -485,6 +510,19 @@ rows.<id> = {
   the recipient (5.5).
 - **Alternative.** If every player already owns the pf2e Party actor, a world setting can use its stash
   as the strongbox instead (pf2e #12645 confirms the stash needs Owner).
+- **As built in M2** (`scripts/logic/reconcile.mjs`, `scripts/foundry/reconcile.mjs`, `claims.mjs`). The
+  report gives expected and actual coins, their difference, the pending rows, `stalled`: those pending
+  longer than `PENDING_GRACE_MS` (60 s, by the server's clock, 4.1), since a younger one may belong to a batch
+  still in flight on another client, and `lockedStacks`: strongbox coin stacks a move locked to spend but that
+  are still there (it stopped part-way); no move plans with them again (5.4), so a GM resolves them. A GM's
+  `adjust` row books the difference into the strongbox and the party fund; its key comes from the state it
+  corrects (the expected and actual coins and the ids of every row, `adjustNonce`), so two GMs, or a double
+  click, booking the same difference write one row. Each user hears once per session about their own stalled
+  rows. A stalled `delivered` row is finished by the recipient's responsible client: settled if the item
+  (flagged `flags.MOD.delivered.row`) arrived, otherwise re-created from the snapshot in the row
+  (`items[0].source`), with the shelf item deleted in the same move if it is still there. The delivery's own
+  lock pages exist, so the re-creation locks `recreate:<row id>` (hashed), and happens once. The Party-stash alternative is not built yet: the party's own coins would share the stash
+  with the Workshop's, which changes what reconciliation compares, so it comes with the Funds tab (M4).
 
 ### 4.8 Downtime: workshop days, per-PC status and day records
 
@@ -559,6 +597,15 @@ rendered for players (the data is still in the shared document; this is a displa
 cooperative trust model). The snapshots are published as described here; the author accepted that
 trade-off. Orders, funding and progress bars are always shown to every member.
 
+As built in M2 (`scripts/logic/roster.mjs`, `scripts/foundry/roster.mjs`): the snapshot also carries `id` and
+`v`, and its lists are sorted, so the same character always gives the same snapshot. It is written whole
+with `_replace` (a merge would keep keys that disappeared), one second after the last change to the actor
+or its items, and not at all when only `updatedAt` and `by` would change. Skills are every skill the
+character is trained in or better, since Earn Income may use any; feats are those whose slug is in `FEAT`
+(`scripts/logic/core.mjs`) until the registry (M3) names them, a choice feat by its base slug;
+`consumables` stays empty until M8. Members follow the `members` setting (14.1). Snapshots of characters
+that stop being members are not removed yet.
+
 ### 4.11 Daily loadouts and standing orders
 
 - **Loadout** (PC actor flags, owner only): `loadouts.<id> = {name, pools: {<abilitySlug>: [{family,
@@ -601,6 +648,19 @@ entries.
 - Actor-flag data (loadouts, expiry stamps) is upgraded lazily on read and rewritten by its owner on
   the next write.
 
+As built in M2 (`scripts/logic/migrations.mjs`, `scripts/foundry/migrate.mjs`): `SCHEMA_VERSION` is 1 and
+`migrate1` changes nothing; a document without `schema` reads as 0. A migration gets the document's whole
+`flags.MOD` and returns the new object; the difference is written leaf by leaf (`keyPathDiff`), never the
+object whole (P3). Both shared documents carry `schema` and both are migrated. The lock is a lock page
+`migration:<to>` (hashed to an id) created with `keepId`, so the server lets only one client have it;
+`meta.migration` is then written as the visible marker and deleted at the end. A lock whose holder has
+disconnected and that is older than five minutes is broken and taken again. The elected client must also
+hold its user's lease (5.6). Waiting clients are `migrating` and re-check on every ledger change, when a user
+connects or disconnects (the migrating client may be the one that left), and every minute
+(`MIGRATION_RECHECK_MS`), so a lock left by a client that died is broken once it is five minutes old by the
+server's clock (4.1), even if nothing else changes. A client whose code is older is `newer` (read-only), and
+says so once per session (`scripts/foundry/state.mjs`, `sync.mjs`).
+
 ---
 
 ## 5. Storage, permissions and sync
@@ -612,7 +672,7 @@ entries.
 | World settings | world | feature toggles, rules-gap settings, settlement profiles, ids of the shared documents | GM and assistant GMs (`SETTINGS_MODIFY`) |
 | **Workshop ledger** | a JournalEntry created by the module, default ownership OWNER, in a "module data" folder | `meta` (current settlement, manual day log, day offset, archive and migration locks), `orders`, `services`, `rows`, `claims`, `pcs`, `days`, `jobs`, `roster`, `formulas`, `standing`, `gardens`, `afflictionDefs`, `ext` | every player |
 | Ledger archive pages | JournalEntryPages inside the ledger | archived orders, rows and day records as flags | every player (page creation needs OWNER of the parent journal, which players have) |
-| Lock pages | JournalEntryPages inside the ledger, `_id` = the id of the row they lock | nothing; their existence is the lock (5.4) | every player |
+| Lock pages | JournalEntryPages inside the ledger, `_id` = the id of what they lock (a row, a strongbox item, a purse coin stack at one version) | nothing; their existence is the lock (5.4) | every player |
 | **Strongbox** | a pf2e `loot` Actor created by the module, then updated to default ownership OWNER (5.2) | escrowed coins, earmarked materials, shelf items | every player |
 | PC actor flags | each character | loadouts, per-character preferences | the PC's owner |
 | Item flags | items | expiry stamps, inert marks, DC stamps, affix records, crafted-by stamp, coatings, affliction run state, components, gift bindings | the item's owner |
@@ -635,9 +695,9 @@ entries.
   lets LIMITED users update only on the client, so a LIMITED strongbox would show players working
   controls that then fail on the server. The GM client therefore creates the strongbox and immediately
   calls `strongbox.update({"ownership.default": CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER})`; pf2e's
-  override runs only at creation, so the update stands. On every GM `ready` the module checks that the
-  default is still OWNER and repairs it if not. Until then, a non-OWNER strongbox counts as "shared
-  documents missing" (the read-only banner below). Re-creation follows the same steps, and a harness
+  override runs only at creation, so the update stands. Once per session the active GM's client checks that
+  the default is still OWNER and repairs it if not, telling the GM. Until then, a non-OWNER strongbox counts
+  as "shared documents missing" (the read-only banner below). Re-creation follows the same steps, and a harness
   assertion covers it (15.3).
 - Creation writes `flags.MOD.role = "ledger"` or `"strongbox"` and stores both ids in a world setting.
   Clients find the documents by id, falling back to the role flag. If two exist (for example two GMs
@@ -649,6 +709,26 @@ entries.
 - Deletion guard: a `preDeleteJournalEntry` / `preDeleteActor` hook on every client cancels deletion of
   a shared document by a non-GM and explains why. A GM deleting one gets a confirmation that offers the
   purge flow (5.9) instead.
+- **As built in M2** (`scripts/foundry/shared-docs.mjs`, `guards.mjs`, `sync.mjs`). Only the active GM's tab
+  holding its user's lease creates the documents, whichever GM turned the switch on: a world setting's
+  `onChange` runs on every client, and every client then re-checks, so the toggling GM (an assistant, or the
+  higher-id of two GMs) and the active GM would otherwise both create them. On that client a second call while
+  one is creating waits for it. Without Web Locks (plain http) every tab of the active GM holds the lease, so
+  two of its tabs can still create two copies; the oldest-wins rule and the duplicate warning below cover that.
+  The documents get random ids: a fixed id would stop re-creation after a purge that kept the strongbox as an
+  ordinary loot actor. With the switch off a GM's `ready` writes nothing. Ownership is repaired once per session
+  (and at creation), not on every check, so a GM who restricts a document on purpose is not overruled
+  within the second; per-user entries are left alone. A client whose own user has less than OWNER on either
+  document (a GM can set that per player, and Foundry reads the user's entry before the default) also counts as
+  "missing" and only reads, since the server would refuse its writes. The ledger goes in
+  a JournalEntry folder flagged `role: "folder"`; the strongbox stays at the root of the actors directory.
+  Clients look the documents up by role flag, oldest first (`_stats.createdTime`, then id), so a two-GM race
+  resolves the same way on every client; the active GM keeps the `docs` setting in step as the record of
+  the ids. Each GM hears about a duplicate once per session; merging is by hand for now. "Missing" is a
+  client status that the Workshop window (M4) shows as the banner. The guards also cover the ledger's pages
+  (lock and archive pages), which only the module deletes; its own deletions pass
+  `{"pf2e-artisans-workshop": {internal: true}}` in the operation options. A GM's confirmation offers the
+  purge, deleting just that document, or cancelling.
 
 ### 5.3 Partial updates and concurrency
 
@@ -667,6 +747,17 @@ quantity, is an absolute value computed from the writer's local copy. Two client
 number lose one of the additions. The module therefore never stores a running total in shared data:
 totals are derived from keyed records (4.2.1, 4.8), and strongbox coins follow the create-only rule in
 5.4.
+
+As built in M2 (`scripts/logic/keypath.mjs`, `scripts/foundry/store.mjs`): the store is `read(path)`,
+`records(collection)` (live records only), `exists(path)` and `write({set, replace, del})`; `extStore(moduleId)`
+is the extension store of 12.4 over it. A path starts with a known ledger key and reaches at least a record:
+`rows.<id>`, `meta.<key>`, `meta.manual.<runId>`, `formulas.<actorId>.<hash>`, `ext.<moduleId>.<key>`.
+Segments are letters, digits, `_` and `-`, so the `-=` and `==` keys cannot be written either. `replace`
+uses Foundry's `_replace` (no merge) and `del` uses `_del`. Writes go out with `diff: false`: otherwise the
+client drops a `_del` for a key its own copy lacks, and any key whose value it already holds (`diffObject`,
+Foundry 14.368 `common/utils/helpers.mjs`), while the server merges whatever it receives into its own
+current copy (`ObjectField#_updateDiff`, `common/data/fields.mjs`). A write is refused unless the client's
+status is "ready" (5.2, 4.14) and it is not stale (5.4).
 
 #### 5.3.2 Same-key collisions
 
@@ -694,6 +785,10 @@ Archiving is a timer-driven write, so it follows P4:
 - A reversal of an archived row writes to the archive page, not to the live key.
 - Lock pages (5.4) whose rows are archived are deleted in the same batch.
 
+As built in M2: archiving is not built yet. It needs the order lifecycle (M4) and the workshop day (M6) to
+know what is old; when it comes it also prunes the stack lock pages of 5.4 (strongbox stacks that are gone,
+purse stack versions that have moved on).
+
 ### 5.4 Moving coins safely
 
 pf2e's `inventory.addCurrency` and `removeCurrency` each make their own writes, so they cannot be part
@@ -715,7 +810,9 @@ results.
      the batch's creations, and creates any change as new items;
    - the planner never updates an existing strongbox coin quantity, and reconciliation tolerates the
      resulting stacks and any stacking the loot sheet does by hand.
-   On the purse, an actor written only by its owner's clients, ordinary quantity updates are used.
+   On the purse, ordinary quantity updates are used, each locked at the stack's version (step 3): its owner
+   can still write it from two devices or two tabs, two players can own one character, and a GM can move a
+   player's coins, so two moves planned from the same coins must not both land.
    As built in M1 (`scripts/logic/coins.mjs`): a plan is `{updates, deletes, creates}` over stacks
    `{id, denomination, quantity}` in item order, wherever they are. The amount's own denominations, which
    pf2e's first step removes, are its gp, sp and cp as pf2e's `Coins.normalized()` writes them (never pp),
@@ -729,23 +826,90 @@ results.
    change. A pledge lot holds the amount in gp, sp and cp, not the purse's own coins. `planSpend` pairs one
    strongbox debit with the pro-rata shares of 4.6 ("debits across contributors").
 2. **Fast path.** The acting client checks that the row's idempotency key is not already present.
-3. **Lock first.** One `foundry.documents.modifyBatch` call holds, in this order:
-   1. the lock operation: create a lock page in the ledger whose `_id` is the id of the coin-moving row
-      the batch writes, with `keepId` (the server refuses a second page with the same id, under the
-      collection's semaphore). The row id is the hash of its idempotency key, so a claim and a direct
-      move for the same key (a wage day resolved by the earner and by a wizard runner) share one lock. A
-      delivery deletes its shelf item instead, and strongbox coin deletions lock as well, since an item
-      cannot be deleted twice;
-   2. the ledger rows, with `state: "pending"`;
-   3. the item and coin operations on the purse and the strongbox, and other ledger keys.
-   A losing duplicate fails at its first operation, in the dry run or in the real pass, before any coins
-   move. A batch that stops part-way leaves a pending row whose lock is already held; its author's
-   client completes the remaining operations, or a GM books an `adjust`.
-4. **Settle.** When the batch resolves, the rows are set to `"applied"`. Reconciliation (4.7) lists
-   rows still pending and balance mismatches, for the author to retry or a GM to `adjust`.
+3. **Lock first.** Two `foundry.documents.modifyBatch` requests, the second sent once the first applied:
+   1. the lock request: create lock pages in the ledger, with `keepId` (the server refuses a page whose id
+      exists, under the collection's semaphore), whose `_id`s are the coin-moving rows the move writes,
+      every strongbox item it deletes (coin stacks, or a delivery's shelf item), and every purse coin
+      stack it changes, at that stack's version; then the ledger rows, with `state: "pending"`, and other
+      ledger keys (a claim's `resolved`). The row id is the hash of its idempotency key, so a claim and a
+      direct move for the same key (a wage day resolved by the earner and by a wizard runner) share one
+      lock;
+   2. the apply request: the item and coin operations on the purse and the strongbox, debits first, and
+      last the settle (step 4).
+   A losing duplicate fails at its lock, in the dry run or in the real pass, before any coins move, and
+   leaves nothing behind on either side: the lock request's only other operation is an update, which a
+   refused dry run does not commit on the client either (As built, Dry-run replay). A move that stops
+   after its lock leaves a pending row whose lock is already held; its author or a GM closes it, booking
+   an `adjust` if the coins are not right.
+4. **Settle.** The apply request's last operation sets the rows to `"applied"`. Reconciliation (4.7) lists
+   rows still pending, locked stacks still there, and balance mismatches, for the author to retry or a GM
+   to `adjust`.
 5. **One at a time per user.** Each client runs coin operations behind a local mutex, shared across
    the user's tabs in the same browser through the Web Locks API (`navigator.locks`), so one client
-   never sends a second plan before the first resolves. A failed lock re-plans from fresh data.
+   never sends a second plan before the first resolves. A lost lock is re-planned from fresh data on the
+   next attempt: for a claim, the next sweep, which the winner's `claims` write sets off.
+
+As built in M2 (`scripts/logic/lock-first.mjs`, `scripts/foundry/batch.mjs`, `money.mjs`):
+
+- **Locks.** The lock request creates one lock page per row the move writes, one per strongbox item it deletes,
+  and one per purse coin stack it reduces, raises or deletes, named `stack:<stack id>:<version>` (hashed), the
+  version being the stack's `_stats.modifiedTime`, which the server sets on every write. The server checks
+  every id before it writes any (Foundry 14.368 `dist/database/backend/server-backend.mjs`, `_createDocuments`),
+  so two moves that spend the same strongbox stack for different rows (two refunds at once), or two that change
+  the same purse stack from the same coins (a wage and a pledge from two devices), fail at the lock instead of
+  one overwriting the other's quantity or leaving a pending row with no coins moved. A move planned after the
+  stack changed names a new page. New stacks need no lock. Lock pages stay until archiving prunes them (5.3.3),
+  so planning leaves out every stack whose lock page exists: such a stack is spoken for by a move in flight or
+  one that stopped part-way, and picking it would only lose at the lock (`freeStacks`).
+- **Two requests.** The lock request holds the lock and the ledger rows (pending) with any other ledger keys;
+  the apply request holds debits (coins and items that leave: purse or strongbox stacks deleted or reduced, and
+  their change), credits (coins that arrive, and items created), and last a ledger update that sets the rows to
+  `applied`. The settle is the apply request's own last operation, so a row is pending exactly when its move
+  stopped after its lock, and no separate settle write can be lost to a closed tab. Debits before credits means a
+  move that stops part-way never creates value. The cost is one more round trip per move.
+- **Before sending.** The client checks its own copies first (`preflight`): a lock page it would create exists
+  already ("locked"), or an item it would delete or update is gone ("gone"). Either way nothing is sent. The
+  second matters because Foundry's client runs every operation through its document class before sending, and
+  pf2e's `ItemPF2e.deleteDocuments` quietly drops the ids of items the actor no longer holds (pf2e
+  `src/module/item/base/document.ts`), so the request would go out without them; core throws for an update of
+  a missing document instead. If an operation still comes back smaller than it was sent (`shrunk`: the item
+  went between the check and the client's own dry run), the move is "stopped", its rows marked pending again.
+- **Outcomes.** "ok"; "conflict" (nothing applied: the lock is someone else's, or its items are gone); "stopped"
+  (the lock and rows are written but not everything after them; the rows get `state: "pending"` and `stopped =
+  {applied, total, reason, by, at}` for reconciliation); "error" (the client could not build or send it, nothing
+  applied); "unknown" (no answer within `BATCH_TIMEOUT_MS`, 30 s: socket.io drops the acknowledgement of a
+  request in flight when the connection drops, and Foundry reloads only after five seconds offline, so the move
+  would otherwise wait for ever holding the coin mutex; the client goes stale, since the move may yet apply).
+  Each result also says which request (`phase`) and why (`reason`: "locked", "gone", "dry-run", "first",
+  "stopped", "shrunk", "timeout"). The lock is held only if the lock request's first result is its pages. A
+  stopped move is not completed automatically: its author or a GM closes the row (`resolvePending`) once the
+  coins are right, booking an `adjust` if they are not.
+- **Dry-run replay.** When the server's dry run refuses a request it answers with the dry-run results of
+  every operation, and the requesting client processes those that passed as if they had happened
+  (`#handleModifyDocumentBatch` in `client/data/client-backend.mjs` does not look at `dryRun`), on that client
+  only. Created documents are added to their collections and deleted ones removed (`collection.set`,
+  `collection.delete`); updates are not committed, because `DataModel#updateSource` returns before committing
+  on a dry run (`common/abstract/data.mjs`), though their hooks fire. All the replayed hooks carry
+  `options.dryRun`, so a watcher on the create, update and delete hooks of journals, pages, actors and items
+  tells the move it was refused, and marks the client stale (it writes nothing more and asks the user to
+  reload) only for a created or deleted document. A lock request lost at the dry run therefore leaves nothing
+  behind, so the race that is common (a client acting before the winner's broadcast reached it; the server's
+  window for losing in the real pass instead is its own few milliseconds of dry run) costs no reload. An apply
+  request refused at its dry run still goes stale; that needs a document changed outside the module between
+  the two requests, or a permission the server refuses. Read from the 14.368 source; harness scenario 7 checks
+  in a live world which way races fail.
+- **Error toasts.** Core shows every error result of a batch as a notification with the server's own text (for
+  example "The _id [...] already exists within the parent collection"), in the real pass and in a refused dry
+  run alike, and `modifyBatch` has no option to silence it. The checks before sending, and each client sweeping
+  in its turn (5.5), make it rare; when two clients do race to the server, the loser's user sees that toast once,
+  and the module only logs the conflict.
+- **Mutex.** Web Locks exist only in secure contexts (https, or localhost); over plain http the mutex covers
+  one tab, and duplicates across tabs are stopped by the lock pages, as across devices.
+- **Coins.** A coin stack is a pf2e treasure item of the coin category with one denomination
+  (`TreasurePF2e#isCoinage` and `unit`), read from `actor.itemTypes.treasure` in item order. New stacks are
+  copies of the four `equipment-srd` coin items with `system.quantity` set; strongbox stacks, change
+  included, are flagged `flags.MOD.lot = {row}`. If the coin items failed to load, coin moves are refused
+  ("no-coins"); the next check loads them again.
 
 ### 5.5 Claims: effects on documents the actor's user does not own
 
@@ -754,7 +918,7 @@ becomes a claim that the target's owner client applies.
 
 | Claim | Created by | Content | Applied by | Application |
 |---|---|---|---|---|
-| Delivery | crafter's client at completion | a shelf item in the strongbox | recipient's responsible client | one `modifyBatch`: delete the shelf item (the lock), write the `delivered` row with the item's source snapshot, create the item on the recipient. If the batch stops after the delete, reconciliation re-creates the item from the snapshot (4.7). |
+| Delivery | crafter's client at completion | a shelf item in the strongbox | recipient's responsible client | one lock-first move (5.4): lock the `delivered` row and the shelf item and write the row with the item's source snapshot, then delete the shelf item and create the item on the recipient. If the move stops after its lock, reconciliation re-creates the item from the snapshot (4.7). |
 | Refund | whoever cancels or completes | a `claims.<id>` entry `{actor, cp, order}` | the contributor's responsible client | `refund` row and coin move strongbox to purse |
 | Wage | wizard runner for a PC they don't own | `claims.<id>` `{actor, cp, job, day}` | the earner's responsible client | coins minted into the purse, `wage` row |
 | Formula | the crafter's client when a formula job for someone else's book completes (6.8), or a `formula-copy` service (4.5) | `claims.<id>` `{actor, uuid, provenance, order}` | the learner's responsible client | appends `{uuid}` to its own `_source.system.crafting.formulas`, writes provenance (4.13), fires `formulaAcquired` |
@@ -766,13 +930,32 @@ becomes a claim that the target's owner client applies.
 - Auto-claim is a user setting (default on). With it off, the user gets one notice with a "Take it"
   button.
 - Every claim that moves coins, items or formulas, or creates a document (an exposure creates the
-  affliction item), is resolved by one lock-first batch (5.4): a lock page for the row or claim it
-  writes (or, for a delivery, deleting the shelf item). A second resolver, for
+  affliction item), is resolved by one lock-first move (5.4): a lock page for the row or claim it
+  writes (and, for a delivery, for the shelf item it takes). A second resolver, for
   example the GM fallback and the owner's `ready` sweep at the same moment, or the same user in two
   places, fails at that first operation before anything moves. `claims.<id>.resolved = {by, at}` is
-  written in the same batch and serves as the fast-path check.
+  written with the lock and serves as the fast-path check.
 - The sweep at `ready`, and when a user connects, applies every claim for actors the local user is
   responsible for. Nothing is lost while a player is away.
+- **As built in M2** (`scripts/logic/claims.mjs`, `scripts/foundry/claims.mjs`). A ledger claim is `{id, v,
+  kind, idem, actor, parties, cp?, order?, garden?, job?, day?, by, at, resolved?}`; `parties` are the UUIDs of the
+  actors it came from, which the relay checks (5.7). Its `idem` is the key of the row that applying it
+  writes, so claim, row and lock page share one id. M2 applies refunds (strongbox to purse), wages (minted
+  into the purse) and deliveries; the other kinds register appliers with their milestones
+  (`registerClaimKind`). A claim whose row someone already wrote (a direct move for the same key) is marked
+  resolved without moving anything. The sweep runs at `ready`, when the lease passes to a tab, when any
+  user connects or disconnects (`userConnected` fires on every other client), and shortly after the
+  ledger's `claims` change or a shelf item appears. Every client reacts to the same change, so each waits its
+  turn: 500 ms, plus 600 ms for each connected user ahead of it in id order (`sweepDelay`), and usually sees
+  the locks of those before it and plans around them instead of racing them to the server. A sweep runs one at
+  a time on a client (a call while one runs makes it run once more), each step (claims, deliveries, roster,
+  pending rows) and each claim or shelf item on its own: one that throws, or that this client cannot build a
+  move for, is logged and left alone until the client reloads, so it cannot hold up the others. A delivery
+  looks its shelf item up again inside the coin mutex, and skips it when its row exists ("already") or the item
+  is gone, so a sweep or relay call that started before another delivery took the item never sends a move
+  for it. With auto-claim off the user is told once per claim; the "Take it" button belongs to the Queue (M4).
+  A delivered item loses its shelf flag and any `containerId` that pointed into the strongbox, and gets
+  `flags.MOD.delivered = {row}`.
 
 ### 5.6 The responsible client
 
@@ -781,7 +964,8 @@ becomes a claim that the target's owner client applies.
 function responsibleUserFor(actor) {
   const active = game.users.filter((u) => u.active);
   return (
-    active.find((u) => !u.isGM && u.character?.id === actor.id) ??                   // the assigned player
+    active.find((u) => !u.isGM && u.character?.id === actor.id &&
+                       actor.testUserPermission(u, "OWNER")) ??                          // the assigned player, if an owner
     active.filter((u) => !u.isGM && actor.testUserPermission(u, "OWNER"))
           .sort((a, b) => a.id.compare(b.id))[0] ??                                 // lowest-id player owner
     game.users.activeGM ??                                                            // the active GM (may be an assistant)
@@ -808,7 +992,11 @@ function responsibleUserForShared(triggeringUserId) {
   holding the user's lease acts on hook-driven writes and prompts: a Web Locks lease
   (`navigator.locks.request("MOD-lease-<userId>", ...)`, held for the life of the tab and handed to the
   next tab when it closes). Across devices, the lock-first batches (5.4, 5.5) make duplicate writes
-  harmless; a duplicate prompt on a second device is accepted.
+  harmless, and the purse stack locks (5.4) keep two different moves on one purse from overwriting each
+  other; a duplicate prompt on a second device is accepted.
+- **Assigned but not owned.** Foundry lets a GM assign a player a character they only observe (the user
+  configuration lists observed actors too, `client/applications/sheets/user-config.mjs`), and such a player
+  cannot write it, so the assigned player counts first only when they own the character.
 - This replaces the earlier rule ("the acting user if connected, otherwise the active GM"), which
   names nobody when neither is connected (`DECISIONS.md`, derived rules).
 - A user's own action runs on that user's client; no guard is needed.
@@ -816,6 +1004,12 @@ function responsibleUserForShared(triggeringUserId) {
   `updateActor`) acts only when the guard returns the local user.
 - Hooks that fire on one client only (`pf2e.restForTheNight`, render hooks) do not need the guard, but
   any prompt they raise must still go to the responsible user of the affected actor.
+- **As built in M2** (`scripts/logic/responsible.mjs`, `scripts/foundry/responsible.mjs`, `lease.mjs`). The
+  pure resolver takes the users as plain data and core's `game.users.activeGM` as given (core's
+  `getDesignatedUser`: highest role, then lowest id by `String#compare`). Several players assigned the same
+  character (and owning it) resolve to the lowest id among them, so every client agrees. Without Web Locks (an insecure
+  context) every tab counts as holding its lease. The lease also gates the GM's creation of the shared
+  documents (5.2) and the migration (4.14).
 
 ### 5.7 GM relay (accelerator only)
 
@@ -836,6 +1030,14 @@ function responsibleUserForShared(triggeringUserId) {
   owner client applies it.
 - On the GM's own client the handler is called directly, not through the socket (a query to oneself
   is not short-circuited).
+- **As built in M2** (`scripts/foundry/relay.mjs`). Only the GM tab holding the lease answers; another tab of
+  the same GM leaves the query unanswered, and the server settles a query with its first answer, so a claim
+  is applied once and the second tab raises no lock error. The server forwards a query to every socket of
+  the target and answers only when one of them does; with no socket it never answers (Foundry 14.368
+  `dist/components/activity.mjs`), so the asking client gives up after its own timeout. `expireFor` answers
+  "unsupported" until M7; `ping` returns the GM's module version and schema. A shelf item is a party to its
+  crafter's side (`shelf.from`): a requester who owns that actor may ask for its delivery; its recipient's
+  owners are connected owners, whom the relay leaves it to anyway.
 
 ### 5.8 When the module is disabled
 
@@ -859,6 +1061,31 @@ GM-only, from Settings, behind a typed confirmation (the world name). It never r
    messages.
 4. Deletes the ledger journal and the strongbox once they are empty, and resets module settings.
 5. Leaves crafted items, formula lists and system data untouched. Optionally strips inert suffixes.
+
+As built in M2 (`scripts/foundry/purge.mjs`): the settings menu opens a DialogV2 with each member's balance
+(`memberBalances`: what they still have allocated to each order and garden, plus a share of the party fund pro
+rata to their net deposits, which are deposits less withdrawals and refunds from the fund; the rest of the fund
+belongs to nobody in particular), the strongbox's contents, uncollected claims, the choice of returns, the
+chat-message option and the typed world title. The balances shown are for display: the purge reads the ledger
+again when it runs, so a pledge or withdrawal made while the GM typed the name counts. "Refunds" issues one
+refund claim per member and allocation (each order, each garden, the fund share), keyed
+`purge-refund:<order-id | garden-id | fund>:<actor UUID>` so a second run issues none twice, and carrying its
+order or garden so the refund row pays that allocation back (a refund for an order's share must not come out
+of the fund, or the order would still show the balance and the fund go negative); it says how many are new and
+how many still wait, and stops there. The GM purges again once they are collected; with nothing left, that run
+goes on. Otherwise the purge first turns the master switch off and waits two seconds (`PURGE_SETTLE_MS`), so
+every client stops writing, a move already in flight finishes, and no client's check re-creates the documents
+the purge is about to delete (every client receives the switch change before the deletions, since the purge
+waits for each request in turn). "Party stash" then moves every strongbox item to `game.actors.party` in one
+request, deleted from the strongbox first and then created there (without module flags or a strongbox
+container), and checks the result: if it did not apply in full (an item spent by a move still in flight), the
+purge stops before deleting anything, turns the switch back on and tells the GM. It takes no lock pages: those
+of moves that stopped part-way outlive their batches (5.4), and would refuse the purge for good. Then the flags
+go from actors and their items, world items, users, journal entries and their pages, folders and optionally chat
+messages; the ledger is deleted; the strongbox is deleted only if empty, otherwise it stays an ordinary loot
+actor (5.8); the module-data folder goes if empty; the world settings return to their defaults, except
+`dev`. Stripping inert suffixes comes with the inert marks (M7); flags on unlinked tokens' actor deltas are
+not reached.
 
 ### 5.10 Trust model and audit
 
@@ -3490,6 +3717,12 @@ them); `dev` (W, default off, set from the console in a test world only): develo
 the local harness's fixture tools (15.3). The schema version is not a setting; it lives in
 `flags.MOD.schema` on the shared documents (4.14).
 
+As built in M2 (`scripts/foundry/settings.mjs`): registered are `enabled`, `docs`, `members`, `claims.auto`,
+every rule of `DEFAULT_RULES` as `rules.<key>` (`rules.communal.<key>`; `rules.communal.helperDc` hidden while
+it has one value) and `variants.complexCrafting`, with their defaults read from `DEFAULT_RULES`, and the
+GM-only purge menu (5.9). The other settings of 14.1 and 14.3-14.5 are registered by the milestones that
+read them, with the defaults listed here; `strongbox: party` comes with the Funds tab (M4, 4.7).
+
 ### 14.4 Treasure Vault (Remastered) variants
 
 All world settings, all off by default because they are variant rules (6.16). Sub-settings matter
@@ -3608,6 +3841,17 @@ World settings unless marked U.
   `removeCurrency` on 5,000 seeded random purses, and strongbox plans for value conservation and no updates
   on 1,000 random boxes. A purity test checks that `scripts/logic/` imports only itself and `scripts/data/`,
   that `scripts/data/` imports nothing, and that every module loads in Node.
+- As built in M2: the storage-and-sync rules are pure too (`ids`, `keypath`, `migrations`, `responsible`, `rows`,
+  `claims`, `lock-first`, `roster` and `reconcile` in `scripts/logic/`, tests in `test/logic/`). The Foundry side
+  (`scripts/foundry/`) is tested in `test/foundry/` against a small fake of the Foundry globals
+  (`test/foundry/stubs.mjs`) whose client and batch server behave as 14.368's and pf2e's do: the client's own
+  dry run first (pf2e dropping deletions of items the actor no longer holds, core throwing for an update of a
+  missing document, empty operations not sent), then the server's dry run of every operation that refuses the
+  whole batch (replaying the passing dry-run results with `options.dryRun`, updates without committing), then
+  the operations in order, stopping at the first error; item and journal writes bump `_stats.modifiedTime`.
+  Hooks let a test land a change on the client before it sends, on the server before its dry run, and between
+  the server's operations; `test/foundry/races.test.mjs` holds one device's request in flight while another's
+  lands. Node 24 has `navigator.locks`, so the lease runs on the real API.
 - Development runs set `CONFIG.compatibility.mode` to FAILURE with `includePatterns` for this module. A
   development run is a world with the hidden `dev` setting on (14.3). Core matches the patterns against
   the whole stack, so any deprecation warning whose stack passes through this module's files throws,
@@ -3699,6 +3943,15 @@ parse result between tags is reported.
       harvested once per day; a quest whose last two components two players mark at the same moment
       leaves `gathering` exactly once; a host with adjustments delivered to another PC; a secret
       Critical Crafting roll shown as "rolled (secret)" to players.
+- As built in M2: `tools/harness/sync-scenarios.mjs` scripts the parts of scenarios 1, 2, 3 (with 3b), 3c, 7,
+  7b and 9 that storage and sync cover, as steps each client runs from the console or from Playwright
+  (`game.modules.get(MOD).dev.scenarios.run(id, step, params)`), with check steps that read the shared
+  state. In a dev world the scenarios load on every client and the fixture tools on a GM's. Scenario 7's
+  injected failure is two deletions of the same strongbox item at the start of the apply request: both pass
+  the dry run and the second fails in the real pass, so the move stops after its lock. Its race step reports
+  where the loser lost (`reason`: before sending, at the dry run, or in the real pass), and its refund steps
+  have two players collect refunds written in one go. Scenario 3b's purse steps have one player's two devices
+  mint a wage and pledge from one purse at the same moment, and check the purse against the applied rows.
 
 ### 15.4 Fixture actors
 
@@ -3888,7 +4141,7 @@ draft; the letters keep the existing milestone numbers stable.
 
 | # | Question | Interim default | How to settle |
 |---|---|---|---|
-| OQ-1 | Is `foundry.documents.modifyBatch` applied transactionally on the server, and do per-document hooks fire for batched operations? | **Settled** from the Foundry 14.368 source: not transactional (dry run of every operation, then applied in order, stopping at the first error without rollback); per-document hooks fire for batched results. Design: lock-first batches (5.4) | harness scenario 7 confirms in a live world |
+| OQ-1 | Is `foundry.documents.modifyBatch` applied transactionally on the server, and do per-document hooks fire for batched operations? | **Settled** from the Foundry 14.368 source: not transactional (dry run of every operation, then applied in order, stopping at the first error without rollback); per-document hooks fire for batched results. Design: lock-first batches (5.4). As built in M2: a refused dry run's results are replayed on the requesting client, which then reloads (5.4) | harness scenario 7 confirms in a live world |
 | OQ-2 | Does `getRollOptions("item")` on an ephemeral, unsaved item owned by the crafter return the full option set? | ephemeral item with the crafter as parent | harness |
 | OQ-3 | Do the order roll option and `context.isReroll` reliably survive Hero Point rerolls, and does the reroll message's author equal the rerolling user? | as designed in 6.12 | harness scenario 1 |
 | OQ-4 | Default ownership OWNER on a module journal and a loot actor: any side effects in pf2e (for example the loot sheet's merchant mode or token behaviour)? | strongbox never placed on a scene | harness |

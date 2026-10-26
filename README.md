@@ -4,9 +4,10 @@ A Foundry VTT module for the Pathfinder Second Edition system: one place to run 
 alchemist or crafter, and the party that leans on them.
 
 **Status: early development.** Nothing installable yet: the repository has the M0
-scaffold (manifest, tooling, CI) and the M1 rules core (pure crafting and Earn Income
-rules with tests), which nothing in Foundry uses yet. The specification is `DESIGN.md`;
-decisions land in `DECISIONS.md`.
+scaffold (manifest, tooling, CI), the M1 rules core (pure crafting and Earn Income
+rules with tests) and the M2 storage and sync layer (the shared ledger and strongbox,
+safe coin moves, claims, roster snapshots, purge), with no Workshop window yet. The
+specification is `DESIGN.md`; decisions land in `DECISIONS.md`.
 
 ## What it is for
 
@@ -60,7 +61,9 @@ strings and `lang/review/` their sign-off hashes; `tools/` holds the dev scripts
 `tools/harness/` the fixture actors, neither shipped; `test/` the tests. `scripts/logic/`
 is the rules engine (pure functions with no Foundry or browser globals, so `node --test`
 imports it directly; tests in `test/logic/`) and `scripts/data/` its numeric tables, each
-cited by book and page. Later milestones add `templates/`, `styles/` and `macros/`
+cited by book and page. `scripts/foundry/` is the code that talks to Foundry (storage and
+sync so far), tested in `test/foundry/` against the small fake of Foundry in
+`test/foundry/stubs.mjs`. Later milestones add `templates/`, `styles/` and `macros/`
 (copy-paste macros; the lint rules and key check already cover that folder).
 
 Local Foundry harness: symlink the checkout into `Data/modules/`, enable the module in a
@@ -68,7 +71,10 @@ test world, and as GM run `await game.settings.set("pf2e-artisans-workshop", "de
 in the console, then reload. In a dev world any deprecation warning whose stack passes
 through this module's files throws, even one raised inside pf2e, core or another module
 that this module called, and `game.modules.get("pf2e-artisans-workshop").dev.fixtures.create()`
-builds the fixture actors of `DESIGN.md` 15.4 (`{ reset: true }` rebuilds them). To check
+builds the fixture actors of `DESIGN.md` 15.4 (`{ reset: true }` rebuilds them). The sync
+scenarios of `DESIGN.md` 15.3 load on every client of a dev world:
+`game.modules.get("pf2e-artisans-workshop").dev.scenarios.list()` shows each step, and
+`.run("3c", "pledge", { order: "test", cp: 120 })` runs one on that client. To check
 the fixtures' compendium UUIDs and choice-set answers against a pf2e source checkout, run
 `PF2E_SRC=<checkout> npm test`.
 

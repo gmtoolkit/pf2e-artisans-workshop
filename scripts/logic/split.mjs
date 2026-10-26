@@ -2,7 +2,7 @@
  * Pro-rata splitting (DESIGN.md 4.6): when an order or a garden spends money (expend, ruin, remainder,
  * plant), one row per contributor in proportion to their remaining allocation, in whole copper.
  */
-import { requireCp } from "./core.mjs";
+import { compareRows, requireCp } from "./core.mjs";
 
 /**
  * Split `totalCp` across `parts` in proportion to each part's `cp`, by the largest-remainder method: every
@@ -35,15 +35,6 @@ export function splitProRata(totalCp, parts) {
     // The leftover equals the sum of the remainders divided by `sum`, and each remainder is below `sum`, so
     // more parts have a remainder than there is copper left: no part with a zero remainder gets one.
     return shares.map(({ key, cp }) => ({ key, cp }));
-}
-
-/** Rows in order of time: world time, then real time, then row id (code-point order). */
-function compareRows(a, b) {
-    const world = (a.at?.world ?? 0) - (b.at?.world ?? 0);
-    if (world) return world;
-    const real = (a.at?.real ?? 0) - (b.at?.real ?? 0);
-    if (real) return real;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 /**

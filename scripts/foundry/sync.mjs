@@ -1,0 +1,211 @@
+/**
+ * Storage and sync, wired into Foundry (DESIGN.md 5): what `init` registers and what `ready` (and later events)
+ * check and catch up on.
+ *
+ * `init`: settings and the purge menu, the GM relay query, the deletion guards, the batch watcher, and the
+ * hooks that fire on every client (each guarded by the responsible-client check where it writes).
+ *
+ * `refresh` (at `ready`, when the master switch or the shared documents change): with the switch on, the active
+ * GM creates or repairs the shared documents; every client locates them, checks the schema (migrating if it is
+ * the elected client) and sets its status. Nothing is written while the switch is off (P10).
+ *
+ * The sweep (P5), on the tab holding the lease, after `refresh`, when a user connects or disconnects, when the
+ * lease passes to this tab, and when claims or shelf items appear: apply claims and deliveries this tab is
+ * responsible for, finish lost deliveries, publish roster snapshots, and tell the user about their own rows
+ * that did not finish. Every step is idempotent, so running it again is always safe.
+ */
+import { MODULE_ID } from "../constants.mjs";
+import { compareIds } from "../logic/ids.mjs";
+import { registerBatchWatcher } from "./batch.mjs";
+import { sweepClaims, sweepDeliveries } from "./claims.mjs";
+import { loadCoinTemplates } from "./coins.mjs";
+import { registerGuards } from "./guards.mjs";
+import { holdsLease, requestLease } from "./lease.mjs";
+import { ensureSchema } from "./migrate.mjs";
+import { PurgeMenu } from "./purge.mjs";
+import { reportOwnPending } from "./reconcile.mjs";
+import { registerRelay } from "./relay.mjs";
+import { publishAll, registerRosterHooks } from "./roster.mjs";
+import { isEnabled, registerSettings } from "./settings.mjs";
+import { gmMaintenance, locateShared } from "./shared-docs.mjs";
+import { canWrite, setShared, shared, status } from "./state.mjs";
+
+/** The sweep waits this long after a change, plus `SWEEP_STAGGER_MS` for each connected user ahead of this one. */
+export const SWEEP_DELAY_MS = 500;
+export const SWEEP_STAGGER_MS = 600;
+/** How often a client waiting for someone else's migration looks again (the migrating client may have gone). */
+export const MIGRATION_RECHECK_MS = 60 * 1000;
+
+/**
+ * Run `task` once after calls stop for `delay()` ms: every call starts a timer, and only the latest one runs it.
+ */
+function debounced(task, delay) {
+    let latest = 0;
+    return () => {
+        const mine = ++latest;
+        setTimeout(() => {
+            if (mine === latest) task();
+        }, delay());
+    };
+}
+
+/**
+ * This client's sweep delay. Every client sweeps after the same change (a new claim, a user connecting), so
+ * each waits its turn in user-id order: a client then usually sees the locks of those before it and plans
+ * around them, instead of racing them to the server (5.4, 5.5).
+ */
+function sweepDelay() {
+    const ids = game.users.filter((u) => u.active).map((u) => u.id).sort(compareIds);
+    return SWEEP_DELAY_MS + Math.max(0, ids.indexOf(game.user.id)) * SWEEP_STAGGER_MS;
+}
+
+const scheduleSweep = debounced(() => sweep(), sweepDelay);
+const scheduleRefresh = debounced(() => refresh(), () => 250);
+
+/**
+ * `task` one run at a time: a call while it runs makes it run once more afterwards, so no change is missed, and
+ * every caller waits for the run that covers its call.
+ */
+function singleFlight(task) {
+    let running = null;
+    let again = false;
+    return async function run() {
+        if (running) {
+            again = true;
+            return running;
+        }
+        running = (async () => {
+            let result;
+            do {
+                again = false;
+                result = await task();
+            } while (again);
+            return result;
+        })();
+        try {
+            return await running;
+        } finally {
+            running = null;
+        }
+    };
+}
+
+/** Everything `init` registers. */
+export function initSync() {
+    registerSettings({ enabled: () => scheduleRefresh(), docs: scheduleRefresh });
+    game.settings.registerMenu(MODULE_ID, "purge", {
+        name: "pf2e-artisans-workshop.Settings.Purge.Name",
+        label: "pf2e-artisans-workshop.Settings.Purge.Label",
+        hint: "pf2e-artisans-workshop.Settings.Purge.Hint",
+        icon: "fa-solid fa-broom", type: PurgeMenu, restricted: true,
+    });
+    registerRelay();
+    registerGuards();
+    registerBatchWatcher();
+    registerRosterHooks();
+    Hooks.on("updateJournalEntry", (doc, changed) => onSharedUpdate(doc, changed));
+    Hooks.on("updateActor", (doc, changed) => onSharedUpdate(doc, changed));
+    Hooks.on("deleteJournalEntry", (doc) => onSharedDelete(doc));
+    Hooks.on("deleteActor", (doc) => onSharedDelete(doc));
+    Hooks.on("createItem", (item) => onStrongboxItem(item));
+    Hooks.on("userConnected", () => onUserConnected());
+}
+
+/** `ready`: ask for the lease (when it is granted, this tab checks again and sweeps), then check the shared documents. */
+export async function readySync() {
+    requestLease(game.user.id, () => scheduleRefresh());
+    await refresh();
+}
+
+/**
+ * Locate and check the shared documents and set this client's status (`state.mjs`). The master switch's
+ * `onChange` runs on every client and only schedules this; the active GM's run is what creates the documents.
+ * @returns {Promise<string>} the status
+ */
+export const refresh = singleFlight(checkShared);
+
+let warnedNewer = false;
+let recheck = null;
+
+async function checkShared() {
+    if (!isEnabled()) {
+        setShared({ status: "disabled" });
+        return status();
+    }
+    try {
+        await loadCoinTemplates();
+        await gmMaintenance();
+    } catch (error) {
+        console.error(`${MODULE_ID} | could not prepare the shared documents`, error);
+    }
+    const found = locateShared();
+    if (!found.ready) {
+        setShared({ ...found, status: "missing" });
+        return status();
+    }
+    setShared({ ...found, status: "migrating" });   // no writes until the schema is checked
+    const schema = await ensureSchema(found);
+    setShared({ ...found, status: schema === "newer" || schema === "migrating" ? schema : "ready" });
+    if (schema === "newer" && !warnedNewer) {
+        warnedNewer = true;
+        ui.notifications.warn("pf2e-artisans-workshop.Sync.Newer", { localize: true });
+    }
+    if (schema === "migrating") recheckLater();
+    if (canWrite()) scheduleSweep();
+    return status();
+}
+
+/** While someone else migrates, look again in a while: their client may die with the lock held (4.14). */
+function recheckLater() {
+    clearTimeout(recheck);
+    recheck = setTimeout(() => scheduleRefresh(), MIGRATION_RECHECK_MS);
+}
+
+/** The steps of the catch-up sweep (P5), each on its own so a failure in one does not skip the others. */
+const SWEEP_STEPS = [
+    ["claims", () => sweepClaims()],
+    ["deliveries", () => sweepDeliveries()],
+    ["roster", () => publishAll()],
+    ["pending rows", () => reportOwnPending()],
+];
+
+/** The catch-up sweep (P5), one run at a time. */
+export const sweep = singleFlight(async () => {
+    for (const [name, step] of SWEEP_STEPS) {
+        if (!canWrite() || !holdsLease()) return;
+        try {
+            await step();
+        } catch (error) {
+            console.error(`${MODULE_ID} | sweep step "${name}" failed`, error);
+        }
+    }
+});
+
+/**
+ * A user connected or disconnected (`userConnected` fires on every other client): sweep, since claims for that
+ * user's characters change hands; and re-check while waiting for a migration, whose client may be the one gone.
+ */
+function onUserConnected() {
+    scheduleSweep();
+    if (status() === "migrating") scheduleRefresh();
+}
+
+/** A shared document changed: re-check on schema, migration or ownership changes; sweep on new claims. */
+function onSharedUpdate(doc, changed) {
+    const { ledger, strongbox } = shared();
+    if (doc !== ledger && doc !== strongbox) return;
+    const flags = changed.flags?.[MODULE_ID] ?? {};
+    if ("ownership" in changed || "schema" in flags || "meta" in flags || status() === "migrating") scheduleRefresh();
+    if ("claims" in flags) scheduleSweep();
+}
+
+/** A shared document was deleted: this client goes to "missing" until it is re-created. */
+function onSharedDelete(doc) {
+    const { ledger, strongbox } = shared();
+    if (doc === ledger || doc === strongbox) scheduleRefresh();
+}
+
+/** A shelf item appeared in the strongbox: its recipient's client delivers it. */
+function onStrongboxItem(item) {
+    if (item.parent && item.parent === shared().strongbox && item.flags?.[MODULE_ID]?.shelf) scheduleSweep();
+}

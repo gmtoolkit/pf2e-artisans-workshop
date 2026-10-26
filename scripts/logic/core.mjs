@@ -85,6 +85,27 @@ export function liveRows(rows) {
     return rows.filter((row) => row.kind !== "reversal" && !row.reversedBy && !reversed.has(row.id));
 }
 
+/**
+ * Rows (and other stamped records) in order of time: world time, then real time, then id in code-point order
+ * (4.6). Every client sorts stored records the same way with it.
+ */
+export function compareRows(a, b) {
+    const world = (a.at?.world ?? 0) - (b.at?.world ?? 0);
+    if (world) return world;
+    const real = (a.at?.real ?? 0) - (b.at?.real ?? 0);
+    if (real) return real;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * When a stamp (`at`, 4.1) was made, on a clock every client shares: the server's (`at.server`, Foundry's
+ * `game.time.serverTime`), falling back to the author's own clock (`at.real`) for stamps without it. Ages and
+ * timeouts compare this with the reader's `game.time.serverTime`, so two machines' clocks never meet.
+ */
+export function stampTime(at) {
+    return at?.server ?? at?.real ?? 0;
+}
+
 /** 0 for common up to 3 for unique. */
 export function rarityRank(rarity = "common") {
     const rank = RARITIES.indexOf(rarity);

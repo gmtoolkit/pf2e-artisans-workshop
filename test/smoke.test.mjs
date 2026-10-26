@@ -1,14 +1,16 @@
 /**
- * Smoke test: the manifest points at real files, and the entry module registers what M0 needs (the
- * hidden dev setting, the deprecation-failure mode in dev worlds, the dev harness for a GM) and
- * nothing else.
+ * Smoke test: the manifest points at real files, and the entry module registers what M0 and M2 need: the
+ * hidden dev setting and the deprecation-failure mode in dev worlds; the M2 settings, the purge menu and the
+ * GM relay query; at `ready`, the sync (which writes nothing while the master switch is off) and, in a dev
+ * world, the harness tools (scenarios for everyone, fixtures for a GM).
  */
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { test } from "node:test";
+import { afterEach, beforeEach, mock, test } from "node:test";
 import { MODULE_ID } from "../scripts/constants.mjs";
 import { ROOT } from "./helpers.mjs";
+import { installFoundry, resetWorld, setUsers, world } from "./foundry/stubs.mjs";
 
 const manifest = JSON.parse(readFileSync(join(ROOT, "module.json"), "utf8"));
 
@@ -18,56 +20,76 @@ test("module.json names this module and its files exist", () => {
     for (const { path } of manifest.languages) JSON.parse(readFileSync(join(ROOT, path), "utf8"));
 });
 
-/** Minimal Foundry globals for the entry module: hooks, settings, the module, CONFIG and CONST. */
-function stubFoundry({ dev, isGM }) {
-    const hooks = {};
-    const settings = new Map();
-    const registered = new Map();
-    const module = { id: MODULE_ID, version: "0.0.0" };
-    globalThis.Hooks = { once: (name, fn) => (hooks[name] = fn), on: () => assert.fail("M0 registers no Hooks.on") };
-    globalThis.game = {
-        modules: new Map([[MODULE_ID, module]]),
-        settings: {
-            register: (namespace, key, config) => registered.set(`${namespace}.${key}`, config),
-            get: (namespace, key) => settings.get(`${namespace}.${key}`) ?? registered.get(`${namespace}.${key}`)?.default,
-        },
-        user: { isGM },
-    };
-    globalThis.CONFIG = { compatibility: { mode: 1, includePatterns: [], excludePatterns: [] } };
-    globalThis.CONST = { COMPATIBILITY_MODES: { SILENT: 0, WARNING: 1, ERROR: 2, FAILURE: 3 } };
-    settings.set(`${MODULE_ID}.dev`, dev);
-    return { hooks, registered, module };
+installFoundry();
+const compatibility = () => ({ mode: 1, includePatterns: [], excludePatterns: [] });
+globalThis.CONST.COMPATIBILITY_MODES = { SILENT: 0, WARNING: 1, ERROR: 2, FAILURE: 3 };
+globalThis.CONFIG.compatibility = compatibility();
+
+// The entry module registers its hooks when first imported, so it is imported once and the handlers kept.
+await import("../scripts/module.mjs");
+const { init, ready } = Object.fromEntries(["init", "ready"].map((name) => [name, world.hooks.get(name)[0]]));
+const realNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+
+beforeEach(() => {
+    resetWorld();
+    world.settingConfigs.clear();
+    world.menus.clear();
+    globalThis.CONFIG.compatibility = compatibility();
+    globalThis.CONFIG.queries = {};
+    Object.defineProperty(globalThis, "navigator", { value: {}, configurable: true });
+    mock.timers.enable({ apis: ["setTimeout"] });   // the sync's debounced refresh and sweep never fire on their own
+});
+afterEach(() => {
+    Object.defineProperty(globalThis, "navigator", realNavigator);
+    mock.timers.reset();
+});
+
+function runInit(t, { dev = false } = {}) {
+    const log = t.mock.method(console, "log", () => {});
+    if (dev) world.settings.set(`${MODULE_ID}.dev`, true);
+    init();
+    return log;
 }
 
-// The entry module registers its hooks when first imported, so it is imported once; each test swaps
-// in fresh stubs and calls the captured handlers.
-const captured = stubFoundry({ dev: false, isGM: true }).hooks;
-await import("../scripts/module.mjs");
-
-test("init logs the version and registers only the hidden dev setting", (t) => {
-    const { registered } = stubFoundry({ dev: false, isGM: true });
-    const log = t.mock.method(console, "log", () => {});
-    captured.init();
-    assert.deepEqual([...registered.keys()], [`${MODULE_ID}.dev`]);
-    assert.equal(registered.get(`${MODULE_ID}.dev`).config, false);
-    assert.equal(registered.get(`${MODULE_ID}.dev`).scope, "world");
+test("init logs the version, registers the hidden dev setting, the M2 settings, the purge menu and the relay", (t) => {
+    const log = runInit(t);
     assert.match(log.mock.calls[0].arguments[0], /version 0\.0\.0/);
+    const dev = world.settingConfigs.get(`${MODULE_ID}.dev`);
+    assert.deepEqual([dev.scope, dev.config, dev.default], ["world", false, false]);
+    for (const key of ["enabled", "docs", "members", "claims.auto", "rules.legendaryItemLevel"]) {
+        assert.ok(world.settingConfigs.has(`${MODULE_ID}.${key}`), key);
+    }
+    assert.equal(world.settingConfigs.get(`${MODULE_ID}.enabled`).default, false, "inert until switched on (P10)");
+    assert.equal(world.menus.get(`${MODULE_ID}.purge`).restricted, true);
+    assert.equal(typeof CONFIG.queries["pf2e-artisans-workshop.relay"], "function");
+    for (const hook of ["preDeleteJournalEntry", "preDeleteActor", "updateJournalEntry", "updateActor", "createItem", "userConnected"]) {
+        assert.ok(world.hooks.get(hook)?.length, hook);
+    }
     assert.equal(globalThis.CONFIG.compatibility.mode, 1, "compatibility mode untouched outside dev");
 });
 
 test("in a dev world, deprecated calls from this module throw", (t) => {
-    stubFoundry({ dev: true, isGM: false });
-    t.mock.method(console, "log", () => {});
-    captured.init();
+    runInit(t, { dev: true });
     assert.equal(globalThis.CONFIG.compatibility.mode, globalThis.CONST.COMPATIBILITY_MODES.FAILURE);
     assert.ok(globalThis.CONFIG.compatibility.includePatterns.some((re) => re.test(`/modules/${MODULE_ID}/scripts/module.mjs`)));
 });
 
-test("ready loads the dev harness only for a GM in a dev world", async (t) => {
-    t.mock.method(console, "log", () => {});
-    for (const [dev, isGM, loaded] of [[false, true, false], [true, false, false], [true, true, true]]) {
-        const { module } = stubFoundry({ dev, isGM });
-        await captured.ready();
-        assert.equal(typeof module.dev?.fixtures?.create === "function", loaded, `dev=${dev} isGM=${isGM}`);
+test("ready with the master switch off writes nothing", async (t) => {
+    runInit(t);
+    await ready();
+    assert.deepEqual(world.calls, []);
+});
+
+test("ready loads the harness in a dev world: scenarios for every user, fixtures for a GM", async (t) => {
+    for (const [dev, isGM, scenarios, fixtures] of [[false, true, false, false], [true, false, true, false], [true, true, true, true]]) {
+        resetWorld();
+        world.settingConfigs.clear();
+        setUsers([{ id: "u1", isGM }]);
+        const module = game.modules.get(MODULE_ID);
+        delete module.dev;
+        runInit(t, { dev });
+        await ready();
+        assert.equal(typeof module.dev?.scenarios?.run === "function", scenarios, `dev=${dev} isGM=${isGM}`);
+        assert.equal(typeof module.dev?.fixtures?.create === "function", fixtures, `dev=${dev} isGM=${isGM}`);
     }
 });

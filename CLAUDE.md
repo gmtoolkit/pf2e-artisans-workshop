@@ -9,9 +9,14 @@ preparations, GM Earn Income). Public, MIT, `gmtoolkit/pf2e-artisans-workshop`.
 
 M0 scaffold in place (manifest, lint rules, tests, strings gate, asset and manifest
 checks, CI, harness fixtures). The M1 rules core is in place as pure functions with
-tests (`scripts/logic/`, its tables in `scripts/data/`, tests in `test/logic/`), not yet
-wired into Foundry; nothing user-facing exists yet. `DECISIONS.md` holds every decision
-made so far, newest first; read it before proposing a design change.
+tests (`scripts/logic/`, its tables in `scripts/data/`, tests in `test/logic/`). M2
+storage and sync is in place: the Foundry-facing code in `scripts/foundry/` (shared
+documents, key-path store, migrations, responsible client and lease, lock-first coin
+batches, claims and the GM relay, roster snapshots, guards, purge, reconciliation),
+its pure parts in `scripts/logic/`, tests over Foundry stubs in `test/foundry/`, and
+live-harness scenarios in `tools/harness/sync-scenarios.mjs` not yet run in a world.
+There is no Workshop window yet. `DECISIONS.md` holds every decision made so far,
+newest first; read it before proposing a design change.
 
 Development commands and layout are in the README's Development section. Use Node 24
 (`DESIGN.md` 3.2); `npm run lint` and `npm test` must pass before a PR.

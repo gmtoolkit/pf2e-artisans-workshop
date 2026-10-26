@@ -186,4 +186,9 @@ export default [
         files: ["tools/*.mjs", "test/**/*.mjs", "eslint.config.mjs"],
         languageOptions: { globals: readonly(NODE_GLOBALS) },
     },
+    {
+        // Tests of Foundry-facing code read the globals that test/foundry/stubs.mjs installs.
+        files: ["test/foundry/**/*.mjs", "test/smoke.test.mjs"],
+        languageOptions: { globals: readonly(["navigator", ...FOUNDRY_GLOBALS]) },
+    },
 ];

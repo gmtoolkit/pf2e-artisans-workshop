@@ -1,4 +1,5 @@
 import { MODULE_ID } from "./constants.mjs";
+import { initSync, readySync } from "./foundry/sync.mjs";
 
 /* -------------------------------------------- */
 /*  Setup                                        */
@@ -25,11 +26,14 @@ Hooks.once("init", () => {
         CONFIG.compatibility.mode = CONST.COMPATIBILITY_MODES.FAILURE;
         CONFIG.compatibility.includePatterns.push(new RegExp(`/modules/${MODULE_ID}/`));
     }
+
+    // Storage and sync (DESIGN.md 5): settings, the GM relay, deletion guards and the all-client hooks.
+    initSync();
 });
 
 Hooks.once("ready", async () => {
-    if (!isDev() || !game.user.isGM) return;
-    await loadDevHarness();
+    await readySync();
+    if (isDev()) await loadDevHarness();
 });
 
 /* -------------------------------------------- */
@@ -41,7 +45,8 @@ function isDev() {
 }
 
 /**
- * Load the fixture-actor tools from `tools/harness/`.
+ * Load the harness tools from `tools/harness/`: the sync scenarios on every client (they are run by several
+ * users at once, DESIGN.md 15.3) and the fixture-actor tools for a GM.
  *
  * `tools/` is not in the release zip (DESIGN.md 16.2), so this only works from a development checkout
  * symlinked into `Data/modules`. Nothing is imported unless the dev flag is on, and a failed import
@@ -49,9 +54,10 @@ function isDev() {
  */
 async function loadDevHarness() {
     try {
-        const { fixtures } = await import("../tools/harness/fixture-actors.mjs");
-        game.modules.get(MODULE_ID).dev = { fixtures };
-        console.log(`${MODULE_ID} | dev harness ready: game.modules.get("${MODULE_ID}").dev.fixtures`);
+        const dev = { scenarios: (await import("../tools/harness/sync-scenarios.mjs")).scenarios };
+        if (game.user.isGM) dev.fixtures = (await import("../tools/harness/fixture-actors.mjs")).fixtures;
+        game.modules.get(MODULE_ID).dev = dev;
+        console.log(`${MODULE_ID} | dev harness ready: game.modules.get("${MODULE_ID}").dev (${Object.keys(dev).join(", ")})`);
     } catch (error) {
         console.error(`${MODULE_ID} | dev harness not available`, error);
     }
