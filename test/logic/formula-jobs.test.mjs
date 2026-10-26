@@ -80,15 +80,17 @@ test("Craft-like formula jobs: the formula's Price, the job's setup and the item
     const invent = formulaJobPlan("invent", { item: { level: 6, rarity: "uncommon" } });
     assert.deepEqual(invent, {
         priceCp: 1300, upfrontCp: 650, setup: { days: 2, hours: 0 },
-        dc: { level: 6, rarity: 2, repeat: 0, adjust: 0, pwol: false, final: 24 }, bonus: null,
+        dc: { level: 6, rarity: 2, repeat: 0, adjust: 0, pwol: false, final: 24 }, modifiers: [],
     });
     assert.deepEqual(formulaJobPlan("invent", { item: { level: 6 } }, rulesWith({ inventorSetupDays: 3 })).setup, { days: 3, hours: 0 });
     const reverse = formulaJobPlan("reverse-engineer", { item: { level: 6, rarity: "rare" }, feats: [REVERSE_ENGINEERING] });
     assert.deepEqual(reverse.setup, { days: 1, hours: 0 });
     assert.equal(reverse.dc.final, 27);
-    assert.deepEqual(reverse.bonus, { type: "circumstance", value: 2 });
+    assert.deepEqual(reverse.modifiers.map(({ key, type, value }) => ({ key, type, value })),
+        [{ key: "reverse-engineering", type: "circumstance", value: 2 }], "the registry's +2, applied by the roll wrapper");
     assert.deepEqual(formulaJobPlan("reverse-engineer", { item: { level: 6 } }).setup, { days: 2, hours: 0 });
-    assert.equal(formulaJobPlan("reverse-engineer", { item: { level: 6 } }).bonus, null);
+    assert.deepEqual(formulaJobPlan("reverse-engineer", { item: { level: 6 } }).modifiers, []);
+    assert.deepEqual(formulaJobPlan("invent", { item: { level: 6 }, feats: [REVERSE_ENGINEERING] }).modifiers, [], "only on its own route");
     const copy = formulaJobPlan("craft-copy", { item: { level: 0 } });
     assert.deepEqual([copy.priceCp, copy.upfrontCp, copy.setup.days, copy.dc.final], [50, 25, 1, 14]);
     assert.throws(() => formulaJobPlan("buy", { item: { level: 1 } }), RangeError);

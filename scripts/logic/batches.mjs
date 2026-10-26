@@ -26,18 +26,19 @@ export function isConsumableForBatch(item) {
  * @param {number} [item.per]          `price.per`: ammunition is priced (and batched) per 10
  * @param {string} [item.type]         pf2e item type; "ammo" for ammunition
  * @param {"scroll"|"wand"|null} [item.spellcasting]  from `CONFIG.PF2E.spellcastingItems`
- * @param {boolean} [item.consumableFix]
+ * @param {boolean} [item.consumableFix]  the registry's correction (`consumableFix` in registry.mjs)
  * @param {object} [options]
- * @param {boolean} [options.efficientAlchemy]  the crafter holds Efficient Alchemy (Player Core 2)
- * @param {number} [options.pledgedCastings]    castings pledged for a scroll order (6.9)
+ * @param {number} [options.multiplier]       the registry's batch multiplier for the crafter and item
+ *                                            (`batchMultiplier`: 2 for Efficient Alchemy on alchemical consumables)
+ * @param {number} [options.pledgedCastings]  castings pledged for a scroll order (6.9)
  * @param {object} [rules]
  */
-export function batchMax(item, { efficientAlchemy = false, pledgedCastings = 0 } = {}, rules = DEFAULT_RULES) {
+export function batchMax(item, { multiplier = 1, pledgedCastings = 0 } = {}, rules = DEFAULT_RULES) {
     const per = Math.max(1, item.per ?? 1);
     const consumable = isConsumableForBatch(item);
     let max = consumable ? Math.max(CONSUMABLE_BATCH, per) : per;          // matches pf2e getFormulas
     if (item.type === "ammo" && !isMagical(item)) max = per;              // mundane ammunition: per 10
-    if (consumable && hasTrait(item, "alchemical") && efficientAlchemy) max *= 2;   // twice as many
+    max *= requireInteger(multiplier, "multiplier");                      // Efficient Alchemy: twice as many
     if (item.spellcasting === "scroll") max = Math.min(SCROLL_BATCH, pledgedCastings);
     if (item.spellcasting === "wand") max = 1;                            // GM Core p.282
     if (hasTrait(item, "snare")) max = rules.snareDowntimeBatch;          // OQ-14

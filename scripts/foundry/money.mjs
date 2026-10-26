@@ -327,8 +327,9 @@ export function mint({ actor, row, ledger = {} }) {
  * @param {number} p.cp
  * @param {{actor: string|null, cp: number}[]} p.allocations  `allocationsByContributor` over its rows
  * @param {object} [p.link] `{order}` or `{garden}`, and `day`
+ * @param {object} [p.ledger] other ledger keys written with the rows (a settled order's new state, 6.12)
  */
-export function spend({ kind, stem, cp, allocations, link = {} }) {
+export function spend({ kind, stem, cp, allocations, link = {}, ledger = {} }) {
     return moveCoins((strongbox) => {
         if (!(cp > 0)) return { refuse: "nothing" };
         const planned = planSpend(freeStacks(strongbox), allocations, cp);
@@ -337,7 +338,7 @@ export function spend({ kind, stem, cp, allocations, link = {} }) {
             kind, idem: `${stem}:${share.actor ?? "fund"}`, cp: share.cp, actor: share.actor, ...link,
         }));
         return { rows, debits: [{ target: "strongbox", plan: planned.strongbox }] };
-    });
+    }, ledger);
 }
 
 /**

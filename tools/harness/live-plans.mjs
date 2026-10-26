@@ -11,6 +11,7 @@
  * do not expose; the browser hands back the module instance already loaded, so nothing runs twice. They read and
  * write world data only through the Foundry API.
  */
+import { levelDC } from "../../scripts/logic/dc.mjs";
 import { hashId } from "../../scripts/logic/ids.mjs";
 import { applyMarkId } from "../../scripts/logic/lock-first.mjs";
 import { PENDING_GRACE_MS } from "../../scripts/logic/reconcile.mjs";
@@ -30,6 +31,10 @@ const COINS = { gp: 100, sp: 50, cp: 100 };
 
 /** A compendium item to put in the strongbox: Elixir of Life (Minor), as in `sync-scenarios.mjs`. */
 const ELIXIR = "Compendium.pf2e.equipment-srd.Item.hDLbR56Id2OtU318";
+/** Alchemist Goggles (Player Core 2): +1 item bonus to Craft alchemical items, predicated on `item:trait:alchemical`. */
+const GOGGLES = "Compendium.pf2e.equipment-srd.Item.7JVgLiNTAs4clEW8";
+/** Blood Sight Elixir (Lesser): an uncommon 3rd-level alchemical consumable, for the rarity DC. */
+const UNCOMMON_ELIXIR = "Compendium.pf2e.equipment-srd.Item.Lz643qJldVUItZOS";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -228,6 +233,35 @@ function pageFixtureMarks({ scope, fixture, folder }) {
         actors: game.actors.filter((a) => a.flags?.[scope]?.[fixture]).map((a) => [a.id, a.flags[scope][fixture]]).sort(),
         folders: game.folders.filter((f) => f.flags?.[scope]?.[folder]).length,
     };
+}
+
+/**
+ * GM: give an actor a compendium item worn and invested (gear whose rule elements need both), first taking away any
+ * copy it has; with `remove`, only take it away.
+ */
+async function pageGear({ actorId, uuid, remove = false }) {
+    const actor = game.actors.get(actorId);
+    const old = actor.items.filter((i) => i._stats?.compendiumSource === uuid).map((i) => i.id);
+    if (old.length) await actor.deleteEmbeddedDocuments("Item", old);
+    if (remove) return { removed: old.length };
+    const source = game.items.fromCompendium(await fromUuid(uuid), { keepId: false });
+    source.system.equipped = { carryType: "worn", inSlot: true, invested: true };
+    const [item] = await actor.createEmbeddedDocuments("Item", [source]);
+    return { id: item.id, equipped: item.isEquipped, invested: item.isInvested };
+}
+
+/** GM: set an actor's Hero Points. */
+async function pageHeroPoints({ actorId, value }) {
+    await game.actors.get(actorId).update({ "system.resources.heroPoints.value": value });
+    return game.actors.get(actorId).system.resources.heroPoints.value;
+}
+
+/** A value of the ledger's module flags as the server holds it (`path` dotted), read back with a `get` request. */
+async function pageServerFlag({ mod, path }) {
+    const [ledger] = (await JournalEntry.implementation.database.get(JournalEntry.implementation, { query: {} }))
+        .map((doc) => doc.toObject()).filter((j) => j.flags?.[mod]?.role === "ledger")
+        .sort((a, b) => (a._stats?.createdTime ?? 0) - (b._stats?.createdTime ?? 0));
+    return path.split(".").reduce((value, key) => value?.[key], ledger?.flags?.[mod]) ?? null;
 }
 
 /** The module's status on this client. */
@@ -1300,5 +1334,122 @@ export const BEHAVIOURS = {
         h.check("no error shown on either client", Object.values(errors).every((e) => e.length === 0), errors);
         await checkStatuses(h);
         return { rounds };
+    },
+
+    /**
+     * M3 (6.12, 6.15 gap 2): a Craft check through the roll wrapper carries the product's roll options, so the
+     * Alchemist Goggles' item bonus (predicated on `item:trait:alchemical` and `action:craft`) applies; the same
+     * check rolled as the system Craft macro rolls it (`action:craft` only) leaves it out. The order records the check.
+     */
+    async "craft-gear-bonus"(h, w) {
+        await resetWorld(h, w);
+        await h.only(["gm", "p1"]);
+        await h.settle("ready");
+        const gear = await h.evaluate("gm", pageGear, { actorId: w.pcs.p1.id, uuid: GOGGLES }, "give the goggles, worn and invested");
+        h.check("the goggles are worn and invested", gear.equipped === true && gear.invested === true, gear);
+        try {
+            const order = await h.step("p1", "m3", "order", { product: ELIXIR });
+            const rolled = await h.step("p1", "m3", "roll", { order: order.id });
+            const goggles = (rolled.message?.modifiers ?? []).find((m) => m.slug?.includes("goggles"));
+            h.check("the wrapper's roll carries action:craft and the product's traits", ["action:craft", "item:trait:alchemical"].every((o) => rolled.message?.options?.includes(o)), rolled.message);
+            h.check("the goggles' +1 item bonus applies to the wrapper's roll", goggles?.enabled === true && goggles.modifier === 1 && goggles.type === "item", rolled.message?.modifiers);
+            h.check("the order recorded the check from that message", rolled.recorded && rolled.check?.messageId === rolled.message?.id && rolled.check?.attempt === 1, rolled.check);
+            const system = await h.step("p1", "m3", "systemRoll", { dc: levelDC(1) });
+            const systemGoggles = system.modifiers.find((m) => m.slug?.includes("goggles"));
+            h.check("the system Craft path does not apply them, and is not recorded", !systemGoggles?.enabled && system.linked === false, system);
+            const server = await h.evaluate("gm", pageServerFlag, { mod: MOD, path: `orders.${order.id}.status` }, "order status on the server");
+            h.check("server: the order is rolled", server === "rolled", server);
+            return { gear, order, rolled, system };
+        } finally {
+            await h.evaluate("gm", pageGear, { actorId: w.pcs.p1.id, uuid: GOGGLES, remove: true }, "take the goggles back");
+        }
+    },
+
+    /** M3 (6.2.1, 6.15 gap 1): the order's frozen Craft DC includes the rarity adjustment, and the roll uses it. */
+    async "craft-rarity-dc"(h, w) {
+        await resetWorld(h, w);
+        await h.only(["gm", "p1"]);
+        await h.settle("ready");
+        const order = await h.step("p1", "m3", "order", { product: UNCOMMON_ELIXIR });
+        h.check("an uncommon 3rd-level item: DC 18 + 2", order.rarity === "uncommon" && order.dc.rarity === 2 && order.dc.final === levelDC(3) + 2, order);
+        const rolled = await h.step("p1", "m3", "roll", { order: order.id });
+        h.check("the roll is against the order's DC, not the macro's level DC", rolled.message?.dc === order.dc.final && rolled.message.dc !== levelDC(3), rolled.message);
+        h.check("the check is recorded", rolled.recorded === true, rolled.check);
+        return { order, rolled };
+    },
+
+    /**
+     * M3 (6.12, OQ-3): a Hero Point reroll of the order's check message, with the GM and both players online. The
+     * reroll's new message keeps the link option and belongs to the rerolling player, whose client records it, once;
+     * the order's check is replaced (`rerolled`, and marked for the downtime guardrail's warning).
+     */
+    async "craft-hero-reroll"(h, w) {
+        await resetWorld(h, w);
+        await h.only(["gm", "p1", "p2"]);
+        await h.settle("ready");
+        await h.evaluate("gm", pageHeroPoints, { actorId: w.pcs.p1.id, value: 1 }, "one Hero Point");
+        const order = await h.step("p1", "m3", "order", { product: ELIXIR });
+        const first = await h.step("p1", "m3", "roll", { order: order.id });
+        h.check("the first roll is recorded", first.recorded === true, first.check);
+        await h.step("p2", "m3", "watch", { path: `orders.${order.id}.check` });
+        const reroll = await h.step("p1", "m3", "reroll", { order: order.id });
+        const count = await h.step("p2", "m3", "count", { ms: 3000 });
+        h.check("the reroll replaced the order's check with the new message", !!reroll.replaced && reroll.check?.messageId === reroll.replaced, reroll);
+        h.check("the reroll's message keeps the link and the attempt (OQ-3)", reroll.message?.link?.id === order.id && reroll.message.link.attempt === 1 && reroll.message.isReroll, reroll.message);
+        h.check("the reroll's message belongs to the rerolling player (OQ-3)", reroll.message?.author === "Player One", reroll.message?.author);
+        h.check("recorded as a reroll, with the downtime guardrail's warning", reroll.check?.rerolled === true && reroll.check.fortune === true && reroll.check.warn === true, reroll.check);
+        h.check("the reroll wrote the order's check exactly once, from Player One's client", JSON.stringify(count.writers) === JSON.stringify({ "Player One": 1 }), count.writers);
+        const server = await h.evaluate("gm", pageServerFlag, { mod: MOD, path: `orders.${order.id}.check.messageId` }, "check on the server");
+        h.check("server: the order holds the reroll's check", server === reroll.replaced, server);
+        return { order, first, reroll, count };
+    },
+
+    /**
+     * M3 review (6.12, 6.10): a second first roll for the attempt, as a second check dialog makes it, is refused: the
+     * order keeps its first check and the roller is told. Then pf2e's free "keep new" reroll of the first message,
+     * which spends no Hero Point, is recorded as a reroll with the downtime guardrail's warning.
+     */
+    async "craft-second-roll"(h, w) {
+        await resetWorld(h, w);
+        await h.only(["gm", "p1"]);
+        await h.settle("ready");
+        const order = await h.step("p1", "m3", "order", { product: ELIXIR });
+        const first = await h.step("p1", "m3", "roll", { order: order.id });
+        h.check("the first roll is recorded", first.recorded === true, first.check);
+        await takeNotes(h);
+        const again = await h.step("p1", "m3", "again", { order: order.id });
+        const notes = (await takeNotes(h)).p1?.notes ?? [];
+        h.check("the second roll made its own linked message", !!again.message && again.message.id !== first.check?.messageId && !again.message.isReroll, again.message);
+        h.check("the order keeps its first check", again.check?.messageId === first.check?.messageId && again.status === "rolled", again);
+        h.check("the roller is told the second roll does not count", notes.some((n) => /AlreadyRolled|already rolled/i.test(n.message)), notes);
+        const free = await h.step("p1", "m3", "reroll", { order: order.id, message: first.check.messageId, resource: "none" });
+        h.check("pf2e's free keep-new reroll spends nothing and is a reroll", free.message?.isReroll === true && !free.message.options.includes("check:reroll:hero-points"), free.message);
+        h.check("it replaces the check, marked for the guardrail", free.check?.messageId === free.replaced && free.check.rerolled === true && free.check.fortune === true && free.check.warn === true, free.check);
+        const server = await h.evaluate("gm", pageServerFlag, { mod: MOD, path: `orders.${order.id}.check.messageId` }, "check on the server");
+        h.check("server: the order holds the free reroll's check", server === free.replaced, server);
+        return { order, first, again, notes, free };
+    },
+
+    /**
+     * M3 (6.10, 5.4): an Earn Income check rolled with action:earn-income and recorded on its job; then day 1 is
+     * resolved by both players at the same moment and once more by the earner: one wage row, paid into the purse once.
+     */
+    async "wage-once"(h, w) {
+        await resetWorld(h, w);
+        await h.only(["gm", "p1", "p2"]);
+        await h.settle("ready");
+        const job = await h.step("p1", "m3", "job", { taskLevel: 0, skill: "crafting" });
+        const earned = await h.step("p1", "m3", "earn", { job: job.id });
+        h.check("the Earn Income check carries action:earn-income and is recorded with a day's pay", earned.recorded && earned.message?.options?.includes("action:earn-income") && earned.job?.perDayCp > 0, earned);
+        const before = (await serverView(h, "gm", w)).actors[w.pcs.p1.id].coinsCp;
+        const together = await h.together([["p1", "m3", "pay", { job: job.id, day: 1 }], ["p2", "m3", "pay", { job: job.id, day: 1 }]]);
+        const again = await h.step("p1", "m3", "pay", { job: job.id, day: 1 });
+        const wages = await h.step("gm", "m3", "wages", { job: job.id, ms: 4000 });
+        const after = (await serverView(h, "gm", w)).actors[w.pcs.p1.id].coinsCp;
+        h.check("one wage row for day 1, applied", wages.rows.length === 1 && wages.rows[0].day === 1 && wages.rows[0].state === "applied", wages);
+        h.check("any wage claim for it is resolved", wages.claims.every((c) => c.resolved), wages.claims);
+        h.check("server: the earner's purse grew by one day's pay", after - before === earned.job.perDayCp, { before, after, perDayCp: earned.job.perDayCp, together, again });
+        checkReconciles(h, await serverView(h, "gm", w));
+        return { job, earned, together, again, wages, before, after };
     },
 };

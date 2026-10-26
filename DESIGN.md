@@ -624,7 +624,8 @@ or its items, and not at all when only `updatedAt` and `by` would change. Skills
 character is trained in or better, since Earn Income may use any; feats are those whose slug is in `FEAT`
 (`scripts/logic/core.mjs`) until the registry (M3) names them, a choice feat by its base slug;
 `consumables` stays empty until M8. Members follow the `members` setting (14.1). Snapshots of characters
-that stop being members are not removed yet.
+that stop being members are not removed yet. As built in M3: `feats` lists the registry keys of the character's feats and
+features (`featKeysOf`), a choice feat as `<key>:<choice>` (`specialty-crafting:artistry`, which G4 reads).
 
 ### 4.11 Daily loadouts and standing orders
 
@@ -1584,6 +1585,9 @@ function batchMax(item, crafter, ctx, order) {
   registry's consumable fix (`item.consumableFix`) as plain fields. A scroll order with no castings pledged
   yet has a batch of 0, so its quantity is checked again once pledges arrive. `splitIntoBatches` splits a
   larger request into full batches and one smaller last batch.
+- **As built in M3:** the Efficient Alchemy flag became `multiplier`, the registry's `batchMultiplier` for the crafter
+  and product (its predicate is the alchemical-consumable test), and `item.consumableFix` is the registry's
+  `consumableFix(uuid)`.
 
 ### 6.4 Formula families
 
@@ -1640,10 +1644,10 @@ i18n keys with data (for example "needs master in Crafting; unlocks at the next 
 | G1 trained | crafter trained in Crafting, or in the registry substitute skill for this item | Player Core p.237 |
 | G2 level | item level ≤ crafter level | Player Core p.237 |
 | G3 proficiency | master for item level 9+; legendary at or above the legendary threshold: 17 by default, 16 by setting (`rules.legendaryItemLevel`). The same threshold applies to Deconstruct and Grow (6.16) | Player Core p.237 says 17; GM Core p.223 and Treasure Vault (Remastered) pp.162, 165 say 16 |
-| G4 crafting feat | alchemical: Alchemical Crafting; magical (including runes): Magical Crafting; both traits: both; talisman: Magical Crafting or a registry grant (Talisman Dabbler); tattoo: Tattoo Artist (or Magical Crafting with Specialty Crafting in artistry under the Secrets of Magic setting); graft: Graft Technician and expert Medicine; snare: Snare Crafting, plus Magical Crafting for magical snares (setting, OQ-14); gadget: no feat | Player Core, Player Core 2, GM Core, Guns & Gears (R), Howl of the Wild |
+| G4 crafting feat | alchemical: Alchemical Crafting; magical (including runes): Magical Crafting; both traits: both; talisman: Magical Crafting or a registry grant (Talisman Dabbler); oil or potion: Magical Crafting or a registry grant (the witch's Cauldron, which lets the witch Craft oils and potions); tattoo: Tattoo Artist (or Magical Crafting with Specialty Crafting in artistry under the Secrets of Magic setting); graft: Graft Technician and expert Medicine; snare: Snare Crafting, plus Magical Crafting for magical snares (setting, OQ-14); gadget: no feat | Player Core, Player Core 2, GM Core, Guns & Gears (R), Howl of the Wild |
 | G5 rarity and access | common, or the crafter has access: a known formula for the item or a registry access grant. With `rules.uncommonNeedsFormula` on, only a known formula (OQ-37) | Player Core p.237; Player Core p.294; GM Core p.223 |
 | G6 formula route | a route from 4.3 exists for this item | |
-| G7 tools | alchemical items in downtime: alchemist's lab; other trades: artisan's toolkit; snares: snare toolkit (treated as an artisan's toolkit, OQ-14); registry substitutions (Scrounger, Improvise Tool, cookware for alchemical food). A tool counts if it is on the crafter or in the strongbox. Workshops (a smithy) are checklist items. | Player Core p.237 and items |
+| G7 tools | alchemical items in downtime: alchemist's lab; other trades: artisan's toolkit; snares: snare toolkit (treated as an artisan's toolkit, OQ-14); registry substitutions (Scrounger, Improvise Tool, cookware for alchemical food) and gear that functions as a tool (the expanded and cytillesh healer's toolkits, the toolkit of bronze whispers, the philosopher's extractor). A tool counts if it is on the crafter or in the strongbox. Workshops (a smithy) are checklist items. | Player Core p.237 and items |
 | G8 materials | escrow covers `upfrontCp`; precious-material rules (6.6) | Player Core p.237; GM Core p.253 |
 | G9 Craft Requirements | every parsed requirement is confirmed on the checklist; spell supply is covered by fulfilled pledges (6.9); Craft Anything waives most requirements including spells, but not added costs | GM Core p.223; Craft Anything (Player Core) |
 | G10 custody | the target of an upgrade, etching or transfer is on the crafter or earmarked in the strongbox for the whole job; a tattoo or graft subject has consented and is locked | GM Core p.225; Secrets of Magic p.164; Howl of the Wild p.97 |
@@ -1665,7 +1669,8 @@ As built in M1 (`scripts/logic/gates.mjs`):
   interface maps the codes to keys (M4), so pure logic names no key and `tools/check-source.mjs` checks each
   key where it is used.
 - Feats are registry slugs; a feat with a choice is `<slug>:<choice>` (`specialty-crafting:artistry`), and
-  a registry `craftUnlock` arrives as `crafter.unlocks` (`talisman` for Talisman Dabbler). An alchemical
+  a registry `craftUnlock` arrives as `crafter.unlocks`, item traits that waive Magical Crafting (`talisman` for
+  Talisman Dabbler; `oil` and `potion` for the witch's Cauldron, added in the M3 review). An alchemical
   talisman would also need Alchemical Crafting (none exists in pf2e 8.6.1); a magical gadget needs no feat,
   as G4 says; a graft's expert Medicine is reported in `data.ranks`.
 - G5 counts the `known`, `family` and `virtual` routes as having the formula.
@@ -1815,6 +1820,10 @@ function helperRate(h, s) {
     and otherwise `none` (when open) followed by every acquisition route.
   - Feature picks owed and the virtual lists are registry data (6.11) and arrive with the registry in M3;
     until then callers pass `virtual` to `craftRoute`.
+  - As built in M3: the virtual lists and access grants reach `craftRoute` through `routeInputs` (6.11), the picks
+    owed come from `formulaPicks`, and `formulaJobPlan` returns the registry's `modifiers` for the job's route (the
+    Reverse Engineering feat's +2, applied by the roll wrapper) in place of `bonus`, its 1-day setup from the
+    registry too.
 
 ### 6.9 Casting pledges
 
@@ -1865,8 +1874,9 @@ function helperRate(h, s) {
   resolved twice, or by two clients at once, never pays twice: the earner's direct mint and the claim
   share one lock, keyed by the row (5.4).
 - **Downtime-check guardrail.** Fortune effects and activated bonuses do not apply to downtime checks
-  (GM Core p.46), and a Hero Point reroll is a fortune effect. The card warns when either is detected;
-  a setting can block instead (default warn).
+  (GM Core p.46), and a reroll is a fortune effect: a Hero Point reroll, and also pf2e's free chat-menu
+  rerolls (keep the new, the higher or the lower result), which spend nothing. The card warns when either
+  is detected; a setting can block instead (default warn).
 - **Cost of living** (Player Core p.295) can be deducted per week after income (setting, default off;
   GM Core p.50 suggests it only for long stretches).
 - **Cooking Lore** jobs are ordinary Lore jobs.
@@ -1887,6 +1897,27 @@ function helperRate(h, s) {
     for the day have been reversed. A wage day undone and paid again therefore gets a new key and lock page.
   - Cost of living is a table lookup by standard and period; how many weeks a stretch is charged is the
     day resolver's (M6).
+- **As built in M3** (`scripts/logic/rolls.mjs`, `scripts/foundry/rolls.mjs`):
+  - `rollEarnIncome(jobId)` rolls `actor.skills[job.skill]` (Lore statistics included) with `extraRollOptions:
+    ["action:earn-income", "<MOD>:job:<id>"]`, the job's DC and `traits: ["downtime"]`; it rolls an open job once.
+    Experienced Professional's and the Tradecraft Tattoo's critical-failure conversions are their own rule elements
+    firing on `action:earn-income` (the registry checks their shape, 6.11); Experienced Professional's doubling is
+    `wagePerDay` with the flag from the registry's `earnIncome` effect and the unadjusted degree.
+  - pf2e's reroll copies the first message's context and updates only `outcome`, so a reroll's
+    `unadjustedOutcome` is stale. The recorded `unadjusted` degree is therefore computed from the kept roll's total,
+    its d20 and the DC, as pf2e's `DegreeOfSuccess` does (by 10 over or under, then one step for a natural 20 or 1).
+  - A recorded check writes `jobs.<id>.check` (with the earner's level and rank), `perDayCp`, `status` (fired on a
+    critical failure) and `shortened`. A reroll replaces it until a wage has been paid; after that it is
+    kept as `jobs.<id>.conflict`, as for an order (the earner undoes those wages first). A second roll that is not a
+    reroll is refused and the roller is told; re-rolling a resumed job after a level or rank change is M6.
+  - The guardrail applies to Craft and Earn Income checks alike (both are downtime checks): any reroll (the message's
+    `isReroll` or `check:reroll`, whether or not a Hero Point was spent; pf2e does not record which result a
+    keep-higher or keep-lower reroll kept, so all are marked) and a keep-higher roll are recorded with `fortune` and,
+    under `warn`, `warn: true` for the card; under `block` they are not recorded and the roller is told. Assurance is
+    not a reroll and is not marked.
+  - `payWage(jobId, day)` posts `wage:<jobId>:<day>:<seq>`: the earner's responsible client mints it, any other
+    client files a wage claim with the same key, and a day already paid is `already`. Jobs are created by M6's form;
+    the harness writes them with `makeJob`.
 
 ### 6.11 Rules registry
 
@@ -1910,7 +1941,7 @@ daily preparation or Earn Income, beyond what the system's own rule elements alr
 
   | Kind | Meaning |
   |---|---|
-  | `craftUnlock` | lets the actor craft a category (Talisman Dabbler: talismans) |
+  | `craftUnlock` | lets the actor craft a category (Talisman Dabbler: talismans; the witch's Cauldron: oils and potions) |
   | `gate` | an extra requirement |
   | `formulaAllowance` | picks owed per level or on gain |
   | `virtualFormulaList` | formulas known without a book (predicate and level cap) |
@@ -1966,6 +1997,102 @@ daily preparation or Earn Income, beyond what the system's own rule elements alr
   checked against the source: Seasoned and Specialty Crafting do not fire through the system Craft
   macro, and Earn Income gear (Fortune Cord, Inexplicable Apparatus, Tradecraft Tattoo) does not fire in
   the system dialog. Every registry entry is checked against the pf2e source before it is added.
+- **As built in M3** (`scripts/data/registry.mjs`, `scripts/data/registry-ignore.mjs`, lookups in
+  `scripts/logic/registry.mjs`, `tools/validate-registry.mjs`):
+  - 243 entries: tier 1 40, tier 2 108, tier 3 49 (stubs), tier 4 46 (stubs, plus the four talisman corrections and
+    the axe of the dwarven lords' options). The M3 review added the gear whose Crafting bonus needs an option only the
+    wrapper adds (the rings of maniacal devices, the philosopher's extractor, the axe) and the gear that functions as
+    a tool (the expanded and cytillesh healer's toolkits, the flawless celestial shawl), all formerly on the ignore list
+    or on neither.
+    Seeded from the research catalogues after checking each against the compendium JSON of the pf2e dev head
+    (be4ab21b) and the pinned release `pf2e-8.6.1`; two dev-head-only items (the minor and lesser artifex telluria)
+    were dropped because the release lacks them. Tiers as built: tier 1 is the core Crafting skill feats, the
+    alchemist's crafting and daily-preparation features, Talisman Dabbler and the base tools; tier 2 every other
+    Remaster entry that touches the Craft activity's cost, time or check, formulas or Earn Income; tier 3 other
+    classes' daily preparation; tier 4 legacy content that touches either. Left out of the registry, onto the
+    ignore list with a reason: backgrounds (they matter through the feat they grant), entries whose only effect is
+    Repair (M5), combat and item-use riders (M8, M8a), DC stamps (M7), runes, precious-material stock, talismans and
+    tattoos as items (M5, M7, M9), gear whose Crafting modifier needs nothing from the module, and the sweep's
+    reviewed false positives (1208 UUIDs, 25 reason codes).
+  - Keys are pf2e slugs; the one slug two items share (Advanced Alchemy) keys the archetype feat
+    `advanced-alchemy@archetype`. Every entry carries `type`, and `relies` lists the rule-element shapes the module
+    reads (the ones named above, plus Specialty Crafting's predicate and ChoiceSet, Impeccable Crafting's misspelled
+    Note, the expanded lab's bare `alchemical`, the goggles, haversack and Earn Income gear, Graft Technician and the
+    inventor's Reverse Engineer; after the M3 review also every carver-cutter, the rings of maniacal devices, the
+    philosopher's extractor and the axe of the dwarven lords, and the CraftingAbility of the witch's Cauldron and of
+    Gadget Specialist).
+  - Predicates are `{all, any, not}` over the product's roll options plus context options (`craft-type:`, `route:`,
+    `material:monster`, `specialty:<trade>`, `specialty:own`); `SPECIALTY_DEFAULTS` puts alchemical items under
+    alchemy and tattoos under artistry, and an order's `specialty` field names any other trade. pf2e marks alchemical
+    tools only with the `alchemical-tool` other tag (category `other`), so the investigator's elixir-or-tool picks read
+    `item:tag:alchemical-tool`. Effect kinds built:
+    `craftUnlock` (a `category`, an item trait that waives Magical Crafting for G4, or an `access` predicate for G5), `formulaAllowance`, `virtualFormulaList`,
+    `setupDays`, `rateLevel`, `degreeShift`, `batchSize`, `rollOptions`, `modifier`, `skillSubstitution`,
+    `toolSubstitution` (base tools provide their own id, so G7's `available` is the union over the crafter's and the
+    strongbox's items), `earnIncome`, `correction`, `variantOnly`. The rest of the table arrive with their milestones.
+  - The M1 inputs the registry now provides: `craftRoute`'s `virtual` and `accessGrant` (`routeInputs`), the gates'
+    `unlocks`, substitute skills and tools, `batchMax`'s multiplier (`batchMultiplier`, replacing the
+    `efficientAlchemy` flag), `crafterRate`'s `rateLevel`, `wagePerDay`'s Experienced Professional, the talisman
+    `consumableFix`, Quick Setup (`holds` with `variantOnly`), and the feature picks owed (`formulaPicks`: on gain,
+    per level, per rank). Reverse-engineering's 1-day setup and +2 come from the registry in `formulaJobPlan`, which
+    now returns `modifiers` instead of `bonus`. No registry entry changes the Craft DC, so `craftDC`'s `adjust` has no
+    registry part. Roster snapshots publish the registry keys of a character's feats and features (`slug:choice`).
+  - A character's keys come from its items by compendium source UUID, else by an unshared slug; gear counts for
+    modifiers and options only when equipped (and invested if it must be), and for tools wherever it is carried.
+  - Validation: `npm run validate:registry -- --pf2e <checkout>` (also `PF2E_SRC=<checkout> npm test`) fails on an
+    unresolved UUID, a changed slug, type or remaster flag, a missing `relies` shape, an effect UUID that does not
+    resolve, or a stale ignore entry. After the M3 review it also fails on: an ignored item whose Crafting rule
+    element predicates a bare option or an `action:craft:<trade>` option that its own RollOption does not set, which
+    only the roll wrapper can add, so it needs a registry entry with a `rollOptions` effect (items ignored for Repair
+    wait for M5); an `item:slug|trait|tag|category|usage|type|rarity:` option in an entry's effects or in
+    `SPECIALTY_DEFAULTS` that no physical item in the checkout has (options the registry's own `rollOptions` add, such
+    as Seasoned's `item:tag:food`, count as present; any other `item:` kind fails as uncheckable); a `books` title no
+    physical item has; a `correction {consumable}` whose item now has the trait; and a registry entry or ignored UUID
+    in a pack the checkout lacks, so a sparse or broken checkout never passes by reading nothing (`--enforce` also
+    needs every Item pack of the manifest). The completeness scan reads every Item pack present, after removing the
+    Craft Requirements heading, for `craft`, `formula`, `daily preparations` and `Earn Income`; CI's checkout takes
+    all 25 Item packs of `pf2e-8.6.1` and reports 760 candidates, and `--enforce` fails on any. The affliction-parser
+    part of the scan arrives with M8a.
+- **Follow-ups (M3, low).**
+  - The completeness candidates (760 at `pf2e-8.6.1` over all 25 Item packs, mostly equipment and spells mentioning
+    daily preparations, and 21 in the packs CI's checkout used to leave out: the Pathfinder Society boons Crafter's
+    Workshop, Storied Talent and River Kingdoms Politician, the Shelyn, Brigh and Abadar boons and the Torag curse, the
+    Traveling Workshop spell effect and others) are unreviewed: each needs an entry or an ignore reason before the
+    stable release enforces the scan.
+  - Tier-2 notes that could carry effects later: the schematic scanner's +2 (needs the formulas stored in it), the
+    Tattooed Historian's access to orc tattoos (no trait marks them), the artifex telluria's bare option, Junk
+    Tinker's and Monster Crafting's material sources (M5), and the flawless celestial shawl's one-degree-better
+    Crafting outcome (it counts as a sterling artisan's toolkit now; the degree needs to know the shawl is the
+    tennin's own).
+  - Tier-4 stubs whose Crafting bonus predicates an option nothing sets, which a `rollOptions` effect would make work
+    as the axe's does: the guiding chisel (`stonemasonry`), Torag's silver anvil (`metalworking`), the winder's ring
+    (`clockwork`) and the palette of masterstrokes (`action:craft:paint`); and Blessed Blood's `own-blood`. The
+    validator's wrapper-option check covers ignored items only; extending it to registry entries would list these.
+  - `heldKeys` falls back to a slug match even when the item's source UUID names another compendium item, and never
+    compares document types. Five registry slugs collide with other Item-pack documents (`acupuncturist` a
+    background, `horn-of-plenty` a backpack, `inventor` the class, `practical-magic` a Kingmaker feature that would
+    pick up the entry's virtual formula list, `quick-alchemy` the action), and `heldKeysOf` passes non-physical items
+    of every type. Latent until those keys carry effects (M7): fall back to the slug only when `sourceId` is empty or
+    not a `Compendium.pf2e.` UUID, pass `type` in `itemFacts` and require it to match, and have the validator report
+    slug collisions.
+  - Legion's Aim grants access to uncommon firearms as well as alchemical bombs; the access predicate covers bombs
+    only. A second `craftUnlock` on `{all: ["item:group:firearm", "item:rarity:uncommon"]}` needs `item:group:` in
+    `itemOptions` and in the validator's checked option kinds first.
+  - The inexplicable apparatus at level 20: `rateLevel` gives 21 and `incomePerDay` clamps the row to 20, so a
+    success pays the plain level-20 row and a critical success the level-20 critical row, where the item gives
+    success at level + 1 and a fixed 20th-level critical row (50/100/200/350 gp); it needs a rate-table override.
+    Its `setupDays` also shortens a reverse-engineering formula job to 1 day without the Reverse Engineering feat;
+    exclude `route:reverse-engineer` from its predicate or say why it applies.
+  - Tier-2 notes that touch formulas, time or Earn Income: Craft Philosopher's Stone and Brastlewark Snare
+    Engineering grant named formulas but carry no `formulaAllowance uuids`; Celebrity Dedication's +1 Earn Income
+    when the task level is above the earner's has no rule element and no effect kind yet; Snarecrafter Dedication's
+    rank allowance is granted all at once by `formulaPicks`' `gained` path to a character already expert or better,
+    where the feat grants picks only when the rank rises (mark it event-only), and its ranger Survival substitution
+    is missing.
+  - The heckling tools (a cursed sentient toolkit of any kind) count as no tool: the tool they replace is the GM's
+    choice.
+  - The order's `specialty` and `material`/`monsterLevel` fields are read by the wrapper and the registry but set by
+    nothing until the order form (M4).
 
 ### 6.12 The roll wrapper
 
@@ -2026,6 +2153,74 @@ Hooks.on("createChatMessage", (message) => {
 - The chat card augment (10.5) is added in `renderChatMessageHTML` and computed from stored state.
 - Helper checks and Earn Income checks use the same wrapper with their own roll option
   (`MOD:helper:<orderId>:<actorId>`, `MOD:job:<jobId>`).
+- **As built in M3** (`scripts/foundry/rolls.mjs`, its pure parts in `scripts/logic/rolls.mjs`):
+  - `rollCraft(orderId)` rolls an order in `check` for an owner of its crafter. The options are `action:craft`, the
+    activity's own (`action:reverse-engineer` on that route, `action:implant-graft` for a graft, where the system's own
+    rule elements predicate), the unsaved product's `getRollOptions("item")`, the registry's options and the link;
+    the registry's modifiers become pf2e modifiers labelled with their compendium item's name. OQ-2 is settled live:
+    an unsaved copy built with the crafter as parent returns the full item option set (type, id, slug, traits,
+    rarity, level, category).
+  - Recording is `createChatMessage` on the message author's tab that holds the lease (the lease is the
+    responsible-client guard here, P4). The check stored is `{degree, unadjusted, total, rerolled, fortune, warn,
+    messageId, shifted, attempt, level, rank, settled}`: `degree` after the registry's degree shifts that the roll's
+    options select (Impeccable Crafting's success to critical success; `shifted` says so), `unadjusted` computed as
+    for Earn Income (6.10). A check refused as `settled` is stored as `orders.<id>.conflict`; one for another
+    attempt is refused as `stale-attempt` and written nowhere.
+  - `settleOrder(orderId)` runs M1's `settleCheck` and writes the order's new state in the same request as its rows:
+    `expend` or `ruin` through M2's `spend` (which now takes the other ledger keys of its request), pro rata by
+    contributor, with a `release` row riding in that request as an applied bookkeeping row; a failure (or nothing
+    committed) is one plain write. Keys are `<kind>:<orderId>:<attempt>:<seq>`.
+  - OQ-3 is settled live (harness `craft-hero-reroll`, GM and two players online): the reroll's message keeps the
+    link and attempt, its author is the rerolling player, and that player's client alone writes the order's check,
+    once.
+  - After the M3 review:
+    - A second roll for an attempt that already has a check and is not a reroll of it (two of pf2e's check dialogs
+      open at once, since they have no fixed id; a double click; a GM and the player both rolling; one user on two
+      devices) is refused as `rolled` by `recordCheck`, before the settled test, so it never replaces the first roll
+      and is never kept as a conflict the crafter could take by undoing the settlement; the roller is told
+      (`Roll.AlreadyRolled`). The same message recorded twice is not a second roll. Earn Income jobs already refused
+      it and now tell the roller too.
+    - Every reroll is guarded (6.10), not only a Hero Point one.
+    - An attempt whose settlement rows (`expend`, `release` or `ruin` keyed for it, pending or applied, not reversed)
+      exist counts as settled when a check is recorded, even if its `settled` flag was overwritten: a settlement writes
+      its rows and the flag in one request, but a reroll recorded from a copy that had not seen it yet can land after
+      it and clear the flag. The reroll is then kept as a conflict instead of replacing the check again.
+    - `rollCraft` and `rollEarnIncome` leave `skipDialog` to pf2e unless the caller sets it, so the check dialog
+      follows the user's own "show check dialogs" setting (the harness passes `true`).
+    - Checked live (harness `craft-second-roll`): a second first roll's message is refused and the order keeps its
+      first check, the roller sees the notice, and pf2e's free keep-new reroll of the first message is recorded as a
+      reroll with `fortune` and `warn`.
+- **Follow-ups (M3, low).**
+  - A check whose message arrives while its author's client cannot write (stale, migrating, no OWNER) is not
+    recorded and nothing catches it up; the order stays in `check`, so the crafter can roll again. A catch-up over
+    recent linked messages at the `ready` sweep would close it.
+  - A copy of a check message (a module re-posting it with its flags) would be recorded again as the same check
+    under a new message id.
+  - A second roll refused as `rolled` leaves its chat message, and a later reroll of that message carries the same
+    link and `isReroll`, so it is recorded as a reroll of the attempt (orders and jobs alike). Refusing it needs the
+    record to remember refused message ids, or the reroll to name the message it rerolls (pf2e's new message does
+    not).
+  - The settled-rows test reads the recording client's own copy. A reroll write that lands on the server after a
+    settlement still overwrites the settled check with an unsettled one, and settling again then posts nothing (the
+    committed half is already released or spent). M4, when settlement runs automatically: after the reroll's write
+    resolves, if settlement rows for the attempt exist, restore the settled check (`settleCheck(previous).patch`) and
+    move the reroll to `conflict`; or store checks per message (`orders.<id>.checks.<messageId>`) with settlement
+    stamping the message it settled, so neither write overwrites the other.
+  - The Earn Income `paid` guard counts wage rows, not open wage claims: a reroll recorded after another client filed
+    a wage claim but before the earner's client applied it changes `perDayCp`, and the claim pays that day at the old
+    rate (its `cp` was fixed when filed) while later days pay the new one. Count unresolved wage claims for the job
+    as paid days, with M6's day resolution.
+  - A job's link carries no roll number (`<MOD>:job:<id>`), unlike an order's attempt. Once M6 allows a fresh roll
+    on a resumed job after a level or rank change, a reroll of the message rolled before the pause would match the
+    job and replace the new check until a wage is paid. Before M6: link `<MOD>:job:<id>:<n>` with a roll counter on
+    the job, and refuse a stale link as orders refuse `stale-attempt`.
+  - A product that is a weapon (a bomb) brings its weapon options into the Craft check (`item:type:weapon`,
+    `item:ranged`, `item:thrown`, `item:damage:*`; seen live on an imported level-1 bomber crafting a lesser
+    alchemist's fire, which was otherwise right: DC 15, Int +4 and Trained +3, every planned option present, no
+    context item). Only rule elements on broad selectors (`all`, `check`, `skill-check`) read them; a scan of the
+    a pf2e 8.6.1 sparse checkout's packs (without the spell-effect pack) found one, the aquatic combat effect's note on
+    `item:trait:fire`, harmless. Recheck over every pack before release, or drop the weapon-only options from
+    the plan.
 
 ### 6.13 Service rules
 
@@ -2074,7 +2269,7 @@ an upgrade order at the Price difference.
 | # | Gap in pf2e 8.6.1 | What the module does |
 |---|---|---|
 | 1 | The Craft macro's default DC ignores rarity (#19993) | explicit DC (6.2) |
-| 2 | The Craft macro passes no item roll options, so Alchemist Goggles, the Haversack, the expanded lab (bare `alchemical` predicate), Seasoned, Specialty Crafting and the ring of maniacal devices never apply | roll wrapper injects them (6.12) |
+| 2 | The Craft macro passes no item roll options, so Alchemist Goggles, the Haversack, the expanded lab (bare `alchemical` predicate), Seasoned, Specialty Crafting, the rings of maniacal devices (bare `snare`), the philosopher's extractor (`action:craft:alchemical`) and the carver-cutters never apply | roll wrapper injects them (6.12) |
 | 3 | No setup days, extra days, progress, interruption or resume | orders (4.2) |
 | 4 | The card's "pay half" button assumes every day was worked, and its buttons bypass any ledger | never used for orders |
 | 5 | No feat or proficiency gating in Craft (a TODO in the source) | gates (6.5) |
@@ -4052,6 +4247,13 @@ or Maximum Duration paragraph): each parses fully, has an override, or is on the
 intros that mention further, additional or multiple exposure are flagged for review; and a changed
 parse result between tags is reported.
 
+As built in M3: CI's `registry` job checks out the module into `module/` and pf2e at `pf2e-8.6.1` (pinned by commit)
+beside it, sparse (all 25 Item packs of the manifest, `system.pf2e.json`, and the two source files the table tests
+read), and runs `npm run validate:registry -- --pf2e ../pf2e` and `PF2E_SRC=../pf2e npm test`. Both fail when a
+registry entry or ignored UUID is in a pack the checkout lacks, so a sparse-checkout path that drifts fails the job
+instead of checking nothing. The affliction parser part and the
+churn watch come with M8a and the release workflow.
+
 ### 15.3 Local Foundry harness
 
 - Foundry Node build under Node 24 with its own data path and port, not reachable by anyone but the
@@ -4153,6 +4355,12 @@ parse result between tags is reported.
   the purge of scenario 9, which removes every module flag, leaves them; scenario 9 checks that they survive.
   Preparing the world gives actors built before the marks moved their new mark, by the names the fixture tools
   give them.
+- As built in M3: scenario `m3` (`tools/harness/roll-scenarios.mjs`) writes an order in `check` or an open Earn Income
+  job straight into the ledger and rolls, rerolls, pays and reads back; the live driver's behaviour checks
+  `craft-gear-bonus` (Alchemist Goggles worn and invested: the wrapper's roll gets their +1, the system Craft path
+  does not), `craft-rarity-dc` (an uncommon item: the roll's DC is the order's frozen DC with +2), `craft-hero-reroll`
+  (OQ-3, above) and `wage-once` (both players resolve day 1 at once and the earner once more: one wage row, the purse
+  up once, the other player's claim resolved) run it.
 - As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
   counts the rows that are new since `purseBefore` by id, not by a server-time cut-off (two devices' estimates of
   the server's time differ by milliseconds, and one real row was left out); the `claim` step reports its own rows
@@ -4359,8 +4567,8 @@ draft; the letters keep the existing milestone numbers stable.
 | # | Question | Interim default | How to settle |
 |---|---|---|---|
 | OQ-1 | Is `foundry.documents.modifyBatch` applied transactionally on the server, and do per-document hooks fire for batched operations? | **Settled** from the Foundry 14.368 source: not transactional (dry run of every operation, then applied in order, stopping at the first error without rollback); per-document hooks fire for batched results. Design: lock-first batches (5.4). As built in M2: a refused dry run's results are replayed on the requesting client, which then reloads (5.4) | harness scenario 7 confirms in a live world |
-| OQ-2 | Does `getRollOptions("item")` on an ephemeral, unsaved item owned by the crafter return the full option set? | ephemeral item with the crafter as parent | harness |
-| OQ-3 | Do the order roll option and `context.isReroll` reliably survive Hero Point rerolls, and does the reroll message's author equal the rerolling user? | as designed in 6.12 | harness scenario 1 |
+| OQ-2 | Does `getRollOptions("item")` on an ephemeral, unsaved item owned by the crafter return the full option set? | **Settled** live (M3): yes, type, id, slug, traits, rarity, level and category (6.12) | harness |
+| OQ-3 | Do the order roll option and `context.isReroll` reliably survive Hero Point rerolls, and does the reroll message's author equal the rerolling user? | **Settled** live (M3, harness `craft-hero-reroll`): yes to both; the rerolling player's client records it once (6.12) | harness scenario 1 |
 | OQ-4 | Default ownership OWNER on a module journal and a loot actor: any side effects in pf2e (for example the loot sheet's merchant mode or token behaviour)? | strongbox never placed on a scene | harness |
 | OQ-5 | Roster snapshots make every member's formulas, relevant feats and skill ranks readable by all players (the UI hides ranks when pf2e's `partyStats` is off, but the data sits in a shared document). Acceptable, or publish less? | **Resolved:** publish the snapshots as designed (4.10) | author decision, 2026-10-25 |
 | OQ-6 | Communal Crafting RAW gaps: helper DC, degree mapping, timing of helper rolls, leaving | **Resolved:** the helper rolls against the item's Craft DC; the helper's degree picks the Income Earned entry at (helper level − 1) and the helper's rank, as an Earn Income check would (critical success the next row, failure the failure column); a helper who leaves before the Craft ends forfeits the benefit, as a setting (6.7) | author decision, 2026-10-25 |

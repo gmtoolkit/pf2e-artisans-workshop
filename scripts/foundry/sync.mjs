@@ -3,7 +3,8 @@
  * check and catch up on.
  *
  * `init`: settings and the purge menu, the GM relay query, the deletion guards, the batch watcher, and the
- * hooks that fire on every client (each guarded by the responsible-client check where it writes).
+ * hooks that fire on every client (each guarded by the responsible-client check where it writes; a check's chat
+ * message is recorded by its author's tab that holds the lease, `rolls.mjs`).
  *
  * `refresh` (at `ready`, when the master switch or the shared documents change): with the switch on, the active
  * GM creates or repairs the shared documents; every client locates them, checks the schema (migrating if it is
@@ -28,6 +29,7 @@ import { ensureSchema } from "./migrate.mjs";
 import { PurgeMenu } from "./purge.mjs";
 import { reportOwnPending } from "./reconcile.mjs";
 import { registerRelay } from "./relay.mjs";
+import { registerRollHooks } from "./rolls.mjs";
 import { publishAll, registerRosterHooks } from "./roster.mjs";
 import { isEnabled, registerSettings } from "./settings.mjs";
 import { gmMaintenance, locateShared } from "./shared-docs.mjs";
@@ -106,6 +108,7 @@ export function initSync() {
     registerGuards();
     registerBatchWatcher();
     registerRosterHooks();
+    registerRollHooks();
     Hooks.on("updateJournalEntry", (doc, changed) => onSharedUpdate(doc, changed));
     Hooks.on("updateActor", (doc, changed) => onSharedUpdate(doc, changed));
     Hooks.on("deleteJournalEntry", (doc) => onSharedDelete(doc));

@@ -14,6 +14,7 @@
     "check:strings:enforce": "node tools/check-strings.mjs --mode enforce",
     "check:assets": "node tools/check-assets.mjs",
     "check:manifest": "node tools/check-manifest.mjs",
+    "validate:registry": "node tools/validate-registry.mjs",
     "signoff": "node tools/signoff-strings.mjs",
     "harness:live": "node tools/harness/run-live.mjs"
   },

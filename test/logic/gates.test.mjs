@@ -43,6 +43,14 @@ test("G4: crafting feats by kind of item", () => {
     assert.deepEqual(missing({ traits: ["alchemical", "consumable", "magical"] }), [FEAT.alchemicalCrafting, FEAT.magicalCrafting]);
     assert.deepEqual(missing({ traits: ["consumable", "magical", "talisman"] }), [FEAT.magicalCrafting]);
     assert.deepEqual(missing({ traits: ["consumable", "magical", "talisman"] }, [], { unlocks: ["talisman"] }), []);
+    // The witch's Cauldron: oils and potions without Magical Crafting, nothing else.
+    const oil = { traits: ["consumable", "magical", "oil"] };
+    assert.deepEqual(missing(potion, [], { unlocks: ["oil", "potion"] }), []);
+    assert.deepEqual(missing(oil, [], { unlocks: ["oil", "potion"] }), []);
+    assert.deepEqual(missing(oil, [], { unlocks: ["potion"] }), [FEAT.magicalCrafting]);
+    assert.deepEqual(missing({ traits: ["magical", "wand"] }, [], { unlocks: ["oil", "potion"] }), [FEAT.magicalCrafting]);
+    assert.deepEqual(missing({ traits: ["consumable", "magical", "talisman"] }, [], { unlocks: ["potion"] }), [FEAT.magicalCrafting]);
+    assert.deepEqual(missing({ traits: ["alchemical", "consumable", "magical", "potion"] }, [], { unlocks: ["potion"] }), [FEAT.alchemicalCrafting]);
     assert.deepEqual(missing({ traits: ["consumable", "snare"] }), [FEAT.snareCrafting]);
     assert.deepEqual(missing({ traits: ["consumable", "magical", "snare"] }, [FEAT.snareCrafting]), [FEAT.magicalCrafting]);
     assert.deepEqual(missing({ traits: ["consumable", "magical", "snare"] }, [FEAT.snareCrafting], {}, "item",

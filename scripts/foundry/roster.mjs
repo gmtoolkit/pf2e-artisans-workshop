@@ -4,11 +4,11 @@
  * client, so each handler starts with the responsible-client guard (P4). An unchanged snapshot is not written.
  *
  * Members (`members` setting): the active pf2e party's characters, or every character with a player owner.
- * Feats are published by the registry slugs the rules read (`FEAT` in `scripts/logic/core.mjs`, until the M3
- * registry); skills, every one the character is trained in or better, since Earn Income may use any skill.
+ * Feats are published as the registry keys of the character's feats and features (`featKeysOf`, a choice feat as
+ * `<key>:<choice>`); skills, every one the character is trained in or better, since Earn Income may use any skill.
  */
-import { FEAT } from "../logic/core.mjs";
 import { rosterSnapshot, sameRoster } from "../logic/roster.mjs";
+import { featKeysOf } from "./registry.mjs";
 import { isResponsibleFor } from "./responsible.mjs";
 import { setting } from "./settings.mjs";
 import { canWrite } from "./state.mjs";
@@ -18,9 +18,6 @@ import { read, stampNow, write } from "./store.mjs";
 const DEBOUNCE_MS = 1000;
 /** The latest scheduled publish per actor id: only that one runs. */
 const latest = new Map();
-
-/** The feat slugs the rules read; a choice feat (`slug:choice`) is matched by its slug. */
-const KNOWN_FEATS = new Set(Object.values(FEAT).map((slug) => slug.split(":")[0]));
 
 /** The Workshop's members. */
 export function members() {
@@ -40,7 +37,7 @@ export function rosterExtract(actor) {
         level: actor.level,
         size: actor.size,
         skills: Object.fromEntries(Object.values(actor.skills ?? {}).filter((s) => s.rank >= 1).map((s) => [s.slug, s.rank])),
-        feats: actor.itemTypes.feat.map((feat) => feat.slug).filter((slug) => KNOWN_FEATS.has(slug)),
+        feats: featKeysOf(actor),
         formulas: (actor.system.crafting?.formulas ?? []).map((formula) => formula.uuid),
         abilities: [...(actor.crafting?.abilities?.values() ?? [])].map((a) => ({
             slug: a.slug, maxSlots: a.maxSlots, maxItemLevel: a.maxItemLevel, resource: a.resource,

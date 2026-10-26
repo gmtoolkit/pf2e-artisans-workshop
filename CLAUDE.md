@@ -17,6 +17,11 @@ its pure parts in `scripts/logic/`, tests over Foundry stubs in `test/foundry/`,
 live-harness scenarios in `tools/harness/sync-scenarios.mjs`, which the live driver
 (`npm run harness:live`: `tools/harness/run-live.mjs`, plans and behaviour checks in
 `live-plans.mjs`) runs in a dev world with every user at once, with and without a canvas.
+M3 is in place: the rules registry (`scripts/data/registry.mjs`, its ignore list, the
+lookups in `scripts/logic/registry.mjs`, `tools/validate-registry.mjs`) and the roll wrapper
+and Earn Income roll (`scripts/foundry/rolls.mjs`, pure parts in `scripts/logic/rolls.mjs`;
+live checks in `tools/harness/roll-scenarios.mjs`). The registry stores slugs, UUIDs,
+numbers and predicates only; check a new entry with `npm run validate:registry`.
 There is no Workshop window yet. `DECISIONS.md` holds every decision made so far,
 newest first; read it before proposing a design change.
 

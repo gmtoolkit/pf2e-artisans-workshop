@@ -50,8 +50,10 @@ export function requiredRank(itemLevel, rules = DEFAULT_RULES) {
  * - snare: Snare Crafting, and Magical Crafting for a magical snare while that setting is on (OQ-14);
  * - talisman: Magical Crafting, or a registry unlock for talismans (Talisman Dabbler);
  * - otherwise Alchemical Crafting for alchemical items and Magical Crafting for magical ones; both for both.
+ *   A registry unlock for a trait the item has waives Magical Crafting (the witch's Cauldron: oils and potions).
  *
  * @param {{feats: string[], unlocks?: string[], ranks?: Record<string, number>}} crafter
+ *   `unlocks` are item traits whose Magical Crafting requirement a registry `craftUnlock` waives
  * @returns {{feats: string[], ranks: Record<string, number>}} empty when nothing is missing
  */
 export function missingCraftingFeats(item, crafter, craftType = "item", rules = DEFAULT_RULES) {
@@ -79,11 +81,9 @@ export function missingCraftingFeats(item, crafter, craftType = "item", rules = 
         return missing;
     }
     if (kinds.alchemical) need(FEAT.alchemicalCrafting);
-    if (kinds.talisman) {
-        if (!asSet(crafter.unlocks).has("talisman")) need(FEAT.magicalCrafting);
-    } else if (kinds.magical) {
-        need(FEAT.magicalCrafting);
-    }
+    // A talisman needs Magical Crafting even without a magical trait; any unlocked trait of the item waives it.
+    const unlocked = [...asSet(crafter.unlocks)].some((trait) => hasTrait(item, trait));
+    if ((kinds.talisman || kinds.magical) && !unlocked) need(FEAT.magicalCrafting);
     return missing;
 }
 

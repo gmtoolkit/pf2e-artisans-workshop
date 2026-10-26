@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { batchMax, isConsumableForBatch, splitIntoBatches } from "../../scripts/logic/batches.mjs";
 import { rulesWith } from "../../scripts/logic/defaults.mjs";
+import { batchMultiplier, itemOptions } from "../../scripts/logic/registry.mjs";
 
 const elixir = { traits: ["alchemical", "consumable", "elixir", "healing"], type: "consumable" };
 const potion = { traits: ["consumable", "magical", "potion"], type: "consumable" };
@@ -20,10 +21,15 @@ test("mundane ammunition batches by its `per`; magic ammunition as a consumable"
     assert.equal(batchMax({ traits: ["consumable", "magical"], type: "ammo", per: 1 }), 4);
 });
 
-test("Efficient Alchemy doubles a batch of alchemical consumables only", () => {
-    assert.equal(batchMax(elixir, { efficientAlchemy: true }), 8);
-    assert.equal(batchMax(potion, { efficientAlchemy: true }), 4);
-    assert.equal(batchMax({ traits: ["alchemical"], type: "equipment" }, { efficientAlchemy: true }), 1);
+test("Efficient Alchemy doubles a batch of alchemical consumables only, through the registry's multiplier", () => {
+    const held = ["efficient-alchemy-alchemist"];
+    const multiplier = (item) => batchMultiplier(held, itemOptions(item));
+    assert.equal(batchMax(elixir, { multiplier: multiplier(elixir) }), 8);
+    assert.equal(batchMax(potion, { multiplier: multiplier(potion) }), 4);
+    const tool = { traits: ["alchemical"], type: "equipment" };
+    assert.equal(batchMax(tool, { multiplier: multiplier(tool) }), 1);
+    assert.equal(batchMultiplier([], itemOptions(elixir)), 1);
+    assert.throws(() => batchMax(elixir, { multiplier: 1.5 }), TypeError);
 });
 
 test("the talismans that lack the consumable trait batch in fours through the registry fix", () => {

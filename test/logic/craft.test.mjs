@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
     cancelOrder, committedFromRows, craftCost, critFailRuinCp, expendedFromRows, finishOrder, pauseOrder, planCraft,
-    recordCheck, resumeOrder, retryOrder, settleCheck, setupPlan, startOrder, swapCrafter,
+    hasSettlementRows, recordCheck, resumeOrder, retryOrder, settleCheck, setupPlan, startOrder, swapCrafter,
 } from "../../scripts/logic/craft.mjs";
 import { DEGREE } from "../../scripts/logic/core.mjs";
 import { craftDC } from "../../scripts/logic/dc.mjs";
@@ -115,8 +115,21 @@ test("recording a check moves no money, a reroll replaces it, and a check after 
     assert.deepEqual(first, { ok: true, patch: { check: { ...check, settled: false }, status: "rolled" }, rows: [] });
     const reroll = recordCheck(order({ status: "rolled", attempt: 1, check: first.patch.check }), { ...check, degree: critSuccess, rerolled: true });
     assert.equal(reroll.patch.check.degree, critSuccess);
-    assert.deepEqual(recordCheck(order({ status: "finishing", attempt: 1, check: { degree: success, settled: true } }), check), { ok: false, reason: "settled", data: {} });
+    const settled = order({ status: "finishing", attempt: 1, check: { degree: success, settled: true, messageId: "m1" } });
+    assert.deepEqual(recordCheck(settled, { ...check, messageId: "m2", rerolled: true }), { ok: false, reason: "settled", data: {} });
     assert.equal(recordCheck(order({ status: "setup", attempt: 1 }), check).reason, "state");
+});
+
+test("a second roll for an attempt that is not a reroll never replaces the recorded check", () => {
+    const check = { degree: fail, level: 5, rank: 2, attempt: 1, messageId: "m1", rerolled: false };
+    const rolled = order({ status: "rolled", attempt: 1, check: { ...check, settled: false } });
+    // A second dialog, a double click or a second device: another first roll, a better one.
+    assert.deepEqual(recordCheck(rolled, { ...check, degree: critSuccess, messageId: "m2" }), { ok: false, reason: "rolled", data: {} });
+    // Also once settled: it is not a reroll conflict the crafter could take by undoing the settlement.
+    assert.equal(recordCheck({ ...rolled, status: "failed", check: { ...rolled.check, settled: true } }, { ...check, messageId: "m2" }).reason, "rolled");
+    // The same message recorded twice (two tabs without Web Locks) is a no-op, and a reroll still replaces.
+    assert.deepEqual(recordCheck(rolled, check).patch.check, { ...check, settled: false });
+    assert.equal(recordCheck(rolled, { ...check, degree: success, messageId: "m3", rerolled: true }).patch.check.degree, success);
 });
 
 test("a check without a valid degree, level, rank or attempt throws instead of settling as a critical failure", () => {
@@ -130,6 +143,25 @@ test("a check without a valid degree, level, rank or attempt throws instead of s
     assert.throws(() => recordCheck(inCheck, { ...check, attempt: undefined }), TypeError);
     // A stored check with no degree (written before this guard) is not settled as a critical failure either.
     assert.throws(() => settleCheck(order({ status: "rolled", check: {} }), { committedCp: 3250 }), RangeError);
+});
+
+test("an attempt whose settlement rows exist counts as settled, even when its check no longer says so", () => {
+    const row = (kind, idem, extra = {}) => ({ id: `r-${idem}`, kind, idem, cp: 10, order: "o1", state: "pending", ...extra });
+    const rows = [row("commit", "commit:o1:1:0"), row("release", "release:o1:1:0")];
+    assert.equal(hasSettlementRows(rows, "o1", 1), true, "pending counts");
+    assert.equal(hasSettlementRows(rows, "o1", 2), false, "another attempt");
+    assert.equal(hasSettlementRows(rows, "o12", 1), false, "another order whose id starts the same");
+    assert.equal(hasSettlementRows([row("expend", "expend:o1:1:0:Actor.a", { state: "applied" })], "o1", 1), true);
+    assert.equal(hasSettlementRows([row("ruin", "ruin:o1:1:0:fund")], "o1", 1), true);
+    assert.equal(hasSettlementRows([row("commit", "commit:o1:1:0")], "o1", 1), false);
+    // An undone settlement (its row reversed) no longer counts, so the next reroll can be recorded.
+    const undone = [row("release", "release:o1:1:0"), { id: "rev", kind: "reversal", idem: "reversal:r-release:o1:1:0", reverses: "r-release:o1:1:0", cp: 10 }];
+    assert.equal(hasSettlementRows(undone, "o1", 1), false);
+    // A late reroll write cleared `settled` and put the order back in rolled; its rows still say it settled.
+    const overwritten = order({ status: "rolled", attempt: 1, check: { degree: success, settled: false, messageId: "m2" } });
+    const reroll = { degree: critSuccess, level: 5, rank: 2, attempt: 1, messageId: "m3", rerolled: true };
+    assert.equal(recordCheck(overwritten, reroll).ok, true, "without the rows");
+    assert.equal(recordCheck(overwritten, reroll, { settledRows: hasSettlementRows(rows, "o1", 1) }).reason, "settled");
 });
 
 test("a roll made for an earlier attempt is refused, even after a retry or swap brought the order back to check", () => {

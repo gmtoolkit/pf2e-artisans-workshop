@@ -141,20 +141,40 @@ export function retryOrder(order, { expendedCp } = {}) {
  * Record the Craft check (6.12). Moves no money, so a reroll before settlement just replaces it. A check
  * that arrives after settlement is refused as a conflict: the crafter undoes the settlement first. A roll
  * made for an earlier attempt (a reroll of an old message after a retry or a crafter swap) is refused as
- * `stale-attempt`; the roll carries its attempt in its order roll option.
+ * `stale-attempt`; the roll carries its attempt in its order roll option. A second roll for an attempt that
+ * already has one and is not a reroll of it (a second dialog, a double click, another device) is refused as
+ * `rolled`, so it never replaces the first; the same message recorded again is not a second roll.
+ *
+ * `settledRows` (`hasSettlementRows` over the order's rows) counts as settled too: a settlement's rows and its
+ * `settled` flag land in one write, but a reroll recorded from a copy that had not seen it yet can overwrite the
+ * flag and leave the rows, and the attempt must still count as settled after that.
  *
  * @param {object} check  `{degree, level, rank, attempt, unadjusted?, total?, messageId?, rerolled?}`:
  *                        `level` and `rank` are the crafter's at the roll, `attempt` the one it was made for
+ * @param {{settledRows?: boolean}} [settlement]
  */
-export function recordCheck(order, check) {
+export function recordCheck(order, check, { settledRows = false } = {}) {
     requireDegree(check.degree, "check.degree");
     requireInteger(check.level, "check.level");
     requireInteger(check.rank, "check.rank");
     requireInteger(check.attempt, "check.attempt");
     if (check.attempt !== order.attempt) return refuse("stale-attempt", { attempt: check.attempt, current: order.attempt });
-    if (order.check?.settled) return refuse("settled");
+    if (order.check && !check.rerolled && check.messageId !== order.check.messageId) return refuse("rolled");
+    if (order.check?.settled || settledRows) return refuse("settled");
     if (order.status !== "check" && order.status !== "rolled") return refuse("state", { status: order.status });
     return { ok: true, patch: { check: { ...check, settled: false }, status: "rolled" }, rows: [] };
+}
+
+/** The row kinds a settlement posts (`settleCheck`), keyed `<kind>:<orderId>:<attempt>:<seq>`. */
+const SETTLEMENT_KINDS = new Set(["expend", "release", "ruin"]);
+
+/**
+ * Whether an attempt of an order has settlement rows that still count: an `expend`, `release` or `ruin` keyed for
+ * that attempt, pending or applied, that has not been reversed (an undone settlement does not count).
+ */
+export function hasSettlementRows(rows, orderId, attempt) {
+    return liveRows(rows).some((row) => SETTLEMENT_KINDS.has(row.kind) && typeof row.idem === "string" &&
+        row.idem.startsWith(`${row.kind}:${orderId}:${attempt}:`));
 }
 
 /**

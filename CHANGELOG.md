@@ -28,6 +28,16 @@ All notable changes to this module are documented here. The format follows
   defaults. Live-harness scenario scripts for the multi-user cases.
 - Live-harness driver (`npm run harness:live`): runs the storage-and-sync scenarios in a running dev world
   with Playwright, one browser per user and device, and checks the results against the server.
+- Rules registry and roll wrapper (milestone M3), with no window yet: a registry of the feats, class features and
+  gear that change crafting, formulas, daily preparation and Earn Income (slugs, compendium UUIDs and numbers only),
+  checked against the pf2e compendium, with lookups that feed the rules core (virtual formulas, access, unlocks,
+  substitute skills and tools, batch size, setup, daily rate, formula picks owed, Experienced Professional) and a
+  validation script that CI runs against the pinned pf2e release. Craft checks are rolled through the Crafting
+  statistic with the item's own roll options, an explicit DC with the rarity adjustment, and the registry's options
+  and modifiers, so gear and feat bonuses predicated on the item apply; Earn Income checks add `action:earn-income`.
+  Each check's chat message is recorded on its order or job by its author's client, once, Hero Point rerolls
+  included; settling a Craft check posts its money rows, and an Earn Income day is paid once however often it is
+  resolved.
 
 ### Fixed
 

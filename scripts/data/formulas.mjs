@@ -19,9 +19,6 @@ export const FORMULA_COPY_MINUTES = 60;
 
 /**
  * Minutes a schematic scanner takes to reverse-engineer a formula from an item it scans. Schematic
- * scanner (Pathfinder #215); registry entry in M3.
+ * scanner (Pathfinder #215); its registry entry is a note.
  */
 export const SCHEMATIC_SCANNER_MINUTES = 10;
-
-/** Circumstance bonus to reverse-engineer with the Reverse Engineering feat. Player Core 2 (Scrounger). */
-export const REVERSE_ENGINEERING_BONUS = 2;

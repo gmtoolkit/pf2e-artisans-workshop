@@ -1,5 +1,5 @@
-# Checks for every pull request and every push to main (DESIGN.md 16.2). The release workflow, the
-# registry validation against a pinned pf2e tag (M3) and the churn watch (3.3) come later.
+# Checks for every pull request and every push to main (DESIGN.md 16.2), and the registry validation against a
+# pinned pf2e release (6.11, 15.2). The release workflow and the churn watch (3.3) come later.
 name: CI
 
 on:
@@ -45,3 +45,76 @@ jobs:
 
       - name: Manifest check
         run: npm run check:manifest
+
+  registry:
+    # The rules registry against the pinned pf2e release (DESIGN.md 6.11, 15.2): every entry resolves, and its slug,
+    # type, remaster flag and the rule elements the module relies on are unchanged. The sparse checkout takes every Item
+    # pack of the manifest (25 at pf2e-8.6.1), so the completeness scan reads them all. Completeness is reported, not
+    # enforced (enforce mode is the stable-release workflow's, 16.2). The same checkout runs the PF2E_SRC tests. The
+    # module goes into module/ and pf2e beside it, so the module's own checks never scan the pf2e tree.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: module
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: module
+          persist-credentials: false
+
+      - name: Check out pf2e (packs and the source files the tests read)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: foundryvtt/pf2e
+          ref: 28d9d156f252d084371d994dc359509b49eadf18 # pf2e-8.6.1
+          path: pf2e
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /system.pf2e.json
+            /src/module/dc.ts
+            /src/scripts/macros/earn-income.ts
+            /packs/pf2e/actions/
+            /packs/pf2e/adventure-specific-actions/
+            /packs/pf2e/ancestries/
+            /packs/pf2e/ancestry-features/
+            /packs/pf2e/backgrounds/
+            /packs/pf2e/bestiary-ability-glossary-srd/
+            /packs/pf2e/bestiary-effects/
+            /packs/pf2e/bestiary-family-ability-glossary/
+            /packs/pf2e/boons-and-curses/
+            /packs/pf2e/campaign-effects/
+            /packs/pf2e/class-features/
+            /packs/pf2e/classes/
+            /packs/pf2e/conditions/
+            /packs/pf2e/deities/
+            /packs/pf2e/equipment/
+            /packs/pf2e/equipment-effects/
+            /packs/pf2e/familiar-abilities/
+            /packs/pf2e/feat-effects/
+            /packs/pf2e/feats/
+            /packs/pf2e/heritages/
+            /packs/pf2e/kingmaker-features/
+            /packs/pf2e/other-effects/
+            /packs/pf2e/pathfinder-society-boons/
+            /packs/pf2e/spell-effects/
+            /packs/pf2e/spells/
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: module/package-lock.json
+
+      - name: Install dev dependencies
+        run: npm ci
+
+      - name: Registry validation (report-mode completeness)
+        run: npm run validate:registry -- --pf2e ../pf2e
+
+      - name: Unit tests against the pf2e source
+        run: npm test
+        env:
+          PF2E_SRC: ../pf2e

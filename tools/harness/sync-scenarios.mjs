@@ -13,6 +13,7 @@
  *        players collecting refunds at once: both are paid and neither client goes stale
  *   7b   strongbox creation and re-creation: ownership OWNER; a player can pledge, shelve and claim
  *   9    module switched off and on; migration from an older schema; purge
+ *   m3   the roll wrapper and the Earn Income roll (M3, `roll-scenarios.mjs`)
  *
  * They run in a dev world (`game.settings.set("pf2e-artisans-workshop", "dev", true)`), in each user's own
  * browser profile, from the console or from Playwright through `page.evaluate`:
@@ -44,6 +45,7 @@ import { locateShared } from "../../scripts/foundry/shared-docs.mjs";
 import { status, shared } from "../../scripts/foundry/state.mjs";
 import { newId, read, records, stampNow } from "../../scripts/foundry/store.mjs";
 import { refresh } from "../../scripts/foundry/sync.mjs";
+import { ROLL_SCENARIOS } from "./roll-scenarios.mjs";
 
 /** A compendium item for shelf deliveries: Elixir of Life (Minor), pf2e `packs/pf2e/equipment/elixir-of-life-minor.json`. */
 const SHELF_ITEM = "Compendium.pf2e.equipment-srd.Item.hDLbR56Id2OtU318";
@@ -322,6 +324,7 @@ const SCENARIOS = {
             return { result, flaggedDocumentsLeft: left, enabled: game.settings.get(MODULE_ID, "enabled") };
         } },
     },
+    ...ROLL_SCENARIOS,
 };
 
 /** Every scenario, its steps and what each does. */

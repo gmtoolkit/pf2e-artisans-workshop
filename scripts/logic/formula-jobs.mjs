@@ -3,20 +3,21 @@
  * its formula, and the ways to get the formula (buy, copy, invent, reverse-engineer), with their cost,
  * time and check.
  */
-import {
-    FORMULA_COPY_MINUTES,
-    FORMULA_PRICE,
-    FORMULA_PRICE_MAX_LEVEL,
-    REVERSE_ENGINEERING_BONUS,
-    SCHEMATIC_SCANNER_MINUTES,
-} from "../data/formulas.mjs";
+import { FORMULA_COPY_MINUTES, FORMULA_PRICE, FORMULA_PRICE_MAX_LEVEL, SCHEMATIC_SCANNER_MINUTES } from "../data/formulas.mjs";
 import { FEAT, asSet, clamp, requireInteger } from "./core.mjs";
 import { craftCost, setupPlan } from "./craft.mjs";
 import { craftDC } from "./dc.mjs";
 import { DEFAULT_RULES } from "./defaults.mjs";
+import { craftOptions, modifiers, setupOverride } from "./registry.mjs";
 
 /** Setup days of a Craft without and with the formula (Player Core p.237), and of crafting a formula copy. */
-const SETUP = { withFormula: 1, without: 2, reverseEngineeringFeat: 1, craftCopy: 1 };
+const SETUP = { withFormula: 1, without: 2, craftCopy: 1 };
+
+/** The registry options of a formula job on `route` (a job's product is a formula, not the item). */
+const jobOptions = (feats, route) => craftOptions({ item: [], held: feats, route });
+
+/** A reverse-engineering job's setup: 2 days, or the registry's (the Reverse Engineering feat's 1 day). */
+const reverseSetup = (feats, rules) => setupOverride(feats, jobOptions(feats, "reverse-engineer"), rules) ?? SETUP.without;
 
 /** Provenance recorded when each route adds a formula to a book (4.13). */
 export const PROVENANCE = Object.freeze({
@@ -69,7 +70,7 @@ export function craftRoute({ known = false, family = false, virtual = false, rar
  *
  * @param {object} p
  * @param {{level: number, rarity?: string, noReverseEngineer?: boolean}} p.item   `noReverseEngineer`: registry (fulus)
- * @param {string[]} [p.feats]           the crafter's registry feat slugs
+ * @param {string[]} [p.feats]           the crafter's registry keys (`heldKeys`)
  * @param {boolean} [p.possessesItem]    the item is on the crafter or earmarked to them
  * @param {boolean} [p.allyHasFormula]   an ally's roster lists the formula
  * @param {boolean} [p.hasScanner]       the crafter holds a schematic scanner
@@ -91,8 +92,7 @@ export function acquisitionRoutes({ item, feats = [], possessesItem = false, all
         routes.push({ route: "invent", costCp: price, setupDays: rules.inventorSetupDays, check: "craft", needs: [] });
     }
     if (possessesItem && !item.noReverseEngineer) {
-        const setupDays = has.has(FEAT.reverseEngineering) ? SETUP.reverseEngineeringFeat : SETUP.without;
-        routes.push({ route: "reverse-engineer", costCp: price, setupDays, check: "craft", needs: [] });
+        routes.push({ route: "reverse-engineer", costCp: price, setupDays: reverseSetup(feats, rules), check: "craft", needs: [] });
         if (hasScanner) routes.push({ route: "scanner", costCp: 0, minutes: SCHEMATIC_SCANNER_MINUTES, check: null, needs: [] });
     }
     return routes;
@@ -120,20 +120,21 @@ export function craftCopyRoute(item) {
 /**
  * The plan of a Craft-like formula job (invent, reverse-engineer, craft-copy; 6.8): the formula's Price as
  * the order's Price (half up front, extra days reduce the rest), the job's setup days, and the item's Craft
- * DC with its rarity adjustment (Player Core p.294). Reverse-engineering with the Reverse Engineering feat
- * also carries its +2 circumstance bonus for the roll wrapper (M3).
+ * DC with its rarity adjustment (Player Core p.294). The registry's setup and modifiers for the job's route come
+ * back too: the Reverse Engineering feat's 1-day setup and +2 circumstance bonus, which the roll wrapper applies
+ * (`modifiers`, each `{key, uuid, slug, type, value}`).
  *
  * @param {"invent"|"reverse-engineer"|"craft-copy"} route
  * @param {object} p
  * @param {{level: number, rarity?: string}} p.item
- * @param {string[]} [p.feats]
+ * @param {string[]} [p.feats]  the crafter's registry keys
+ * @param {Record<string, number>} [p.ranks]
  * @param {boolean} [p.pwol]
- * @param {number} [p.dcAdjust]   registry adjustments
+ * @param {number} [p.dcAdjust]
  */
-export function formulaJobPlan(route, { item, feats = [], pwol = false, dcAdjust = 0 }, rules = DEFAULT_RULES) {
-    const reverseFeat = route === "reverse-engineer" && asSet(feats).has(FEAT.reverseEngineering);
+export function formulaJobPlan(route, { item, feats = [], ranks = {}, pwol = false, dcAdjust = 0 }, rules = DEFAULT_RULES) {
     const days = route === "invent" ? rules.inventorSetupDays
-        : route === "reverse-engineer" ? (reverseFeat ? SETUP.reverseEngineeringFeat : SETUP.without)
+        : route === "reverse-engineer" ? reverseSetup(feats, rules)
         : route === "craft-copy" ? SETUP.craftCopy : null;
     if (days == null) throw new RangeError(`not a Craft-like formula route: ${route}`);
     const cost = craftCost({ unitPriceCp: formulaPrice(item.level), quantity: 1 });
@@ -142,6 +143,6 @@ export function formulaJobPlan(route, { item, feats = [], pwol = false, dcAdjust
         upfrontCp: cost.upfrontCp,
         setup: setupPlan({ route: null, productType: "formula", override: days }, rules),
         dc: craftDC({ level: item.level, rarity: item.rarity, pwol, adjust: dcAdjust }, rules),
-        bonus: reverseFeat ? { type: "circumstance", value: REVERSE_ENGINEERING_BONUS } : null,
+        modifiers: modifiers(feats, jobOptions(feats, route), ranks, rules),
     };
 }

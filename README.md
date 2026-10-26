@@ -5,8 +5,10 @@ alchemist or crafter, and the party that leans on them.
 
 **Status: early development.** Nothing installable yet: the repository has the M0
 scaffold (manifest, tooling, CI), the M1 rules core (pure crafting and Earn Income
-rules with tests) and the M2 storage and sync layer (the shared ledger and strongbox,
-safe coin moves, claims, roster snapshots, purge), with no Workshop window yet. The
+rules with tests), the M2 storage and sync layer (the shared ledger and strongbox,
+safe coin moves, claims, roster snapshots, purge) and the M3 rules registry and roll
+wrapper (Craft and Earn Income checks rolled with the item's options and recorded once,
+rerolls included), with no Workshop window yet. The
 specification is `DESIGN.md`; decisions land in `DECISIONS.md`.
 
 ## What it is for
@@ -49,6 +51,7 @@ npm run check:strings    # strings still waiting for the author's sign-off (DESI
 npm run check:strings:enforce   # the same, failing if any is left (stable releases)
 npm run signoff -- --keys <key> [<key> ...]   # sign off strings the author has rewritten
 npm run harness:live     # the sync scenarios in a running dev world (below)
+npm run validate:registry -- --pf2e <checkout>   # the rules registry against a pf2e checkout
 ```
 
 Every user-facing string lives in `lang/en.json` under `pf2e-artisans-workshop.` keys.
@@ -80,7 +83,10 @@ scenarios of `DESIGN.md` 15.3 load on every client of a dev world:
 `game.modules.get("pf2e-artisans-workshop").dev.scenarios.list()` shows each step, and
 `.run("3c", "pledge", { order: "test", cp: 120 })` runs one on that client. To check
 the fixtures' compendium UUIDs and choice-set answers against a pf2e source checkout, run
-`PF2E_SRC=<checkout> npm test`.
+`PF2E_SRC=<checkout> npm test`; the same run checks the rules registry (`scripts/data/registry.mjs`): every
+entry's UUID, slug, type, remaster flag and the rule elements it relies on, and reports compendium items that mention
+crafting, formulas, daily preparations or Earn Income but are in neither the registry nor its ignore list
+(`npm run validate:registry`, `--enforce` to fail on them). CI runs both against the pinned pf2e release.
 
 `npm run harness:live` runs those scenarios with every user at once
 (`tools/harness/run-live.mjs`, plans in `tools/harness/live-plans.mjs`). It needs the dev
