@@ -2217,7 +2217,7 @@ Hooks.on("createChatMessage", (message) => {
   - A product that is a weapon (a bomb) brings its weapon options into the Craft check (`item:type:weapon`,
     `item:ranged`, `item:thrown`, `item:damage:*`; seen live on an imported level-1 bomber crafting a lesser
     alchemist's fire, which was otherwise right: DC 15, Int +4 and Trained +3, every planned option present, no
-    context item). Only rule elements on broad selectors (`all`, `check`, `skill-check`) read them; a scan of the
+    context item). Only rule elements on broad selectors (`all`, `check`, `skill-check`) read them; a scan of
     a pf2e 8.6.1 sparse checkout's packs (without the spell-effect pack) found one, the aquatic combat effect's note on
     `item:trait:fire`, harmless. Recheck over every pack before release, or drop the weapon-only options from
     the plan.
