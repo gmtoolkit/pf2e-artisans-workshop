@@ -7,11 +7,16 @@ import { COIN_RATE } from "../data/coins.mjs";
 import { DEGREE, compareRows, liveRows } from "./core.mjs";
 import { committedFromRows } from "./craft.mjs";
 import { DEFAULT_RULES } from "./defaults.mjs";
+import { estimateOf, fundAccounts, fundReturnableCp, shortfallOf, spentBySource } from "./funds.mjs";
 import { incomePerDay } from "./income.mjs";
 import { CLOSED, escrowCp, orderActions, reversalKeepsCommitted, withdrawableCp } from "./orders.mjs";
-import { crafterRate, daysToZero, recordsOf, reductionCp, remainingCp, setupDaysDone } from "./progress.mjs";
+import {
+    crafterRate, dayReductionCp, daysToZero, recordsOf, reductionCp, remainingCp, setupDaysDone,
+} from "./progress.mjs";
 import { memberBalances } from "./reconcile.mjs";
-import { allocationsByContributor } from "./split.mjs";
+import { allocationsByContributor, splitProRata } from "./split.mjs";
+
+export { estimateOf };
 
 /* -------------------------------------------- */
 /*  Money                                        */
@@ -43,14 +48,6 @@ export const percent = (part, whole) => (whole > 0 ? Math.max(0, Math.min(100, M
 /* -------------------------------------------- */
 /*  Orders                                       */
 /* -------------------------------------------- */
-
-/** The up-front half and Price an order would have before start, from its snapshot (6.2.2: half, rounded up). */
-export function estimateOf(order) {
-    if (Number.isInteger(order.priceCp)) return { priceCp: order.priceCp, upfrontCp: order.upfrontCp, frozen: true };
-    const snap = order.product?.snapshot ?? {};
-    const priceCp = Math.round(((snap.priceCp ?? 0) * order.quantity) / Math.max(1, snap.per ?? 1));
-    return { priceCp, upfrontCp: Math.ceil(priceCp / 2), frozen: false };
-}
 
 /**
  * The progress bar of an order (10.3): one bar measured against the Price, the up-front half paid (solid), the
@@ -97,6 +94,74 @@ export function perDayCp(order, crafterToday, rules = DEFAULT_RULES) {
 export const blockers = (gates = []) => gates.filter((gate) => !gate.ok).map(({ id, reason, data, unlock }) => ({ id, reason, data, unlock }));
 
 /**
+ * The requirements of an accepted order in plain words (C, As built in M4.1): how many of its gates are met, the met
+ * ones (which the detail folds away as "10 of 12 met"), and the unmet ones with the action that would meet them where
+ * the Workshop has one: an underfunded G8 is met by funding the order ("fund").
+ * @returns {{total: number, met: number, allMet: boolean, metList: object[], unmet: object[]}}
+ */
+export function requirementsView(gates = []) {
+    const list = gates.map(({ id, ok, reason, data }) => ({ id, ok, reason: reason ?? null, data: data ?? null,
+        action: !ok && reason === "underfunded" ? "fund" : null }));
+    const metList = list.filter((gate) => gate.ok);
+    return { total: list.length, met: metList.length, allMet: metList.length === list.length, metList, unmet: list.filter((gate) => !gate.ok) };
+}
+
+/**
+ * The work days of the order's current attempt, in order (D, As built in M4.1): each setup day ("Setup day 1 of 2"), then
+ * each extra day numbered after them with what it took off ("Day 3: -8 gp 7 sp"). A day takes off its reduction (6.2.3)
+ * only once the check has settled as a success (`counted`), and never more than was left to pay: a day after the
+ * remainder reached zero takes off nothing.
+ * @returns {{kind: "setup"|"extra", n: number, of?: number, day: number, cp?: number, counted?: boolean}[]}
+ */
+export function workDaysView(order, days = [], rules = DEFAULT_RULES) {
+    const byDay = (a, b) => a.day - b.day || (a.actor < b.actor ? -1 : a.actor > b.actor ? 1 : 0);
+    const setup = recordsOf(order, days, "setup").sort(byDay);
+    const extra = recordsOf(order, days, "extra").sort(byDay);
+    const counted = !!(order.check?.settled && order.check.degree >= DEGREE.success);
+    let left = Number.isInteger(order.priceCp) ? Math.max(0, order.priceCp - order.upfrontCp) : 0;
+    const out = setup.map((d, i) => ({ kind: "setup", n: i + 1, of: Math.max(order.setup?.days ?? 0, setup.length), day: d.day }));
+    extra.forEach((d, i) => {
+        const cp = counted ? Math.min(left, dayReductionCp(order, d, rules)) : 0;
+        left -= cp;
+        out.push({ kind: "extra", n: setup.length + i + 1, day: d.day, cp, counted });
+    });
+    return out;
+}
+
+/**
+ * What a finished order cost (D, As built in M4.1), from its live rows and day records: the up-front half spent on
+ * materials, what earlier failed attempts ruined, the extra days and what they took off the Price, what was paid at the
+ * finish, and the total. For a finished order `upfrontCp + workCp + finishCp` is its Price (6.2.3).
+ */
+export function costSummary(order, rows = [], days = [], rules = DEFAULT_RULES) {
+    const live = liveRows(rows);
+    const sum = (kind) => live.filter((row) => row.kind === kind).reduce((total, row) => total + (row.cp ?? 0), 0);
+    const upfrontCp = sum("expend");
+    const ruinedCp = sum("ruin");
+    const finishCp = sum("remainder");
+    const workCp = Number.isInteger(order.priceCp) ? Math.min(reductionCp(order, days, rules), Math.max(0, order.priceCp - order.upfrontCp)) : 0;
+    return { upfrontCp, ruinedCp, workDays: recordsOf(order, days, "extra").length, workCp, finishCp, totalCp: upfrontCp + ruinedCp + finishCp };
+}
+
+/**
+ * Where a finished order's item went (E, As built in M4.1): "delivered" into the recipient's inventory (a `delivered`
+ * row that applied), "arriving" (a delivery under way, or the shelf item not here yet), "shelf" (on the pickup shelf,
+ * for the recipient's owners to collect), or "strongbox" (an order for the strongbox keeps its item there). Null before
+ * the order is complete.
+ * @param {object} order
+ * @param {object[]} rows       the order's rows
+ * @param {number} shelfCount   the order's items on the pickup shelf now
+ * @returns {{state: "delivered"|"arriving"|"shelf"|"strongbox", to: string|null} | null}
+ */
+export function deliveryOf(order, rows = [], shelfCount = 0) {
+    if (order.status !== "complete") return null;
+    if (order.recipient?.kind !== "actor") return { state: "strongbox", to: null };
+    const delivered = liveRows(rows).find((row) => row.kind === "delivered" && row.order === order.id);
+    if (delivered) return { state: delivered.state === "applied" ? "delivered" : "arriving", to: delivered.actor ?? order.recipient.uuid };
+    return { state: shelfCount > 0 ? "shelf" : "arriving", to: order.recipient.uuid };
+}
+
+/**
  * One order as the Queue shows it.
  *
  * @param {object} order
@@ -109,8 +174,10 @@ export const blockers = (gates = []) => gates.filter((gate) => !gate.ok).map(({ 
  *        for the actor (a GM owns every one); `isMine`: one of the user's own characters, for highlighting
  * @param {(uuid: string|null) => string|null} p.nameOf
  * @param {number} [p.no]         the order's number in the queue
+ * @param {number} [p.shelfCount] the order's items on the pickup shelf now, for where a finished item went
  */
-export function orderView(order, { rows = [], days = [], gates = null, crafterToday = null, viewer, nameOf, no = null, rules = DEFAULT_RULES }) {
+export function orderView(order, { rows = [], days = [], gates = null, crafterToday = null, viewer, nameOf, no = null, rules = DEFAULT_RULES,
+    shelfCount = 0 }) {
     const progress = orderProgress(order, { rows, days, rules });
     const perDay = perDayCp(order, crafterToday, rules);
     const extraDays = recordsOf(order, days, "extra").length;
@@ -123,6 +190,8 @@ export function orderView(order, { rows = [], days = [], gates = null, crafterTo
     const giftHidden = order.visibility === "gift" && !!recipientUuid && viewer.owns(recipientUuid) &&
         !viewer.owns(order.requester) && !(order.crafter && viewer.owns(order.crafter)) && !viewer.isGM;
     const ownWithdrawable = Math.max(0, ...contributors.filter((c) => c.mine).map((c) => withdrawableCp(order, rows, c.actor)));
+    // The party fund's share that is not committed: any member may give it back to the unallocated fund (M4.1).
+    const fundReturnable = viewer.hasCharacter ? fundReturnableCp(order, rows) : 0;
     const mine = [order.requester, recipientUuid, order.crafter].some((uuid) => uuid && isMine(uuid)) || contributors.some((c) => c.mine);
     const snap = order.product?.snapshot ?? {};
     return {
@@ -137,9 +206,15 @@ export function orderView(order, { rows = [], days = [], gates = null, crafterTo
         conflict: order.conflict && order.conflict.attempt === order.attempt ? { degree: order.conflict.degree } : null,
         resumeTo: order.resumeTo ?? null,
         progress, perDayCp: perDay, daysToZero: toZero, extraDays, finishCp: progress.remainingCp,
-        blocked, contributors, committedCp: committedFromRows(rows),
-        actions: orderActions(order, viewer, { withdrawable: ownWithdrawable, gatesPass: gates ? blocked.length === 0 : false }),
-        withdrawableCp: ownWithdrawable,
+        blocked, contributors, committedCp: committedFromRows(rows), spent: spentBySource(rows),
+        shortfall: shortfallOf(order, rows, days, rules),
+        requirements: order.status === "accepted" && gates ? requirementsView(gates) : null,
+        workDays: workDaysView(order, days, rules),
+        cost: order.status === "complete" ? costSummary(order, rows, days, rules) : null,
+        delivery: deliveryOf(order, rows, shelfCount),
+        actions: { ...orderActions(order, viewer, { withdrawable: ownWithdrawable, gatesPass: gates ? blocked.length === 0 : false }),
+            returnToFund: fundReturnable > 0 },
+        withdrawableCp: ownWithdrawable, fundReturnableCp: fundReturnable,
         closed: CLOSED.includes(order.status),
     };
 }
@@ -227,8 +302,49 @@ export function canReverse(row, allRows, viewer, orders = {}) {
 }
 
 /**
- * The Funds tab (10.1): the strongbox's coins, the party fund, the escrow held for orders, each member's balance
- * (`memberBalances`), and the ledger, newest first, each row with its author and whether this viewer may reverse it.
+ * How the Funds ledger names a row (As built in M4.1), as a `code` the window maps to a key: its kind, except that an allocation says which way it went (to an
+ * order from the party fund, "earmark", or back, "unearmark"), and a finished order's item put in the strongbox rather
+ * than on the shelf is "kept". The fund's side of an allocation pair is the mirror of its order's side and is not listed
+ * (`mirror`); item rows (`shelved`, `delivered`) move no money (`items`).
+ */
+export function rowLabel(row) {
+    if (row.kind === "allocate") {
+        if (!row.order && !row.garden) return { code: "allocate", mirror: true, items: false };
+        return { code: (row.alloc ?? 0) >= 0 ? "earmark" : "unearmark", mirror: false, items: false };
+    }
+    if (row.kind === "shelved") return { code: row.actor ? "shelved" : "kept", mirror: false, items: true };
+    return { code: row.kind, mirror: false, items: row.kind === "delivered" };
+}
+
+/** A row label's `code` and `items`, for the ledger list. */
+const pick = ({ code, items }) => ({ code, items });
+
+/**
+ * Each member's balance as the fund accounts see it (review fix of M4.1): what their own purse put into orders
+ * (`ownCp`), and their share of the party fund (`memberBalances`, pro rata by net deposits) split into the part still
+ * unallocated and the part the fund has earmarked for orders, so the table agrees with the cards above it. The members'
+ * shares count as unallocated first (money in the fund nobody deposited, `unassignedCp`, is earmarked before theirs);
+ * the split is pro rata by share, so no member's unallocated part exceeds their share.
+ */
+function memberRows(balances, unallocatedCp) {
+    const shares = balances.byActor.map(({ actor }) => ({
+        key: actor,
+        cp: balances.byAllocation.filter((a) => a.actor === actor && !a.order && !a.garden).reduce((sum, a) => sum + a.cp, 0),
+    }));
+    const shared = shares.reduce((sum, share) => sum + share.cp, 0);
+    const unallocated = new Map(splitProRata(Math.max(0, Math.min(unallocatedCp, shared)), shares).map(({ key, cp }) => [key, cp]));
+    return balances.byActor.map(({ actor, cp }) => {
+        const fundCp = shares.find((share) => share.key === actor).cp;
+        const fundUnallocatedCp = unallocated.get(actor) ?? 0;
+        return { actor, cp, ownCp: cp - fundCp, fundCp, fundUnallocatedCp, fundEarmarkedCp: fundCp - fundUnallocatedCp };
+    });
+}
+
+/**
+ * The Funds tab (10.1): the strongbox's coins, the fund accounts (`fundAccounts`: unallocated party fund, money
+ * earmarked per order by source, spent per order), each member's balance (`memberRows`), and the ledger, newest
+ * first, each row with its author and whether this viewer may reverse it. The fund's side of an allocation pair is left
+ * out of the ledger list, since its order's side says the same (`rowLabel`).
  *
  * @param {object} p
  * @param {object[]} p.rows        every live ledger row
@@ -240,26 +356,27 @@ export function canReverse(row, allRows, viewer, orders = {}) {
  * @param {number} [p.limit]       how many ledger rows to list
  */
 export function fundsView({ rows, actualCp, orders = {}, viewer, nameOf, userName, limit = 200 }) {
-    const expectedCp = rows.reduce((sum, row) => sum + (row.box ?? 0), 0);
-    const fundCp = rows.filter((r) => !r.order && !r.garden).reduce((sum, r) => sum + (r.alloc ?? 0), 0);
-    const escrow = rows.filter((r) => r.order && !CLOSED.includes(orders[r.order]?.status)).reduce((sum, r) => sum + (r.alloc ?? 0), 0);
+    const accounts = fundAccounts(rows, orders);
+    const expectedCp = accounts.expectedCp;
     const balances = memberBalances(rows);
-    const members = balances.byActor.map(({ actor, cp }) => ({
-        actor, name: nameOf(actor), cp, mine: (viewer.isMine ?? viewer.owns)(actor),
-        allocations: balances.byAllocation.filter((a) => a.actor === actor).map((a) => ({
+    const members = memberRows(balances, accounts.unallocatedCp).map((member) => ({
+        ...member, name: nameOf(member.actor), mine: (viewer.isMine ?? viewer.owns)(member.actor),
+        allocations: balances.byAllocation.filter((a) => a.actor === member.actor).map((a) => ({
             order: a.order, cp: a.cp, orderName: a.order ? orders[a.order]?.product?.snapshot?.name ?? null : null,
         })),
     }));
     const reversed = new Set(rows.filter((r) => r.kind === "reversal" && r.reverses).map((r) => r.reverses));
-    const ledger = [...rows].sort((a, b) => compareRows(b, a)).slice(0, limit).map((row) => ({
-        id: row.id, kind: row.kind, cp: row.cp, box: row.box ?? 0, purse: row.purse ?? 0, alloc: row.alloc ?? 0, state: row.state,
+    const listed = [...rows].filter((row) => !rowLabel(row).mirror).sort((a, b) => compareRows(b, a));
+    const ledger = listed.slice(0, limit).map((row) => ({
+        id: row.id, kind: row.kind, ...pick(rowLabel(row)), cp: row.cp, box: row.box ?? 0,
+        purse: row.purse ?? 0, alloc: row.alloc ?? 0, state: row.state,
         actor: row.actor ? nameOf(row.actor) : null, order: row.order ? orders[row.order]?.product?.snapshot?.name ?? null : null,
         author: userName(row.author), mine: row.author === viewer.userId, at: row.at?.real ?? null, note: row.note ?? null,
         reversed: !!row.reversedBy || reversed.has(row.id), reversal: row.kind === "reversal",
         canReverse: canReverse(row, rows, viewer, orders),
     }));
-    return { actualCp, expectedCp, differenceCp: actualCp - expectedCp, fundCp, escrowCp: escrow, members,
-        unassignedCp: balances.unassignedCp, ledger, total: rows.length };
+    return { actualCp, expectedCp, differenceCp: actualCp - expectedCp, fundCp: accounts.unallocatedCp, accounts,
+        members, unassignedCp: balances.unassignedCp, ledger, total: listed.length };
 }
 
 /**

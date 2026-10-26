@@ -27,7 +27,9 @@ M4 is in place: the Workshop window with its Queue and Funds tabs (`scripts/ui/`
 lifecycle (`scripts/logic/orders.mjs`, `scripts/foundry/orders.mjs`), funds actions, chat
 cards, notifications, the request form with drag and drop, the entry points (Actors
 directory header, Party sheet header, `api.ui.open`) and the public API's first part
-(`scripts/foundry/api.mjs`); DESIGN 10.10 says what was built. `DECISIONS.md` holds every
+(`scripts/foundry/api.mjs`); DESIGN 10.10 says what was built. M4.1 added fund accounting (unallocated party
+fund and money earmarked per order by source, `scripts/logic/funds.mjs`, `scripts/foundry/funds.mjs`), money typed as
+pp/gp/sp/cp, plain-language requirements, work-day and cost summaries and where a finished item went (DESIGN 10.10). `DECISIONS.md` holds every
 decision made so far, newest first; read it before proposing a design change.
 
 Development commands and layout are in the README's Development section. Use Node 24

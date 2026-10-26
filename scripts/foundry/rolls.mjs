@@ -22,6 +22,7 @@
 import { MODULE_ID } from "../constants.mjs";
 import { committedFromRows, hasSettlementRows, recordCheck, settleCheck } from "../logic/craft.mjs";
 import { daysPaid, wageKey, wageSeq } from "../logic/earn-income.mjs";
+import { returnSlotLockId } from "../logic/funds.mjs";
 import { hashId } from "../logic/ids.mjs";
 import { earnIncomeFlags } from "../logic/registry.mjs";
 import {
@@ -262,11 +263,13 @@ export async function settleOrder(orderId) {
     const settlement = settlementRecord(order, result.patch, rowIds, stamp);
     const change = transitionChange(order, "settle", { check, status: fields.status, settlement }, { rows: rowIds }, stamp);
     const ledger = { replace: change.replace, set: { ...change.set, ...Object.fromEntries(releases.map((row) => [`rows.${row.id}`, row])) } };
+    // The log slot, and the return slot: a give-back or take-back planned from the same copy would change the shares.
+    const locks = [change.lock, returnSlotLockId(order, rows)];
     if (!spent) {
-        const written = await lockedWrite([change.lock], [], ledger);
+        const written = await lockedWrite(locks, [], ledger);
         return written.ok ? { ok: true, outcome: "ok", status: fields.status, notices: result.notices } : written;
     }
-    const moved = await spend({ kind: spent.kind, stem: keyed(spent.kind), cp: spent.cp, allocations, link: { order: orderId }, ledger, locks: [change.lock] });
+    const moved = await spend({ kind: spent.kind, stem: keyed(spent.kind), cp: spent.cp, allocations, link: { order: orderId }, ledger, locks });
     return { ...moved, status: fields.status, notices: result.notices };
 }
 

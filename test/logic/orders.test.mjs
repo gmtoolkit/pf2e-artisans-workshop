@@ -157,7 +157,9 @@ test("actions follow who owns the crafter, the requester, or nothing at all", ()
     assert.equal(orderActions(order({ status: "rolled", crafter: "Actor.c" }), crafterOwner).cancel, false, "settle first (6.2.4)");
     assert.equal(orderActions(order({ status: "finishing", crafter: "Actor.c" }), crafterOwner).finish, true);
     assert.equal(orderActions(order({ status: "finishing", crafter: "Actor.c" }), viewer()).finish, false);
-    assert.equal(orderActions(order({ status: "complete" }), viewer()).pledge, false);
+    assert.equal(orderActions(order({ status: "complete" }), viewer()).fund, false);
+    assert.equal(orderActions(order({ status: "rolled", crafter: "Actor.c" }), viewer()).fund, false, "funding waits for the settlement, as a pledge did");
+    assert.equal(orderActions(order(), viewer()).fund, true, "any member funds an open order (M4.1)");
     assert.equal(orderActions(order(), viewer(), { withdrawable: 5 }).withdraw, true);
     assert.equal(lastEntry(order()), null);
     assert.equal(hashId("refund:o1:Actor.a:3").length, 16);

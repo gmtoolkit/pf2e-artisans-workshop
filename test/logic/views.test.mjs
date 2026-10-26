@@ -4,9 +4,10 @@ import { test } from "node:test";
 import { DEGREE } from "../../scripts/logic/core.mjs";
 import { makeOrder } from "../../scripts/logic/orders.mjs";
 import { makeRow, reversalRow } from "../../scripts/logic/rows.mjs";
+import { earmarkInputs } from "../../scripts/logic/funds.mjs";
 import {
-    DEFAULT_FILTERS, blockers, canReverse, coinParts, estimateOf, fundWithdrawableCp, fundsView, orderProgress, orderView,
-    passesFilters, percent, perDayCp, queueOrder, queueSummary,
+    DEFAULT_FILTERS, blockers, canReverse, coinParts, costSummary, deliveryOf, estimateOf, fundWithdrawableCp, fundsView, orderProgress,
+    orderView, passesFilters, percent, perDayCp, queueOrder, queueSummary, requirementsView, rowLabel, workDaysView,
 } from "../../scripts/logic/views.mjs";
 
 const at = (real) => ({ world: real, real, server: real, launch: 0 });
@@ -131,10 +132,118 @@ test("the Funds view: coins, fund, escrow, members and the ledger newest first (
         row("pledge", 100, { actor: "Actor.b", order: "o2" }, 3, "u2"),
     ];
     const v = fundsView({ rows, actualCp: 1150, orders, viewer: viewer({ owns: (u) => u === "Actor.a" }), nameOf, userName: (id) => id.toUpperCase() });
-    assert.deepEqual([v.expectedCp, v.differenceCp, v.fundCp, v.escrowCp], [1100, 50, 400, 600], "a complete order's escrow is not counted");
+    assert.deepEqual([v.expectedCp, v.differenceCp, v.fundCp, v.accounts.earmarkedCp], [1100, 50, 400, 700],
+        "a complete order still holding money counts as earmarked until its refunds are collected");
     assert.deepEqual(v.members.map((m) => [m.name, m.cp, m.mine]), [["a", 600, true], ["b", 500, false]]);
     assert.deepEqual(v.ledger.map((r) => [r.kind, r.author, r.mine]), [["pledge", "U2", false], ["deposit", "U2", false], ["pledge", "U1", true]]);
     assert.equal(v.ledger[2].canReverse, true);
     assert.equal(fundWithdrawableCp(rows, "Actor.b"), 400);
     assert.equal(fundWithdrawableCp(rows, "Actor.a"), 0);
+});
+
+test("requirements in plain words: met ones counted, unmet ones with the action that meets them (C, M4.1)", () => {
+    const gates = ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G9", "G10", "G11", "G12"].map((id) => ({ id, ok: true, reason: null, data: null }));
+    gates.splice(7, 0, { id: "G8", ok: false, reason: "underfunded", data: { shortCp: 1714 }, unlock: "fund" });
+    const r = requirementsView(gates);
+    assert.deepEqual([r.total, r.met, r.allMet], [12, 11, false]);
+    assert.deepEqual(r.unmet, [{ id: "G8", ok: false, reason: "underfunded", data: { shortCp: 1714 }, action: "fund" }]);
+    assert.equal(r.metList.length, 11);
+    assert.equal(requirementsView([{ id: "G7", ok: false, reason: "tool", data: { tool: "alchemists-lab" } }]).unmet[0].action, null, "no Workshop action fetches a tool");
+    assert.equal(requirementsView([{ id: "G8", ok: false, reason: "precious", data: {} }]).unmet[0].action, null, "precious materials wait for M5");
+    assert.deepEqual([requirementsView([]).total, requirementsView([]).allMet], [0, true]);
+    const accepted = order({ status: "accepted", crafter: "Actor.c" });
+    assert.equal(orderView(accepted, { gates, viewer: viewer(), nameOf }).requirements.met, 11, "an accepted order's view carries them");
+    assert.equal(orderView(order(), { gates, viewer: viewer(), nameOf }).requirements, null, "a requested order has no crafter's gates");
+});
+
+/** A 65 gp rune by a 5th-level expert: 1 gp a day after a success (Player Core p.237's numbers). */
+const started = (fields = {}) => {
+    const check = { degree: DEGREE.success, level: 5, rank: 2, settled: true, attempt: 1 };
+    return order({ status: "finishing", crafter: "Actor.c", attempt: 1, priceCp: 6500, upfrontCp: 3250, setup: { days: 2, hours: 0 }, check, ...fields });
+};
+const dayRecord = (kind, day, fields = {}) => ({ order: "o1", attempt: 1, kind, actor: "c", day, crafterCp: 100, helpers: {}, ...fields });
+
+test("work days: each setup day, then each extra day with what it took off, never below nothing left (D, M4.1)", () => {
+    const days = [dayRecord("setup", 1), dayRecord("setup", 2), dayRecord("extra", 4), dayRecord("extra", 3), dayRecord("extra", 9, { attempt: 0 })];
+    assert.deepEqual(workDaysView(started(), days), [
+        { kind: "setup", n: 1, of: 2, day: 1 }, { kind: "setup", n: 2, of: 2, day: 2 },
+        { kind: "extra", n: 3, day: 3, cp: 100, counted: true }, { kind: "extra", n: 4, day: 4, cp: 100, counted: true },
+    ], "in day order, numbered after the setup; another attempt's day is not this one's");
+    const rolled = started({ status: "rolled", check: { ...started().check, settled: false } });
+    assert.deepEqual(workDaysView(rolled, days).filter((d) => d.kind === "extra").map((d) => [d.cp, d.counted]), [[0, false], [0, false]],
+        "a day counts once the check settles as a success");
+    const nearly = started({ priceCp: 3400, upfrontCp: 3250 });
+    assert.deepEqual(workDaysView(nearly, [dayRecord("extra", 3), dayRecord("extra", 4)]).map((d) => d.cp), [100, 50],
+        "the second day takes off only the 50 cp that was left");
+    assert.deepEqual(workDaysView(order({ attempt: 2 }), days), [], "another attempt's days are not this one's");
+});
+
+test("what a finished order cost: up front, work days, at the finish, and in all (D, M4.1)", () => {
+    const days = [3, 4, 5].map((day) => dayRecord("extra", day));
+    const rows = [
+        row("expend", 3250, { actor: null }, 1), row("remainder", 2950, { actor: null }, 2),
+        row("ruin", 325, { actor: "Actor.a" }, 3), row("shelved", 0, {}, 4),
+    ];
+    const cost = costSummary(started({ status: "complete" }), rows, days);
+    assert.deepEqual(cost, { upfrontCp: 3250, ruinedCp: 325, workDays: 3, workCp: 300, finishCp: 2950, totalCp: 6525 });
+    assert.equal(cost.upfrontCp + cost.workCp + cost.finishCp, 6500, "up front + the work days + the finish = the Price");
+    const v = orderView(started({ status: "complete" }), { rows, days, viewer: viewer(), nameOf });
+    assert.deepEqual([v.cost.totalCp, v.workDays.length], [6525, 3]);
+    assert.equal(orderView(started(), { rows, days, viewer: viewer(), nameOf }).cost, null, "only once complete");
+});
+
+test("where a finished item went: delivered, arriving, on the shelf, or kept in the strongbox (E, M4.1)", () => {
+    const done = started({ status: "complete", recipient: { kind: "actor", uuid: "Actor.f" } });
+    assert.deepEqual(deliveryOf(done, [], 1), { state: "shelf", to: "Actor.f" });
+    assert.deepEqual(deliveryOf(done, [], 0), { state: "arriving", to: "Actor.f" }, "the shelf item is not here yet");
+    const delivered = row("delivered", 0, { actor: "Actor.f" }, 5);
+    assert.deepEqual(deliveryOf(done, [delivered], 0), { state: "delivered", to: "Actor.f" });
+    assert.deepEqual(deliveryOf(done, [{ ...delivered, state: "pending" }], 1), { state: "arriving", to: "Actor.f" }, "a delivery under way");
+    assert.deepEqual(deliveryOf({ ...done, recipient: { kind: "strongbox", uuid: null } }, [], 0), { state: "strongbox", to: null });
+    assert.equal(deliveryOf(started(), [], 1), null, "not before it is complete");
+    assert.deepEqual(orderView(done, { rows: [delivered], viewer: viewer(), nameOf }).delivery.state, "delivered");
+    assert.deepEqual(orderView(done, { viewer: viewer(), nameOf, shelfCount: 1 }).delivery.state, "shelf");
+});
+
+test("an order view says what it still needs and who may give the party fund's share back (A, M4.1)", () => {
+    const rows = [...earmarkInputs({ orderId: "o1", cp: 1000, nonce: "n" }).map((input, i) => ({ ...makeRow(input, stamp(i + 1)), state: "applied" })),
+        row("pledge", 500, { actor: "Actor.a" }, 5)];
+    const v = orderView(order({ status: "accepted", crafter: "Actor.c" }), { rows: rows.filter((r) => r.order === "o1"), viewer: viewer(), nameOf });
+    assert.deepEqual(v.shortfall, { phase: "upfront", needCp: 3250, holdsCp: 1500, shortCp: 1750 });
+    assert.deepEqual([v.fundReturnableCp, v.actions.returnToFund, v.actions.fund], [1000, true, true]);
+    assert.deepEqual(v.contributors.map((c) => [c.actor, c.cp]), [[null, 1000], ["Actor.a", 500]]);
+    const bystander = orderView(order({ status: "accepted" }), { rows: rows.filter((r) => r.order === "o1"), viewer: viewer({ hasCharacter: false }), nameOf });
+    assert.deepEqual([bystander.actions.returnToFund, bystander.actions.fund], [false, false], "only members with a character");
+});
+
+test("the Funds ledger names an allocation by its direction and lists one row of each pair (M4.1)", () => {
+    const [fundSide, orderSide] = earmarkInputs({ orderId: "o1", cp: 1000, nonce: "n" }).map((input, i) => ({ ...makeRow(input, stamp(2 + i)), state: "applied" }));
+    const [backFund, backOrder] = earmarkInputs({ orderId: "o1", cp: 200, nonce: "m", back: true }).map((input, i) => ({ ...makeRow(input, stamp(4 + i)), state: "applied" }));
+    assert.deepEqual([rowLabel(fundSide).mirror, rowLabel(orderSide).code, rowLabel(backOrder).code, rowLabel(backFund).mirror], [true, "earmark", "unearmark", true]);
+    assert.deepEqual(rowLabel(row("shelved", 0, { actor: null }, 1)), { code: "kept", mirror: false, items: true }, "an order for the strongbox keeps its item");
+    assert.deepEqual(rowLabel(row("shelved", 0, { actor: "Actor.f" }, 1)).code, "shelved");
+    assert.equal(rowLabel(row("delivered", 0, { actor: "Actor.f" }, 1)).items, true);
+    const deposit = row("deposit", 1000, { actor: "Actor.b", order: null }, 1, "u2");
+    const rows = [deposit, fundSide, orderSide, backFund, backOrder];
+    const v = fundsView({ rows, actualCp: 1000, orders: { o1: order({ status: "accepted" }) }, viewer: viewer(), nameOf, userName: (id) => id });
+    assert.deepEqual(v.ledger.map((r) => r.code), ["unearmark", "earmark", "deposit"], "newest first, the fund's mirror rows left out");
+    assert.equal(v.total, 3);
+    assert.deepEqual([v.accounts.unallocatedCp, v.accounts.earmarkedCp, v.accounts.balanced, v.fundCp], [200, 800, true, 200]);
+});
+
+test("member balances split a member's party fund share as the fund is split: unallocated, and earmarked for orders (review fix)", () => {
+    const deposit = row("deposit", 1800, { actor: "Actor.bo", order: null }, 1, "u2");
+    const earmark = earmarkInputs({ orderId: "o1", cp: 200, nonce: "e" }).map((input) => ({ ...makeRow(input, stamp(2, "u2")), state: "applied" }));
+    const v = fundsView({ rows: [deposit, ...earmark], actualCp: 1800, orders: { o1: order({ status: "accepted" }) }, viewer: viewer(), nameOf,
+        userName: (id) => id });
+    assert.deepEqual([v.accounts.unallocatedCp, v.accounts.earmarkedCp], [1600, 200]);
+    assert.deepEqual(v.members.map((m) => [m.name, m.ownCp, m.fundUnallocatedCp, m.fundEarmarkedCp, m.cp]), [["bo", 0, 1600, 200, 1800]],
+        "the 2 gp the fund earmarked is no longer unallocated, in the table as on the cards");
+    // Two depositors and a pledge from a purse: each share split pro rata, never below zero, adding up to the cards.
+    const more = [row("deposit", 600, { actor: "Actor.cy", order: null }, 3, "u3"), row("pledge", 100, { actor: "Actor.cy" }, 4, "u3")];
+    const w = fundsView({ rows: [deposit, ...earmark, ...more], actualCp: 2500, orders: { o1: order({ status: "accepted" }) }, viewer: viewer(),
+        nameOf, userName: (id) => id });
+    assert.deepEqual(w.members.map((m) => [m.name, m.ownCp, m.fundUnallocatedCp, m.fundEarmarkedCp, m.cp]),
+        [["bo", 0, 1650, 150, 1800], ["cy", 100, 550, 50, 700]]);
+    assert.equal(w.members.reduce((sum, m) => sum + m.fundUnallocatedCp, 0), w.accounts.unallocatedCp);
 });

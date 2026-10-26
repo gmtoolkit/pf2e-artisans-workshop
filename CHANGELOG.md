@@ -53,6 +53,27 @@ All notable changes to this module are documented here. The format follows
   purge's refunds never pay a contributor whose refund is still waiting a second time. Typing and keyboard focus survive
   the window's live updates, and a detached window keeps its forms and dialogs with it.
 
+- Fund accounting (M4.1, from the first hands-on session). The Funds tab shows the strongbox as the party fund's
+  unallocated money plus what is earmarked for orders, each order's earmarked money by source (the party fund or a
+  member) and what it spent. "Add to party fund" puts coins in unallocated; "Fund this order" takes a source, the party
+  fund (earmarks unallocated money, no coins move, any member may) or a character's purse; an order's party-fund share
+  can be given back; spending deducts each source's share; a finish that lacks money asks which source to draw the rest
+  from; refunds go back to each source. Two members earmarking the same money at once cannot both succeed.
+- Every amount is typed as pp, gp, sp and cp, with "Fill the shortfall" filling in what the order still needs.
+- The order detail names each requirement in plain words ("Trained in Crafting", "Up-front materials funded"), folds the
+  met ones into "11 of 12 met" and offers "Fund it" for missing up-front money; it explains the work-day rule, lists each
+  setup and work day with what it took off, and sums up what a finished order cost.
+- A finished order's card and detail say where the item went (delivered to whose inventory, on the pickup shelf with
+  Collect, or kept in the strongbox); the header's pickup-shelf count is a Collect button.
+- The Queue's search box is labelled as an order filter; a magnifying-glass button opens the request form's item search,
+  and the request form's "Browse" opens pf2e's Compendium Browser to drag an item from.
+- Retry after a critical failure asks where the missing up-front money comes from, as Finish does.
+
+### Changed
+
+- "Pledge" and "Deposit" are now "Fund this order" (from a purse) and "Add to party fund"; "Take it" is "Collect". The
+  amount dialog no longer accepts a single number read as copper.
+
 ### Fixed
 
 - Storage and sync, from the first live runs: a client stops writing the moment a shared document it uses is

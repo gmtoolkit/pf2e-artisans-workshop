@@ -41,6 +41,14 @@ function amountCp(amount) {
 
 const noActor = () => ({ ok: false, reason: "no-actor" });
 
+/** A funding source as the funds functions take it, or null when a purse has no actor to resolve. */
+function drawOf({ source = "purse", from = null, amount = null } = {}) {
+    const cp = amount === null || amount === undefined ? undefined : amountCp(amount);
+    if (source === "fund") return { source, cp };
+    const actor = resolveActor(from);
+    return actor ? { source: "purse", actor: actor.uuid, cp } : null;
+}
+
 /** The API object. */
 export function buildApi() {
     return {
@@ -76,7 +84,12 @@ export function buildApi() {
             pause: (id) => orders.pause(id),
             resume: (id) => orders.resume(id),
             retry: (id) => orders.retry(id),
-            finish: ({ order } = {}) => orders.finish(order),
+            // With `draw` ({source: "fund"|"purse", from, amount}), a shortfall is drawn from that source first (M4.1).
+            finish: ({ order, draw = null } = {}) => {
+                if (!draw) return orders.finish(order);
+                const source = drawOf(draw);
+                return source ? funds.finishOrder(order, { draw: source }) : Promise.resolve(noActor());
+            },
             cancel: (id) => orders.cancel(id),
             undo: (id) => orders.undo(id),
         },
@@ -91,6 +104,12 @@ export function buildApi() {
                 const cp = amountCp(amount);
                 return actor ? orders.pledgeTo(order, actor.uuid, cp) : Promise.resolve(noActor());
             },
+            // "Fund this order" (M4.1): `source` "fund" earmarks unallocated party-fund money, "purse" pledges from `from`.
+            fund: ({ order, amount, source = "purse", from = null } = {}) => {
+                const draw = drawOf({ source, from, amount });
+                return draw ? funds.fundOrder(order, draw) : Promise.resolve(noActor());
+            },
+            returnToFund: ({ order, amount } = {}) => funds.returnToParty(order, amountCp(amount)),
             deposit: ({ amount, from = null } = {}) => {
                 const actor = resolveActor(from);
                 return actor ? funds.deposit(actor.uuid, amountCp(amount)) : Promise.resolve(noActor());

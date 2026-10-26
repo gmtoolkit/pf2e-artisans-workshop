@@ -81,6 +81,8 @@ export const REFUSAL = Object.freeze({
     nothingToTake: "pf2e-artisans-workshop.Refusal.NothingToTake",
     "not-reversible": "pf2e-artisans-workshop.Refusal.NotReversible",
     "in-flight": "pf2e-artisans-workshop.Refusal.InFlight",
+    "fund-short": "pf2e-artisans-workshop.Refusal.FundShort",
+    "no-actor": "pf2e-artisans-workshop.Refusal.NoCharacter",
     resumable: "pf2e-artisans-workshop.Refusal.Resumable",
     other: "pf2e-artisans-workshop.Refusal.Other",
 });
@@ -109,6 +111,41 @@ export const ROW_KIND = Object.freeze({
     carry: "pf2e-artisans-workshop.Row.Carry",
     adjust: "pf2e-artisans-workshop.Row.Adjust",
     reversal: "pf2e-artisans-workshop.Row.Reversal",
+    // How the ledger names an allocation by its direction, and an order's item kept in the strongbox (`rowLabel`, M4.1).
+    earmark: "pf2e-artisans-workshop.Row.Earmark",
+    unearmark: "pf2e-artisans-workshop.Row.Unearmark",
+    kept: "pf2e-artisans-workshop.Row.Kept",
+});
+
+/**
+ * Each requirement (gate, 6.5) by a short name, so the order detail says what it is in plain words (As built in M4.1);
+ * the failing ones add the sentence of their reason (`GATE`).
+ */
+export const REQUIREMENT = Object.freeze({
+    G1: "pf2e-artisans-workshop.Requirement.G1",
+    G2: "pf2e-artisans-workshop.Requirement.G2",
+    G3: "pf2e-artisans-workshop.Requirement.G3",
+    G4: "pf2e-artisans-workshop.Requirement.G4",
+    G5: "pf2e-artisans-workshop.Requirement.G5",
+    G6: "pf2e-artisans-workshop.Requirement.G6",
+    G7: "pf2e-artisans-workshop.Requirement.G7",
+    G8: "pf2e-artisans-workshop.Requirement.G8",
+    G9: "pf2e-artisans-workshop.Requirement.G9",
+    G10: "pf2e-artisans-workshop.Requirement.G10",
+    G11: "pf2e-artisans-workshop.Requirement.G11",
+    G12: "pf2e-artisans-workshop.Requirement.G12",
+    batch: "pf2e-artisans-workshop.Requirement.Batch",
+    other: "pf2e-artisans-workshop.Requirement.Other",
+});
+
+/** Where a finished order's item went (`deliveryOf`, M4.1): a sentence naming the recipient. */
+export const DELIVERY = Object.freeze({
+    delivered: "pf2e-artisans-workshop.Delivery.Delivered",
+    arriving: "pf2e-artisans-workshop.Delivery.Arriving",
+    shelf: "pf2e-artisans-workshop.Delivery.Shelf",
+    /** The shelf, said to a user who can collect it, next to the Collect button. */
+    shelfYours: "pf2e-artisans-workshop.Delivery.ShelfYours",
+    strongbox: "pf2e-artisans-workshop.Delivery.Strongbox",
 });
 
 /** Formula routes (4.3). */

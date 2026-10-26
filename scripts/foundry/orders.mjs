@@ -10,7 +10,10 @@
  *
  * Every transition's request takes the lock page of its log slot (`logLockId`, As built in M4), so of two transitions
  * planned from the same copy of an order only the first lands (the other comes back "taken" or "conflict"), and none
- * runs on an order its log says is closed (`closedAs`), whatever a late write left in its `status`.
+ * runs on an order its log says is closed (`closedAs`), whatever a late write left in its `status`. The transitions
+ * that move the order's money (start, retry, settle, finish, cancel) also take its return slot (`returnSlotLockId`), as
+ * a take-back and a give-back of the fund's share do, so none of those lands with a transition planned from the same
+ * copy (review fix of M4.1).
  *
  * The one hook-driven write here is the order repair (6.12, As built in M4), on the crafter's responsible client: a
  * settled check a late reroll overwrote, and a closed order's status a late work day or first roll moved.
@@ -21,6 +24,7 @@ import { makeClaim } from "../logic/claims.mjs";
 import {
     cancelOrder, committedFromRows, expendedFromRows, pauseOrder, resumeOrder, retryOrder, startOrder,
 } from "../logic/craft.mjs";
+import { returnSlotLockId } from "../logic/funds.mjs";
 import { allPass } from "../logic/gates.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
 import {
@@ -178,9 +182,11 @@ export async function withdrawFrom(id, actorUuid, cp) {
     if (refusal) return refusal;
     const actor = actorOf(actorUuid);
     if (!actor?.isOwner) return refuse("not-owner");
-    const max = withdrawableCp(order, orderRows(id), actorUuid);
+    const rows = orderRows(id);
+    const max = withdrawableCp(order, rows, actorUuid);
     if (!(cp > 0) || cp > max) return refuse("too-much", { maxCp: max });
-    return withdraw({ actor, cp, order: id, nonce: newId() });
+    // The order's return slot: a cancel, a finish or another take-off planned from the same copy cannot also land.
+    return withdraw({ actor, cp, order: id, nonce: newId(), locks: [returnSlotLockId(order, rows)] });
 }
 
 /* -------------------------------------------- */
@@ -207,7 +213,7 @@ export async function start(id) {
     const patch = { ...result.patch, route: plan.route, skill: order.skill ?? "crafting", product: { ...order.product, snapshot: { ...order.product.snapshot, priceCp: product.priceCp, per: product.per } } };
     const commit = result.rows.map((row) => ({ kind: "commit", idem: idemKey("commit", id, patch.attempt, seqFor(rows, idemKey("commit", id, patch.attempt))), cp: row.cp, order: id }));
     const change = transitionChange(order, "start", patch, { rows: commit.map((row) => hashId(row.idem)) }, stampNow());
-    const posted = await lockedWrite([change.lock], commit, { set: change.set, replace: change.replace });
+    const posted = await lockedWrite([change.lock, returnSlotLockId(order, rows)], commit, { set: change.set, replace: change.replace });
     if (!posted.ok) return posted;
     await postCard("started", read(`orders.${id}`));
     return { ok: true };
@@ -298,7 +304,7 @@ export async function retry(id) {
     const attempt = result.patch.attempt;
     const commit = result.rows.map((row) => ({ kind: "commit", idem: idemKey("commit", id, attempt, seqFor(rows, idemKey("commit", id, attempt))), cp: row.cp, order: id }));
     const change = transitionChange(order, "retry", result.patch, { rows: commit.map((row) => hashId(row.idem)) }, stampNow());
-    const posted = await lockedWrite([change.lock], commit, { set: change.set, replace: change.replace });
+    const posted = await lockedWrite([change.lock, returnSlotLockId(order, rows)], commit, { set: change.set, replace: change.replace });
     return posted.ok ? { ok: true } : posted;
 }
 
@@ -368,7 +374,8 @@ export async function finish(id) {
         const change = transitionChange(order, "finish", { status: "complete" },
             { rows: [shelved, ...spendRows, ...fundRows].map((row) => hashId(row.idem)) }, stamp);
         return {
-            rows: [shelved, ...spendRows, ...fundRows], debits, items: [{ target: "strongbox", data: [source] }], locks: [change.lock],
+            rows: [shelved, ...spendRows, ...fundRows], debits, items: [{ target: "strongbox", data: [source] }],
+            locks: [change.lock, returnSlotLockId(order, rows)],
             ledger: { set: { ...change.set, ...Object.fromEntries(claimRecords.map((claim) => [`claims.${claim.id}`, claim])) }, replace: change.replace },
         };
     }, {}, [shelved]);
@@ -414,8 +421,9 @@ export async function cancel(id) {
     const change = transitionChange(order, "cancel", result.patch, { rows: bookkeeping.map((row) => hashId(row.idem)) }, stamp);
     const claimRecords = claims.map((claim) => makeClaim(claim, stamp));
     const ledger = { set: { ...change.set, ...Object.fromEntries(claimRecords.map((claim) => [`claims.${claim.id}`, claim])) }, replace: change.replace };
-    // Behind the log slot's lock: a finish (or a second cancel) planned from the same copy is refused, and so is this.
-    const posted = await lockedWrite([change.lock], bookkeeping, ledger);
+    // Behind the log slot's lock: a finish (or a second cancel) planned from the same copy is refused, and so is this;
+    // behind the return slot's: so is a give-back or a take-back planned from it, which would be paid twice.
+    const posted = await lockedWrite([change.lock, returnSlotLockId(order, rows)], bookkeeping, ledger);
     if (!posted.ok) return posted;
     await postCard("cancelled", read(`orders.${id}`), { refunds: claims.length });
     return { ok: true, refunds: claims.length };

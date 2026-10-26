@@ -3,11 +3,14 @@
  * only what it touches, debounced (never `requestAnimationFrame`). M4 builds the Queue and Funds tabs; the others come
  * with their milestones.
  *
- * - Header: party, strongbox balance, the pickup shelf for the user's characters with "Take it", "acting as".
- * - Queue: filters, every order of the party with its status chip, progress bar, blockers, days to zero and "finish now"
- *   amount, the actions the viewer may take, a detail drawer; drop an item on it to request it.
- * - Funds: the strongbox, the party fund, escrow, each member's balance, the ledger with authors and reversal; for a GM,
- *   reconciliation and adjustments.
+ * - Header: party, strongbox balance, the pickup shelf for the user's characters (click it to collect), "acting as".
+ * - Queue: filters, a magnifying glass that opens the request form's item search, every order of the party with its
+ *   status chip, progress bar, blockers, days to zero and "finish now" amount, the actions the viewer may take, a detail
+ *   drawer (requirements in plain words, work days, what a finished order cost and where its item went); drop an item on
+ *   it to request it.
+ * - Funds: fund accounting (M4.1): the strongbox as the unallocated party fund plus what is earmarked per order by
+ *   source, and what each order spent; each member's balance, the ledger with authors and reversal; for a GM,
+ *   reconciliation and adjustments. Every amount is typed as pp, gp, sp and cp (`prompts.mjs`).
  * - Status bar: an `aria-live` region for queue events, and the banner when the shared documents are not usable.
  *
  * Detached-window safe: listeners are delegated from the window's own element, elements are tested with
@@ -18,30 +21,39 @@
  * attributes, with its caret (`focus.mjs`), and the order rows' roving tab stop stays on the row that had it.
  */
 import { MODULE_ID } from "../constants.mjs";
+import { unallocatedCp } from "../logic/funds.mjs";
 import { CLOSED, logEntries, withdrawableCp } from "../logic/orders.mjs";
-import { DEFAULT_FILTERS, fundWithdrawableCp, fundsView, passesFilters, queueOrder, queueSummary } from "../logic/views.mjs";
+import {
+    DEFAULT_FILTERS, fundWithdrawableCp, fundsView, passesFilters, queueOrder, queueSummary, rowLabel,
+} from "../logic/views.mjs";
 import { holdingsOf, valueCp } from "../logic/coins.mjs";
 import { coinStacks } from "../foundry/coins.mjs";
 import { shelfItemsFor } from "../foundry/claims.mjs";
 import * as funds from "../foundry/funds.mjs";
 import * as orders from "../foundry/orders.mjs";
-import { crafterFacts, gatesFor, productFacts } from "../foundry/products.mjs";
 import { reconciliationReport, bookAdjustment } from "../foundry/reconcile.mjs";
 import { resolvePending } from "../foundry/money.mjs";
 import { members } from "../foundry/roster.mjs";
-import { rulesFromSettings, setting } from "../foundry/settings.mjs";
+import { setting } from "../foundry/settings.mjs";
 import { canWrite, shared, status } from "../foundry/state.mjs";
 import { read, records } from "../foundry/store.mjs";
 import { orderContext } from "./context.mjs";
 import { focusState, restoreFocus } from "./focus.mjs";
-import { gateText, money, nameOf, report, userName, when } from "./format.mjs";
+import { money, nameOf, report, sourceName, userName, when } from "./format.mjs";
 import { EVENT, ROW_KIND, STATUS } from "./labels.mjs";
-import { askAmount, confirm } from "./prompts.mjs";
+import { askMoney, confirm } from "./prompts.mjs";
 import { openRequestForm } from "./request.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 const T = (name) => `modules/pf2e-artisans-workshop/templates/workshop/${name}.hbs`;
+
+/** The fund prompt's opening sentence by what the order needs next (`shortfallOf` phases). */
+const SHORT_INTRO = Object.freeze({
+    upfront: "pf2e-artisans-workshop.Prompt.Intro.Upfront",
+    retry: "pf2e-artisans-workshop.Prompt.Intro.Retry",
+    finish: "pf2e-artisans-workshop.Prompt.Intro.Finish",
+});
 
 /** Partials the window and the chat cards share (`registerWindowHooks` loads them for the cards). */
 export const PARTIALS = Object.freeze([
@@ -80,10 +92,12 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         window: { title: "pf2e-artisans-workshop.Window.Title", icon: "fa-solid fa-hammer", resizable: true, contentClasses: ["workshop-body"] },
         actions: {
             request: WorkshopApp.#onRequest,
+            findItem: WorkshopApp.#onFindItem,
             select: WorkshopApp.#onSelect,
             closeDetail: WorkshopApp.#onCloseDetail,
             op: WorkshopApp.#onOrderOp,
-            pledge: WorkshopApp.#onPledge,
+            fund: WorkshopApp.#onFund,
+            returnToFund: WorkshopApp.#onReturnToFund,
             withdraw: WorkshopApp.#onWithdraw,
             deposit: WorkshopApp.#onDeposit,
             withdrawFund: WorkshopApp.#onWithdrawFund,
@@ -114,12 +128,14 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     };
 
     /**
-     * Queue filters (10.3), the order whose detail is open, the order row that is the list's tab stop (10.9), the
-     * character this user acts as, the last event.
+     * Queue filters (10.3), the order whose detail is open, the order row that is the list's tab stop (10.9), whether
+     * the detail's list of met requirements is expanded (kept across live re-renders), the character this user acts as,
+     * the last event.
      */
     filters = { ...DEFAULT_FILTERS };
     selected = null;
     activeRow = null;
+    metOpen = false;
     acting = null;
     lastEvent = "";
 
@@ -218,30 +234,28 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         };
     }
 
-    /** The detail drawer of one order: its gates, contributors, history and rows. */
+    /**
+     * The detail drawer of one order: its requirements in plain words (from the view), earmarked money by source, work
+     * days, history and rows.
+     */
     async #detailContext(order, listed) {
         const view = listed ?? await orderContext(order, { viewer: orders.viewer() });
         const rows = orders.orderRows(order.id);
-        const gates = view.status === "accepted" && order.crafter ? await this.#gatesOf(order, rows) : [];
         return {
             ...view,
-            gates: gates.map((gate) => ({ ok: gate.ok, id: gate.id, text: gate.ok ? null : gateText(gate) })),
             history: logEntries(order).reverse().map((entry) => ({
                 event: entry.event, by: userName(entry.by), when: when(entry.at), eventLabel: EVENT[entry.event] ?? EVENT.other,
             })),
-            rows: rows.sort((a, b) => (b.at?.real ?? 0) - (a.at?.real ?? 0)).map((row) => ({
-                kind: ROW_KIND[row.kind] ?? row.kind, amount: money(row.cp ?? 0), actor: row.actor ? nameOf(row.actor) : null,
-                by: userName(row.author), state: row.state, reversed: !!row.reversedBy,
-            })),
+            rows: rows.sort((a, b) => (b.at?.real ?? 0) - (a.at?.real ?? 0)).map((row) => {
+                const label = rowLabel(row);
+                return {
+                    kind: ROW_KIND[label.code] ?? row.kind, amount: label.items ? null : money(row.cp ?? 0),
+                    actor: row.actor ? nameOf(row.actor) : null, by: userName(row.author), state: row.state, reversed: !!row.reversedBy,
+                };
+            }),
             requesterName: nameOf(order.requester),
+            metOpen: this.metOpen,
         };
-    }
-
-    async #gatesOf(order, rows) {
-        const actor = fromUuidSync(order.crafter, { strict: false });
-        const product = await productFacts(order.product?.uuid);
-        if (!actor || !product) return [];
-        return (await gatesFor(order, crafterFacts(actor), product, rows, rulesFromSettings())).gates;
     }
 
     #fundsContext() {
@@ -254,19 +268,40 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         });
         const acting = this.actingActor();
         const recon = game.user.isGM ? reconciliationReport() : null;
+        const a = view.accounts;
+        const orderName = (id) => {
+            const order = ordersById[id];
+            return order?.visibility === "gift" ? game.i18n.localize("pf2e-artisans-workshop.Queue.Gift") : order?.product?.snapshot?.name ?? null;
+        };
+        const parts = { total: money(view.actualCp), expected: money(a.expectedCp), unallocated: money(a.unallocatedCp),
+            earmarked: money(a.earmarkedCp), difference: money(view.differenceCp) };
         return {
             funds: {
                 ...view,
                 actualText: money(view.actualCp), expectedText: money(view.expectedCp), differenceText: money(view.differenceCp),
-                fundText: money(view.fundCp), escrowText: money(view.escrowCp), unassignedText: money(view.unassignedCp),
+                fundText: money(view.fundCp), unassignedText: money(view.unassignedCp),
                 balanced: view.differenceCp === 0,
+                // Fund accounting (M4.1): the strongbox is the unallocated fund plus what is earmarked, said in one line.
+                // A difference from the coins counted is flagged; its amount, like reconciliation, is a GM's (10.10).
+                identityText: game.i18n.format(view.differenceCp === 0 && a.balanced ? "pf2e-artisans-workshop.Funds.Identity"
+                    : game.user.isGM ? "pf2e-artisans-workshop.Funds.IdentityOff" : "pf2e-artisans-workshop.Funds.IdentityOffPlayer", parts),
+                earmarkedText: money(a.earmarkedCp), spentText: money(a.spentCp),
+                accountOrders: a.orders.map((o) => ({
+                    id: o.id, name: orderName(o.id), statusWord: STATUS[o.status] ? game.i18n.localize(STATUS[o.status].key) : null,
+                    refundsWaiting: o.refundsWaiting,
+                    earmarked: o.earmarked.map((e) => ({ name: sourceName(e.actor), amount: money(e.cp), fund: e.actor === null })),
+                    earmarkedText: money(o.earmarkedCp),
+                    spent: o.spent.map((e) => ({ name: sourceName(e.actor), amount: money(e.cp) })),
+                    spentText: o.spentCp ? money(o.spentCp) : null,
+                })),
+                // Each member: their own purse's money in orders, and their share of the party fund split as the cards
+                // above split the fund, unallocated and earmarked for orders (review fix of M4.1).
                 members: view.members.map((m) => ({
-                    ...m, total: money(m.cp),
-                    inOrders: money(m.allocations.filter((a) => a.order).reduce((s, a) => s + a.cp, 0)),
-                    inFund: money(m.allocations.filter((a) => !a.order).reduce((s, a) => s + a.cp, 0)),
+                    ...m, total: money(m.cp), inOrders: money(m.ownCp),
+                    fundUnallocated: money(m.fundUnallocatedCp), fundEarmarked: money(m.fundEarmarkedCp),
                 })),
                 ledger: view.ledger.map((row) => ({
-                    ...row, kindLabel: ROW_KIND[row.kind] ?? row.kind, amount: money(row.cp), box: row.box,
+                    ...row, kindLabel: ROW_KIND[row.code] ?? row.kind, amount: row.items ? null : money(row.cp), box: row.box,
                     boxText: row.box ? money(row.box) : null, when: row.at ? when({ real: row.at }) : "",
                 })),
                 withdrawable: acting ? fundWithdrawableCp(rows, acting.uuid) : 0,
@@ -291,6 +326,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.element.addEventListener("keydown", (event) => this.#onKeydown(event));
         this.element.addEventListener("click", (event) => this.#onRowClick(event));
         this.element.addEventListener("focusin", (event) => this.#onFocusIn(event));
+        // `toggle` does not bubble: listen in the capture phase.
+        this.element.addEventListener("toggle", (event) => this.#onToggle(event), true);
     }
 
     /** Before a part is replaced: which control has focus, by its data attributes, and its caret (10.9). */
@@ -377,6 +414,11 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         if (event.target.dataset?.filter !== "search") return;
         this.filters = { ...this.filters, search: event.target.value };
         this.#searchDebounce();
+    }
+
+    /** The met requirements' list stays as the user left it, open or closed, when a live update re-renders the detail. */
+    #onToggle(event) {
+        if (event.target?.classList?.contains("detail-met")) this.metOpen = event.target.open === true;
     }
 
     /** The row focus lands on, by keyboard or mouse, becomes the list's tab stop. */
@@ -481,6 +523,11 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         return openRequestForm({ requester: this.actingActor()?.uuid ?? null, parent: this });
     }
 
+    /** The magnifying glass (F): the request form, its item search focused. Searching items is the form's, not the filter's. */
+    static #onFindItem() {
+        return openRequestForm({ requester: this.actingActor()?.uuid ?? null, parent: this, focusSearch: true });
+    }
+
     static #onSelect(_event, target) {
         return this.#select(target.closest("[data-order-id]")?.dataset.orderId);
     }
@@ -511,10 +558,10 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
                 case "work": return await this.#run(orders.workDay(id), "pf2e-artisans-workshop.Event.Work");
                 case "roll": return await this.#run(orders.roll(id));
                 case "settle": return await this.#run(orders.settle(id), "pf2e-artisans-workshop.Event.Settle");
-                case "finish": return await this.#run(orders.finish(id), "pf2e-artisans-workshop.Event.Finish");
+                case "finish": return await this.#finish(id);
                 case "pause": return await this.#run(orders.pause(id), "pf2e-artisans-workshop.Event.Pause");
                 case "resume": return await this.#run(orders.resume(id), "pf2e-artisans-workshop.Event.Resume");
-                case "retry": return await this.#run(orders.retry(id), "pf2e-artisans-workshop.Event.Retry");
+                case "retry": return await this.#retry(id);
                 case "undo": return await this.#run(orders.undo(id), "pf2e-artisans-workshop.Event.Undo");
                 case "cancel": {
                     const ok = await confirm({ title: "pf2e-artisans-workshop.Prompt.Cancel.Title", content: "pf2e-artisans-workshop.Prompt.Cancel.Content", app: this });
@@ -527,10 +574,77 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         }
     }
 
-    static async #onPledge(_event, target) {
+    /** The prompt's opening sentence for what an order still needs (A, M4.1). */
+    static #shortIntro(short) {
+        const key = short.shortCp > 0 ? SHORT_INTRO[short.phase] : null;
+        return game.i18n.format(key ?? "pf2e-artisans-workshop.Prompt.Intro.Covered",
+            { need: money(short.needCp), holds: money(short.holdsCp), short: money(short.shortCp) });
+    }
+
+    /**
+     * "Fund this order" (A, B, As built in M4.1): where the money comes from (the party fund, or the purse of one of the
+     * user's characters) and how much, as pp, gp, sp and cp, with "Fill the shortfall" ready; `prefill` starts with it
+     * filled in (the requirement's own button).
+     */
+    async fundPrompt(id, { prefill = false } = {}) {
+        const short = funds.shortfallFor(id);
+        if (!short) return null;
+        const answer = await askMoney({
+            kind: "fund", actors: orders.actingChoices(), actor: this.actingActor()?.uuid ?? null,
+            sources: { fundCp: unallocatedCp(records("rows")) },
+            fill: short.shortCp > 0 ? { cp: short.shortCp, key: "pf2e-artisans-workshop.Prompt.Fill" } : null, prefill,
+            intro: WorkshopApp.#shortIntro(short), app: this,
+        });
+        if (!answer) return null;
+        return this.#run(funds.fundOrder(id, answer),
+            answer.source === "fund" ? "pf2e-artisans-workshop.Event.Earmark" : "pf2e-artisans-workshop.Event.Pledge");
+    }
+
+    /**
+     * A crafter's step the order's earmarked money must cover (Finish, Retry; A, D): with nothing short, at once;
+     * otherwise first ask where the rest comes from (the party fund or a purse), the shortfall filled in and required,
+     * then draw it and take the step.
+     */
+    async #drawThen(id, { kind, step, drawn, done }) {
+        const short = funds.shortfallFor(id);
+        if (!short || short.shortCp <= 0) return this.#run(step(), done);
+        const answer = await askMoney({
+            kind, actors: orders.actingChoices(), actor: this.actingActor()?.uuid ?? null,
+            sources: { fundCp: unallocatedCp(records("rows")) }, minCp: short.shortCp,
+            fill: { cp: short.shortCp, key: "pf2e-artisans-workshop.Prompt.Fill" }, prefill: true,
+            intro: WorkshopApp.#shortIntro(short), app: this,
+        });
+        if (!answer) return null;
+        return this.#run(drawn(answer), done);
+    }
+
+    /** Finish (D, A): pay what is left, drawing any shortfall from the source the user picks. */
+    #finish(id) {
+        return this.#drawThen(id, { kind: "finish", step: () => orders.finish(id), drawn: (draw) => funds.finishOrder(id, { draw }),
+            done: "pf2e-artisans-workshop.Event.Finish" });
+    }
+
+    /** Retry after a failure: a critical failure ruined some materials, so the new attempt may need more up front. */
+    #retry(id) {
+        return this.#drawThen(id, { kind: "retry", step: () => orders.retry(id), drawn: (draw) => funds.retryOrder(id, { draw }),
+            done: "pf2e-artisans-workshop.Event.Retry" });
+    }
+
+    static async #onFund(_event, target) {
         const id = target.closest("[data-order-id]")?.dataset.orderId;
-        const answer = await askAmount({ kind: "pledge", actors: orders.actingChoices(), actor: this.actingActor()?.uuid, app: this });
-        if (answer) await this.#run(orders.pledgeTo(id, answer.actor, answer.cp), "pf2e-artisans-workshop.Event.Pledge");
+        if (id) await this.fundPrompt(id, { prefill: target.dataset.fill === "short" });
+    }
+
+    /**
+     * Give the order's party-fund share back to the unallocated fund: what is not committed, or all of it on a closed
+     * order (`returnableFor`, the limit `returnToParty` applies, so the dialog never refuses what the detail offers).
+     */
+    static async #onReturnToFund(_event, target) {
+        const id = target.closest("[data-order-id]")?.dataset.orderId;
+        if (!id || !read(`orders.${id}`)) return;
+        const max = funds.returnableFor(id);
+        const answer = await askMoney({ kind: "return", maxCp: max, fill: { cp: max, key: "pf2e-artisans-workshop.Prompt.FillAll" }, prefill: true, app: this });
+        if (answer) await this.#run(funds.returnToParty(id, answer.cp), "pf2e-artisans-workshop.Event.ReturnToFund");
     }
 
     static async #onWithdraw(_event, target) {
@@ -540,12 +654,13 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const rows = orders.orderRows(id);
         const actors = orders.actingChoices().filter((a) => withdrawableCp(order, rows, a.uuid) > 0);
         const max = Math.max(0, ...actors.map((a) => withdrawableCp(order, rows, a.uuid)));
-        const answer = await askAmount({ kind: "withdraw", actors, maxCp: max, app: this });
+        const answer = await askMoney({ kind: "withdraw", actors, maxCp: max, fill: { cp: max, key: "pf2e-artisans-workshop.Prompt.FillAll" }, app: this });
         if (answer) await this.#run(orders.withdrawFrom(id, answer.actor, answer.cp), "pf2e-artisans-workshop.Event.Withdraw");
     }
 
+    /** "Add to party fund": coins from a purse into the unallocated fund (A). */
     static async #onDeposit() {
-        const answer = await askAmount({ kind: "deposit", actors: orders.actingChoices(), actor: this.actingActor()?.uuid, app: this });
+        const answer = await askMoney({ kind: "deposit", actors: orders.actingChoices(), actor: this.actingActor()?.uuid ?? null, app: this });
         if (answer) await this.#run(funds.deposit(answer.actor, answer.cp), "pf2e-artisans-workshop.Event.Deposit");
     }
 
@@ -553,7 +668,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const rows = records("rows");
         const actors = orders.actingChoices().filter((a) => fundWithdrawableCp(rows, a.uuid) > 0);
         const max = Math.max(0, ...actors.map((a) => fundWithdrawableCp(rows, a.uuid)));
-        const answer = await askAmount({ kind: "withdraw", actors, maxCp: max, app: this });
+        const answer = await askMoney({ kind: "withdraw", actors, maxCp: max, fill: { cp: max, key: "pf2e-artisans-workshop.Prompt.FillAll" }, app: this });
         if (answer) await this.#run(funds.withdrawFund(answer.actor, answer.cp), "pf2e-artisans-workshop.Event.Withdraw");
     }
 

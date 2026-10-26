@@ -1849,11 +1849,11 @@ async function m4Ui(h, w) {
         await sleep(1200);
         formWindows = await h.evaluate("p1", pageWindows, { mod: MOD });
         await h.evaluate("p1", pageCloseWindows, { mod: MOD });
-        await popup.click('.order-row button[data-action="pledge"]').catch((error) => h.check("click Pledge in the detached window", false, error.message));
+        await popup.click('.order-row button[data-action="fund"]').catch((error) => h.check("click Fund this order in the detached window", false, error.message));
         await sleep(1200);
     }
     const windows = await h.evaluate("p1", pageWindows, { mod: MOD });
-    h.check("a detached Workshop opens the request form and the pledge dialog in its own window", !!popup && detached.detached
+    h.check("a detached Workshop opens the request form and the funding dialog in its own window", !!popup && detached.detached
         && formWindows?.forms.length === 1 && formWindows.forms[0].in === "detached" && windows.dialogs.length === 1 && windows.dialogs[0].in === "detached",
     { detached, formWindows, windows });
     await h.evaluate("p1", pageCloseWindows, { mod: MOD });

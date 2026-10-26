@@ -2,6 +2,26 @@
 
 Newest first.
 
+## 2026-10-26: Fund accounting, from the first hands-on session
+
+**Decision:** the party's money is shown and handled as simple fund accounting. The
+strongbox holds the party fund, split into **unallocated** money and money **earmarked**
+for specific orders; each earmarked amount records its source (the party fund or a
+named member), and spending is shown per order. Adding money to the party fund leaves
+it unallocated. Funding an order takes a source: the party fund (re-labels unallocated
+money as earmarked, no coins move; any member may do it, and the ledger records who) or
+the member's purse (coins move in). Spending deducts from the order's earmarked money,
+any shortfall at finish asks which source to draw from, and refunds return each share
+to its source. All money is entered as separate pp/gp/sp/cp fields.
+
+**Why:** in the first real use the author deposited 18 gp to the party fund for an
+order and nothing could move it onto the order; a single amount field read "18" as
+copper; and "pledge" versus "deposit" was not understandable.
+
+**Consequences:** the Funds tab and order funding are reworked in M4.1. The search box
+stays an order filter; a magnifying-glass button opens the existing item picker and
+pf2e's Compendium Browser rather than a new item search.
+
 ## 2026-10-25: Open questions settled by the author
 
 - **Scope added:** every crafting variant in Treasure Vault (Remastered) pp.157-175

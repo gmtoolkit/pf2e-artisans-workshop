@@ -532,6 +532,35 @@ rows.<id> = {
   `scripts/logic/views.mjs`) of an applied financial row that still counts, to its author or a GM (an `adjust` to a GM
   only), when the purse is the reverser's to write, a pledge's order is open and keeps what it has committed, and the
   contributor (or the fund) still holds the amount.
+- **As built in M4.1** (fund accounting, DECISIONS.md 2026-10-26; `scripts/logic/funds.mjs`, `scripts/foundry/funds.mjs`).
+  "Fund this order" takes a source. From the party fund it is a pair of `allocate` rows with the fund as the source
+  (`actor` null on both): the fund's side (-n) and the order's (+n), keyed `earmark:<orderId>:<nonce>:fund|order`; no coins
+  move, since they are in the strongbox already. Giving an order's fund share back is the same pair with `back`
+  (`unearmark:...`), up to what the order has not committed, or all of it on a closed order (`fundReturnableCp`: only an
+  earmark that landed after the close leaves fund money there). From a purse it is the `pledge` of M2. Any member may
+  earmark or give back (the cooperative trust model of 2026-10-25); the rows' `author` records who. Every write that takes
+  money out of the unallocated fund takes the **fund slot**, a lock page keyed `fund-slot:<n>` (`fundSlotLockId`), `n`
+  the number of fund rows with `alloc` below 0 so far (reversed or not, rows being append-only): earmarking, a withdrawal
+  from the fund (`payout` and `withdraw` take `locks`) and the reversal of a deposit. Two of them planned from the same
+  copy of the ledger name the same page, so only the first lands and the other is refused ("taken") with nothing written;
+  money coming in takes no slot and does not move it. Money that leaves an order outside a transition (a give-back of the
+  fund's share, a member's `withdraw`, the reversal of a pledge) takes the order's **return slot**
+  (`fund-return-slot:<orderId>:<seq>:<k>`, `returnSlotLockId`, `seq` the order's last log entry, `k` the order's rows
+  with `alloc` below 0 so far), and so does every transition that moves the order's money (start, retry, settle,
+  finish, cancel), next to its log slot. Of a give-back or take-back and a transition planned from the same copy only
+  the first lands: before this (review of M4.1) a give-back and a cancel or finish both returned the fund's share, a
+  give-back or a withdrawal landing with a start left the escrow below the commit (the order then stuck in `rolled`),
+  and one landing with a settlement split the spend over stale allocations. Every transition moves `seq` and every
+  take-off adds a row, so taking the page never blocks a later one. Spending needed nothing new: the
+  pro-rata splitter already treats the fund (`actor` null) as a contributor, so `expend`, `ruin` and `remainder` deduct
+  from each source's share, and a cancel's or finish's refunds return the fund's share to the fund (`allocate` with
+  `back`, M4) and a member's as a refund claim. A finish whose earmarked money falls short first draws the rest from a
+  source the user picks (`finishOrder`: an earmark or a pledge of at least the shortfall, then `finish`; two writes, so a
+  draw whose finish is then refused stays earmarked for the order); a retry after a critical failure ruined some of the
+  materials does the same (`retryOrder`). The Funds ledger lists one row per allocation pair
+  (the fund's side is its order's mirror, `rowLabel`) and names it by direction ("Earmarked from the party fund", "Given
+  back to the party fund"); a `shelved` row of an order for the strongbox reads "Put in the strongbox", and item rows show
+  no amount.
 
 ### 4.7 Strongbox and pickup shelf
 
@@ -581,6 +610,14 @@ rows.<id> = {
   leaves its item there with no shelf flag. The header shows the shelf count for the user's characters with "Take it",
   which runs the claim sweep for the tab now (auto-claim on or off). The party-stash alternative is still not built
   (follow-up, 10.10).
+- **As built in M4.1.** Fund accounting (`fundAccounts`): the coins the ledger expects (the sum of `box`) are the
+  unallocated fund (the sum of the fund rows' `alloc`) plus what is earmarked for orders (and gardens), since every kind
+  M4 writes moves `box` and `alloc` together. The Funds tab states it ("Strongbox 18 gp = party fund, unallocated 16 gp +
+  earmarked for orders 2 gp"); when the coins counted differ, it says the ledger's side of it to everyone and the
+  difference to a GM, whose reconciliation books it as before. Per order it lists the money earmarked by source (the
+  party fund or a member) and what the order spent; a closed order still holding money is listed as waiting for its
+  refunds. Where a finished item went (`deliveryOf`): delivered (a `delivered` row that applied, naming the recipient),
+  arriving (a delivery under way, or the shelf item not here yet), on the shelf, or kept in the strongbox.
 
 ### 4.8 Downtime: workshop days, per-PC status and day records
 
@@ -1141,6 +1178,11 @@ becomes a claim that the target's owner client applies.
   for it. With auto-claim off the user is told once per claim; the "Take it" button belongs to the Queue (M4).
   A delivered item loses its shelf flag and any `containerId` that pointed into the strongbox, and gets
   `flags.MOD.delivered = {row}`.
+- **As built in M4.1.** The completion card and the order detail say where the item went (4.7, `deliveryOf`): "Delivered
+  to <actor>'s inventory" once the delivery row applied, "On the pickup shelf for <actor>" with Collect for the
+  recipient's owners while the shelf item is there, "On its way" between the two, or "Kept in the strongbox". Collect
+  stays until the item is delivered, and then the card says so instead. The header's "Pickup shelf: N for you" is itself
+  the Collect button while something waits; "Take it" is renamed Collect everywhere.
 
 ### 5.6 The responsible client
 
@@ -3991,6 +4033,74 @@ M11 (`scripts/ui/`, `templates/`, `styles/workshop.css`; view models in `scripts
   rolled a critical failure, and the retry asked for the 6 sp the ruined materials cost ("6 sp more is needed in
   escrow") before it would start.
 
+#### As built in M4.1 (2026-10-26, the first hands-on session)
+
+The author's first real use found that money added to the party fund could not be moved onto an order, that one amount
+field read "18" as copper, that "pledge" and "deposit" were not understood, that the requirements showed gate codes, that
+the work days and the finish cost were unexplained, and that a finished item seemed to vanish. M4.1 reworks those
+(DECISIONS.md 2026-10-26), with unit tests for the pure parts (`test/logic/funds.test.mjs`, `views.test.mjs`) and stub
+tests for the Foundry and window parts (`test/foundry/funds.test.mjs`, `ui.test.mjs`); the live harness was not rerun.
+
+- **A. Fund accounting** (4.6, 4.7 As built in M4.1). The Funds tab opens with the identity line, then three cards:
+  the strongbox's coins; "Party fund: unallocated" with "Add to party fund" (a deposit) and "Take out" (up to the
+  character's net deposits); and "Earmarked". A "By order" table lists each order's earmarked money by source, its total
+  and what it spent. "Fund this order" (Queue row, detail, request card) asks for the source, the party fund (with what
+  is unallocated; chosen first while it covers what is needed, since the second review) or a character's purse, and the
+  amount. The detail lists the money earmarked by source and spent by source, and "Give back to the party fund (up to
+  X)". Finish (and, since the second review, Retry) with too little earmarked asks where the rest comes from, the
+  shortfall filled in and required.
+- **B. Money input** (`askMoney`, `templates/prompts/amount.hbs`): every amount is four whole-number fields, pp, gp, sp
+  and cp (`fieldsToCp`); "Fill the shortfall (X)" fills them with what the order needs next (`shortfallOf`: the up-front
+  half before start, a retry's commit, or what finishing now costs), "Fill in all of it" for a withdrawal or a give-back;
+  the confirm button stays disabled, with the reason beside it, while the amount is not whole coins, is zero, or is
+  outside its limits (`checkAmount`).
+- **C. Requirements** (`requirementsView`, `REQUIREMENT` keys): each gate has a short name ("Trained in Crafting",
+  "Item level within the crafter's level", "Formula", "Tools", "Up-front materials funded"); unmet ones come first with
+  their reason and, for an underfunded G8, "Fund it" with the shortfall filled in; met ones fold into "11 of 12 met".
+- **D. Work days** (`workDaysView`, `costSummary`): the detail explains the rule in its own words (one Craft check per
+  order after setup; each further day takes the crafter's Income Earned rate off, one level higher after a critical
+  success; no more checks; Player Core p.237), lists "Setup day 1 of 2" and "Day 3: −8 gp 7 sp" (a day counts once the
+  check settles as a success, and never below nothing left), and for a finished order "Paid X up front; N work days
+  covered Y; paid Z to finish; T spent in all", with ruined materials of earlier attempts on their own line. The
+  completion card carries the same summary.
+- **E. Completion** (5.5 As built in M4.1): where the item went, on the card and in the detail and Queue row; Collect
+  stays until delivery; the header's shelf count is the Collect button.
+- **F. Item search**: the Queue's search box is an order filter ("Filter orders"); a magnifying-glass button beside it
+  opens the request form with its item search focused, and the form's "Browse" opens pf2e's Compendium Browser on its
+  equipment tab (`game.pf2e.compendiumBrowser.openTab("equipment")`) to drag an item from. No new search was built.
+- **Review** (one pass, high): fixed: an earmark that lands after its order closed (planned before a cancel or a finish)
+  stranded the fund's money on the closed order, since giving back refused closed orders (now `fundReturnableCp` gives
+  all of it back); players were shown the reconciliation difference (now a GM's only); the API's finish with an
+  unresolvable purse answered "underfunded" instead of "no-actor"; the Funds view kept an unused escrow figure.
+- API (11.2): `funds.fund({order, amount, source, from})`, `funds.returnToFund({order, amount})`, and
+  `orders.finish({order, draw: {source, from, amount}})`.
+- **Second review** (one pass; fixed, each with a test that fails without it):
+  - *Give-backs and take-backs against transitions* (4.6): a give-back of the fund's share planned from the same copy as
+    a cancel or a finish returned the share twice (the unallocated fund then showed more than the strongbox held); with
+    a start it left the order committing more than it held, stuck in `rolled`; with a settlement the spend was split
+    over stale allocations and a source's share went below zero; a member's take-back or a pledge's reversal racing a
+    cancel paid the member twice. All of them, and every transition that moves the order's money, now take the order's
+    return slot (`returnSlotLockId`). Tests: the race tests in `test/foundry/funds.test.mjs`.
+  - *Give back from the window*: the detail offered all of a closed order's late earmark back, but the dialog capped it
+    at `withdrawableCp`, 0 for a closed order, so it refused every amount. Both now use `returnableFor`.
+  - *The money prompt's source*: it started on the party fund whenever the fund held anything, even less than the
+    shortfall a Finish requires, and its hint then went back and forth between "At most" and "At least". It now starts on
+    the party fund only while the fund covers what is needed (`firstSource`), else on a purse; with the fund chosen,
+    an amount it cannot cover says so and points at a purse (`Prompt.Problem.FundShort`, `FundShortNeed`), and "Fill the
+    shortfall" fills no more than the fund holds. With one character, the purse option names them ("Bo's purse") and
+    the "From Bo" line is shown only when there is no source to choose. The gold field has focus when the dialog opens
+    (DialogV2's own autofocus lands on the disabled confirm button).
+  - *Member balances*: a member's party fund share was one figure that still counted money the fund had earmarked; the
+    table now splits it into unallocated and earmarked for orders as the cards do (pro rata by share, members' shares
+    unallocated first), next to what their own purse put into orders.
+  - *Live updates*: the expanded "N of M met" list stays expanded (`metOpen`, a capture-phase `toggle` listener), its
+    summary carries `data-toggle` so focus comes back to it, and the requirement's "Fund it" carries `data-op="fund-short"`
+    so focus on it and on "Fund this order" are told apart.
+  - *The pickup shelf*: only a user who can collect is told to ("Waiting on the pickup shelf for Bo: collect it."), next
+    to Collect, which the Queue row now has too; everyone else reads whom it waits for.
+  - *Retry*: the refusal said "more is needed in escrow"; it now reads "This order needs X more. Fund this order first."
+    and Retry with too little earmarked asks for a source and amount as Finish does (`retryOrder`).
+
 #### Follow-ups (M4, low)
 
 - No context menu (10.3): secondary actions are in the detail drawer. The slide-over and narrow detail do not trap focus.
@@ -4001,13 +4111,11 @@ M11 (`scripts/ui/`, `templates/`, `styles/workshop.css`; view models in `scripts
 - Fixed after the M4 review: a cancel and a finish planned from the same copy both landed (the item delivered and the
   allocation refunded, paid from other members' coins with reconciliation balanced), and a late work day or first roll
   could reopen a cancelled order for a second refund. See "After the M4 review" above.
-- A withdrawal racing a start can leave the escrow below the commit. The order is then stuck in `rolled`: settling and a
-  work day refuse ("underfunded"), pledges are refused in `rolled`, cancel refuses an unsettled check and undo has moved
-  on. The way out is for the withdrawal's author or a GM to reverse the withdrawal (Funds tab), which works while the
-  coins are still in that purse. Allowing pledges in `rolled` (4.2.2 does) would give a second way out.
-- Settle and finish read the pro-rata allocations before the coin mutex; a withdrawal queued ahead on the same client
-  then changes them, and the spend is split over the old ones: one contributor's allocation goes negative, another
-  keeps one no coins back. Compute the shares inside the move's plan.
+- Fixed in the M4.1 second review: a withdrawal racing a start could leave the escrow below the commit, the order stuck in
+  `rolled`; and settle and finish, which read the pro-rata allocations before the coin mutex, could split a spend over
+  allocations a withdrawal queued ahead had changed. A withdrawal, a start, a settlement and a finish all take the
+  order's return slot now (4.6), so the later of two planned from the same copy is refused ("taken") and tried again.
+  Allowing pledges in `rolled` (4.2.2 does) would still give a way out of `rolled` for any other cause.
 - One user on two devices working two orders in the same instant writes the same day key twice, and one of the two days
   is lost.
 - A transition's request that stops between its log slot's page and its ledger update (the server stops at an error
@@ -4016,13 +4124,12 @@ M11 (`scripts/ui/`, `templates/`, `styles/workshop.css`; view models in `scripts
 - A work day or first roll written late onto an order that was paused (not closed) moves its status; only a closed
   order's status is repaired.
 - Undo does not cover finish, cancel or work days.
-- The detail's Requirements list shows each gate by its code (G1 to G9); a passing gate shows only the code and a check
-  mark. Give each gate a short name key.
+- Fixed in M4.1: the detail's Requirements list showed each gate by its code; each now has a short name (C).
 - With the applications in the dark scheme and the interface in the light one, chat cards take the dark `--paw-*`
   tokens (`body.theme-dark`) on the light chat background, and the degree colours lose their contrast. Scope the dark
   card tokens to the nearest themed ancestor.
-- "Funded by" lists each contributor's remaining allocation, not what they put in: after the commit it under-reports,
-  and on a complete order it is empty. Label it "Still held for", or sum their pledges.
+- "Funded by" listed each contributor's remaining allocation, not what they put in. M4.1 labels it "Earmarked for this
+  order" and adds "Spent, by source"; what each source put in over the order's life is still not shown.
 - A cancelled order still shows its funding bar and text, and the Funds ledger lists item rows (delivered, shelved) as
   "0 gp"; show the refunds instead, and no amount for an item row.
 - The purge dialog shows each member's whole balance, including what an open refund claim already owes them.
@@ -4033,8 +4140,8 @@ M11 (`scripts/ui/`, `templates/`, `styles/workshop.css`; view models in `scripts
 - Found in the M4 live pass (2026-10-26):
   - The check augment of a complete order still shows the success sentence ("0 more days to pay nothing more, or
     finish now for 0 gp"). Show it only while the order is `rolled` or `finishing`.
-  - An order for the strongbox books its `shelved` row as "Put on the pickup shelf" (Funds ledger and the detail),
-    though its item goes into the strongbox with no shelf flag. Label the row by the order's recipient.
+  - Fixed in M4.1: an order for the strongbox booked its `shelved` row as "Put on the pickup shelf"; it now reads "Put
+    in the strongbox", and item rows show no amount.
   - Counts are not made singular: "1 days at 8 gp" in the request form's candidates, "1 of 1 days" for the detail's
     setup. Give each a key for one.
   - The request form's candidates keep the DC column, empty, for a player who may not see DCs. Leave the column out.
@@ -4044,6 +4151,44 @@ M11 (`scripts/ui/`, `templates/`, `styles/workshop.css`; view models in `scripts
   - The driver's closing world reset throws, and the run exits non-zero, when a session it did not open is connected
     (an Assistant GM was, at the end of that run, after every plan had passed). Name the stray session in the results
     and leave the exit code to the plans.
+- Found in the M4.1 review (low):
+  - A GM's negative `adjust` and the purge's refunds from the fund take money out of the unallocated fund without taking
+    the fund slot, so one can land together with an earmark of the same money and leave the fund below zero until money
+    comes in. Take the slot in `bookAdjustment` and the purge's fund refunds.
+  - An earmark or a pledge planned before a cancel or a finish can land after it (neither takes the order's log slot):
+    the fund's share can be given back (M4.1), but a member's pledge on a closed order stays there with no way back but
+    a GM's adjustment. Refund a closed order's leftover allocations from the claim sweep.
+  - The fund slot's number is a count of rows; archiving (5.3.3) must carry the count forward in its `carry` rows, or a
+    later slot number repeats a page that still exists and every fund debit is refused until the page goes.
+  - A GM sees Collect (card, detail, header) for every recipient, but the claim sweep delivers only for actors the GM's
+    tab is responsible for, so while the recipient's owner is connected the click does nothing.
+  - "Browse" opens pf2e's Compendium Browser in the main window even from a detached request form, where an item cannot
+    be dragged across windows; the form's own search still works there.
+  - The Funds tab's "By order" table hides a gift's product name from everyone, the giver included; the Queue hides it
+    only from the recipient's owners.
+  - Each complete order's context scans the strongbox's items for its shelf count on every render; build one map per
+    render.
+  - The work-day rule and per-day lines are in the order detail only; the M6 day resolver and the Downtime tab should
+    reuse `workDaysView`.
+- Found in the M4.1 second review (low):
+  - A coin field the browser cannot parse (`<input type="number">` with "5O" or "1e") reads as "", so it counts as 0 and
+    the amount from the other fields passes with less than was typed. Treat `validity.badInput` as `bad-number`, or use
+    `type="text" inputmode="numeric"`, and show "You are moving X" beside the button.
+  - The API's `funds.fund` from a purse (and `orders.finish` drawing from one) throws for an amount that is not whole
+    copper (`{cp: 0.5}`), where the party-fund path refuses "nothing"; no money moves either way. `amountCp` should
+    return null unless the result is a safe integer.
+  - The magnifying glass beside "Filter orders" opens the request form with an empty item search; pass the filter's
+    text on as the form's search.
+  - "Queue.ProgressFunding" still says "pledged"; "Give back" (releasing the order) sits beside "Give back to the party
+    fund"; the requirement's button says "Fund it" where everything else says "Fund this order". Reword together.
+  - Unmet requirements read as met to a screen reader: the names are positive statements and the only fail marker is an
+    inert icon. Label the unmet list ("Not met") or add a visually hidden prefix.
+  - A met G1 always reads "Trained in Crafting", also for an item whose registry entry substitutes another skill; pass
+    the skill in G1's pass data.
+  - Take back and Take out cap the amount and "Fill in all of it" at the largest across the user's characters, not the
+    one selected; a GM or a player with several characters can confirm an amount that is then refused.
+  - "Fund this order" from a chat card has no intro sentence and is not prefilled when the order is short, unlike the
+    window's; share one fund-prompt helper.
 
 ---
 

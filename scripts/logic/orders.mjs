@@ -347,7 +347,7 @@ export const setupDaysOf = (order, days) => recordsOf(order, days, "setup").leng
 
 /**
  * The actions open to a viewer on an order, by the rules of 4.2.3 and 4.2.4: the crafter's steps belong to whoever owns
- * the crafter (a GM owns every actor); cancelling to the requester's or the crafter's owners; pledging to any member
+ * the crafter (a GM owns every actor); cancelling to the requester's or the crafter's owners; funding to any member
  * with a character while the order is open; undo per `undoPlan`.
  *
  * @param {object} order
@@ -372,7 +372,8 @@ export function orderActions(order, viewer, { withdrawable = 0, gatesPass = fals
         resume: s === "paused" && crafter,
         retry: s === "failed" && crafter,
         cancel: open && s !== "rolled" && party,
-        pledge: open && s !== "rolled" && viewer.hasCharacter,
+        // "Fund this order" (As built in M4.1): from the party fund or a purse, by any member, while the order is open.
+        fund: open && s !== "rolled" && viewer.hasCharacter,
         withdraw: withdrawable > 0,
         undo: undoPlan(order, viewer).ok,
     };
