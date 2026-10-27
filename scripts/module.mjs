@@ -1,5 +1,7 @@
 import { MODULE_ID } from "./constants.mjs";
+import { registerAfflictionHooks, readyAfflictions } from "./foundry/afflictions.mjs";
 import { registerAlchemyHooks } from "./foundry/alchemy.mjs";
+import { registerCoatingHooks } from "./foundry/coatings.mjs";
 import { publishApi } from "./foundry/api.mjs";
 import { registerFormulaClaims } from "./foundry/formulas.mjs";
 import { registerDowntimeHooks } from "./foundry/downtime.mjs";
@@ -9,6 +11,7 @@ import { registerRestHooks } from "./foundry/rest.mjs";
 import { registerOrderHooks } from "./foundry/orders.mjs";
 import { initSync, readySync } from "./foundry/sync.mjs";
 import { registerVialHooks } from "./foundry/vials.mjs";
+import { registerAfflictionUi } from "./ui/afflictions.mjs";
 import { registerChatHooks } from "./ui/chat.mjs";
 import { registerCombatEntry } from "./ui/combat-entry.mjs";
 import { registerEntryPoints } from "./ui/entry.mjs";
@@ -64,6 +67,11 @@ Hooks.once("init", () => {
     registerAlchemyHooks();
     registerVialHooks();
     registerCombatEntry();
+    // M8a: the affliction tracker (DESIGN.md 8.10): exposure and coating-spend claims, save recording, timing, the stage
+    // guard, coated Strikes, and its window, cards and item-card augment. Independent of the combat features and Duct Tape.
+    registerAfflictionHooks();
+    registerCoatingHooks();
+    registerAfflictionUi();
     registerChatHooks();
     registerNotifications();
     registerWindowHooks();
@@ -76,6 +84,8 @@ Hooks.once("ready", async () => {
     publishApi();
     // M7 (7.9): the pf2e-dailies custom daily, when pf2e-dailies is active.
     registerDailies();
+    // M8a (8.10.8): pending saves for the actors this client is responsible for, and the migration to native items.
+    readyAfflictions().catch((error) => console.warn("pf2e-artisans-workshop | afflictions not ready", error));
     if (isDev()) await loadDevHarness();
 });
 

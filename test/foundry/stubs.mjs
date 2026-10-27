@@ -128,10 +128,15 @@ class FakeDocument {
         return this;
     }
     async update(update, options = {}) {
+        // Foundry writes the parent and pack into the operation it is given (14.368 `Document#update`), so a frozen one throws.
+        options.parent = this.parent;
+        options.pack = this.pack ?? null;
         world.calls.push(["update", this.documentName, this.id, update, options]);
         return this.applyUpdate(update, options);
     }
     async delete(options = {}) {
+        options.parent = this.parent;
+        options.pack = this.pack ?? null;
         if (Hooks.call(`preDelete${this.documentName}`, this, options, game.user.id) === false) return undefined;
         world.calls.push(["delete", this.documentName, this.id]);
         this.collection.delete(this.id);
@@ -168,8 +173,12 @@ class FakeActor extends FakeDocument {
     get itemTypes() {
         return { treasure: this.items.filter((i) => i.type === "treasure"), feat: this.items.filter((i) => i.type === "feat") };
     }
-    async createEmbeddedDocuments(_name, data) { return data.map((d) => this.addItem(d)); }
-    async updateEmbeddedDocuments(_name, updates) {
+    async createEmbeddedDocuments(_name, data, operation = {}) {
+        operation.parent = this;   // as 14.368's `createEmbeddedDocuments`
+        return data.map((d) => this.addItem(d));
+    }
+    async updateEmbeddedDocuments(_name, updates, operation = {}) {
+        operation.parent = this;
         world.calls.push(["updateEmbedded", this.id, updates]);
         return updates.map((u) => this.items.get(u._id).applyUpdate(u));
     }

@@ -1,0 +1,25 @@
+<div class="pf2e-artisans-workshop-define standard-form">
+    <p class="hint">{{localize "pf2e-artisans-workshop.Affliction.Define.Hint"}}</p>
+    <div class="form-group">
+        <label for="pf2e-artisans-workshop-define-save">{{localize "pf2e-artisans-workshop.Affliction.Define.Save"}}</label>
+        <select name="save" id="pf2e-artisans-workshop-define-save">
+            {{#each saves}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{localize label}}</option>{{/each}}
+        </select>
+        <input type="number" name="dc" min="1" step="1" value="{{dc}}" aria-label="{{localize "pf2e-artisans-workshop.Affliction.SaveDc"}}">
+    </div>
+    <div class="form-group">
+        <label for="pf2e-artisans-workshop-define-onset">{{localize "pf2e-artisans-workshop.Affliction.Define.Onset"}}</label>
+        <input type="text" name="onset" id="pf2e-artisans-workshop-define-onset" value="{{onset}}" placeholder="{{localize "pf2e-artisans-workshop.Affliction.Define.DurationPlaceholder"}}">
+    </div>
+    <div class="form-group">
+        <label for="pf2e-artisans-workshop-define-max">{{localize "pf2e-artisans-workshop.Affliction.Define.Max"}}</label>
+        <input type="text" name="max" id="pf2e-artisans-workshop-define-max" value="{{max}}" placeholder="{{localize "pf2e-artisans-workshop.Affliction.Define.DurationPlaceholder"}}">
+    </div>
+    {{#each stages}}
+    <fieldset class="define-stage">
+        <legend>{{label}}</legend>
+        <input type="text" name="stage{{n}}" value="{{text}}" placeholder="{{localize "pf2e-artisans-workshop.Affliction.Define.StagePlaceholder"}}" aria-label="{{label}}">
+        <input type="text" name="interval{{n}}" value="{{interval}}" placeholder="{{localize "pf2e-artisans-workshop.Affliction.Define.DurationPlaceholder"}}" aria-label="{{localize "pf2e-artisans-workshop.Affliction.Define.Interval"}}">
+    </fieldset>
+    {{/each}}
+</div>

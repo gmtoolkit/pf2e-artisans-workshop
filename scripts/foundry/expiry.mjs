@@ -160,6 +160,22 @@ function strongboxShare(strongbox) {
     });
 }
 
+/**
+ * Void the coatings of an actor's items whose poison has expired (M8a, 4.12, 8.10.5): a coating copies its infused poison's
+ * stamp, and the holder's responsible client removes it with the poison's expiry. The coated weapon itself is never marked
+ * inert, so its own Strikes go on. Returns the ids of the items it cleared.
+ */
+export async function voidCoatings(actor, now = nowFacts()) {
+    const due = [...(actor?.items ?? [])].filter((item) => {
+        const stamp = item.flags?.[MODULE_ID]?.coating?.stamp;
+        return stamp && expiryReason(stamp, { creatorCycle: cycleOf(stamp.creator), worldTime: now.worldTime, loggedDay: now.loggedDay, turn: now.turn,
+            combatEnd: now.combatEnd });
+    });
+    if (!due.length || !isResponsibleFor(actor)) return [];
+    await actor.updateEmbeddedDocuments("Item", due.map((item) => ({ _id: item.id, [`flags.${MODULE_ID}.coating`]: _del })));
+    return due.map((item) => item.id);
+}
+
 /** The sweep running on this client, and whether another was asked for meanwhile. */
 let sweeping = null;
 let sweepAgain = false;
@@ -203,6 +219,7 @@ async function sweepOnce() {
     const strongbox = prepOn ? shared().strongbox : null;
     for (const actor of game.actors ?? []) {
         if (actor === strongbox) continue;
+        if (prepOn) await voidCoatings(actor, now);
         const items = stampedItems(actor);
         if (!items.length || !isResponsibleFor(actor)) continue;
         const released = new Set(await releaseEnded(actor, items, now));

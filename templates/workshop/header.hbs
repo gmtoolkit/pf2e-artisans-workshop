@@ -35,6 +35,13 @@
         {{/if}}
     </div>
     {{/if}}
+    {{#if afflictionsOn}}
+    <div class="workshop-afflictions-count{{#if afflictionCount}} waiting{{/if}}">
+        <button type="button" data-action="afflictions" data-tooltip="{{localize 'pf2e-artisans-workshop.Affliction.HeaderHint'}}">
+            <i class="fa-solid fa-skull-crossbones" inert></i><span>{{localize "pf2e-artisans-workshop.Affliction.Header" count=afflictionCount}}</span>
+        </button>
+    </div>
+    {{/if}}
     {{#if acting.length}}
     <label class="workshop-acting">
         <span class="label">{{localize "pf2e-artisans-workshop.Window.ActingAs"}}</span>

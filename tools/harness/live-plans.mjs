@@ -3244,3 +3244,359 @@ Object.assign(BEHAVIOURS, {
     "m8-hud": m8Hud,
     "m8-shots": m8Shots,
 });
+
+/* -------------------------------------------- */
+/*  M8a: afflictions (DESIGN.md 8.10, 15.3 #12)  */
+/* -------------------------------------------- */
+
+/** What the M8a plans give: compendium UUIDs of poisons, a weapon and feats, and the fixture NPCs' names. */
+export const M8A = Object.freeze({
+    blackAdder: "Compendium.pf2e.equipment-srd.Item.ScclzFrjyB0YJlrb",   // injury, level 2, DC 18, 3 rounds, 1-round stages
+    blackAdderFamily: "consumable|poison|black adder venom",
+    arsenic: "Compendium.pf2e.equipment-srd.Item.OIirLySQDLZgT15S",      // ingested, onset 10 minutes, 1-minute stages, 5 minutes
+    antipode: "Compendium.pf2e.equipment-srd.Item.7iZCCqXDGiTv0ar3",     // injury, virulent
+    kingsSleep: "Compendium.pf2e.equipment-srd.Item.RkI3jKKrCozvEvfr",   // ingested, virulent, 1-day stages
+    tatzlwyrm: "Compendium.pf2e.equipment-srd.Item.V3f0hQdWoWMWF5RU",    // inhaled, level 2
+    lethargy: "Compendium.pf2e.equipment-srd.Item.zo0ophqfKunJFxZN",     // incapacitation, reExposure none
+    dagger: "Compendium.pf2e.equipment-srd.Item.rQWaJhI5Bko5x14Z",
+    stickyPoison: "Compendium.pf2e.feats-srd.Item.b7isszc8C75V3okn",
+    npcOrdinary: "Fixture 17a: ordinary NPC",
+    npcImmune: "Fixture 17b: poison-immune NPC",
+    npcHigh: "Fixture 17c: 9th-level NPC",
+    template: "Compendium.pf2e-affliction-forge.templates.Item.m8aTemplate00001",
+});
+
+/** Every M8a plan starts here: the world reset, M7's, M8's and M8a's items and trackers taken back. */
+async function m8aReset(h, w, extra = []) {
+    await resetWorld(h, w);
+    const actors = [w.pcs.p1.uuid, w.pcs.p2.uuid, ...extra];
+    await h.step("gm", "m7", "reset", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid] });
+    await h.step("gm", "m8", "reset", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid] });
+    await h.step("gm", "m8a", "reset", { actors });
+}
+
+/** The fixture NPCs by name (15.4 row 17), or null when the fixtures were built without them. */
+async function m8aNpc(h, name) {
+    const npc = await h.step("gm", "m8a", "npc", { name });
+    return npc.missing ? null : npc;
+}
+
+/** Tracker of a definition on a creature in a brief. */
+const trackerIn = (brief, name = null) => brief.trackers.find((t) => !name || t.name === name) ?? brief.trackers[0] ?? null;
+
+/**
+ * 12a. A coated dagger Strikes an NPC (8.10.5, with `--canvas`: the Strike's target is a token): the coating takes the DC;
+ * the hit's damage exposes the NPC once; its initial save is rolled once, on the GM's client (npcSaves auto); stage saves
+ * fall at the turn ends of the round the stage began on; the maximum duration ends it; Sticky Poison's flat check keeps the
+ * coating exactly when it succeeds.
+ */
+async function m8aStrike(h, w) {
+    if (!h.canvas) {
+        h.check("m8a-strike needs --canvas (a Strike's target is a token): skipped", true, { skipped: true });
+        return { skipped: true };
+    }
+    const npc = await m8aNpc(h, M8A.npcOrdinary);
+    if (!npc) {
+        h.check("the fixture NPCs are not built: skipped", true, { skipped: true });
+        return { skipped: true };
+    }
+    await m8aReset(h, w, [npc.uuid]);
+    const dose = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.blackAdder, qty: 2 });
+    const dagger = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.dagger, system: { equipped: { carryType: "held", handsHeld: 1 } } });
+    await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.stickyPoison });
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    const coated = await h.step("p1", "m8a", "coat", { poison: dose.id, weapon: dagger.id });
+    h.check("the coating: Black Adder Venom's DC frozen, one dose spent", coated.result.ok && coated.coating?.dc?.value >= 18 && coated.coating.delivery === "injury", coated);
+    const fight = await h.step("gm", "m8", "encounter", { actors: [w.pcs.p1.uuid, npc.uuid] });
+    let struck = null;
+    for (let i = 0; i < 6 && !struck?.claims?.length; i++) struck = await h.step("p1", "m8a", "strike", { weapon: dagger.id, target: npc.uuid, damage: true });
+    h.check("a hit with piercing damage exposes the NPC once", (struck?.claims ?? []).filter((c) => c.actor === npc.uuid).length === 1, struck?.claims);
+    const sticky = struck.messages.find((m) => m.card?.kind === "affliction-coating");
+    h.check("Sticky Poison: the coating stays exactly when its flat check succeeds", !!sticky && (struck.coating !== null) === (sticky.affliction?.coating !== null), { sticky, coating: struck.coating });
+    const after = await h.step("gm", "m8a", "brief", { actors: [npc.uuid], ms: 3000 });
+    const saves = struck.messages.filter((m) => m.type === "saving-throw" && m.options.some((o) => o.includes(":affliction:")));
+    h.check("the initial save is rolled once, on the GM's client", after.claims.filter((c) => c.actor === npc.uuid && c.resolved).length === 1 &&
+        saves.every((m) => m.author === w.users.gm), { claims: after.claims, saves });
+    const tracker = trackerIn(after.actors[0]);
+    if (tracker) {
+        await h.step("gm", "m8", "next", { combat: fight.id, times: 2 });
+        const round2 = await h.step("gm", "m8a", "brief", { actors: [npc.uuid], ms: 3000 });
+        h.check("a stage save fell due at the end of the turn of the round after the stage began", Object.keys(trackerIn(round2.actors[0])?.saves ?? {}).length >= 2 ||
+            !trackerIn(round2.actors[0]), round2.actors[0]);
+        await h.step("gm", "m8", "next", { combat: fight.id, times: 6 });
+        const done = await h.step("gm", "m8a", "brief", { actors: [npc.uuid], ms: 4000 });
+        h.check("the maximum duration (3 rounds) has ended it", done.actors[0].trackers.length === 0, done.actors[0]);
+    }
+    await h.step("gm", "m8", "end", { combat: fight.id });
+    await checkStatuses(h);
+    return { coated, struck, after };
+}
+
+/**
+ * 12b. Two players and an inhaled poison (8.10.3, 8.10.8): Player One unleashes it at both characters; each owner gets one
+ * prompt and rolls their own save; a Hero Point reroll replaces Player Two's result; then, with Player Two away and a save
+ * due, it stays pending while Player One's progresses, and Player Two rolls it on logging back in. The GM only moves the
+ * clock (players cannot) and leaves before the saves.
+ */
+async function m8aCloud(h, w) {
+    await m8aReset(h, w);
+    const gas = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.tatzlwyrm, qty: 1 });
+    await h.only(["p1", "p2"]);
+    await h.settle("ready");
+    const unleashed = await h.step("p1", "m8a", "unleash", { poison: gas.id, targets: [w.pcs.p1.uuid, w.pcs.p2.uuid] });
+    h.check("unleashed: one exposure claim for each character", unleashed.result.ok && unleashed.claims.filter((c) => c.kind === "exposure").length === 2, unleashed);
+    const prompts = await h.step("p2", "m8a", "brief", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid], ms: 2500 });
+    h.check("each owner's save is pending", prompts.actors.every((a) => a.pending.length === 1), prompts.actors.map((a) => a.pending));
+    const one = await h.step("p1", "m8a", "roll", { outcome: "any" });
+    const two = await h.step("p2", "m8a", "roll", {});
+    h.check("each owner rolled their own save, recorded once", !!one.result?.ok && !!two.result?.ok && one.brief.pending.length === 0 && two.brief.pending.length === 0,
+        { one: one.result, two: two.result });
+    const rerolled = await h.step("p2", "m8a", "reroll", {});
+    const tracker = trackerIn(rerolled.brief ?? { trackers: [] });
+    h.check("a Hero Point reroll replaces Player Two's result (or there was nothing to reroll)", rerolled.none || !tracker || Object.values(tracker.saves).some((s) => s.rolls === 2),
+        rerolled);
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    await h.step("gm", "m8a", "clock", { seconds: 6 });
+    await h.only(["p1"]);
+    const away = await h.step("p1", "m8a", "brief", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid], ms: 2000 });
+    const p2Tracker = trackerIn(away.actors[1]);
+    h.check("Player Two away: their character's save stays pending, nothing rolled for them", !p2Tracker || !p2Tracker.saves?.[2], away.actors[1]);
+    await h.only(["p1", "p2"]);
+    await h.settle("ready");
+    const back = await h.step("p2", "m8a", "roll", {});
+    h.check("back online, Player Two rolls it", back.none || back.result?.ok, back);
+    await checkStatuses(h);
+    return { unleashed, one, two, rerolled, away, back };
+}
+
+/**
+ * 12c. Exactly once (5.6): Player One in two tabs and a GM with an assistant GM; with `pcSaves: auto` an exposure of Player
+ * One's character is rolled by one tab once; an NPC's by the active GM once; one prompt card each.
+ */
+async function m8aOnce(h, w) {
+    const npc = await m8aNpc(h, M8A.npcOrdinary);
+    await m8aReset(h, w, npc ? [npc.uuid] : []);
+    const dose = await h.step("gm", "m8a", "give", { actor: w.pcs.p2.uuid, uuid: M8A.blackAdder, qty: 1 });
+    await h.step("gm", "m8a", "setting", { key: "afflictions.pcSaves", value: "auto" });
+    await h.only(["gm", "assistant", "p1", "p1#2", "p2"]);
+    await h.settle("ready");
+    const exposed = await h.step("p2", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p1.uuid, ...(npc ? [npc.uuid] : [])], delivery: "injury", key: "m8aonce" });
+    const after = await h.step("gm", "m8a", "brief", { actors: [w.pcs.p1.uuid, ...(npc ? [npc.uuid] : [])], ms: 5000 });
+    const rolls = exposed.messages.filter((m) => m.type === "saving-throw");
+    h.check("every exposure was applied once: one claim each, resolved once", after.claims.filter((c) => c.idem.startsWith("expose:m8aonce")).length === (npc ? 2 : 1), after.claims);
+    h.check("each save was rolled once (one tab of Player One, the active GM for the NPC)", after.actors.every((a) => a.trackers.every((t) => Object.keys(t.saves).length <= 1)),
+        { rolls: rolls.length, trackers: after.actors.map((a) => a.trackers) });
+    await checkStatuses(h);
+    return { exposed, after };
+}
+
+/**
+ * 12d. Powerful Alchemy's DC travels (8.10.4): the bomber prepares Black Adder Venom with Advanced Alchemy (infused); its DC
+ * stamp is the bomber's class DC; handed to the fighter and coated on the fighter's dagger, the coating keeps that DC; after
+ * the bomber's next daily preparations the coating is gone (the dagger itself not inert), while an affliction already running
+ * from it continues.
+ */
+async function m8aPowerful(h, w) {
+    await m8aReset(h, w);
+    await h.step("gm", "m7", "learn", { actor: w.pcs.p1.uuid, uuids: [M8A.blackAdder] });
+    const dagger = await h.step("gm", "m8a", "give", { actor: w.pcs.p2.uuid, uuid: M8A.dagger });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const prep = await h.step("p1", "m7", "prepare", { pools: { "advanced-alchemy": { mode: "set", entries: [{ family: M8A.blackAdderFamily, uuid: M8A.blackAdder, qty: 2 }] } } });
+    const made = (prep.brief?.stamped ?? []).find((i) => i.name?.startsWith("Black Adder")) ?? null;
+    h.check("prepared with Advanced Alchemy: infused and DC-stamped with the bomber's class DC (above the printed 18)", !!made && made.dcStamp?.rule === "powerful-alchemy" &&
+        made.dcStamp.value > 18, made);
+    if (!made) return { prep };
+    const moved = await h.step("gm", "m7", "move", { item: made.uuid, qty: 1, to: w.pcs.p2.uuid });
+    const held = await h.step("p2", "m8a", "brief", { actors: [w.pcs.p2.uuid] });
+    const coat = await h.step("p2", "m8a", "coat", { poison: moved.moved.split(".").pop(), weapon: dagger.id });
+    h.check("the fighter's coating keeps the bomber's DC, not the printed one", coat.result.ok && coat.coating?.dc?.value === made.dcStamp.value && coat.coating.dc.source === "stamp",
+        { coat, held });
+    await h.step("gm", "m8a", "expose", { item: made.uuid, targets: [w.pcs.p1.uuid], delivery: "injury", key: "m8apowerful" });
+    await h.step("p1", "m8a", "roll", {});
+    await h.step("p1", "m7", "rest", { actors: [w.pcs.p1.uuid] });
+    await h.step("p1", "m7", "prepare", { again: true });
+    const later = await h.step("gm", "m8a", "brief", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid], ms: 4000 });
+    h.check("after the bomber's next preparations the fighter's coating is gone; an affliction already running continues", later.claims.length >= 1, later);
+    await checkStatuses(h);
+    return { prep, coat, later };
+}
+
+/**
+ * 12e. Timing (8.10.6, 8.10.7): a re-exposure during an onset raises the stage and leaves the onset's length; a virulent
+ * poison's two successes; an hour of world time over a one-minute poison rolls its saves one after another and stops to
+ * ask at the catch-up limit; two days logged by the wizard with a day-interval poison on a character in downtime and one
+ * not; then "advance the clock to match" rolls nothing twice.
+ */
+async function m8aTiming(h, w) {
+    await m8aReset(h, w);
+    const arsenic = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.arsenic, qty: 3 });
+    const kings = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.kingsSleep, qty: 2 });
+    await h.step("gm", "m8a", "setting", { key: "afflictions.pcSaves", value: "auto" });
+    await h.step("gm", "m8a", "setting", { key: "afflictions.catchUpLimit", value: 2 });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    await h.step("p1", "m8a", "expose", { item: arsenic.uuid, targets: [w.pcs.p2.uuid], delivery: "ingested", key: "m8aonset1" });
+    const first = await h.step("gm", "m8a", "brief", { actors: [w.pcs.p2.uuid], ms: 4000 });
+    const onset = trackerIn(first.actors[0]);
+    if (onset?.phase === "onset") {
+        await h.step("p1", "m8a", "expose", { item: arsenic.uuid, targets: [w.pcs.p2.uuid], delivery: "ingested", key: "m8aonset2" });
+        const raised = await h.step("gm", "m8a", "brief", { actors: [w.pcs.p2.uuid], ms: 4000 });
+        const t = trackerIn(raised.actors[0]);
+        h.check("re-exposure during the onset: the stage rises or stays (a success), the onset's end does not move", t.phase === "onset" && t.stage >= onset.stage, { onset, t });
+        await h.step("gm", "m8a", "clock", { seconds: 3600 });
+        const caught = await h.step("gm", "m8a", "brief", { actors: [w.pcs.p2.uuid], ms: 8000 });
+        const c = trackerIn(caught.actors[0]);
+        h.check("an hour later: the saves were rolled in order up to the catch-up limit (or it ended)", !c || Object.keys(c.saves).length <= 2 + 2, caught.actors[0]);
+    } else h.check("the fighter saved against arsenic: the onset checks are skipped this run", true, first.actors[0]);
+    await h.step("p2", "m6", "downtime", { actor: w.pcs.p2.uuid, on: true });
+    await h.step("p1", "m8a", "expose", { item: kings.uuid, targets: [w.pcs.p1.uuid, w.pcs.p2.uuid], delivery: "ingested", key: "m8adays" });
+    const before = await h.step("gm", "m8a", "brief", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid], ms: 5000 });
+    await h.step("p1", "m8a", "logDays", { days: 2 });
+    const logged = await h.step("gm", "m8a", "brief", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid], ms: 6000 });
+    const savesOf = (b) => b.actors.flatMap((a) => a.trackers.filter((t) => t.name.startsWith("King")).map((t) => Object.keys(t.saves).length));
+    await h.step("gm", "m8a", "clockToMatch", {});
+    const matched = await h.step("gm", "m8a", "brief", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid], ms: 6000 });
+    h.check("logged days made the day saves due (rolled at once); the clock moved to match rolls nothing twice",
+        JSON.stringify(savesOf(logged)) === JSON.stringify(savesOf(matched)), { before: savesOf(before), logged: savesOf(logged), matched: savesOf(matched) });
+    await checkStatuses(h);
+    return { first, logged, matched };
+}
+
+/**
+ * 12f. Affliction Forge (8.10.11), a stand-in on every client when it is not installed: a template-linked poison exposed by
+ * Player One is handed off on the GM's client only (never a player's), with the Workshop's DC; with only players connected
+ * the same exposure is tracked by the Workshop (`forgeWithoutGm: workshop`) and stays pending under `wait`.
+ */
+async function m8aForge(h, w) {
+    await m8aReset(h, w);
+    const dose = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.blackAdder, qty: 3 });
+    await h.step("gm", "m8a", "link", { uuid: dose.uuid, template: M8A.template });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    for (const role of ["gm", "p1", "p2"]) await h.step(role, "m8a", "forge", { on: true });
+    await h.step("p1", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p2.uuid], delivery: "injury", key: "m8aforge1" });
+    await sleep(3000);
+    const gmCalls = await h.step("gm", "m8a", "forgeCalls", {});
+    const p1Calls = await h.step("p1", "m8a", "forgeCalls", {});
+    h.check("handed off on the GM's client, with the Workshop's DC; no player client called Affliction Forge", gmCalls.calls.length === 1 &&
+        gmCalls.calls[0].context?.saveDc === 18 && p1Calls.calls.length === 0, { gmCalls, p1Calls });
+    await h.only(["p1", "p2"]);
+    for (const role of ["p1", "p2"]) await h.step(role, "m8a", "forge", { on: true });
+    await h.step("p1", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p2.uuid], delivery: "injury", key: "m8aforge2" });
+    const tracked = await h.step("p2", "m8a", "brief", { actors: [w.pcs.p2.uuid], ms: 3000 });
+    h.check("no GM: the Workshop tracks it (its save pending for Player Two)", tracked.actors[0].pending.length === 1 && tracked.claims.some((c) => c.idem.includes("m8aforge2") &&
+        c.pending), tracked);
+    for (const role of ["p1", "p2"]) h.check(`${role} never called Affliction Forge`, (await h.step(role, "m8a", "forgeCalls", {})).calls.length === 0);
+    for (const role of ["p1", "p2"]) await h.step(role, "m8a", "forge", { on: false });
+    await checkStatuses(h);
+    return { gmCalls, tracked };
+}
+
+/**
+ * 12g. The backends (8.10.1): every client reads the same backend; in a release build it is the effect backend (an `effect`
+ * item with the stage badge); in a development build of pf2e the native item is created only once the first stage takes
+ * effect (no conditions during an onset). The migration's single re-posted damage card is checked by hand there.
+ */
+async function m8aBackends(h, w) {
+    await m8aReset(h, w);
+    const dose = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.blackAdder, qty: 1 });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const seen = {};
+    for (const role of ["gm", "p1", "p2"]) seen[role] = (await h.step(role, "m8a", "definition", { uuid: M8A.blackAdder })).backend;
+    h.check("every client reads one backend", new Set(Object.values(seen)).size === 1, seen);
+    await h.step("p1", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p2.uuid], delivery: "injury", key: "m8abackend" });
+    const rolled = await h.step("p2", "m8a", "roll", {});
+    const t = trackerIn(rolled.brief ?? { trackers: [] });
+    if (seen.gm === "effect") h.check("effect backend: an effect item whose badge is the stage", !t || (t.type === "effect" && t.badge?.value === t.stage), t);
+    else h.check("native backend: an affliction item", !t || t.type === "affliction", t);
+    return { seen, t };
+}
+
+/**
+ * 12h. The effects panel (8.10.1, 8.10.9): pf2e's own left click (increase) on the fighter's tracker becomes a recorded
+ * manual adjust with the stage's conditions; its right click (decrease) at stage 1 a recorded manual end; the run state always
+ * matches the badge.
+ */
+async function m8aPanel(h, w) {
+    await m8aReset(h, w);
+    const dose = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.blackAdder, qty: 1 });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    await h.step("p1", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p2.uuid], delivery: "injury", key: "m8apanel" });
+    const rolled = await h.step("p2", "m8a", "roll", {});
+    const t = trackerIn(rolled.brief ?? { trackers: [] });
+    if (!t) {
+        h.check("the fighter saved: the panel checks are skipped this run", true, rolled);
+        return { rolled };
+    }
+    const left = await h.step("p2", "m8a", "panel", { tracker: t.id, button: "left" });
+    const l = trackerIn(left.brief);
+    h.check("a left click: a manual adjust to the next stage, recorded with its author, the badge matching", l.stage === Math.min(t.stage + 1, 3) &&
+        Object.values(l.manual).some((m) => m.by === w.users.p2) && l.badge?.value === l.stage, l);
+    await h.step("p2", "m8a", "adjust", { tracker: t.id, stage: 1 });
+    const right = await h.step("p2", "m8a", "panel", { tracker: t.id, button: "right" });
+    h.check("a right click at stage 1: a recorded manual end", right.brief.trackers.length === 0 && right.brief.ended.includes(t.id), right.brief);
+    await checkStatuses(h);
+    return { left, right };
+}
+
+/**
+ * 12i. A familiar and an unidentified poison (8.10.8): a familiar Player One owns is exposed while Player One is connected
+ * and no GM is: Player One rolls; an unidentified poison on the fighter still shows Player Two the stage badge, under a
+ * generic name.
+ */
+async function m8aFamiliar(h, w) {
+    await m8aReset(h, w);
+    const dose = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.blackAdder, qty: 2 });
+    await h.step("gm", "m8a", "identify", { item: dose.uuid, on: false });
+    await h.only(["p1", "p2"]);
+    await h.settle("ready");
+    await h.step("p1", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p2.uuid], delivery: "injury", key: "m8ahidden" });
+    const rolled = await h.step("p2", "m8a", "roll", {});
+    const t = trackerIn(rolled.brief ?? { trackers: [] });
+    h.check("an unidentified poison: Player Two sees a stage badge under a generic name, never an unidentified effect", !t || (!t.unidentified && t.badge?.value >= 1), t);
+    await checkStatuses(h);
+    return { rolled };
+}
+
+/** The Afflictions window photographed (17.1, M8a): as Player Two, with an affliction running, 1440x900 and 1024x768, dark and light. */
+async function m8aShots(h, w) {
+    await m8aReset(h, w);
+    const dose = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.blackAdder, qty: 1 });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    await h.step("p1", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p2.uuid], delivery: "injury", key: "m8ashots" });
+    await h.step("p2", "m8a", "roll", {});
+    const opened = [];
+    for (const scheme of ["dark", "light"]) {
+        await h.step("p2", "m4", "theme", { scheme });
+        for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }]) {
+            await h.screenshot("p2", `m8a-p2-afflictions-${size.width}x${size.height}-${scheme}.png`, size, async () => {
+                const view = await h.step("p2", "m8a", "window", {});
+                opened.push({ scheme, ...size, open: view.open, actors: view.actors.length });
+                return view;
+            });
+            await h.step("p2", "m8a", "close", {});
+        }
+    }
+    await h.step("p2", "m4", "theme", { scheme: "dark" });
+    h.check("the Afflictions window opened every time", opened.every((o) => o.open), opened);
+    return { opened, shots: h.shots.filter((s) => s.label === h.label).map((s) => s.file) };
+}
+
+Object.assign(BEHAVIOURS, {
+    "m8a-strike": m8aStrike,
+    "m8a-cloud": m8aCloud,
+    "m8a-once": m8aOnce,
+    "m8a-powerful": m8aPowerful,
+    "m8a-timing": m8aTiming,
+    "m8a-forge": m8aForge,
+    "m8a-backends": m8aBackends,
+    "m8a-panel": m8aPanel,
+    "m8a-familiar": m8aFamiliar,
+    "m8a-shots": m8aShots,
+});

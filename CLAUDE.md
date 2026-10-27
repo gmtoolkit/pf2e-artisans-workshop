@@ -55,6 +55,12 @@ Strike, `scripts/foundry/alchemy.mjs`, `combat.mjs`; vial gathering, `scripts/fo
 `scripts/foundry/consumables.mjs`; turn expiry in `scripts/foundry/expiry.mjs`; the Duct Tape step-aside; pure parts in
 `scripts/logic/alchemy.mjs`, `vials.mjs`, `consumables.mjs`); DESIGN 10.14 says what was built, and the live plans `m8-*`
 (`tools/harness/combat-scenarios.mjs`) passed their first live pass, with and without a canvas (10.14, M8 live pass).
+M8a is in place: the affliction tracker (the rules engine, `scripts/logic/affliction.mjs`; the runtime stage parser,
+`scripts/logic/affliction-parse.mjs`, with its overrides and ignore list in `scripts/data/afflictions.mjs` and the corpus check
+in `tools/validate-registry.mjs`; definitions, the backend and DCs, `scripts/foundry/affliction-defs.mjs`; exposure claims,
+saves, recording, timing and the stage guard, `scripts/foundry/afflictions.mjs`; coatings and Strikes, `scripts/foundry/coatings.mjs`;
+Affliction Forge, `scripts/foundry/forge.mjs`; the Afflictions window, cards and item-card augment, `scripts/ui/afflictions.mjs`);
+DESIGN 10.15 says what was built, and the live plans `m8a-*` (`tools/harness/affliction-scenarios.mjs`) have not run yet.
 README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
 world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every

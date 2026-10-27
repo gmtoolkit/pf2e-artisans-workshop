@@ -23,6 +23,7 @@
  *   a new cycle and un-expends the pools with `CraftingAbility#updateFormulas`.
  */
 import { MODULE_ID } from "../constants.mjs";
+import { dcStampFor } from "./affliction-defs.mjs";
 import { RANK } from "../logic/core.mjs";
 import { familyKey, formulaCoverage } from "../logic/families.mjs";
 import { makeProvenance, provenancePath, virtualLists } from "../logic/codex.mjs";
@@ -383,8 +384,11 @@ async function until(test, ms = 2000) {
     return test();
 }
 
-/** The stamp flags (and, for Talisman Dabbler, the DC stamp's description) an output gets. */
-function stampUpdate(item, stamp, { dc = null } = {}) {
+/**
+ * The stamp flags (and, for Talisman Dabbler, the DC stamp's description) an output gets; for an infused output that allows a
+ * save, the creator's Powerful Alchemy DC stamp when it raises the printed DC (M8a, 8.10.4).
+ */
+function stampUpdate(item, stamp, { dc = null, creator = null } = {}) {
     const update = { [`flags.${MODULE_ID}.expiry`]: stamp };
     if (dc !== null) {
         const text = item.system?.description?.value ?? "";
@@ -393,6 +397,10 @@ function stampUpdate(item, stamp, { dc = null } = {}) {
             update["system.description.value"] = out.text;
             update[`flags.${MODULE_ID}.dcStamp`] = { dc, printed: out.printed, pool: stamp.pool, by: stamp.creator };
         }
+    }
+    if (!update[`flags.${MODULE_ID}.dcStamp`] && creator) {
+        const dcStamp = dcStampFor(creator, item);
+        if (dcStamp) update[`flags.${MODULE_ID}.dcStamp`] = dcStamp;
     }
     return update;
 }
@@ -414,7 +422,7 @@ async function stampOutputs(actor, outputs, stampFor, dcFor) {
         const item = actor.items.get(output.id);
         if (!item) continue;
         const stamp = stampFor(output);
-        const extra = stampUpdate(item, stamp, { dc: dcFor(output) });
+        const extra = stampUpdate(item, stamp, { dc: dcFor(output), creator: actor });
         if (needsSplit(output, stampOf(item), stamp)) {
             const copy = item.toObject();
             copy._id = newId();

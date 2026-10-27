@@ -14,6 +14,7 @@
  * from the window's element and elements are tested with `isElementInstanceOf`.
  */
 import { MODULE_ID } from "../constants.mjs";
+import { afflictionsOn } from "../foundry/afflictions.mjs";
 import { alchemyFacts, healingBomb, quickAbilityOf, quickVial, throwHealingBomb } from "../foundry/alchemy.mjs";
 import { combatOffReason, combatOn, combatantOf, strikeWith } from "../foundry/combat.mjs";
 import { inertFlag } from "../foundry/item-facts.mjs";
@@ -135,7 +136,18 @@ export async function bandolierContext(app) {
         gather: vial.regains, full: v ? v.value >= v.max : true,
         admixture: vial.admixture ? { left: number(vial.admixture.value), disabled: vial.admixture.value <= 0 || !v || v.value >= v.max } : null,
         haversack: vial.haversack ? { disabled: vial.haversackUsed || !v || v.value >= v.max } : null,
+        // M8a (8.10.9): "Apply poison" for the injury, contact and ingested poisons the character carries, and the Afflictions
+        // window, while the affliction tracker is on.
+        poisons: afflictionsOn() ? poisonsOf(actor) : [],
+        afflictions: afflictionsOn(),
     };
+}
+
+/** The poisons a character carries that are applied (injury, contact, ingested), not inert (8.10.5). */
+function poisonsOf(actor) {
+    return [...(actor?.items ?? [])].filter((i) => i.type === "consumable" && (i.quantity ?? 1) > 0 && i.flags?.[MODULE_ID]?.inert !== true &&
+        ["injury", "contact", "ingested"].some((t) => [...(i.system?.traits?.value ?? [])].includes(t)) && [...(i.system?.traits?.value ?? [])].includes("poison"))
+        .map((i) => ({ id: i.id, name: i.name, img: i.img ?? null, qty: number(i.quantity ?? 1) }));
 }
 
 /** The saved position (8.1), or one docked above the hotbar. */
@@ -266,6 +278,15 @@ export class BandolierApp extends HandlebarsApplicationMixin(ApplicationV2) {
                 if (!item || inertFlag(item) || typeof item.consume !== "function") return null;
                 await item.consume();
                 return { ok: true };
+            }
+            // M8a (8.10.5): coat an item with a poison the character carries; open the Afflictions window.
+            case "apply-poison": {
+                const { applyPoisonFlow } = await import("./afflictions.mjs");
+                return item ? applyPoisonFlow(item, actor, this) : null;
+            }
+            case "afflictions": {
+                const { openAfflictions } = await import("./afflictions.mjs");
+                return openAfflictions();
             }
             case "gather": return gatherReagents(actor, { minutes: 10 });
             case "admixture": return improviseAdmixture(actor);

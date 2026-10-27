@@ -87,7 +87,14 @@ function lockPage(id, stamp, move = null, hand = null) {
 /** Foundry operations for the descriptors, in the same order. Throws if a target cannot be found. */
 export function toOperations(descriptors, { ledger, strongbox }) {
     const stamp = stampNow();
-    return descriptors.map((d) => {
+    // An item operation may carry options of its own (M8a: the affliction tracker marks its own writes, 8.10.1), which
+    // Foundry passes to the documents' hooks as the operation's options.
+    return descriptors.map((d) => ({ ...toOperation(d, { ledger, strongbox, stamp }), ...(d.options ?? {}) }));
+}
+
+/** One descriptor as a Foundry operation (`toOperations`). */
+function toOperation(d, { ledger, strongbox, stamp }) {
+    {
         switch (d.op) {
             case "lock":
                 return { action: "create", documentName: "JournalEntryPage", parent: ledger, keepId: true,
@@ -112,7 +119,7 @@ export function toOperations(descriptors, { ledger, strongbox }) {
             default:
                 throw new Error(`${MODULE_ID} | unknown batch descriptor ${d.op}`);
         }
-    });
+    }
 }
 
 /** How many documents an operation names. The client's dry run can shrink it on the way out. */

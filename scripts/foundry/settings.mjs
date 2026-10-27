@@ -58,6 +58,25 @@ function typeOf(value) {
     return String;
 }
 
+/** The world settings of 14.5 (M8a): key, default, name and hint, and choices where the value is one of a few. */
+export const AFFLICTION_SETTINGS = Object.freeze([
+    ["pcSaves", "prompt", "pf2e-artisans-workshop.Settings.Afflictions.PcSaves.Name", "pf2e-artisans-workshop.Settings.Afflictions.PcSaves.Hint",
+        { prompt: "pf2e-artisans-workshop.Settings.Afflictions.Choice.Prompt", auto: "pf2e-artisans-workshop.Settings.Afflictions.Choice.Auto" }],
+    ["npcSaves", "auto", "pf2e-artisans-workshop.Settings.Afflictions.NpcSaves.Name", "pf2e-artisans-workshop.Settings.Afflictions.NpcSaves.Hint",
+        { auto: "pf2e-artisans-workshop.Settings.Afflictions.Choice.Auto", prompt: "pf2e-artisans-workshop.Settings.Afflictions.Choice.Prompt" }],
+    ["gmRollsForOfflinePCs", false, "pf2e-artisans-workshop.Settings.Afflictions.GmRollsForOfflinePCs.Name",
+        "pf2e-artisans-workshop.Settings.Afflictions.GmRollsForOfflinePCs.Hint", null],
+    ["autoApplyDamage", false, "pf2e-artisans-workshop.Settings.Afflictions.AutoApplyDamage.Name", "pf2e-artisans-workshop.Settings.Afflictions.AutoApplyDamage.Hint", null],
+    ["catchUp", "roll-each", "pf2e-artisans-workshop.Settings.Afflictions.CatchUp.Name", "pf2e-artisans-workshop.Settings.Afflictions.CatchUp.Hint",
+        { "roll-each": "pf2e-artisans-workshop.Settings.Afflictions.Choice.RollEach", pause: "pf2e-artisans-workshop.Settings.Afflictions.Choice.Pause" }],
+    ["catchUpLimit", 20, "pf2e-artisans-workshop.Settings.Afflictions.CatchUpLimit.Name", "pf2e-artisans-workshop.Settings.Afflictions.CatchUpLimit.Hint", null],
+    ["combatAnchor", "exposure-turn", "pf2e-artisans-workshop.Settings.Afflictions.CombatAnchor.Name", "pf2e-artisans-workshop.Settings.Afflictions.CombatAnchor.Hint",
+        { "exposure-turn": "pf2e-artisans-workshop.Settings.Afflictions.Choice.ExposureTurn", "victim-turn": "pf2e-artisans-workshop.Settings.Afflictions.Choice.VictimTurn" }],
+    ["handOffToForge", true, "pf2e-artisans-workshop.Settings.Afflictions.HandOffToForge.Name", "pf2e-artisans-workshop.Settings.Afflictions.HandOffToForge.Hint", null],
+    ["forgeWithoutGm", "workshop", "pf2e-artisans-workshop.Settings.Afflictions.ForgeWithoutGm.Name", "pf2e-artisans-workshop.Settings.Afflictions.ForgeWithoutGm.Hint",
+        { workshop: "pf2e-artisans-workshop.Settings.Afflictions.Choice.Workshop", wait: "pf2e-artisans-workshop.Settings.Afflictions.Choice.Wait" }],
+]);
+
 /**
  * Register every M2 setting. `handlers` are the sync's reactions: `enabled(value, userId)` when the master
  * switch changes and `docs()` when the shared documents' ids change.
@@ -164,6 +183,28 @@ export function registerSettings(handlers) {
         scope: "user", config: true, type: Boolean, default: true,
     });
     game.settings.register(MODULE_ID, "bandolier.position", { scope: "user", config: false, type: Object, default: {} });
+    // M8a (DESIGN.md 14.1, 14.5): the affliction tracker, independent of the combat features and of Duct Tape, and who rolls,
+    // when, and what Affliction Forge gets.
+    game.settings.register(MODULE_ID, "features.afflictions", {
+        name: "pf2e-artisans-workshop.Settings.FeaturesAfflictions.Name",
+        hint: "pf2e-artisans-workshop.Settings.FeaturesAfflictions.Hint",
+        scope: "world", config: true, type: Boolean, default: true,
+    });
+    for (const [key, def, name, hint, choices] of AFFLICTION_SETTINGS) {
+        game.settings.register(MODULE_ID, `afflictions.${key}`, {
+            name, hint, scope: "world", config: true, type: typeof def === "boolean" ? Boolean : typeof def === "number" ? Number : String, default: def,
+            ...(choices ? { choices } : {}),
+        });
+    }
+    game.settings.register(MODULE_ID, "afflictions.notify", {
+        name: "pf2e-artisans-workshop.Settings.Afflictions.Notify.Name",
+        hint: "pf2e-artisans-workshop.Settings.Afflictions.Notify.Hint",
+        scope: "user", config: true, type: String, default: "mine",
+        choices: {
+            all: "pf2e-artisans-workshop.Settings.NotifyLevel.All", mine: "pf2e-artisans-workshop.Settings.NotifyLevel.Mine",
+            none: "pf2e-artisans-workshop.Settings.NotifyLevel.None",
+        },
+    });
     game.settings.register(MODULE_ID, "claims.auto", {
         name: "pf2e-artisans-workshop.Settings.AutoClaim.Name",
         hint: "pf2e-artisans-workshop.Settings.AutoClaim.Hint",

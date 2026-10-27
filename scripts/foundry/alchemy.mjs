@@ -32,6 +32,7 @@
  * (its owner or a GM): nothing waits on a GM and nothing touches the shared documents.
  */
 import { MODULE_ID } from "../constants.mjs";
+import { dcStampFor } from "./affliction-defs.mjs";
 import {
     QUICK_ALCHEMY, VIAL_RESOURCE, additiveSpent, additivesOf, bestOfFamily, brewPlan, cappedDuration, chooseBest, combinedDamage, damageDiceCount,
     isTurnStamp, mergeSplash, quickChoices, quickStamp, quickenedSpent, splashNumbers, uncapped, vialSplash,
@@ -217,7 +218,10 @@ async function craftOne(actor, ability, uuid, { expiry, quick, system = null }) 
     const doc = await fromUuid(uuid);
     if (!doc) return null;
     const tags = tagged(doc._source?.system?.traits?.otherTags ?? doc.system?.traits?.otherTags, tag);
-    const changes = { flags: { [MODULE_ID]: { expiry, quick } }, system: { ...(system ?? {}), traits: { otherTags: tags } } };
+    // The creator's Powerful Alchemy DC stamp (M8a, 8.10.4): Quick Alchemy items are infused, so one that allows a save keeps
+    // the creator's class DC when it beats the printed one, wherever it goes. pf2e's craft adds the infused trait itself.
+    const dcStamp = dcStampFor(actor, { system: { description: doc.system?.description, traits: { value: [...new Set([...(doc.system?.traits?.value ?? []), "infused"])] } } });
+    const changes = { flags: { [MODULE_ID]: { expiry, quick, ...(dcStamp ? { dcStamp } : {}) } }, system: { ...(system ?? {}), traits: { otherTags: tags } } };
     const item = typeof doc.clone === "function" ? doc.clone(changes, { keepId: true }) : doc;
     const before = new Map(physicalOf(actor).map((i) => [i.id, i.quantity ?? 1]));
     const made = await ability.craft(item, { consume: true, destination: "hand" });
@@ -226,7 +230,8 @@ async function craftOne(actor, ability, uuid, { expiry, quick, system = null }) 
     if (was === undefined) {
         // Created with the flags; written after only if this pf2e dropped them.
         if (!quickOf(made)) {
-            const update = { _id: made.id, [`flags.${MODULE_ID}.expiry`]: expiry, [`flags.${MODULE_ID}.quick`]: quick, "system.traits.otherTags": tags };
+            const update = { _id: made.id, [`flags.${MODULE_ID}.expiry`]: expiry, [`flags.${MODULE_ID}.quick`]: quick, "system.traits.otherTags": tags,
+                ...(dcStamp ? { [`flags.${MODULE_ID}.dcStamp`]: dcStamp } : {}) };
             if (system?.damage) update["system.damage"] = system.damage;
             if (system?.description) update["system.description.value"] = system.description.value;
             await actor.updateEmbeddedDocuments("Item", [update]);
@@ -243,7 +248,7 @@ async function craftOne(actor, ability, uuid, { expiry, quick, system = null }) 
     copy.system.traits = { ...(copy.system.traits ?? {}), otherTags: tagged(copy.system.traits?.otherTags, tag) };
     if (system?.damage) copy.system.damage = system.damage;
     if (system?.description) copy.system.description = { ...(copy.system.description ?? {}), ...system.description };
-    copy.flags = { ...(copy.flags ?? {}), [MODULE_ID]: { expiry, quick } };
+    copy.flags = { ...(copy.flags ?? {}), [MODULE_ID]: { expiry, quick, ...(dcStamp ? { dcStamp } : {}) } };
     const split = await runRequest([
         { op: "createItems", target: actor.uuid, data: [copy] },
         { op: "updateItems", target: actor.uuid, updates: [{ _id: stack.id, "system.quantity": was }] },
@@ -609,8 +614,9 @@ export async function stampSystemQuickAlchemy(item, userId) {
     if (!abilityAccepts(ability, options)) return false;
     const expiry = quickStamp({ creator: actor.uuid, cycle: statusOf(actor).prepCycle ?? 0, options, enduring: featuresOf(actor).enduring, combat: combatOf(actor),
         worldTime: game.time.worldTime });
+    const dcStamp = dcStampFor(actor, item);
     await item.update({ [`flags.${MODULE_ID}.expiry`]: expiry, [`flags.${MODULE_ID}.quick`]: { source: "system", additive: null, at: game.time.worldTime, by: game.user.id },
-        "system.traits.otherTags": tagged(item.system?.traits?.otherTags, quickTag(expiry)) });
+        "system.traits.otherTags": tagged(item.system?.traits?.otherTags, quickTag(expiry)), ...(dcStamp ? { [`flags.${MODULE_ID}.dcStamp`]: dcStamp } : {}) });
     return true;
 }
 

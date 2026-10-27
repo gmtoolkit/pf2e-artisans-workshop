@@ -56,6 +56,8 @@ import { allServices } from "../foundry/services.mjs";
 import { dayWatcher, downtimeOn, today, worldDate } from "../foundry/downtime.mjs";
 import { downtimeContext, helpersContext, onDowntimeChange, onDowntimeInput, onDowntimeOp, onHelperOp, pendingBadge } from "./downtime.mjs";
 import { morningBadge, morningContext, onMorningChange, onMorningInput, onMorningOp } from "./morning.mjs";
+import { afflictionsOn } from "../foundry/afflictions.mjs";
+import { openAfflictions, pendingBadge as afflictionBadge } from "./afflictions.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -132,6 +134,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             helper: WorkshopApp.#onHelper,
             // M7: the Morning tab.
             morning: WorkshopApp.#onMorning,
+            // M8a: the Afflictions window, from the header's pending count (10.2).
+            afflictions: WorkshopApp.#onAfflictions,
         },
     };
 
@@ -281,6 +285,9 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             party: game.actors.party?.name ?? null,
             strongboxText: strongbox ? money(valueCp(holdingsOf(coinStacks(strongbox)))) : null,
             shelfCount: shelf.length,
+            // M8a (10.2): pending affliction saves of the user's characters; the button opens the Afflictions window.
+            afflictionCount: current === "ready" ? afflictionBadge(orders.actingChoices()) : 0,
+            afflictionsOn: current === "ready" && afflictionsOn(),
             acting: orders.actingChoices().map((a) => ({ uuid: a.uuid, name: a.name, level: a.level, selected: a === acting })),
             actingUuid: acting?.uuid ?? null,
             lastEvent: this.lastEvent,
@@ -919,6 +926,11 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         return this.render({ parts: ["morning", "nav"] });
     }
 
+    /** The header's pending affliction saves (M8a, 10.2): open the Afflictions window. */
+    static #onAfflictions() {
+        return openAfflictions();
+    }
+
     /** A helpers button on an order's detail (M6, 6.7). */
     static async #onHelper(_event, target) {
         target.disabled = true;
@@ -969,6 +981,8 @@ export function registerWindowHooks() {
     // M7: a rest's Morning prompt and a preparation change the Morning tab and its badge (7.8).
     Hooks.on("pf2e-artisans-workshop.morningPrompt", touch);
     Hooks.on("pf2e-artisans-workshop.preparationCompleted", touch);
+    // M8a: a save recorded or a stage changed moves the header's pending count (10.2).
+    Hooks.on("pf2e-artisans-workshop.afflictionChanged", touch);
     Hooks.once("setup", () => foundry.applications.handlebars.loadTemplates([...PARTIALS]));
 }
 

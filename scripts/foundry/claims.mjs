@@ -29,10 +29,23 @@ const APPLIERS = new Map([
     ["wage", (claim, actor) => mint({ actor, row: claimRowInput(claim), ledger: resolved(claim) })],
 ]);
 
-/** Add the applier of a claim kind (later milestones: formula, expiry, invest, exposure, coating-spend). */
-export function registerClaimKind(kind, applier) {
+/**
+ * Who applies a claim of a kind, where it is not the target's responsible client (M8a: an exposure handed off to
+ * Affliction Forge is applied by the active GM, 8.10.11): `(claim, actor) => boolean`.
+ */
+const RESPONSIBLE = new Map();
+
+/**
+ * Add the applier of a claim kind (later milestones: formula, expiry, invest, exposure, coating-spend), and optionally who
+ * applies it (`responsible(claim, actor)`, the target's responsible client by default).
+ */
+export function registerClaimKind(kind, applier, { responsible = null } = {}) {
     APPLIERS.set(kind, applier);
+    if (responsible) RESPONSIBLE.set(kind, responsible);
 }
+
+/** Whether this tab applies `claim` to `actor`. */
+const appliesHere = (claim, actor) => (RESPONSIBLE.get(claim.kind) ?? ((_c, a) => isResponsibleFor(a)))(claim, actor);
 
 /** The ledger change that marks a claim applied, written with its row's lock (the fast-path check). */
 const resolved = (claim) => ({ set: { [`claims.${claim.id}.resolved`]: stampNow() } });
@@ -146,6 +159,12 @@ export function shelfItemsFor(actorUuid = null) {
     });
 }
 
+/**
+ * Claim kinds that are applied whatever the user's auto-claim setting says (M8a): an exposure is a save prompt, not a
+ * delivery, and a coating spend takes nothing from the user.
+ */
+const QUIET = new Set(["exposure", "coating-spend"]);
+
 /** Ids of the claims and shelf items this client has already told its user about (auto-claim off). */
 const announced = new Set();
 /** Ids of the claims, shelf items and rows that failed on this client this session: not retried until reload. */
@@ -180,13 +199,16 @@ export async function sweepClaims({ force = false } = {}) {
     let applied = 0;
     const waiting = new Map();
     const work = [
-        ...openClaims(read("claims")).map((claim) => ({ key: claim.id, uuid: claim.actor, run: (actor) => applyClaim(claim, actor) })),
-        ...shelfItemsFor().map((item) => ({ key: item.id, uuid: item.flags[MODULE_ID].shelf.for, run: (actor) => deliver(item, actor) })),
+        ...openClaims(read("claims")).map((claim) => ({ key: claim.id, uuid: claim.actor, run: (actor) => applyClaim(claim, actor),
+            mine: (actor) => appliesHere(claim, actor), quiet: QUIET.has(claim.kind) })),
+        ...shelfItemsFor().map((item) => ({ key: item.id, uuid: item.flags[MODULE_ID].shelf.for, run: (actor) => deliver(item, actor),
+            mine: (actor) => isResponsibleFor(actor), quiet: false })),
     ];
-    for (const { key, uuid, run } of work) {
+    for (const { key, uuid, run, mine, quiet } of work) {
         const result = await attempt(key, async () => {
             const actor = fromUuidSync(uuid);
-            if (!actor || !isResponsibleFor(actor)) return null;
+            if (!actor || !mine(actor)) return null;
+            if (quiet) return run(actor);
             if (auto) return run(actor);
             if (!announced.has(key)) waiting.set(actor.name, (waiting.get(actor.name) ?? 0) + 1);
             announced.add(key);

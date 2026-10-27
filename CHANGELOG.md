@@ -140,6 +140,22 @@ All notable changes to this module are documented here. The format follows
   10 minutes at most. Vials come back by gathering reagents, Improvise Admixture, the Alchemist's Haversack and, if a GM
   turns it on, as world time passes. The token HUD gets an alchemy palette. With PF2e Alchemist Remaster Duct Tape active
   all of this steps aside. "Use best consumable" uses the best item of a kind a character holds, the one at hand first.
+- Affliction tracker (milestone M8a). Poisons, diseases and curses the party crafts or uses are tracked through their
+  stages: the stages, onset, maximum duration and save are read at runtime from the installed compendium's description
+  (no rules text ships; a reviewed list of overrides covers what does not read cleanly, and the registry check runs the
+  reader over every pf2e item with stages). Exposing a creature (from an item's chat card, a coated Strike, a touched or
+  eaten coated item, an inhaled cloud, or by hand) asks its owner for the initial save, rolled through pf2e with the
+  poison itself, so incapacitation and the bonuses against poisons apply; a failure puts an effect on the creature that
+  shows its stage in pf2e's effects panel and grants the stage's conditions as pf2e's own affliction would. Stage saves fall
+  due as world time passes, at the right turn in an encounter, and over days logged with the Advance days wizard; a long
+  time skip rolls them one after another and stops to ask. A Hero Point reroll replaces a save; a second message for the
+  same save changes nothing. Saves of a player's creature wait for that player (a GM may roll for them); creatures no
+  player owns are the GM's. Poisons are applied to weapons, ammunition (the coated arrow or bolt becomes the bow's
+  ammunition), items and food, keep the DC they had (an alchemist's
+  Powerful Alchemy travels with an infused poison handed to an ally), go with their poison's expiry, and are spent or kept
+  by the Strike as the rules say, with Sticky Poison and Double Poison. An Afflictions window lists each creature's
+  afflictions and pending saves with reduce, end, undo and repair. With PF2E Affliction Forge active, template-linked
+  exposures are handed to it on the GM's client.
 
 ### Changed
 

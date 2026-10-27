@@ -1,7 +1,7 @@
 /**
  * The public API (DESIGN.md 11.2), as far as M4-M8 build it: opening the window, the order lifecycle, the funds, formulas
  * (M5), downtime, Earn Income jobs and Communal Crafting helpers (M6), daily preparations (M7, `prep`), and combat
- * alchemy and "Use best consumable" (M8, `alchemy`, `consumables`). It is
+ * alchemy and "Use best consumable" (M8, `alchemy`, `consumables`), and the affliction tracker (M8a, `afflictions`, `rules.afflictionStep`). It is
  * published at `game.modules.get("pf2e-artisans-workshop").api` in `ready`, and the `pf2e-artisans-workshop.ready` hook
  * fires right after with the same object. Later milestones add their namespaces; M11 completes the macros of 11.1.
  *
@@ -34,6 +34,11 @@ import { strikeWith } from "./combat.mjs";
 import { openBandolier } from "../ui/bandolier.mjs";
 import { openQuickAlchemy } from "../ui/alchemy-panel.mjs";
 import { beginCycle, expirySweep } from "./expiry.mjs";
+import * as afflictions from "./afflictions.mjs";
+import { backend as afflictionBackend, definitionOf, defineWorld } from "./affliction-defs.mjs";
+import * as coatings from "./coatings.mjs";
+import { applyDegree } from "../logic/affliction.mjs";
+import { openAfflictions } from "../ui/afflictions.mjs";
 import { parseActivity } from "../logic/downtime.mjs";
 import { read, records } from "./store.mjs";
 import { status } from "./state.mjs";
@@ -398,6 +403,38 @@ export function buildApi() {
             },
             openBandolier: ({ actor = null } = {}) => openBandolier({ actor: resolveActor(actor) }),
             openPanel: ({ actor = null, bombs = false } = {}) => openQuickAlchemy({ actor: resolveActor(actor), bombs }),
+        },
+        // M8a (11.1 macros 21-23, 11.2): the affliction tracker (8.10).
+        afflictions: {
+            definition: (uuidOrItem) => definitionOf(uuidOrItem),
+            define: (uuid, def) => defineWorld(uuid, def),
+            expose: ({ item, targets = "targeted", delivery = null, dc = null, actor = null } = {}) => {
+                const list = targets === "targeted" ? [...(game.user.targets ?? [])].map((t) => t.actor).filter(Boolean)
+                    : (Array.isArray(targets) ? targets : [targets]).map((t) => (typeof t === "string" ? fromUuidSync(t) : t?.actor ?? t)).filter(Boolean);
+                return afflictions.expose({ item, targets: list, delivery, dc, deliverer: resolveActor(actor) });
+            },
+            applyPoison: ({ poison, weapon, actor = null, replace = false, double = false, saveType = null } = {}) =>
+                coatings.applyPoison({ poison, weapon, actor: resolveActor(actor), replace, double, saveType }),
+            unleash: ({ poison, actor = null, targets = [] } = {}) => coatings.unleash({ poison, actor: resolveActor(actor), targets }),
+            touch: ({ host, actor = null } = {}) => coatings.touchCoating({ host, toucher: resolveActor(actor) }),
+            active: (actor = null) => {
+                const who = resolveActor(actor);
+                return who ? afflictions.trackersOf(who).map((t) => ({ id: t.id, uuid: t.uuid, name: t.name, run: afflictions.runOf(t) })) : [];
+            },
+            pending: (actor = null) => {
+                const who = resolveActor(actor);
+                return who ? afflictions.pendingOf(who).map((p) => ({ kind: p.kind, runId: p.runId, seq: p.seq, claim: p.claim?.id ?? null, source: p.source?.name ?? null })) : [];
+            },
+            rollPending: ({ actor = null, skipDialog } = {}) => afflictions.rollPending(resolveActor(actor), { skipDialog }),
+            roll: ({ actor = null, runId, seq, skipDialog, voluntaryFail = false } = {}) => afflictions.rollSave(resolveActor(actor), { runId, seq }, { skipDialog, voluntaryFail }),
+            adjust: (itemOrUuid, { stage = null, end = false, endOnset = false, undo = false } = {}) => afflictions.adjust(itemOrUuid, { stage, end, endOnset, undo }),
+            repair: (itemOrUuid) => afflictions.repair(itemOrUuid),
+            process: () => afflictions.processAfflictions(),
+            backend: () => afflictionBackend(),
+            open: () => openAfflictions(),
+        },
+        rules: {
+            afflictionStep: (run, def, degree, kind, now, ctx = {}) => applyDegree(run, def, degree, kind, now, ctx),
         },
         consumables: {
             useBest: ({ family, actor = null, partyWide = false, map = 0 } = {}) => consumables.useBest({ family, actor: resolveActor(actor), partyWide, map }),

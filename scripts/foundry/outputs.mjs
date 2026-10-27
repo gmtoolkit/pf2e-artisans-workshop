@@ -24,6 +24,7 @@ import { itemVersion } from "./coins.mjs";
 import { givingBack, heldLines } from "./custody.mjs";
 import { formulaClaimInput } from "./formulas.mjs";
 import { crafterFacts, inCustody, planFor, productFacts, targetOf } from "./products.mjs";
+import { dcStampFor } from "./affliction-defs.mjs";
 import { rulesFromSettings } from "./settings.mjs";
 import { shared } from "./state.mjs";
 import { stampNow } from "./store.mjs";
@@ -51,6 +52,11 @@ async function sourceOf(uuid, quantity, order) {
     source.system = { ...source.system, quantity };
     foundry.utils.setProperty(source, "_stats.compendiumSource", uuid);
     foundry.utils.setProperty(source, `flags.${MODULE_ID}`, madeFlags(order));
+    // M8a (8.10.4): a poison crafted in downtime is not infused, so Powerful Alchemy never applies; the legacy Potent Poisoner
+    // (badged) raises its DC by up to 4, at most the crafter's class DC, and the stamp travels with it.
+    const crafter = order.crafter ? fromUuidSync(order.crafter, { strict: false }) : null;
+    const dcStamp = crafter ? dcStampFor(crafter, source) : null;
+    if (dcStamp) foundry.utils.setProperty(source, `flags.${MODULE_ID}.dcStamp`, dcStamp);
     return source;
 }
 

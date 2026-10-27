@@ -72,6 +72,23 @@
     <p class="bandolier-empty">{{localize "pf2e-artisans-workshop.Bandolier.NothingReady"}}</p>
     {{/if}}
 
+    {{#if poisons.length}}
+    <ul class="bandolier-poisons">
+        {{#each poisons}}
+        <li>
+            {{#if img}}<img src="{{img}}" alt="">{{/if}}
+            <span class="ready-name">{{name}}</span> <span class="ready-qty">{{qty}}</span>
+            <button type="button" data-bandolier="apply-poison" data-item="{{id}}"><i class="fa-solid fa-droplet" inert></i> {{localize "pf2e-artisans-workshop.Affliction.Apply"}}</button>
+        </li>
+        {{/each}}
+    </ul>
+    {{/if}}
+    {{#if afflictions}}
+    <div class="bandolier-row">
+        <button type="button" data-bandolier="afflictions"><i class="fa-solid fa-skull-crossbones" inert></i> {{localize "pf2e-artisans-workshop.Affliction.Title"}}</button>
+    </div>
+    {{/if}}
+
     <div class="bandolier-row bandolier-vial-actions">
         {{#if gather}}<button type="button" data-bandolier="gather" {{#if full}}disabled{{/if}}><i class="fa-solid fa-leaf" inert></i> {{localize "pf2e-artisans-workshop.Bandolier.Gather"}}</button>{{/if}}
         {{#if admixture}}<button type="button" data-bandolier="admixture" {{#if admixture.disabled}}disabled{{/if}}><i class="fa-solid fa-vials" inert></i> {{localize "pf2e-artisans-workshop.Bandolier.Admixture" left=admixture.left}}</button>{{/if}}

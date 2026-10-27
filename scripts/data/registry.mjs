@@ -92,8 +92,13 @@
  * - `gather {per10}`: vials regained per 10 minutes of gathering reagents (Alchemical Expertise, 8.7).
  * - `quickVial {quickened}`: an extra action that may only make a quick vial, once a turn (Abundant Vials, 8.5).
  * - `quickBomber`: draw or make a bomb and Strike with it in one action (Quick Bomber, 8.4).
- * The other kinds of 6.11 (`materialSource`, `gate`, `conflict`, `afflictionModifier`, `delivery`) arrive with the
- * milestones that read them.
+ * Effect kinds built in M8a (8.10.4-8.10.6):
+ * - `afflictionModifier {mod, as, when?}`: a feat that changes a poison's affliction (8.10.6), applied for the character who
+ *   holds it `as` the poison's `creator` (Tenacious Toxins, Powerful Alchemy's DC stamp, the toxicologist's acid for infused
+ *   poisons against poison-immune creatures, the legacy Potent Poisoner), its `deliverer` (Pinpoint Poisoner, Blowgun
+ *   Poisoner, Sticky Poison, Double Poison), the `victim` (Acquired Tolerance's reroll), or carried as the poison's
+ *   `additive` (Pernicious Poison, Combustible Poison).
+ * The other kinds of 6.11 (`materialSource`, `gate`, `conflict`, `delivery`) arrive with the milestones that read them.
  */
 
 /** Freeze a JSON-compatible value all the way down. */
@@ -123,6 +128,13 @@ export const REGISTRY = deepFreeze({
         uuid: "Compendium.pf2e.classfeatures.Item.tVxAFMBen8D516BQ", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
         effects: [
             { kind: "quickVial", quickened: true },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "acquired-tolerance": {
+        uuid: "Compendium.pf2e.feats-srd.Item.nx2nB10rypAuspAa", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "afflictionModifier", mod: "acquired-tolerance", as: "victim" },
         ],
         verified: "pf2e-8.6.1",
     },
@@ -414,6 +426,13 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "blowgun-poisoner": {
+        uuid: "Compendium.pf2e.feats-srd.Item.QZ00D2xdJnbWFzml", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "afflictionModifier", mod: "blowgun-poisoner", as: "deliverer" },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "bomber": {
         uuid: "Compendium.pf2e.classfeatures.Item.7JbiaZ8bxODM5mzS", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
         effects: [
@@ -549,6 +568,7 @@ export const REGISTRY = deepFreeze({
         uuid: "Compendium.pf2e.feats-srd.Item.Pcv6IF8V1yT9tYrN", type: "feat", book: "Pathfinder Lost Omens Cheliax, Infernal Inheritance", remaster: true, tier: 2,
         effects: [
             { kind: "additive", when: { all: ["item:trait:poison"] } },
+            { kind: "afflictionModifier", mod: "combustible-poison", as: "additive" },
         ],
         verified: "pf2e-8.6.1",
     },
@@ -651,6 +671,13 @@ export const REGISTRY = deepFreeze({
     "double-double": {
         uuid: "Compendium.pf2e.feats-srd.Item.wwnhnV3balaVdMu5", type: "feat", book: "Pathfinder Player Core", remaster: true, tier: 3,
         effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "double-poison": {
+        uuid: "Compendium.pf2e.feats-srd.Item.FlZ5knPmyq4CEhl7", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "afflictionModifier", mod: "double-poison", as: "deliverer" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "dreamers-calling": {
@@ -1263,6 +1290,7 @@ export const REGISTRY = deepFreeze({
         uuid: "Compendium.pf2e.feats-srd.Item.cZED3aBrjCgO0dPC", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
         effects: [
             { kind: "additive", when: { all: ["item:trait:poison"] } },
+            { kind: "afflictionModifier", mod: "pernicious-poison", as: "additive" },
         ],
         verified: "pf2e-8.6.1",
     },
@@ -1349,6 +1377,13 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "pinpoint-poisoner": {
+        uuid: "Compendium.pf2e.feats-srd.Item.XtIPmZ3Ihq5NJHP2", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "afflictionModifier", mod: "pinpoint-poisoner", as: "deliverer" },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "plentiful-snares": {
         uuid: "Compendium.pf2e.feats-srd.Item.wGaxWwJhIXbMJft1", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 3,
         effects: [],
@@ -1376,9 +1411,18 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "potent-poisoner": {
+        uuid: "Compendium.pf2e.feats-srd.Item.zKL1lRcIbFblp2M2", type: "feat", book: "Pathfinder Core Rulebook", remaster: false, tier: 4,
+        effects: [
+            { kind: "afflictionModifier", mod: "potent-poisoner", as: "creator" },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "powerful-alchemy": {
         uuid: "Compendium.pf2e.classfeatures.Item.7JK2a1D3VeWDcObo", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
-        effects: [],
+        effects: [
+            { kind: "afflictionModifier", mod: "powerful-alchemy", as: "creator" },
+        ],
         relies: [
             { key: "AdjustModifier", match: { selector: "inline-dc", predicate: ["item:trait:infused"], mode: "upgrade" } },
         ],
@@ -1696,6 +1740,13 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "sticky-poison": {
+        uuid: "Compendium.pf2e.feats-srd.Item.b7isszc8C75V3okn", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "afflictionModifier", mod: "sticky-poison", as: "deliverer" },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "strikers-scroll": {
         uuid: "Compendium.pf2e.feats-srd.Item.Gz9NQBjSDRQP8YTY", type: "feat", book: "Pathfinder Impossible Magic", remaster: true, tier: 2,
         effects: [],
@@ -1747,6 +1798,13 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "tenacious-toxins": {
+        uuid: "Compendium.pf2e.feats-srd.Item.FdP21jbjHHGpHut1", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "afflictionModifier", mod: "tenacious-toxins", as: "creator" },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "thespians-calling": {
         uuid: "Compendium.pf2e.classfeatures.Item.CPUunLbsBjRgfS10", type: "feat", book: "Pathfinder War of Immortals", remaster: true, tier: 2,
         effects: [],
@@ -1768,6 +1826,7 @@ export const REGISTRY = deepFreeze({
         uuid: "Compendium.pf2e.classfeatures.Item.P9quO9XZi3OWFe1k", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
         effects: [
             { kind: "formulaAllowance", on: "gain", count: 2, maxLevel: 1, rarity: ["common"], filter: { all: ["item:trait:alchemical", "item:trait:poison"] } },
+            { kind: "afflictionModifier", mod: "toxicologist-acid", as: "creator", when: { all: ["item:trait:infused"] } },
         ],
         verified: "pf2e-8.6.1",
     },

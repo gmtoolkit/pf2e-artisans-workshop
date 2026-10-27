@@ -6,7 +6,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { REGISTRY } from "../scripts/data/registry.mjs";
 import { REGISTRY_IGNORE } from "../scripts/data/registry-ignore.mjs";
-import { checkEntries, checkReferences, contains, loadSource, main, mentions, sluggify, unlisted, wrapperOptions } from "../tools/validate-registry.mjs";
+import { AFFLICTION_IGNORE, AFFLICTION_OVERRIDES } from "../scripts/data/afflictions.mjs";
+import {
+    afflictionOf, checkAfflictions, checkEntries, checkReferences, contains, loadSource, main, mentions, sluggify, unlisted, wrapperOptions,
+} from "../tools/validate-registry.mjs";
 import { logger, tempDir } from "./helpers.mjs";
 
 const MANIFEST = {
@@ -195,7 +198,8 @@ test("the command line: no checkout is a usage error; drift fails the run", (t) 
 
 test("the command line fails a checkout that lacks the packs it should check: nothing read is nothing passed", (t) => {
     // A pf2e manifest naming every pack the shipped registry and ignore list use, and none of their folders.
-    const names = new Set([...Object.values(REGISTRY).map((e) => e.uuid), ...Object.keys(REGISTRY_IGNORE)].map((u) => u.split(".")[2]));
+    const names = new Set([...Object.values(REGISTRY).map((e) => e.uuid), ...Object.keys(REGISTRY_IGNORE), ...Object.values(AFFLICTION_OVERRIDES).map((e) => e.uuid),
+        ...Object.keys(AFFLICTION_IGNORE)].map((u) => u.split(".")[2]));
     const packs = [...names].map((name) => ({ name, path: `packs/${name}`, type: "Item" }));
     const root = tempDir(t, { "system.pf2e.json": { packs } });
     const log = logger();
@@ -204,11 +208,109 @@ test("the command line fails a checkout that lacks the packs it should check: no
     assert.doesNotMatch(log.text(), /does not resolve/, "the packs are named, so nothing is reported missing from them");
     // Every entry checked and every candidate listed: a pack nothing names (spells-srd) still has to be there in
     // enforce mode, since completeness is about the packs.
-    const data = { registry: REG, ignore: { [uuid("equipment-srd", "cccccccccccccccc")]: "fp-food" }, reasons: { "fp-food": "x" }, defaults: {} };
+    const data = { registry: REG, ignore: { [uuid("equipment-srd", "cccccccccccccccc")]: "fp-food" }, reasons: { "fp-food": "x" }, defaults: {},
+        afflictions: { overrides: {}, ignore: {}, reasons: {} } };
     assert.equal(main(["--pf2e", fakeCheckout(t)], logger(), data), 0, "nothing unchecked, nothing enforced");
     const enforced = logger();
     assert.equal(main(["--pf2e", fakeCheckout(t), "--enforce"], enforced, data), 1);
     assert.match(enforced.text(), /enforce mode needs every Item pack/);
+});
+
+/* -------------------------------------------- */
+/*  Afflictions (M8a, 8.10.2)                    */
+/* -------------------------------------------- */
+
+const para = (label, rest) => `<p><strong>${label}</strong> ${rest}</p>`;
+const poisonDoc = (id, name, html, traits = ["consumable", "injury", "poison"]) => doc(id, name, {
+    root: { type: "consumable" }, system: { description: { value: html }, traits: { value: traits }, level: { value: 3 } },
+});
+const SAVE = para("Saving Throw", "@Check[fortitude|dc:20]");
+const CLEAN = `${SAVE}${para("Maximum Duration", "6 rounds")}${para("Stage 1", "@Damage[1d6[poison]] damage (1 round)")}`;
+const PROSE = `${SAVE}${para("Stage 1", "+1 item bonus to something (1 hour)")}`;
+
+function afflictionCheckout(t) {
+    return tempDir(t, {
+        "system.pf2e.json": MANIFEST,
+        "packs/pf2e/equipment/p000000000000001.json": poisonDoc("p000000000000001", "Clean Venom", CLEAN),
+        "packs/pf2e/equipment/p000000000000002.json": poisonDoc("p000000000000002", "Prose Draught", PROSE),
+        "packs/pf2e/equipment/p000000000000003.json": poisonDoc("p000000000000003", "Fixed Draught", PROSE),
+        "packs/pf2e/equipment/p000000000000004.json": poisonDoc("p000000000000004", "Delayed Potion", para("Onset", "1 minute"), ["consumable", "potion"]),
+        "packs/pf2e/equipment/p000000000000005.json": poisonDoc("p000000000000005", "Again Venom", `<p>Further exposure does nothing.</p>${CLEAN}`),
+        "packs/pf2e/equipment/p000000000000006.json": poisonDoc("p000000000000006", "Kindless Fang", CLEAN, ["magical"]),
+        "packs/pf2e/feats/level-1/aaaaaaaaaaaaaaa1.json": doc(FEAT_ID, "Talisman Dabbler Dedication"),
+    });
+}
+
+test("afflictions: each candidate parses fully, has an override or is ignored; intros and kindless items need review", (t) => {
+    const source = loadSource(afflictionCheckout(t));
+    const overrides = { "fixed-draught": { uuid: uuid("equipment-srd", "p000000000000003"), prose: [1] } };
+    const ignore = { [uuid("equipment-srd", "p000000000000004")]: "not-affliction" };
+    const out = checkAfflictions({ source, overrides, ignore, reasons: { "not-affliction": "x" } });
+    assert.deepEqual(out.summary, { candidates: 6, full: 1, overridden: 1, ignored: 1, failed: 3,
+        poisons: { candidates: 4, full: 1, overridden: 1, ignored: 0 } });
+    assert.deepEqual(out.problems.map((p) => p.key).sort(), [uuid("equipment-srd", "p000000000000002"), uuid("equipment-srd", "p000000000000005"),
+        uuid("equipment-srd", "p000000000000006")]);
+    assert.match(out.problems.find((p) => p.key.endsWith("2")).problem, /does not parse fully/);
+    assert.match(out.problems.find((p) => p.key.endsWith("5")).problem, /further exposure/);
+    assert.match(out.problems.find((p) => p.key.endsWith("6")).problem, /no affliction kind/);
+    assert.deepEqual(out.unchecked, []);
+    // A changed parse between two tags is reported against a baseline of digests.
+    const changed = checkAfflictions({ source, overrides, ignore, reasons: { "not-affliction": "x" },
+        baseline: { [uuid("equipment-srd", "p000000000000001")]: "different" } });
+    assert.deepEqual(changed.changed.map((c) => c.name), ["Clean Venom"]);
+});
+
+test("afflictions: an intro that changes how a stage condition works needs an override (cumulative, detach, intro) (second M8a review)", (t) => {
+    const body = `${SAVE}${para("Stage 1", "drained 1 (1 day)")}${para("Stage 2", "drained 2 (1 day)")}`;
+    const source = loadSource(tempDir(t, {
+        "system.pf2e.json": MANIFEST,
+        "packs/pf2e/equipment/p000000000000007.json": poisonDoc("p000000000000007", "Slow Sleep", `<p>Its drained condition is cumulative with each failed save.</p>${body}`),
+        "packs/pf2e/equipment/p000000000000008.json": poisonDoc("p000000000000008", "Long Shade", `<p>The drained condition from it lasts for 24 hours.</p>${body}`),
+        "packs/pf2e/feats/level-1/aaaaaaaaaaaaaaa1.json": doc(FEAT_ID, "Talisman Dabbler Dedication"),
+    }));
+    const flagged = checkAfflictions({ source, overrides: {}, ignore: {}, reasons: {} });
+    assert.equal(flagged.problems.length, 2);
+    assert.ok(flagged.problems.every((p) => /changes how a stage condition works/.test(p.problem)));
+    const reviewed = checkAfflictions({ source, ignore: {}, reasons: {}, overrides: {
+        "slow-sleep": { uuid: uuid("equipment-srd", "p000000000000007"), cumulative: ["drained"] },
+        "long-shade": { uuid: uuid("equipment-srd", "p000000000000008"), detach: ["drained"] } } });
+    assert.deepEqual(reviewed.problems, []);
+    assert.deepEqual(reviewed.notes, [], "an override that carries an intro rule is not a stale one");
+});
+
+test("afflictions: overrides and ignored UUIDs are checked like registry entries", (t) => {
+    const source = loadSource(afflictionCheckout(t));
+    const out = checkAfflictions({
+        source,
+        overrides: { "wrong-slug": { uuid: uuid("equipment-srd", "p000000000000002"), prose: [1] }, "gone": { uuid: uuid("equipment-srd", "zzzzzzzzzzzzzzzz") },
+            "spelled": { uuid: uuid("spells-srd", "zzzzzzzzzzzzzzzz") } },
+        ignore: { [uuid("equipment-srd", "p000000000000002")]: "nope" }, reasons: {},
+    });
+    const text = out.problems.map((p) => `${p.key}: ${p.problem}`).join("\n");
+    assert.match(text, /wrong-slug: slug is now prose-draught/);
+    assert.match(text, /wrong-slug: overridden and on the affliction ignore list/);
+    assert.match(text, /gone: .* does not resolve/);
+    assert.match(text, /unknown affliction ignore reason nope/);
+    assert.deepEqual(out.unchecked, ["spelled"], "a pack the checkout lacks is not passed");
+});
+
+test("the shipped overrides are numbers, slugs and UUIDs only (P9), keyed by slug, never on the ignore list", () => {
+    const strings = [];
+    const walk = (value, path) => {
+        if (typeof value === "string") strings.push([path, value]);
+        else if (value && typeof value === "object") for (const [k, v] of Object.entries(value)) walk(v, `${path}.${k}`);
+    };
+    walk(AFFLICTION_OVERRIDES, "overrides");
+    assert.deepEqual(strings.filter(([, s]) => /\s/.test(s)), []);
+    for (const [key, entry] of Object.entries(AFFLICTION_OVERRIDES)) {
+        assert.match(key, /^[a-z0-9-]+$/);
+        assert.match(entry.uuid, /^Compendium\.pf2e\.[a-z-]+\.Item\.[A-Za-z0-9]{16}$/);
+        assert.ok(!(entry.uuid in AFFLICTION_IGNORE), key);
+        for (const n of entry.prose ?? []) assert.ok(Number.isInteger(n) && n > 0, key);
+        assert.ok(!entry.reExposure || ["none", "reset-max", "table"].includes(entry.reExposure), key);
+        assert.ok(!entry.intro || entry.intro === "table", key);
+        for (const slug of [...(entry.cumulative ?? []), ...(entry.detach ?? [])]) assert.match(slug, /^[a-z-]+$/, key);
+    }
 });
 
 /* -------------------------------------------- */
@@ -237,4 +339,33 @@ test("every registry entry and ignored UUID matches the pf2e checkout", NEEDS_SO
     t.diagnostic(`completeness (report only): ${missing.length} candidate items in neither list; ` +
         `${Object.keys(REGISTRY).length} entries, ${Object.keys(REGISTRY_IGNORE).length} ignored`);
     if (source.skipped.size) t.diagnostic(`not in this checkout, so not checked: ${[...source.skipped].join(", ")}`);
+});
+
+test("the second M8a review's readings against the pf2e checkout: Curare's stage 3 and Reaper's Shadow apply no qualified condition; King's Sleep and Nethershade carry their intro rules", NEEDS_SOURCE, () => {
+    const source = loadSource(process.env.PF2E_SRC);
+    const resolved = (key) => afflictionOf(source.get(AFFLICTION_OVERRIDES[key].uuid), AFFLICTION_OVERRIDES[key]);
+    const curare = resolved("curare");
+    assert.deepEqual(curare.stages[2].conditions.map((c) => `${c.slug} ${c.value}`).sort(), ["clumsy 2", "enfeebled 2", "slowed 1"], "no paralysis at stage 3");
+    assert.deepEqual(curare.stages[2].damage, [{ formula: "4d6", damageType: "poison", category: null }]);
+    const reaper = resolved("reapers-shadow");
+    assert.deepEqual([reaper.stages[0].conditions, reaper.stages[1].conditions], [[], []], "no doomed that outlasts the poison");
+    assert.deepEqual(reaper.stages.slice(0, 2).map((s) => s.damage[0].formula), ["2d12", "3d12"]);
+    assert.deepEqual(resolved("kings-sleep").cumulative, ["drained"]);
+    assert.deepEqual(resolved("nethershade").detach, ["enfeebled"]);
+    // The choices and conditions the review listed apply nothing as they stand.
+    const parsed = (name) => afflictionOf([...source.items()].find((d) => d.name === name));
+    assert.deepEqual(parsed("Divine Plagues").stages[0].conditions, []);
+    assert.deepEqual(parsed("Antipode Oil").stages[0].damage, []);
+    assert.deepEqual(parsed("Sloughing Toxin").stages[2].damage, []);
+    assert.deepEqual(parsed("Mythotoxin").stages[2].conditions, []);
+});
+
+test("every affliction candidate in the pf2e checkout parses fully, has an override or is ignored", NEEDS_SOURCE, (t) => {
+    const source = loadSource(process.env.PF2E_SRC);
+    const out = checkAfflictions({ source });
+    assert.deepEqual(out.problems, []);
+    assert.deepEqual(out.unchecked, []);
+    const a = out.summary;
+    t.diagnostic(`afflictions: ${a.candidates} candidates, ${a.full} parse fully, ${a.overridden} overridden, ${a.ignored} ignored; ` +
+        `poisons ${a.poisons.candidates}: ${a.poisons.full} parse fully, ${a.poisons.overridden} overridden`);
 });
