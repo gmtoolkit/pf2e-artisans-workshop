@@ -209,6 +209,13 @@ All notable changes to this module are documented here. The format follows
 - Performance pass (milestone M12, `npm run harness:perf`): stages a long campaign in the dev world (five members, 200 orders,
   2000 ledger rows, 60 workshop days) and times and profiles the Workshop window, ledger writes, reconciliation and the
   Advance days wizard.
+- Rules registry completeness (M12): every pf2e 8.6.1 compendium item that mentions crafting, formulas, daily preparations
+  or Earn Income is now reviewed, 103 into the rules registry and 657 onto its ignore list with a reason, so the stable
+  release's registry check passes. Newly automated: Brigh's moderate boon (Crafting checks to invent a formula are one degree
+  better), Shelyn's moderate boon (Specialty Crafting's bonus on every Craft), the Pathfinder Society Crafter's Workshop boon
+  (1 day of setup), the Traveling Workshop spell (an alchemist's lab, Repair tools and a day of setup already done), access
+  to uncommon tengu weapons for Tengu Weapon Familiarity and to sparklers for Firework Technicians, and Morning tab notes for
+  Create Familiar Fulu, Apothecary's Garden, Underground Bounty and Zon-Kuthon's moderate boon. The rest show as notes.
 
 ### Changed
 

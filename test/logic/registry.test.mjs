@@ -79,7 +79,7 @@ test("every entry has the schema of scripts/data/registry.mjs, tier 4 exactly fo
     for (const [key, entry] of Object.entries(REGISTRY)) {
         const bad = (why) => problems.push(`${key}: ${why}`);
         if (!/^[a-z0-9-]+(@[a-z]+)?$/.test(key)) bad("key");
-        if (!/^Compendium\.pf2e\.[a-z-]+\.Item\.[A-Za-z0-9]{16}$/.test(entry.uuid)) bad("uuid");
+        if (!/^Compendium\.pf2e\.[a-z0-9-]+\.Item\.[A-Za-z0-9]{16}$/.test(entry.uuid)) bad("uuid");
         if (![1, 2, 3, 4].includes(entry.tier)) bad("tier");
         if ((entry.tier === 4) !== (entry.remaster === false)) bad("tier 4 is legacy-only content");
         if (typeof entry.type !== "string" || typeof entry.book !== "string" || entry.verified !== "pf2e-8.6.1") bad("type, book or verified");
@@ -297,6 +297,42 @@ test("Impeccable Crafting turns a success into a critical success only when the 
     assert.equal(shiftDegree(["impeccable-crafting"], new Set(["speciality"]), 1), 1);
     assert.equal(shiftDegree(["impeccable-crafting"], new Set(), 2), 2);
     assert.equal(shiftDegree([], new Set(["speciality"]), 2), 2);
+});
+
+test("the completeness review's automated entries: Brigh's boon, Shelyn's boon, the PFS workshop, Traveling Workshop, access", () => {
+    // Brigh's moderate boon: the invent route's roll carries the boon's option, and its degree is one better.
+    const invent = craftOptions({ item: [], held: ["brigh-moderate-boon"], route: "invent" });
+    assert.deepEqual(rollOptions(["brigh-moderate-boon"], invent), ["brigh-moderate-boon"]);
+    assert.deepEqual(rollOptions(["brigh-moderate-boon"], craftOptions({ item: [], route: "known" })), []);
+    for (const degree of [0, 1, 2]) assert.equal(shiftDegree(["brigh-moderate-boon"], new Set(["brigh-moderate-boon"]), degree), degree + 1);
+    assert.equal(shiftDegree(["brigh-moderate-boon"], new Set(), 1), 1, "a Craft that is not inventing");
+    // Shelyn's moderate boon: Specialty Crafting's bonus on every Craft, raised at master; not on Deconstruct.
+    const sword = craftOptions({ item: itemOptions({ type: "weapon", traits: [] }) });
+    assert.deepEqual(modifiers(["shelyn-moderate-boon"], sword, { crafting: RANK.expert }).map((m) => [m.slug, m.type, m.value]),
+        [["specialty-crafting", "circumstance", 1]]);
+    assert.equal(modifiers(["shelyn-moderate-boon"], sword, { crafting: RANK.master })[0].value, 2);
+    assert.deepEqual(modifiers(["shelyn-moderate-boon"], craftOptions({ item: [], craftType: "deconstruct" })), []);
+    // The PFS Crafter's Workshop: 1 day of setup, not for reverse engineering or Grow.
+    assert.equal(setupOverride(["crafters-workshop"], craftOptions({ item: [], route: "none" })), 1);
+    assert.equal(setupOverride(["crafters-workshop"], craftOptions({ item: [], route: "reverse-engineer" })), null);
+    assert.equal(setupOverride(["crafters-workshop"], craftOptions({ item: [], craftType: "grow" })), null);
+    // Traveling Workshop's effect: a lab, Repair tools for a Repair, and a day of setup done without the formula.
+    const effect = "spell-effect-traveling-workshop";
+    assert.deepEqual(tools([effect], itemOptions(ELIXIR)), ["alchemists-lab"]);
+    assert.deepEqual(tools([effect], new Set(["action:repair"])), ["alchemists-lab", "repair-toolkit"]);
+    assert.equal(setupOverride([effect], craftOptions({ item: [], route: "none" })), 1);
+    assert.equal(setupOverride([effect], craftOptions({ item: [], route: "known" })), null);
+    // Access (G5): Tengu Weapon Familiarity's uncommon weapons; Firework Technician's sparkler.
+    const katana = itemOptions({ type: "weapon", slug: "katana", traits: [], rarity: "uncommon" });
+    assert.equal(accessGrant(["tengu-weapon-familiarity"], katana), true);
+    assert.equal(accessGrant(["tengu-weapon-familiarity"], itemOptions({ type: "weapon", traits: ["tengu"], rarity: "uncommon" })), true);
+    assert.equal(accessGrant(["tengu-weapon-familiarity"], itemOptions({ type: "weapon", traits: ["dwarf"], rarity: "uncommon" })), false);
+    const sparkler = itemOptions({ type: "consumable", slug: "sparkler", traits: ["alchemical", "consumable", "fire"], rarity: "uncommon" });
+    assert.equal(accessGrant(["firework-technician-dedication"], sparkler), true);
+    assert.equal(accessGrant([], sparkler), false);
+    // Quick Alchemy's action and class feature share a slug: each is matched by its own UUID, never by the slug alone.
+    assert.deepEqual(heldKeys([{ sourceId: uuidOf("quick-alchemy@action"), slug: "quick-alchemy" }, { sourceId: null, slug: "quick-alchemy" }]),
+        ["quick-alchemy@action"]);
 });
 
 test("Earn Income: Experienced Professional's failure pay comes from the registry", () => {

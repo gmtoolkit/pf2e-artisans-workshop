@@ -124,6 +124,16 @@ export const SPECIALTY_DEFAULTS = deepFreeze({
 });
 
 export const REGISTRY = deepFreeze({
+    "abadar-moderate-boon": {
+        uuid: "Compendium.pf2e.boons-and-curses.Item.DfXlr5qqbcjJN3gh", type: "feat", book: "Pathfinder Lost Omens Gods & Magic", remaster: false, tier: 4,
+        // pf2e turns an Earn Income critical failure into a failure (relies). Its double pay on a success needs an `earnIncome`
+        // `doubleSuccess` field that `earnIncomeFlags` and `wagePerDay` honour (follow-up); until then a note.
+        effects: [],
+        relies: [
+            { key: "AdjustDegreeOfSuccess", match: { selector: "skill-check", predicate: ["action:earn-income"], adjustment: { criticalFailure: "one-degree-better" } } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "abundant-vials": {
         uuid: "Compendium.pf2e.classfeatures.Item.tVxAFMBen8D516BQ", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
         effects: [
@@ -140,6 +150,31 @@ export const REGISTRY = deepFreeze({
     },
     "acupuncturist": {
         uuid: "Compendium.pf2e.feats-srd.Item.SC95hfEEHQs7E9cG", type: "feat", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 2,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "addiction-suppressant-greater": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.ZOOrK4yEW6rFpPJ1", type: "consumable", book: "Pathfinder Lost Omens Legends", remaster: false, tier: 4,
+        // Note: made for one drug, from a dose of it, and above its level; outside the Craft Requirements paragraph, so G9's
+        // checklist misses it. A `gate` effect once that kind is built.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "addiction-suppressant-lesser": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.SNMggNsvgPoAYjpU", type: "consumable", book: "Pathfinder Lost Omens Legends", remaster: false, tier: 4,
+        // Note: as addiction-suppressant-greater.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "addiction-suppressant-major": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.esDSCEI1cf8Op93I", type: "consumable", book: "Pathfinder Lost Omens Legends", remaster: false, tier: 4,
+        // Note: as addiction-suppressant-greater.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "addiction-suppressant-moderate": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.cWYa0i1BqhbEruD6", type: "consumable", book: "Pathfinder Lost Omens Legends", remaster: false, tier: 4,
+        // Note: as addiction-suppressant-greater.
         effects: [],
         verified: "pf2e-8.6.1",
     },
@@ -316,8 +351,80 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "animal-pheromones-greater": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.GxVwATDdSGbZbx9B", type: "consumable", book: "Pathfinder Howl of the Wild", remaster: true, tier: 2,
+        // Note: one formula covers every animal kind with a common member; a kind without one needs its own formula. The kinds
+        // are not compendium items, so the family route (6.4) and G5 cannot tell them apart.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "animal-pheromones-lesser": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.HHsMAKU0fPgYWspm", type: "consumable", book: "Pathfinder Howl of the Wild", remaster: true, tier: 2,
+        // Note: as animal-pheromones-greater.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "animal-pheromones-moderate": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.erLH6cQYhyZB5CLM", type: "consumable", book: "Pathfinder Howl of the Wild", remaster: true, tier: 2,
+        // Note: as animal-pheromones-greater.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "animal-repellent-greater": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.OjNaLZI13rWlyqmM", type: "consumable", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: the first formula covers every common animal kind; a kind with no common member needs its own formula. The kinds
+        // are not compendium items, so the family route (6.4) and G5 cannot tell them apart.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "animal-repellent-lesser": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.YVLwV9IGzNqIzbmV", type: "consumable", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as animal-repellent-greater.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "animal-repellent-major": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.PxrYRcawI6a3lRcf", type: "consumable", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as animal-repellent-greater.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "animal-repellent-minor": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.7V5fKnnvW7DUgbAd", type: "consumable", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as animal-repellent-greater.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "animal-repellent-moderate": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.OHxRdRv4ZLBGPQi6", type: "consumable", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as animal-repellent-greater.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "annotate-composition": {
         uuid: "Compendium.pf2e.feats-srd.Item.PIVC14saumGNKWbo", type: "feat", book: "Pathfinder Player Core", remaster: true, tier: 2,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "apothecarys-garden": {
+        uuid: "Compendium.pf2e.adventure-specific-actions.Item.a6hGyGd4nR8tS2wE", type: "action", book: "Pathfinder GM Core", remaster: true, tier: 3,
+        // Relic gift: herbs harvested at daily preparations that wither a day later (7.10's shape, like Herbal Forager).
+        effects: [
+            { kind: "dailyGap", flow: "note" },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "arodens-hearthstone": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.1ZOTwnqA9ccfdrey", type: "equipment", book: "Pathfinder #156: The Apocalypse Prophet", remaster: false, tier: 4,
+        // Note: its activation (legendary Crafting) crafts a weapon or armor for a quarter of the Price and no extra days, a
+        // route the planner does not model.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "arodens-innovation": {
+        uuid: "Compendium.pf2e.feats-srd.Item.S7g69b0VW1nUJsCs", type: "feat", book: "Pathfinder Lost Omens Hellfire Dispatches", remaster: true, tier: 2,
+        // Note: a general feat of 3rd level or lower picked at each daily preparation (a crafting skill feat among them) is held
+        // for the day. No rule element records the pick, so the gates and the registry do not see it.
         effects: [],
         verified: "pf2e-8.6.1",
     },
@@ -338,6 +445,20 @@ export const REGISTRY = deepFreeze({
         effects: [
             { kind: "toolSubstitution", tools: ["artisans-toolkit"] },
         ],
+        verified: "pf2e-8.6.1",
+    },
+    "artistic-flourish": {
+        uuid: "Compendium.pf2e.spells-srd.Item.eb4FXf62NYArTqek", type: "spell", book: "Pathfinder Player Core", remaster: true, tier: 2,
+        // Note: a flourished tool gives an item bonus by the caster's Crafting rank, with no rule element or spell effect. It lasts
+        // 10 minutes: a Repair check, never a downtime Craft or Earn Income check (activated bonuses, 6.10).
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "artistic-perfection": {
+        uuid: "Compendium.pf2e.adventure-specific-actions.Item.HZz6x19bNbeCVQsN", type: "action", book: "Pathfinder Treasure Vault", remaster: true, tier: 2,
+        // Note: a success with the chosen skill (Crafting or Performance) becomes a critical success; a `degreeShift` 2 -> 3 once
+        // something records the choice.
+        effects: [],
         verified: "pf2e-8.6.1",
     },
     "as-on-the-board-so-on-the-battlefield": {
@@ -365,12 +486,39 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "azlanti-diamond": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.SmTUq7RUlZAQQHzD", type: "weapon", book: "The Dead God's Hand", remaster: true, tier: 2,
+        // Note: an item bonus to Crafting by the wielder's level with no rule element (a `modifier` that scales by level), and a
+        // specific item that still takes property runes, free to etch, and normal fundamental upgrades: G12 and the etch Price
+        // need an exception for it.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "balm-bomb": {
         uuid: "Compendium.pf2e.feats-srd.Item.t3BjX2tF2WbHM6Fg", type: "feat", book: "Pathfinder Lost Omens Cheliax, Infernal Inheritance", remaster: true, tier: 2,
         effects: [
             { kind: "additive", when: { all: ["item:trait:bomb"] }, vials: 1,
                 combine: { when: { all: ["item:trait:elixir", "item:trait:healing", "item:rarity:common"] } } },
         ],
+        verified: "pf2e-8.6.1",
+    },
+    "bane-ammunition-greater": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.qZvCxp4noVqYGkT0", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: each creature type is its own formula; the types are not compendium items, so a known formula reads as covering
+        // all of them.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "bane-ammunition-lesser": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.arNOPU7h8nNbnZ1N", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as bane-ammunition-greater.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "bane-ammunition-moderate": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.RL2VI9IGuOtXsEX6", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as bane-ammunition-greater.
+        effects: [],
         verified: "pf2e-8.6.1",
     },
     "bargain-hunter": {
@@ -453,8 +601,21 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "borrow-time": {
+        uuid: "Compendium.pf2e.spells-srd.Item.mlK8r1P2eszyfkGz", type: "spell", book: "Pathfinder Impossible Magic", remaster: true, tier: 2,
+        // Note: Crafting days worked inside the ritual's bubble should not advance the world day. The slug is shared with the
+        // chronoskimmer feat Borrow Time, which the slug fallback of `heldKeys` also matches (6.11 follow-up).
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "bountiful-cauldron": {
         uuid: "Compendium.pf2e.equipment-srd.Item.MBF9bZCwkJp2RZoN", type: "equipment", book: "Pathfinder #147: Tomorrow Must Burn", remaster: false, tier: 4,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "brain-cylinder": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.pRjJ2aBDpCH1NKRz", type: "equipment", book: "Pathfinder Adventure: Malevolence", remaster: false, tier: 4,
+        // Note: higher-level cylinders may be crafted; the module crafts only the listed level.
         effects: [],
         verified: "pf2e-8.6.1",
     },
@@ -463,11 +624,52 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "brigh-moderate-boon": {
+        uuid: "Compendium.pf2e.boons-and-curses.Item.pEtqyTx6Oa0OqNKl", type: "feat", book: "Pathfinder Lost Omens Gods & Magic", remaster: false, tier: 4,
+        // Grants Inventor; its Crafting checks are one degree better. The invent route has no roll option of its own, so the boon
+        // adds one there and the degree shifts key on it.
+        effects: [
+            { kind: "rollOptions", options: ["brigh-moderate-boon"], when: { all: ["route:invent"] } },
+            { kind: "degreeShift", from: 0, to: 1, when: { all: ["brigh-moderate-boon"] } },
+            { kind: "degreeShift", from: 1, to: 2, when: { all: ["brigh-moderate-boon"] } },
+            { kind: "degreeShift", from: 2, to: 3, when: { all: ["brigh-moderate-boon"] } },
+        ],
+        relies: [
+            { key: "GrantItem", match: { uuid: "Compendium.pf2e.feats-srd.Item.Inventor" } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "broad-snare": {
         uuid: "Compendium.pf2e.feats-srd.Item.VXIfIC7mFHx1Tl7C", type: "feat", book: "Pathfinder Lost Omens Hellfire Dispatches", remaster: true, tier: 3,
         effects: [
             { kind: "quickDeploy", mark: "broad", cost: 2 },
         ],
+        verified: "pf2e-8.6.1",
+    },
+    "broken-tusk-pendant": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.c9GaJKCxxqXKZokZ", type: "equipment", book: "Pathfinder #175: Broken Tusk Moon", remaster: false, tier: 4,
+        // Note: one made for its own crafter has no magic; only a gift works (the order's recipient is not the crafter).
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "broken-tusk-pendant-greater": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.hEIqSfSNBWwEkldc", type: "equipment", book: "Pathfinder #175: Broken Tusk Moon", remaster: false, tier: 4,
+        // Note: as broken-tusk-pendant.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "build-workshop-crafting": {
+        uuid: "Compendium.pf2e.adventure-specific-actions.Item.rI9qKyONeMPtajZ8", type: "action", book: "Pathfinder #146: Cult of Cinders", remaster: false, tier: 4,
+        // Note: Crafting checks made in the citadel's workshop get a circumstance bonus, more for its chosen trade; a site the
+        // module cannot see.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "butterfly-bender": {
+        uuid: "Compendium.pf2e.spells-srd.Item.wneYzMFUWreyqWHD", type: "spell", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 2,
+        // Note: one ritual outcome is an Earn Income task above the settlement's cap, and losing it makes the next Earn Income
+        // result one degree worse; GM-applied.
+        effects: [],
         verified: "pf2e-8.6.1",
     },
     "cadre": {
@@ -559,6 +761,13 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "cobble-together": {
+        uuid: "Compendium.pf2e.actionspf2e.Item.PE1jm9lBveujj2md", type: "action", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        // Note: a 10-minute Craft of a temporary common item of half the crafter's level; no route for it yet (Magical Scrounger,
+        // 7.10, builds on it).
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "combine-elixirs": {
         uuid: "Compendium.pf2e.feats-srd.Item.jSkJIWPfSZZzvYzq", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
         effects: [
@@ -581,6 +790,13 @@ export const REGISTRY = deepFreeze({
     },
     "complete-reconfiguration": {
         uuid: "Compendium.pf2e.classfeatures.Item.j0klWHkH3AxUAgok", type: "feat", book: "Pathfinder Guns & Gears", remaster: true, tier: 2,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "consult-the-stars": {
+        uuid: "Compendium.pf2e.feats-srd.Item.NySPRgD0FjZY2QGs", type: "feat", book: "Pathfinder Lost Omens Ancestry Guide", remaster: false, tier: 4,
+        // Note: trained in a Charisma, Intelligence or Wisdom skill (Crafting or a Lore among them) until the next preparations,
+        // with no rule element: G1 and Earn Income refuse an untrained character unless the rank is set by hand.
         effects: [],
         verified: "pf2e-8.6.1",
     },
@@ -608,6 +824,12 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "craft-disharmonic-instrument": {
+        uuid: "Compendium.pf2e.actionspf2e.Item.iBf9uGn5LOHkWpZ6", type: "action", book: "Pathfinder Lost Omens Monsters of Myth", remaster: false, tier: 4,
+        // Note: a special Craft with its own materials, fixed cost and time and its own degrees.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "craft-facsimile": {
         uuid: "Compendium.pf2e.feats-srd.Item.xLD9EmkEmT8hgwv7", type: "feat", book: "Pathfinder Lost Omens Pathfinder Society Guide", remaster: false, tier: 4,
         effects: [],
@@ -632,6 +854,35 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "crafters-workshop": {
+        uuid: "Compendium.pf2e.pathfinder-society-boons.Item.gdkQ04RgMJZ0QxbZ", type: "feat", book: "", remaster: false, tier: 4,
+        // PFS boon (its publication title is empty): 1 day of setup. Reverse engineering keeps its own (the boon makes new items).
+        effects: [
+            { kind: "setupDays", days: 1, when: { not: ["craft-type:grow", "craft-type:deconstruct", "craft-type:quest", "route:reverse-engineer"] } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "create-familiar-fulu": {
+        uuid: "Compendium.pf2e.actionspf2e.Item.NT1rtY5DFJGsR5QR", type: "action", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 3,
+        // A fulu made without cost or check once a day, lasting until the next preparations (7.10's shape).
+        effects: [
+            { kind: "dailyGap", flow: "note" },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "creative-spark": {
+        uuid: "Compendium.pf2e.adventure-specific-actions.Item.bweyCSaXUjmcSTAO", type: "action", book: "Pathfinder Lost Omens Highhelm", remaster: false, tier: 4,
+        // Note: pf2e applies its Crafting bonus behind its own toggle; the once-a-day degree shift and the forge waiver are not
+        // automated.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "curse-breaker": {
+        uuid: "Compendium.pf2e.pathfinder-society-boons.Item.oOB1uKvoBMGj7ykZ", type: "feat", book: "", remaster: false, tier: 4,
+        // Note: PFS boon; uncursing an item is a Craft-like job with another skill and 2 setup days, which no craft type models.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "cytillesh-toolkit": {
         uuid: "Compendium.pf2e.equipment-srd.Item.u6pDaIxMIimhQx7X", type: "equipment", book: "Pathfinder Monster Core", remaster: true, tier: 2,
         effects: [
@@ -653,6 +904,12 @@ export const REGISTRY = deepFreeze({
     },
     "deeper-dabbler": {
         uuid: "Compendium.pf2e.feats-srd.Item.PTXZ2C3AV8tZf0iX", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 3,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "demilich-eye-gem": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.Q4o8pEdxSY0bnJQZ", type: "equipment", book: "Pathfinder Bestiary", remaster: false, tier: 4,
+        // Note: its Craft Requirements forbid crafting it, though it has a Price, so G12 does not stop it: a `gate` once built.
         effects: [],
         verified: "pf2e-8.6.1",
     },
@@ -687,6 +944,18 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "effect-curse-of-turbulent-moments": {
+        uuid: "Compendium.pf2e.feat-effects.Item.oSzUv21eN9VS9TC1", type: "effect", book: "Pathfinder Dark Archive", remaster: false, tier: 4,
+        // Note: from the moderate curse, afflictions on the oracle run at half their intervals; an `afflictionModifier` as the
+        // victim once a mod for it exists.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "effect-nymph-queens-inspiration": {
+        uuid: "Compendium.pf2e.bestiary-effects.Item.iSyyR4QVOaY6mxtg", type: "effect", book: "Pathfinder Core Rulebook", remaster: false, tier: 4,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "efficient-alchemy-alchemist": {
         uuid: "Compendium.pf2e.feats-srd.Item.c7jNms3ZQ8eaMUqv", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
         effects: [
@@ -714,8 +983,113 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "elemental-ammunition-greater-acid": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.q2TpCwdlLGdcasKD", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: each damage type is its own formula, and its three grades are one family (6.4); the name-derived key keeps
+        // "(Greater, Acid)" whole, so each item is a family of one. A `formulaFamily` override (`elemental ammunition (acid)`)
+        // or a grade rule in families.mjs that reads "(Grade, Type)" (follow-up).
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elemental-ammunition-greater-cold": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.98t5XqMj2wRKjGsI", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as elemental-ammunition-greater-acid.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elemental-ammunition-greater-electricity": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.xsuxsWD8OT11adpI", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as elemental-ammunition-greater-acid.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elemental-ammunition-greater-fire": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.mwT86aIYuKy9mWHY", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as elemental-ammunition-greater-acid.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elemental-ammunition-greater-poison": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.oS43VwmYZlSLxx1G", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as elemental-ammunition-greater-acid.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elemental-ammunition-lesser-acid": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.zHzAZRDVtl2NFqyh", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as elemental-ammunition-greater-acid.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elemental-ammunition-lesser-cold": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.WnNvHEYObRivN1wI", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as elemental-ammunition-greater-acid.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elemental-ammunition-lesser-electricity": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.IhRPEmA2JlYNiCPK", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as elemental-ammunition-greater-acid.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elemental-ammunition-lesser-fire": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.CGmJzsdRb5aJ4eFn", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as elemental-ammunition-greater-acid.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elemental-ammunition-lesser-poison": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.EVaMsTsWhdPkCtrg", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as elemental-ammunition-greater-acid.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elemental-ammunition-moderate-acid": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.2pB7AsbE0c7HvoZZ", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as elemental-ammunition-greater-acid.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elemental-ammunition-moderate-cold": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.zG5ErG09BZiVIGcP", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as elemental-ammunition-greater-acid.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elemental-ammunition-moderate-electricity": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.39kmT1vcfywtQtg9", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as elemental-ammunition-greater-acid.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elemental-ammunition-moderate-fire": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.xUMgX1vrP4EfLlw2", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as elemental-ammunition-greater-acid.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elemental-ammunition-moderate-poison": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.xZ9fSlTKVpKOCOQm", type: "ammo", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as elemental-ammunition-greater-acid.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "elements-of-creation": {
+        uuid: "Compendium.pf2e.adventure-specific-actions.Item.URZRO1ROM9VOS1nN", type: "action", book: "Pathfinder Lost Omens Highhelm", remaster: false, tier: 4,
+        // Its Crafting rules predicate `creative-spark`, the toggle of Creative Spark (its prerequisite), so no `rollOptions`
+        // effect is needed; listed here because the validator fails an ignored item with a bare Crafting option.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "embed-aeon-stone": {
         uuid: "Compendium.pf2e.feats-srd.Item.EZrxp0XxYh9rjghB", type: "feat", book: "Pathfinder Lost Omens Rival Academies", remaster: true, tier: 2,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "empathic-cords": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.o7JdR8SFXIf5dLIW", type: "equipment", book: "Pathfinder Special: Fumbus!", remaster: false, tier: 4,
+        // Note: one Craft at the listed Price makes both cords of the pair; pf2e has one item for the pair.
         effects: [],
         verified: "pf2e-8.6.1",
     },
@@ -729,6 +1103,20 @@ export const REGISTRY = deepFreeze({
         effects: [
             { kind: "expiryRule", rule: "enduring", when: { any: ["item:trait:elixir", "item:tag:alchemical-tool"] } },
         ],
+        verified: "pf2e-8.6.1",
+    },
+    "energy-resistant": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.Lw3B9DpnyrpXD9Di", type: "equipment", book: "Pathfinder GM Core", remaster: true, tier: 2,
+        // Note: the crafter picks the energy type. pf2e's property keys are per type (acidResistant, coldResistant,
+        // electricityResistant, fireResistant), so the etching is refused as rune-unsupported and the replaced rune's Price is
+        // not found. A `runeChoice {choices}` that maps the pick to the key, and the key back to this item (follow-up).
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "energy-resistant-greater": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.9CAWAKkZE7dr4FlJ", type: "equipment", book: "Pathfinder GM Core", remaster: true, tier: 2,
+        // Note: as energy-resistant, with the greater keys (greaterAcidResistant and the rest).
+        effects: [],
         verified: "pf2e-8.6.1",
     },
     "eternal-elixir": {
@@ -782,6 +1170,13 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "extra-alchemy": {
+        uuid: "Compendium.pf2e.familiar-abilities.Item.ModT5b0jvnaitzJH", type: "action", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        // Note: the extra Advanced Alchemy slot comes from Effect: Extra Alchemy (feat-effects vSUyph3Z6wKl2l6Q) on the
+        // alchemist, which correctPool keeps. The ability sits on the familiar, so the master's held keys never include it.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "fabricated-connections": {
         uuid: "Compendium.pf2e.feats-srd.Item.e6s2nIvlTycuzlR9", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
         effects: [],
@@ -804,10 +1199,19 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "fine-living": {
+        uuid: "Compendium.pf2e.kingmaker-features.Item.CtNmx1wUgHDikQqI", type: "campaignFeature", book: "Pathfinder Kingmaker", remaster: false, tier: 4,
+        // Note: a circumstance bonus to Craft and Earn Income checks in the kingdom; no rule element, and the kingdom holds it,
+        // not a character.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "firework-technician-dedication": {
         uuid: "Compendium.pf2e.feats-srd.Item.MVbNnjqQOK9d8Ki3", type: "feat", book: "Pathfinder Guns & Gears", remaster: true, tier: 3,
         effects: [
             { kind: "vialSource", regain: true },
+            // G5: the uncommon sparkler is open to those who can Craft fireworks (its Access line).
+            { kind: "craftUnlock", access: { all: ["item:slug:sparkler"] } },
         ],
         verified: "pf2e-8.6.1",
     },
@@ -870,6 +1274,13 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "gingerbread-house": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.KaMBXc0Yqn2rAUec", type: "equipment", book: "Pathfinder #182: Graveclaw", remaster: false, tier: 4,
+        // Note: crafted with Cooking Lore instead of Crafting. The rule is on the product, and `craftSkills` reads only the
+        // crafter's keys: a product-side `skillSubstitution` (follow-up).
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "glitter-crystals": {
         uuid: "Compendium.pf2e.feats-srd.Item.sYOaZoPqNBnppY51", type: "feat", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 2,
         effects: [
@@ -928,6 +1339,13 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "haunting-memories": {
+        uuid: "Compendium.pf2e.feats-srd.Item.aprpqUlRpRVXwAJv", type: "feat", book: "Pathfinder Lost Omens Shining Kingdoms", remaster: true, tier: 2,
+        // Note: each daily preparation raises one skill (Crafting to master among them, G3) and gives a skill feat for the day,
+        // with no rule element; the rank must be set by hand.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "healers-toolkit": {
         uuid: "Compendium.pf2e.equipment-srd.Item.s1vB3HdXjMigYAnY", type: "equipment", book: "Pathfinder Player Core", remaster: true, tier: 2,
         effects: [
@@ -964,6 +1382,14 @@ export const REGISTRY = deepFreeze({
             { kind: "skillSubstitution", skill: "nature", when: { all: ["item:trait:alchemical", "item:trait:consumable", "item:trait:healing"] } },
             { kind: "toolSubstitution", tools: ["alchemists-lab"], requires: ["healers-toolkit"], when: { all: ["item:trait:alchemical", "item:trait:consumable", "item:trait:healing"] } },
         ],
+        verified: "pf2e-8.6.1",
+    },
+    "highhelm-stronghold-plate": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.SMruq5revpHcKDdt", type: "armor", book: "Pathfinder Lost Omens Highhelm", remaster: false, tier: 4,
+        // Note: its requirements are headed "Crafting Requirements", which `craftRequirementsOf` does not read, so the casting
+        // pledge (6.9) never asks for its wall of stone (spells-srd kOa055FIrO9Smnya, not linked). A correction naming the
+        // casting, or the heading accepted (follow-up).
+        effects: [],
         verified: "pf2e-8.6.1",
     },
     "horn-of-plenty": {
@@ -1041,6 +1467,13 @@ export const REGISTRY = deepFreeze({
     },
     "inscribed-with-elders-deeds": {
         uuid: "Compendium.pf2e.feats-srd.Item.SIsEvELAKfjZxDwx", type: "feat", book: "Pathfinder #207: The Resurrection Flood", remaster: true, tier: 3,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "instant-fortress": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.EXXqJp8rU6HR5Ufg", type: "equipment", book: "Pathfinder Core Rulebook", remaster: false, tier: 4,
+        // Note: only remake or a legendary crafter can repair it; the Repair service (6.13) offers it to anyone. A product-side
+        // `gate {service: "repair", skill: "crafting", rank: 4}` once built.
         effects: [],
         verified: "pf2e-8.6.1",
     },
@@ -1146,6 +1579,12 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "life-of-luxury": {
+        uuid: "Compendium.pf2e.kingmaker-features.Item.sMBQ8i8xN1X0rSs9", type: "campaignFeature", book: "Pathfinder Kingmaker", remaster: false, tier: 4,
+        // Note: as fine-living, with a larger bonus.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "lightning-snares": {
         uuid: "Compendium.pf2e.feats-srd.Item.4OEZrIefIuIjUDzE", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
         effects: [],
@@ -1160,6 +1599,25 @@ export const REGISTRY = deepFreeze({
     },
     "living-god": {
         uuid: "Compendium.pf2e.feats-srd.Item.1eXHDDOLZATKpWjL", type: "feat", book: "Pathfinder Lost Omens Divine Mysteries", remaster: true, tier: 2,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "lucky-copper": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.awtacA9swoKxH8fY", type: "equipment", book: "Pathfinder Adventures: Troubles in Grayce", remaster: true, tier: 2,
+        // Note: its Craft Requirements make a Craft check under a misfortune effect a critical failure; no product-side degree
+        // effect exists.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "lucky-gold": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.PFkSHCwfrQq3GrOy", type: "equipment", book: "Pathfinder Adventures: Troubles in Grayce", remaster: true, tier: 2,
+        // Note: as lucky-copper.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "lucky-silver": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.4FnFyFOEigjTFs3W", type: "equipment", book: "Pathfinder Adventures: Troubles in Grayce", remaster: true, tier: 2,
+        // Note: as lucky-copper.
         effects: [],
         verified: "pf2e-8.6.1",
     },
@@ -1221,6 +1679,13 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "missive-mint": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.mYfK7M3BhB57LmAl", type: "consumable", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: its Identify Alchemy DC is the creator's class DC with Powerful Alchemy (a DC stamp outside any daily pool), and the
+        // creator may record a short message while making it (like a missive, M9).
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "monster-crafting": {
         uuid: "Compendium.pf2e.feats-srd.Item.kajI2r9RmtW5xYL7", type: "feat", book: "Pathfinder Player Core", remaster: true, tier: 1,
         effects: [
@@ -1252,6 +1717,12 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "muse": {
+        uuid: "Compendium.pf2e.adventure-specific-actions.Item.YOUQFLtfYIbDPO60", type: "action", book: "Pathfinder Treasure Vault", remaster: true, tier: 2,
+        // Note: an item bonus to Crafting or Performance, the holder's choice, by relic level; the module reads neither.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "mutagenist": {
         uuid: "Compendium.pf2e.classfeatures.Item.tvdb1jkjl2bRZjSp", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
         effects: [
@@ -1271,8 +1742,28 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "naturalist": {
+        uuid: "Compendium.pf2e.pathfinder-society-boons.Item.0FwLrQb5EeQDAUNW", type: "feat", book: "", remaster: false, tier: 4,
+        // Note: PFS boon, bought per item; that item may be crafted with Nature, Survival or Herbalism Lore and 2 setup days. No
+        // ChoiceSet names the item, so a `skillSubstitution` has nothing to key on.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "nocticula-minor-boon": {
+        uuid: "Compendium.pf2e.boons-and-curses.Item.0bM6m3Gx8Th3NxXp", type: "feat", book: "Pathfinder Lost Omens Gods & Magic", remaster: false, tier: 4,
+        // Note: once, a failed Crafting check under the night sky becomes a critical success.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "nosois-mask": {
         uuid: "Compendium.pf2e.feats-srd.Item.wEtN2NkqW4z4GUON", type: "feat", book: "Pathfinder Lost Omens Ancestry Guide", remaster: false, tier: 4,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "nudge-the-odds": {
+        uuid: "Compendium.pf2e.spells-srd.Item.QjdvYC1QkpMaemoX", type: "spell", book: "Pathfinder Impossible Magic", remaster: true, tier: 2,
+        // Note: kept up at 5th rank, its effect (spell-effects lTL5VwNrZ5xiitGV, behind its own toggle) may apply to a downtime
+        // Earn Income check with Games Lore, an exception to the activated-bonus guardrail (6.10).
         effects: [],
         verified: "pf2e-8.6.1",
     },
@@ -1295,6 +1786,12 @@ export const REGISTRY = deepFreeze({
     },
     "palette-of-masterstrokes": {
         uuid: "Compendium.pf2e.equipment-srd.Item.ZCWhnOmij4AFaytj", type: "equipment", book: "Pathfinder Kingmaker", remaster: false, tier: 4,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "paradigm-cube": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.zZwpFG8FY0Qwgz7e", type: "equipment", book: "Pathfinder #219: Lord of the Trinity Star", remaster: true, tier: 2,
+        // Note: its Craft Requirements need a mythic arcane caster with mythic Crafting proficiency, beyond G3: a `gate`.
         effects: [],
         verified: "pf2e-8.6.1",
     },
@@ -1386,6 +1883,24 @@ export const REGISTRY = deepFreeze({
         effects: [
             { kind: "expiryRule", rule: "uncapped", when: { all: ["item:trait:mutagen"] } },
         ],
+        verified: "pf2e-8.6.1",
+    },
+    "pheromone-flare-greater": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.p2bU2w6qbtgrBchc", type: "consumable", book: "Pathfinder Howl of the Wild", remaster: true, tier: 2,
+        // Note: as animal-pheromones-greater: one formula covers every common animal, not the uncommon ones.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "pheromone-flare-lesser": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.5QuImSHXH5QTDju1", type: "consumable", book: "Pathfinder Howl of the Wild", remaster: true, tier: 2,
+        // Note: as pheromone-flare-greater.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "pheromone-flare-moderate": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.1AxZlZmCuOK3NtVs", type: "consumable", book: "Pathfinder Howl of the Wild", remaster: true, tier: 2,
+        // Note: as pheromone-flare-greater.
+        effects: [],
         verified: "pf2e-8.6.1",
     },
     "philosophers-extractor": {
@@ -1480,6 +1995,16 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "quick-alchemy@action": {
+        uuid: "Compendium.pf2e.actionspf2e.Item.yzNJgwzV9XqEhKc6", type: "action", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
+        // The action's CraftingAbility merges with the class feature's; alchemy.mjs reads that ability. Keyed apart from the
+        // class feature, which shares the slug.
+        effects: [],
+        relies: [
+            { key: "CraftingAbility", match: { slug: "quick-alchemy", resource: "versatile-vials" } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "quick-bomber": {
         uuid: "Compendium.pf2e.feats-srd.Item.xbg1scOIT7RI9Fij", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
         effects: [
@@ -1502,6 +2027,22 @@ export const REGISTRY = deepFreeze({
     "quick-snares": {
         uuid: "Compendium.pf2e.feats-srd.Item.KW6K5Zv4J7ClWkKA", type: "feat", book: "Pathfinder Core Rulebook", remaster: false, tier: 4,
         effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "quick-study": {
+        uuid: "Compendium.pf2e.feats-srd.Item.aLJsBBZzlUK3G8MW", type: "feat", book: "Pathfinder Advanced Player's Guide", remaster: false, tier: 4,
+        // Note: trained in a Lore of the holder's choice until the next preparations, with no rule element: an Earn Income job in
+        // it is refused as untrained unless the rank is set by hand.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "quick-tincture": {
+        uuid: "Compendium.pf2e.actionspf2e.Item.QHFMeJGzFWj2QczA", type: "action", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        // Note: a versatile-vials CraftingAbility like Quick Alchemy's (7.1); nothing in the module makes items with it yet.
+        effects: [],
+        relies: [
+            { key: "CraftingAbility", match: { slug: "quick-tincture", resource: "versatile-vials" } },
+        ],
         verified: "pf2e-8.6.1",
     },
     "rapid-affixture": {
@@ -1645,6 +2186,19 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "s1-08-river-kingdoms-politician": {
+        uuid: "Compendium.pf2e.pathfinder-society-boons.Item.lJ1lNwGxV0IrsN2z", type: "feat", book: "", remaster: false, tier: 4,
+        // Note: PFS boon: a few Earn Income tasks above the PFS level cap, which the module does not apply (6.10).
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "s1-q06-secrets-of-the-jistkan-alchemists": {
+        uuid: "Compendium.pf2e.pathfinder-society-boons.Item.MLn6UbZsU4PphXLE", type: "feat", book: "", remaster: false, tier: 4,
+        // Note: PFS boon: twice, after the roll, an alchemical Craft's degree may be raised by one; manual and counted, so not a
+        // `degreeShift`.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "schematic-scanner": {
         uuid: "Compendium.pf2e.equipment-srd.Item.0X1s1F8HmEXu3vEj", type: "equipment", book: "Pathfinder #215: To Blot Out the Sun", remaster: true, tier: 2,
         effects: [],
@@ -1680,6 +2234,21 @@ export const REGISTRY = deepFreeze({
         relies: [
             { key: "FlatModifier", match: { selector: "crafting", predicate: ["action:craft", { or: ["item:tag:food", "item:tag:drink", { and: ["feat:magical-crafting", "item:trait:potion"] }, { and: ["feat:alchemical-crafting", "item:trait:elixir"] }] }] } },
         ],
+        verified: "pf2e-8.6.1",
+    },
+    "shelyn-moderate-boon": {
+        uuid: "Compendium.pf2e.boons-and-curses.Item.zoJjzir97Ie7tbp0", type: "feat", book: "Pathfinder Lost Omens Gods & Magic", remaster: false, tier: 4,
+        // Specialty Crafting in every trade, with no rule element: its bonus on every Craft. A held Specialty Crafting's bonus is
+        // also circumstance, so the two do not stack.
+        effects: [
+            { kind: "modifier", slug: "specialty-crafting", type: "circumstance", value: 1, atRank: { skill: "crafting", rank: 3, value: 2 }, when: { not: ["craft-type:deconstruct", "craft-type:quest"] } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "shelyns-grace": {
+        uuid: "Compendium.pf2e.adventure-specific-actions.Item.8Ze3B6HWu2fyKETM", type: "action", book: "Pathfinder Adventure Path: Bastion of Blasphemies", remaster: true, tier: 2,
+        // Note: a room's statue gives an item bonus to Crafting checks there for hours; the GM applies it.
+        effects: [],
         verified: "pf2e-8.6.1",
     },
     "skilled-herbalist": {
@@ -1732,11 +2301,29 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "soothing-powder-greater": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.4hJDqukTYPMZv2vg", type: "consumable", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as bane-ammunition-greater: each persistent-damage type is its own formula.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "soothing-powder-lesser": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.OymrUAv6RGFaI1nm", type: "consumable", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Note: as soothing-powder-greater.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "sour-bomb": {
         uuid: "Compendium.pf2e.feats-srd.Item.Q9PR9achVS7aUDDt", type: "feat", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 2,
         effects: [
             { kind: "additive", when: { all: ["item:trait:bomb"] } },
         ],
+        verified: "pf2e-8.6.1",
+    },
+    "sparkler": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.hd8D1Dm6aVhMYpEL", type: "consumable", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        // Uncommon, open to those who can Craft fireworks: the access grant is on firework-technician-dedication.
+        effects: [],
         verified: "pf2e-8.6.1",
     },
     "specialty-crafting": {
@@ -1750,8 +2337,50 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "spell-effect-garden-of-death-critical-success": {
+        uuid: "Compendium.pf2e.spell-effects.Item.5xCheSMgtQhQZm00", type: "effect", book: "Pathfinder Impossible Magic", remaster: true, tier: 2,
+        // Its Crafting bonus predicates `dealWithGardenOfDeath`, for tending the garden, never a Craft, so the wrapper never sets
+        // it; listed here because the validator fails an ignored item with a bare Crafting option.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "spell-effect-traveling-workshop": {
+        uuid: "Compendium.pf2e.spell-effects.Item.qXWCvqt24iczeN8V", type: "effect", book: "Pathfinder War of Immortals", remaster: true, tier: 2,
+        // On the actor only while the spell lasts, so the spell's crafting rules hang here: a lab (and a forge, a G7 checklist
+        // item), Repair tools, and a day of setup counted as done (2 -> 1 without the formula; 1 -> 0 with it waits on setupPlan).
+        // Not automated: no Earn Income with its rank (a `gate`), and items made vanish once they leave the crafter.
+        effects: [
+            { kind: "toolSubstitution", tools: ["alchemists-lab"] },
+            { kind: "toolSubstitution", tools: ["repair-toolkit"], when: { all: ["action:repair"] } },
+            { kind: "setupDays", days: 1, when: { all: ["route:none"], not: ["craft-type:grow", "craft-type:deconstruct", "craft-type:quest"] } },
+        ],
+        relies: [
+            { key: "ActiveEffectLike", match: { path: "system.skills.crafting.rank" } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "staff-nexus": {
         uuid: "Compendium.pf2e.classfeatures.Item.Klb35AwlkNrq1gpB", type: "feat", book: "Pathfinder Player Core", remaster: true, tier: 3,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "starless-scope": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.TYdFnzhhTlpUdtty", type: "equipment", book: "Pathfinder Adventure: Malevolence", remaster: false, tier: 4,
+        // Note: its formula lets the crafter Craft a starless-scope-lens.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "starless-scope-lens": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.QRtsLdNvTs2C1oI2", type: "equipment", book: "Pathfinder Adventure: Malevolence", remaster: false, tier: 4,
+        // Note: crafted with the scope's formula, at a fixed DC and master rank; neither a cross-item formula route nor a product
+        // DC has an effect kind.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "starstone-aspirant-dedication": {
+        uuid: "Compendium.pf2e.feats-srd.Item.2tF5kSGaSEmhQg1i", type: "feat", book: "Pathfinder Lost Omens Hellfire Dispatches", remaster: true, tier: 2,
+        // Note: a skill picked each daily preparation may be used untrained for trained actions (Craft, G1; Earn Income with a
+        // Lore). pf2e's effect (feat-effects XBJzkEhL6MidoT3o) applies only the bonus; waiving the rank needs a `gate`.
         effects: [],
         verified: "pf2e-8.6.1",
     },
@@ -1769,8 +2398,20 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "storied-talent": {
+        uuid: "Compendium.pf2e.pathfinder-society-boons.Item.M1flDLvjKBH9QPcx", type: "feat", book: "", remaster: false, tier: 4,
+        // Note: PFS boon: Earn Income at the earner's own level instead of the PFS cap, which the module does not apply (6.10).
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "strikers-scroll": {
         uuid: "Compendium.pf2e.feats-srd.Item.Gz9NQBjSDRQP8YTY", type: "feat", book: "Pathfinder Impossible Magic", remaster: true, tier: 2,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "sun-orchid-elixir": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.P9dhnMcr3lbHBn2E", type: "consumable", book: "Pathfinder Lost Omens World Guide", remaster: false, tier: 4,
+        // Note: a month to brew and a unique formula; pf2e gives it no Price, so G12 refuses it until the GM prices it.
         effects: [],
         verified: "pf2e-8.6.1",
     },
@@ -1824,10 +2465,25 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "tears-of-the-last-azlanti": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.2VpuNz8EyXpvUf7P", type: "equipment", book: "Pathfinder #156: The Apocalypse Prophet", remaster: false, tier: 4,
+        // Note: one bail is active a day; one makes downtime checks one degree better, another raises the Craft level cap (G2).
+        // Nothing records which.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "tenacious-toxins": {
         uuid: "Compendium.pf2e.feats-srd.Item.FdP21jbjHHGpHut1", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
         effects: [
             { kind: "afflictionModifier", mod: "tenacious-toxins", as: "creator" },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "tengu-weapon-familiarity": {
+        uuid: "Compendium.pf2e.feats-srd.Item.AmFv3ClkAVRowHLI", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            // G5: uncommon tengu weapons and the four named swords (pf2e's own MartialProficiency misspells two of the slugs).
+            { kind: "craftUnlock", access: { all: ["item:type:weapon", "item:rarity:uncommon"], any: ["item:trait:tengu", "item:slug:katana", "item:slug:khakkhara", "item:slug:temple-sword", "item:slug:wakizashi"] } },
         ],
         verified: "pf2e-8.6.1",
     },
@@ -1841,6 +2497,13 @@ export const REGISTRY = deepFreeze({
         effects: [
             { kind: "toolSubstitution", tools: ["artisans-toolkit"] },
         ],
+        verified: "pf2e-8.6.1",
+    },
+    "toothwort-extract": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.k5A8zFQuDtGqNnk5", type: "consumable", book: "Pathfinder Lost Omens Travel Guide", remaster: false, tier: 4,
+        // Note: an additive consumable for Quick Alchemy poisons that lengthens their maximum duration; `additive` is feat-shaped
+        // and no affliction mod covers it.
+        effects: [],
         verified: "pf2e-8.6.1",
     },
     "torags-silver-anvil": {
@@ -1872,8 +2535,22 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "traveling-workshop": {
+        uuid: "Compendium.pf2e.spells-srd.Item.rzcXUF5YmJYxgxEa", type: "spell", book: "Pathfinder War of Immortals", remaster: true, tier: 2,
+        // Note: the focus spell is always on the animist; its crafting rules are on spell-effect-traveling-workshop, present only
+        // while the spell lasts.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "tsukumogami-poppet": {
         uuid: "Compendium.pf2e.heritages.Item.cKgxEWnRVazFPi3M", type: "heritage", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 2,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "twilight-talon-dedication": {
+        uuid: "Compendium.pf2e.feats-srd.Item.q8xL4l04rFcc126W", type: "feat", book: "Pathfinder Lost Omens Hellfire Dispatches", remaster: true, tier: 2,
+        // Note: a Lore picked at each daily preparation is trained (or better) until the next, with no rule element: an Earn
+        // Income job in it is refused as untrained unless the rank is set by hand.
         effects: [],
         verified: "pf2e-8.6.1",
     },
@@ -1889,6 +2566,20 @@ export const REGISTRY = deepFreeze({
     },
     "unassuming-dedication": {
         uuid: "Compendium.pf2e.feats-srd.Item.A1RzkLCj7mXJI1IY", type: "feat", book: "Pathfinder Lost Omens Character Guide", remaster: false, tier: 4,
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "underground-bounty": {
+        uuid: "Compendium.pf2e.adventure-specific-actions.Item.ZFM7vgRwRqdNOelg", type: "action", book: "Pathfinder #194: Cult of the Cave Worm", remaster: false, tier: 4,
+        // Relic gift: a shard conjured at daily preparations that lasts until the next (7.10's shape).
+        effects: [
+            { kind: "dailyGap", flow: "note" },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "unholy-skill": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.BHS27XtpW9icogkz", type: "equipment", book: "Pathfinder Lost Omens Cheliax, Infernal Inheritance", remaster: true, tier: 2,
+        // Note: the contract's devil may take an expert Earn Income task's pay once a week; the holder's own income is unchanged.
         effects: [],
         verified: "pf2e-8.6.1",
     },
@@ -1974,6 +2665,21 @@ export const REGISTRY = deepFreeze({
     "woodworker": {
         uuid: "Compendium.pf2e.feats-srd.Item.uofXCv2t8C2IRsr0", type: "feat", book: "Pathfinder Rage of Elements", remaster: true, tier: 2,
         effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "worldforge": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.Im3tgXhR9W1CGaHo", type: "equipment", book: "Pathfinder War of Immortals", remaster: true, tier: 2,
+        // Note: a mythic Crafting activity with GM-set DC and cost in which each day counts as ten and costs a Mythic Point or
+        // drained; no effect kind multiplies days or gates on mythic rank.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "zon-kuthon-moderate-boon": {
+        uuid: "Compendium.pf2e.boons-and-curses.Item.QVEkEdxCnoGxMo9l", type: "feat", book: "Pathfinder Lost Omens Gods & Magic", remaster: false, tier: 4,
+        // Scars that work as a scroll, formed at each daily preparation (7.10's shape).
+        effects: [
+            { kind: "dailyGap", flow: "note" },
+        ],
         verified: "pf2e-8.6.1",
     },
 });

@@ -2338,12 +2338,58 @@ daily preparation or Earn Income, beyond what the system's own rule elements alr
   `quickDeploy` (Giant Snare, Broad Snare); the entries `legendary-tattoo-artist` (off the ignore list) and `inventor@class` (uncommon
   gadgets); 286 entries and 1166 ignored UUIDs, validated against the pf2e dev head `be4ab21b` checkout. The class's own key also
   closes, for `inventor`, the slug collision of the follow-up below: the slug is shared, so the slug fallback no longer applies.
+- **As built in the M12 completeness review** (2026-10-27): each of the 760 candidates the scan reported at `pf2e-8.6.1`
+  (all 25 Item packs) now has an entry or an ignore reason, so `validate-registry --enforce` passes with 0 unlisted and 0
+  problems: 389 entries (tier 1 51, tier 2 200, tier 3 51, tier 4 87) and 1823 ignored UUIDs under 29 reason codes.
+  - 657 onto the ignore list: `fp-craft-verb` 247, `fp-daily-prep` 243, `gear-mundane` 32 (the firearm rounds, whose
+    alchemical trait already gates them through G4), `gear-alchemical` 24, `proficiency` 23, `gear-magical` 18, `gear-tattoo`
+    11, `fp-incidental` 10, `gear-food` 8, `legacy-combat` 6, `craft-requirements` 6, `fp-staff` 6, `core-activity` 5,
+    `gear-rune` 5, `creature-ability` 3, `fp-ammo` 3, `gear-talisman` 2, `fp-invent` 2, `fp-toolkit` 1, `fp-downtime` 1,
+    `combat` 1. Four codes are new: `fp-daily-prep` (daily preparations only as a reset, a duration or a non-item choice;
+    it also takes the reviewed mentions of that kind first filed as `fp-incidental`), `core-activity` (Craft, Earn Income,
+    Repair, Deconstruct and Grow themselves), `creature-ability`, and `craft-requirements` (a narrative Craft Requirement
+    that G9's checklist reads at runtime, where the scan matched the requirement itself).
+  - 103 into the registry. Automated with kinds already built: Brigh's moderate boon (a `rollOptions` option on
+    `route:invent`, which three `degreeShift`s key on, since the invent route's roll has no option of its own), Shelyn's
+    moderate boon (Specialty Crafting's `modifier` on every Craft but Deconstruct and quests), the PFS Crafter's Workshop
+    (`setupDays` 1, not for reverse engineering), the Traveling Workshop spell effect (an alchemist's lab, Repair tools,
+    and a day of setup counted as done without the formula; its ActiveEffectLike rank in `relies`), Tengu Weapon
+    Familiarity (`craftUnlock` access to uncommon tengu weapons and four named swords); `dailyGap` notes for Create Familiar
+    Fulu, Apothecary's Garden, Underground Bounty and Zon-Kuthon's moderate boon; `relies` guards on Quick Alchemy's action,
+    Quick Tincture and Abadar's moderate boon. Quick Alchemy's action shares its slug with the class feature, so it is keyed
+    `quick-alchemy@action` and each is matched by its UUID only. Firework Technician Dedication gains the sparkler's access
+    (`craftUnlock`). The rest are notes (no effects), each with a comment naming what it would need.
+  - Two are in the registry only because the validator fails an ignored item whose Crafting rule predicates a bare option:
+    Elements of Creation (`creative-spark`, the toggle of its prerequisite Creative Spark) and Garden of Death's
+    critical-success effect (`dealWithGardenOfDeath`, which is never a Craft).
+  - The registry test's UUID check accepts digits in a pack name (`actionspf2e`).
+- **Follow-ups (M12 completeness review, low).** Notes whose effect needs code first:
+  - `formulaFamily`: the fifteen elemental ammunitions are named "(Grade, Type)", which `GRADE` in `families.mjs` never
+    strips, so each is a family of one; a registry override fed to `familyOverride` (6.4), or a grade rule for such names.
+  - `runeChoice`: Energy-Resistant and its greater grade are one compendium item each for four pf2e property keys
+    (`acidResistant` and the rest), so the etching is refused as rune-unsupported and an upgrade cannot price the rune it
+    replaces.
+  - `gate`: the demilich eye gem (cannot be crafted, yet has a Price), the instant fortress (Repaired only by a legendary
+    crafter; a product-side gate on the Repair service), the paradigm cube (mythic Crafting), the addiction suppressants
+    (made from the drug, above its level), Starstone Aspirant Dedication (a trained action used untrained), and the
+    Traveling Workshop's rank, which may not Earn Income.
+  - `earnIncome {doubleSuccess}`: Abadar's moderate boon pays double on a success.
+  - Product-side effects read from the product's own entry, as `consumableFix` is: the gingerbread house's Cooking Lore, the
+    lucky coins' critical failure under a misfortune effect, the starless scope lens's fixed DC and cross-item formula.
+  - The Highhelm stronghold plate's requirements are headed "Crafting Requirements", which `craftRequirementsOf` does not
+    read, so its casting pledge (6.9) is never asked; accept the heading, or name the casting in a correction.
+  - Ranks and feats picked at daily preparations with no rule element (Twilight Talon, Starstone Aspirant, Haunting
+    Memories, Aroden's Innovation, Consult the Stars, Quick Study): a Morning pick that writes the rank or feat for the day.
+  - One compendium item for several formulas (the bane ammunitions, soothing powders, animal pheromones and repellents,
+    pheromone flares): a formula per variant.
+  - The Azlanti diamond: a `modifier` that scales with level, and an exception to the specific-item rune rule (G12) and
+    the etch Price.
+  - Extra Alchemy sits on the familiar, so the master's held keys never include it; Quick Tincture's versatile-vials
+    `CraftingAbility` is used by nothing yet (7.1); Borrow Time's slug is shared with the chronoskimmer feat (the `heldKeys`
+    slug fallback below).
 - **Follow-ups (M3, low).**
-  - The completeness candidates (760 at `pf2e-8.6.1` over all 25 Item packs, mostly equipment and spells mentioning
-    daily preparations, and 21 in the packs CI's checkout used to leave out: the Pathfinder Society boons Crafter's
-    Workshop, Storied Talent and River Kingdoms Politician, the Shelyn, Brigh and Abadar boons and the Torag curse, the
-    Traveling Workshop spell effect and others) are unreviewed: each needs an entry or an ignore reason before the
-    stable release enforces the scan.
+  - Done in the M12 completeness review (above): the 760 completeness candidates at `pf2e-8.6.1` each have an entry or an
+    ignore reason, so the stable release's enforced scan passes.
   - Tier-2 notes that could carry effects later: the schematic scanner's +2 (needs the formulas stored in it), the
     Tattooed Historian's access to orc tattoos (no trait marks them), the artifex telluria's bare option, Junk
     Tinker's and Monster Crafting's material sources (M5), and the flawless celestial shawl's one-degree-better
@@ -8437,8 +8483,8 @@ made. `tools/` holds the scripts, `.github/` the workflows and forms; the script
 3. Rewrites every string, the README (For GMs included), the package description, `module.json`'s title and description
    (which still says "Development build; not released yet" and ships in every release until then), and signs them off
    (`npm run signoff`), so the strings gate passes in enforce mode.
-4. Gets the registry's completeness to zero against the pinned pf2e (760 candidates unlisted at `pf2e-8.6.1` in CI's
-   report), or the stable release's `registry` job fails.
+4. Keeps the registry's completeness at zero against the pinned pf2e, or the stable release's `registry` job fails: zero at
+   `pf2e-8.6.1` since the M12 completeness review (6.11); a new pin's candidates need the same review.
 5. Raises `compatibility.verified` and the pf2e relationship's `verified` to the builds the section 15 matrix ran on (3.1).
 6. Creates the package on foundryvtt.com (the listing submission is by hand), adds the package release token from its
    edit page as the `FOUNDRY_RELEASE_TOKEN` repository secret, publishes the stable release, checks the `publish` job's
