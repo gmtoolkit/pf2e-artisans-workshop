@@ -174,6 +174,26 @@ Target: a `verified` bump within a week of each pf2e release. Upstream issues wo
 (Earn Income pays nothing), #10411 (reroll breaks the craft card), #20606 (quick vials), #21091
 (Powerful Alchemy), and the expected move of character and party sheets to ApplicationV2 and Svelte.
 
+**As built in M12 (2026-10-27; not run on GitHub yet).** `.github/workflows/pf2e-watch.yml`, daily at 06:17 UTC and on
+demand, with `tools/pf2e-watch.mjs`. The baseline is the release CI pins: the watch reads `ref: <sha> # pf2e-x.y.z` under
+`repository: foundryvtt/pf2e` in `ci.yml`, so its findings stay the same until that pin moves. (1) Releases are the tags
+matching `pf2e-<major>.<minor>.<patch>` exactly: "starts with `pf2e-`" also matched the `pf2e-anachronism-*` tags that
+share the repository. Newer than the pin by version, from the newest 100 releases of the repository. (2) Instead of a
+diff, the commits on the default branch (read from the API: `v14-dev` today) since the pinned commit's date that touch a
+watched path (the list above, `WATCHED_PATHS`), and the watched paths the dev head no longer has (a moved file would
+otherwise drop out of the watch silently). (3) The registry validation runs in report mode against sparse checkouts of
+the pinned release, the newest release (when it is not the pinned one) and the dev head, the pinned run's `--json` being
+the `--affliction-baseline` of the other two. (4) The lines of the newer releases' notes that name a watched word (as
+words: `\brest\b`, not "restore"). Foundry release milestones are not watched (16.9, Follow-ups). Anything new (a
+release, a commit, a missing path, a failed validation, a changed affliction reading, more unlisted candidates than the
+pin has) opens the "pf2e churn watch" issue or updates the open one; the issue carries a digest of the findings, and a
+last issue (open or closed) with the same digest is left alone, so closing it without moving the pin keeps it closed
+until something else changes. The report quotes pf2e's notes and commit titles in code spans (no live @mention or
+#reference) and never links a pf2e issue, so it neither pings nor cross-links upstream. The job installs nothing (the
+watch and the validator use Node's own modules), so no third-party code runs with its `issues: write` token. Run against
+the GitHub API on 2026-10-27 (pin `pf2e-8.6.1`, dev head `057bd484`): no newer release; three watched paths changed
+(`character/crafting/`: #23495's infused ammunition fix; `actor/party/`; `hooks/load.ts`). Tests: `test/pf2e-watch.test.mjs`.
+
 ---
 
 ## 4. Domain model
@@ -7813,6 +7833,12 @@ definition digest, and `--affliction-baseline <json>` lists the candidates whose
 Against the pinned `pf2e-8.6.1` and the dev head `be4ab21b`, with every Item pack (CI's checkout takes all 25): 201 candidates, 86
 read fully, 110 overridden, 5 ignored, none failing (10.15); `spells` and `bestiary-family-ability-glossary` hold 37 of them.
 
+As built in M12: CI's sparse checkout also takes `packs/pf2e/journals/`. `test/foundry/harness-m9a.test.mjs` has read that
+pack under PF2E_SRC since M9a (the Downtime Events page of the GM Screen), and without it the `registry` job failed on main
+(run 40508243710, the M11 merge). `test/release-workflows.test.mjs` now checks that every pack folder and source file a
+PF2E_SRC test reads (`packIds`, `packItems`, `source` calls) is in the checkout, and that `release.yml` and the churn watch
+check out the same list as `ci.yml`.
+
 ### 15.3 Local Foundry harness
 
 - Foundry Node build under Node 24 with its own data path and port, not reachable by anyone but the
@@ -8205,6 +8231,12 @@ deliberate lock collisions of scenario 7, `resume` and `m6-income`, the dropped 
   without a view.
 - The Funds tab lists every ledger row (338 at S2) and grows with them: 30 ms at S2, inside the budget; a page would bound it as
   it bounds the Queue.
+**Follow-ups** (low, except the first two, which are the archiving work 5.3.3 already describes):
+
+- Archiving (5.3.3) and with it the pruning of lock pages (5.4) are built in no milestone; until they are, a long campaign's
+  ledger only grows, and every write with it (above). Medium for 1.0: worth a milestone of its own before the listing.
+- The Queue lists every order ever made, the closed ones until archiving: at 200 orders its render is over budget, and most of
+  it is Foundry's work on the DOM. Archiving answers it; a collapsed "Closed" group or paging would until then.
 - An Advance days commit writes each PC's days in its own request, then each earner's wages, then the logged-day mark and the
   card: 10 requests for five PCs, each a ledger update every client re-initialises. One request for all the PCs' days would
   shorten it further.
@@ -8237,8 +8269,8 @@ URL. Nothing is listed on foundryvtt.com until the whole scope in section 1 is d
   registered with the Package Release API, and keep their version-specific manifest URL, so the
   test-table build of M12 can ship before the author's rewrite in M13. Then stamp `version`,
   `manifest` and `download` into `module.json`; zip only the shipped files (`module.json`, `scripts/`,
-  `templates/`, `styles/`, `lang/`, `LICENSE`, `README.md`, `CHANGELOG.md`), never `docs/` (the package description
-  and the README screenshots of 17.1); upload `module.json` and
+  `templates/`, `styles/`, `lang/` without `lang/review/`, `LICENSE`, `NOTICE`, `README.md`, `CHANGELOG.md`), never
+  `docs/` (the package description and the README screenshots of 17.1); upload `module.json` and
   `module.zip`; then, for stable releases only, register the release with the Package Release API.
   Actions are pinned by commit SHA.
 
@@ -8300,7 +8332,8 @@ anywhere else, fails as before (`test/check-assets.test.mjs`).
 
 ### 16.6 Licences and notices
 
-- Code: MIT (`LICENSE`).
+- Code: MIT (`LICENSE`, the licence text alone, so GitHub and Foundry read it as MIT). The notices below are in
+  `NOTICE`, which ships in the zip (16.9).
 - The module ships no Paizo text. It does ship numeric mechanics (the tables in 6.1 and 6.16, rarity
   adjustments, thresholds and caps, the affliction overrides of 8.10.2), which come from ORC-licensed
   Remaster books (Player Core, Player Core 2, GM Core, Treasure Vault (Remastered)), plus the Secrets of
@@ -8323,8 +8356,121 @@ follow once the English strings are signed off.
 ### 16.8 Support files
 
 Issue forms (bug report requiring Foundry build, pf2e version, host, module version, other active
-modules and console errors; blank issues disabled), a Keep-a-Changelog `CHANGELOG.md`, and a "For GMs"
+modules and console errors; blank issues disabled), a Keep-a-Changelog `CHANGELOG.md`, `CONTRIBUTING.md` (16.9), and a "For GMs"
 README section: what the module changes, every setting, how to turn it off, how to remove its data.
+
+### 16.9 As built in M12: release engineering
+
+Built 2026-10-27 and tested locally; nothing has run on GitHub: no tag, release, upload or foundryvtt.com request has been
+made. `tools/` holds the scripts, `.github/` the workflows and forms; the scripts use Node's own modules only.
+
+- **The release workflow** (`.github/workflows/release.yml`, on `release: published`, one run per tag). `plan` runs
+  `tools/release-plan.mjs` on the event: the tag must be the bare semver, never `0.0.0`, and a stable release has no
+  pre-release suffix (it would land on the stable channel); its outputs are `version`, `prerelease`, `strings-mode` and
+  `registry-mode` (`enforce` for a stable release, `report` for a pre-release), `publish` (a stable release and the
+  `FOUNDRY_RELEASE_TOKEN` secret present; the step gets only `secrets.FOUNDRY_RELEASE_TOKEN != ''`, never the token) and
+  `notes-url` (the release page, or nothing). `check` is CI's checks with the strings gate in the plan's mode; `registry`
+  is CI's registry job (same pin, same sparse checkout) with `--enforce` in enforce mode, then the PF2E_SRC tests.
+  `package` runs after both and is the only job with `contents: write`, so it installs nothing: `tools/package-release.mjs
+  --version <tag> [--prerelease] --out dist`, then `gh release upload` of `dist/module.json` and `dist/module.zip`.
+  `publish` runs only when the plan says so: `tools/publish-foundry.mjs`. Values reach shell steps through `env`, never
+  by interpolating an expression into the script. The release exists before the workflow runs, so a failed run leaves it
+  without assets: delete the release and its tag, fix, and publish again.
+- **Packaging** (`tools/package-release.mjs`, `tools/zip.mjs`). The stamp sets `version`, `manifest` (`releases/latest`
+  for a stable release, the version's own URL for a pre-release) and `download`, removes `flags.MOD.unreleased` (and the
+  module's flags object when that leaves it empty) and keeps everything else in its order; the stamped manifest must pass
+  `tools/check-manifest.mjs`. The zip holds `ZIP_PATHS` (`module.json`, `LICENSE`, `NOTICE`, `README.md`, `CHANGELOG.md`,
+  `scripts/`, `templates/`, `styles/`, `lang/`) less `NEVER_SHIPPED` (`lang/review/`: the sign-off hashes are the gate's,
+  not the module's), taken from the files git would track (the asset check's `listFiles`, so whatever ships has passed
+  the asset check, whose `SHIPPED` list a test holds to `ZIP_PATHS`), with the stamped manifest inside; every file the
+  manifest names (code, styles, languages, licence) must be in it. The zip is written with Node's zlib rather than a
+  `zip` binary: deflate (stored where that is smaller), timestamps fixed at 1980-01-01, Unix modes (0644 files, 0755
+  folders), a folder entry before its files, no Zip64 (refused past the classic limits), so the same files always give
+  the same SHA-256; it is read back (CRC-32 and size of every entry, the exact file list, the stamped manifest) before
+  either file is written. A stable release refuses to package while an `AUTHOR-TODO` placeholder is in a shipped file or
+  the package description (16.6); a pre-release only warns. Without `--out` it is the local dry run
+  (`npm run release:dry-run -- --version <x.y.z> [--prerelease]`), into a new folder under the system's temp directory,
+  printing the URLs, the file count, the size and the SHA-256; a refused dry run leaves no folder. Dry run on 2026-10-27
+  as 0.12.0, pre-release: 179 files, about 824 KB; `unzip -t` and Python's `zipfile` read it clean.
+- **The Package Release API** (`tools/publish-foundry.mjs`). It first reads the release's own `module.json` back from
+  GitHub, as Foundry will (this package's id, this version, this release's zip, no unreleased marker), and checks the zip
+  downloads; then it posts `{id, release: {version, manifest, notes, compatibility}}` with the token as the
+  `Authorization` header, `manifest` being the version-specific URL and `notes` the release page. "The first run uses
+  dry-run" (16.3) is the repository variable `FOUNDRY_RELEASE_LIVE`: until it is `"true"` every request carries
+  `"dry-run": true`, so foundryvtt.com validates it and changes nothing; the author sets it once a dry run has passed and
+  re-runs the `publish` job. The token comes from the environment only and is never printed.
+- **The gates by channel.** Strings gate (16.4) and registry completeness (6.11): enforce for a stable release, report for
+  a pre-release. Notice placeholders: refused for a stable release, a warning for a pre-release.
+- **The churn watch**: 3.3, As built in M12.
+- **Support files** (16.8). Issue forms in `.github/ISSUE_TEMPLATE/`: a bug report that requires the module version, the
+  Foundry build, the pf2e version, the host, who was connected (GM and players, players only, GM only), the other active
+  modules, what happened, the steps and the console errors; a feature request; a translation offer that requires the
+  fluent-speaker confirmation of 16.7; blank issues off, with a link to the README's For GMs. The README's "For GMs"
+  section: what the module changes in a world, every setting a user can change (by group, with its key, default and what
+  it does; `test/foundry/readme-settings.test.mjs` fails on a registered setting without a row, a row for no setting, or
+  a wrong scope), the keybindings, turning it off, and removing its data with what the purge does not reach. `CONTRIBUTING.md`
+  with the AI content policy note: UI strings are drafted with the code and rewritten by the author, only the author signs
+  off, no AI images, translations reviewed by a fluent speaker. All of it is draft text (the README part is under the
+  strings gate as `file:README.md`).
+- **Licences and notices** (16.6). `LICENSE` is the MIT text alone. `NOTICE` (shipped) holds the Community Use Policy
+  notice, the ORC notice and the Open Game License part (designation, the full licence, section 15); the README and the
+  package description carry the same CUP notice, ORC notice and section 15 (`test/notices.test.mjs`). Every piece that
+  must come verbatim from a licensor, or is the author's own legal choice, is an `AUTHOR-TODO` placeholder: the ORC
+  licence-location statement, the upstream attribution lines, this module's credit line, Reserved Material, Expressly
+  Designated Licensed Material, the OGL designation of Open Game Content and Product Identity, the full OGL 1.0a text, and
+  the section 15 lines.
+- **CI fix**: `packs/pf2e/journals/` joins the pf2e sparse checkout (15.2, As built in M12).
+- Tests: `test/zip.test.mjs`, `package-release.test.mjs`, `release-plan.test.mjs`, `publish-foundry.test.mjs`,
+  `pf2e-watch.test.mjs`, `release-workflows.test.mjs` (the workflows read as text: SHA pins, Node 24, permissions, the
+  plan's outputs and where each gate reads its mode, the token's reach, no expression in a script, the sparse lists, the
+  issue forms), `notices.test.mjs`, `foundry/readme-settings.test.mjs`.
+
+**Before 1.0, the author:**
+
+1. Pastes the licensors' text into the `AUTHOR-TODO` placeholders of `NOTICE`, the README and the package description,
+   alike in all three (the notices test holds them together): the ORC licence-location statement from the ORC License;
+   the attribution line of each ORC work used, from that book's own ORC notice; the OGL 1.0a text; each OGL book's section
+   15 lines from that book. Decides the source list first (Follow-ups: 16.6 names four ORC books, the registry cites more),
+   and the module's own credit line, Reserved Material, Expressly Designated Licensed Material and OGL designation.
+2. Checks the Community Use Policy notice word for word against paizo.com/licenses/communityuse: it was written in M0,
+   and the test holds the repository's copy, not Paizo's.
+3. Rewrites every string, the README (For GMs included), the package description, `module.json`'s title and description
+   (which still says "Development build; not released yet" and ships in every release until then), and signs them off
+   (`npm run signoff`), so the strings gate passes in enforce mode.
+4. Gets the registry's completeness to zero against the pinned pf2e (760 candidates unlisted at `pf2e-8.6.1` in CI's
+   report), or the stable release's `registry` job fails.
+5. Raises `compatibility.verified` and the pf2e relationship's `verified` to the builds the section 15 matrix ran on (3.1).
+6. Creates the package on foundryvtt.com (the listing submission is by hand), adds the package release token from its
+   edit page as the `FOUNDRY_RELEASE_TOKEN` repository secret, publishes the stable release, checks the `publish` job's
+   dry run passed, sets the repository variable `FOUNDRY_RELEASE_LIVE` to `true`, and re-runs that job. Checks the
+   request against https://foundryvtt.com/article/package-release-api/ first: it follows 16.3, not the article.
+7. Reads and rewrites, or approves, `CONTRIBUTING.md` (it says contributions are under MIT, and describes the AI policy on
+   the author's behalf) and the issue forms' wording; creates the `translation` label (GitHub skips a form's labels that
+   do not exist).
+8. Optionally puts the `publish` job behind a GitHub environment with a required reviewer.
+
+For M12's test table: publish a GitHub pre-release (tag `0.12.0` or `0.12.0-rc.1`, "Set as a pre-release" ticked) and give
+the GM `https://github.com/gmtoolkit/pf2e-artisans-workshop/releases/download/<tag>/module.json`.
+
+**Follow-ups** (all low):
+
+- `rules.costOfLiving` is registered and shown in Configure Settings, but nothing reads it (10.12 said so for M6); a GM who
+  turns it on sees no change. The README's row says "Not applied yet". Apply it or hide the setting before 1.0.
+- `afflictions.notify` reuses `notify.level`'s choice labels, so its default reads "Orders that involve my characters" for
+  affliction notices (the README's row says "yours").
+- The purge (5.9) reaches no hotbar macro made from the shelf (they carry `flags.MOD.macro`), no affliction effect left on
+  a creature, and no "(inert)" suffix; the README says so. Removing the module's macros would fit the purge.
+- The churn watch does not watch Foundry release milestones (3.3, item 4), and reads only the newest 100 releases of
+  pf2e's repository (shared with SF2e and the anachronism modules), about a year of them.
+- `release.yml`'s `check` and `registry` jobs repeat CI's steps, and the pf2e sparse list is written out four times across
+  three workflows (a test holds them equal). A reusable workflow (`workflow_call`) would hold one copy.
+- The ORC and OGL source list: 16.6 names Player Core, Player Core 2, GM Core and Treasure Vault (Remastered) as the ORC
+  sources and Secrets of Magic plus the legacy registry entries as the OGL ones, but the registry's `book` fields cite
+  about 30 Remaster-flagged publications (Player Core 2 85 times, Tian Xia Character Guide 21, Guns & Gears 18, Impossible
+  Magic 11, ...) and about 20 legacy ones (Core Rulebook 18, Lost Omens and Adventure Path volumes). A publication's
+  remaster flag is not its licence (Guns & Gears is flagged remastered). List them with
+  `node -e 'const {REGISTRY}=await import("./scripts/data/registry.mjs");const m={};for(const e of Object.values(REGISTRY))m[e.book]=(m[e.book]??0)+1;console.log(m)'`
+  and decide which need attribution (the module ships numbers only).
 
 ---
 
@@ -8349,8 +8495,8 @@ draft; the letters keep the existing milestone numbers stable.
 | M9a | Treasure Vault (Remastered) variants | 6.16 behind their settings: Complex Crafting and Quick Setup (setup, rush, sub-day setups, rushed finishing), crafting with adjustments, downtime events, Critical Crafting, Deconstruct and components, Grow with untended growth and seasons, gardens, bestowed gifts, crafting quests; the one-group-at-a-time notice; harness scenario 13; built, live plans passed (10.17, M9a live pass) | M5 (service orders, materials, Repair), M6 (day resolver, seasons, events), M7 (expiry stamps and the inert guard for produce, components and gifts) |
 | M10 | Extension API | registration, interfaces, hooks, extension store; the separate circus module built against it as acceptance test; built, live plans not yet run (12.6) | M6 |
 | M11 | Integration surface | sheet and party entry points, macros and shelf, keybindings, theming, accessibility pass; built, live plans not yet run (10.18) | M4-M9a |
-| M12 | Hardening | full section 15 matrix, performance, pre-release to a test table by manifest URL; the first pre-release run at a real table hosted on the Forge is the Forge smoke test (15.6) | M10, M11 |
-| M13 | Listing | author rewrites every string, README and description; sign-off gate passes; notices final; release workflow dry run; listing submission; 1.0.0 | M12 |
+| M12 | Hardening | full section 15 matrix, performance, pre-release to a test table by manifest URL; the first pre-release run at a real table hosted on the Forge is the Forge smoke test (15.6); release engineering (the release workflow, packaging and its dry run, the Package Release API step, the churn watch, issue forms, For GMs, CONTRIBUTING, LICENSE and NOTICE) built, not run (16.9) | M10, M11 |
+| M13 | Listing | author rewrites every string, README and description; sign-off gate passes; notices final (no `AUTHOR-TODO` left, 16.9); release workflow dry run (`npm run release:dry-run`, then the Package Release API's dry run before `FOUNDRY_RELEASE_LIVE`, 16.9); listing submission; 1.0.0; the author's list in 16.9 | M12 |
 
 ### 17.1 Scheduled task: README screenshots
 

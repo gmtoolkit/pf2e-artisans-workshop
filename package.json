@@ -16,6 +16,7 @@
     "check:manifest": "node tools/check-manifest.mjs",
     "validate:registry": "node tools/validate-registry.mjs",
     "macros": "node tools/write-macros.mjs",
+    "release:dry-run": "node tools/package-release.mjs",
     "signoff": "node tools/signoff-strings.mjs",
     "harness:live": "node tools/harness/run-live.mjs",
     "harness:perf": "node tools/harness/perf.mjs",

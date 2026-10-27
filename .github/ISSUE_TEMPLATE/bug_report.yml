@@ -1,0 +1,99 @@
+# Draft wording (DESIGN.md 16.8, 16.9): the fields are what a crafting report needs to be reproduced; the author may
+# rewrite the text.
+name: Bug report
+description: Something the Workshop does is wrong, or it stops working.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. A report we can reproduce gets fixed first, so please fill in every field.
+        If you can, try once with only the PF2e system and this module active (Foundry's Find the Culprit does this for you).
+
+  - type: input
+    id: module-version
+    attributes:
+      label: Module version
+      description: Shown in Manage Modules, for example 0.12.0.
+      placeholder: "0.12.0"
+    validations:
+      required: true
+
+  - type: input
+    id: foundry
+    attributes:
+      label: Foundry build
+      description: The build number shown at the top of the Settings sidebar, for example 14.369.
+      placeholder: "14.369"
+    validations:
+      required: true
+
+  - type: input
+    id: pf2e
+    attributes:
+      label: PF2e system version
+      description: Shown in the Settings sidebar under Game System, for example 8.6.1.
+      placeholder: "8.6.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      description: Where the world runs.
+      options:
+        - Self-hosted (Node.js server)
+        - Foundry desktop app
+        - The Forge
+        - Molten Hosting
+        - Another hosting service
+    validations:
+      required: true
+
+  - type: dropdown
+    id: connected
+    attributes:
+      label: Who was connected
+      description: The Workshop works without a GM online, so this matters.
+      options:
+        - A GM and players
+        - Players only, no GM
+        - A GM only
+    validations:
+      required: true
+
+  - type: textarea
+    id: modules
+    attributes:
+      label: Other active modules
+      description: Every module active in the world besides this one, with versions if you can (Manage Modules), or "none".
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: From a fresh start, the steps that make it happen. Name the class, level and feats of the characters involved.
+      placeholder: |
+        1. As a player, open the Workshop and request ...
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Console errors
+      description: Press F12, open the Console tab, make it happen again, and paste any red lines here (or "none").
+      render: text
+    validations:
+      required: true

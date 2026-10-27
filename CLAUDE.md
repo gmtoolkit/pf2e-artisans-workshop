@@ -89,6 +89,17 @@ five members and 60 workshop days and times and profiles the window, writes, rec
 and holds every stage to the 50 ms re-render budget (`budgetChecks`); the Queue lists a page of orders at a time
 (`QUEUE_PAGE`, DESIGN 10.3). Archiving (5.3.3) is still not built, and the ledger's lock pages, which only archiving prunes,
 decide what every write costs: the author's design call (DESIGN 15.7 Follow-ups, OQ-36).
+M12's release engineering is in place, not run yet (DESIGN 16.9): the release workflow (`.github/workflows/release.yml`:
+`tools/release-plan.mjs` picks enforce or report mode by the release's pre-release flag, `tools/package-release.mjs` stamps
+`module.json` and builds `module.zip` with `tools/zip.mjs`, `tools/publish-foundry.mjs` registers stable releases, a dry run
+until `FOUNDRY_RELEASE_LIVE`), the local dry run (`npm run release:dry-run -- --version <x.y.z> [--prerelease]`), the pf2e
+churn watch (`.github/workflows/pf2e-watch.yml`, `tools/pf2e-watch.mjs`), issue forms, the README's For GMs, `CONTRIBUTING.md`
+and `NOTICE`, whose `AUTHOR-TODO` placeholders (licensors' text) block a stable release. The author's steps before 1.0 are
+listed in DESIGN 16.9.
+M12's companions matrix and performance pass ran on the dev server (DESIGN 15.7): the core plans with pf2e-dailies, Toolbelt,
+Workbench and Item Piles all off and all on; `npm run harness:perf` (`tools/harness/perf.mjs`) stages 200 orders, 2000 rows,
+five members and 60 workshop days and times and profiles the window, writes, reconciliation and the Advance days wizard.
+Archiving (5.3.3) is still not built, and the ledger's lock pages, which only archiving prunes, decide how slow it gets.
 README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
 world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every

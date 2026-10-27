@@ -74,11 +74,14 @@ const SIGNATURES = [
     ["a gzip file (SVGZ is gzipped SVG)", [0x1f, 0x8b]],
 ];
 
-/** What the release zip contains (DESIGN.md 16.2), plus the published listing text and macros. */
-const SHIPPED = [
-    "module.json", "LICENSE", "README.md", "CHANGELOG.md", "docs/package-description.md",
+/**
+ * What the release zip contains (DESIGN.md 16.2, `ZIP_PATHS` in tools/package-release.mjs, which a test holds this to),
+ * plus the published listing text and macros.
+ */
+export const SHIPPED = Object.freeze([
+    "module.json", "LICENSE", "NOTICE", "README.md", "CHANGELOG.md", "docs/package-description.md",
     "scripts/", "templates/", "styles/", "lang/", "macros/",
-];
+]);
 
 const EMBEDDED_MEDIA = /data:(?:image|audio|video|font)\/|data:[\w.+-]+\/[\w.+-]+(?:;[\w.+-]+=[^;,]*)*;base64,|<svg[\s/>]/i;
 
