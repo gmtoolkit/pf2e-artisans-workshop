@@ -8419,6 +8419,15 @@ archiving and pruning leave. Medians of five runs, in ms; the GM's client unless
   plans (scenario 7, `m4-lifecycle`, `m5-fund`, `m6-income`) passed on the same served tree, 41 checks, with the deliberate lock
   collisions of scenario 7 and `m6-income` as their only console errors.
 
+**The M12b review's re-run**, 2026-10-27, the same way (the review's fixes, 5.3.3 and 5.4 As built in M12b, served from main's
+working tree for the run and then taken back out): S2 at 2220 lock pages, a plain write 204 ms and a deposit 1349 ms, as before.
+One archive run moved 66 closed orders, 2 ended jobs, 1370 rows and 389 day records in 3.6 s (2.7 s before: its lock request now
+also takes the reversal row id of each fund row it moves that could still be reversed, and its Crafting Log write creates the
+run's page), and deleted the 1393 lock pages of the rows it moved; the prune pass, judged two days on, deleted 1137 more, the run's
+reversal guards among them, and kept none. S3: 3 lock pages, 638 KiB, a plain write 28 ms, a deposit 161 ms. 54 checks passed with
+no console error; the regression plans (scenario 7, `m4-lifecycle`, `m5-fund`, `m6-income`) passed, 41 checks, their only console
+errors the deliberate lock collisions of scenario 7 and `m6-income`, as before.
+
 Follow-ups (low):
 
 - **Pages from before kinds** that are not a row's, a claim's, a mark, a move's or the migration lock (stack locks, strongbox stack
@@ -8435,6 +8444,9 @@ Follow-ups (low):
   false for a victim on an unlinked token and for the native backend, whose item gets a new id (`nativeItem`); the pages go while
   the affliction runs, and `recordSave`'s data guard limits what a second save can do. Reading tokens' actors too, or keeping a
   page whose item cannot be found anywhere (keep when unsure), would settle both.
+- **A run's reversal guards stay 15 minutes** (M12b review): they are "age" pages, so a first run over a long backlog adds up to one
+  lock page per reversible fund row it moves (at most `ARCHIVE_RUN_LIMIT`), which every ledger write pays for until the pruner takes
+  them. Later runs move a session's rows at a time.
 - **A run that stops after its Crafting Log write** (M12b review) leaves copies of still-live records in the year page until a
   retry rewrites them: the Funds tab's history lists those rows a second time meanwhile, and as they were then if the order is
   later reopened and its rows reversed (`archivedRecords` and `fundsView`'s history do not compare archived ids with live rows;
