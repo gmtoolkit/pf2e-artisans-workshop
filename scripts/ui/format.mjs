@@ -5,7 +5,7 @@
  */
 import { REGISTRY } from "../data/registry.mjs";
 import { coinParts } from "../logic/views.mjs";
-import { GATE, GRADE, RANK_KEY, REFUSAL, STATUS, TOOL } from "./labels.mjs";
+import { GATE, GRADE, RANK_KEY, REFUSAL, REQUIREMENT, STATUS, TOOL } from "./labels.mjs";
 
 const loc = (key) => game.i18n.localize(key);
 const fmt = (key, data) => game.i18n.format(key, data);
@@ -95,6 +95,21 @@ export function gateText(gate) {
         qty: String(data.qty ?? ""), name: data.name ?? "", material: materialName(data.type), required: money(data.requiredCp ?? 0), available: money(data.availableCp ?? 0),
     };
     return fmt(key, parts);
+}
+
+/**
+ * A requirement's short name (As built in M4.1): "Trained in Crafting", "Formula", "Up-front materials funded"; for an
+ * order whose kind names it otherwise (`variant`, M5 on M4.1), that name: "Spells cast for it", "Item to work on with the
+ * crafter".
+ */
+export function requirementName(gate) {
+    const key = (gate.variant ? REQUIREMENT[`${gate.id}.${gate.variant}`] : null) ?? REQUIREMENT[gate.id] ?? REQUIREMENT.other;
+    return fmt(key, { skill: skillName(gate.data?.skill ?? "crafting"), id: String(gate.id ?? "") });
+}
+
+/** Where earmarked or spent money came from: the party fund (`null`) or a member by UUID. */
+export function sourceName(uuid) {
+    return uuid ? nameOf(uuid) : loc("pf2e-artisans-workshop.Funds.PartyFund");
 }
 
 /** A refusal as a notice, with its numbers. */

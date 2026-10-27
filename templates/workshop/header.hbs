@@ -17,12 +17,14 @@
     {{/if}}
     {{#if ready}}
     <div class="workshop-shelf{{#if shelfCount}} waiting{{/if}}">
+        {{#if shelfCount}}
+        <button type="button" class="take" data-action="take" data-tooltip="{{localize 'pf2e-artisans-workshop.Window.CollectHint'}}">
+            <i class="fa-solid fa-box-open" inert></i><span>{{localize "pf2e-artisans-workshop.Window.Shelf" count=shelfCount}}</span>
+            <span class="collect"><i class="fa-solid fa-hand-holding" inert></i> {{localize "pf2e-artisans-workshop.Window.Collect"}}</span>
+        </button>
+        {{else}}
         <i class="fa-solid fa-box-open" inert></i>
         <span>{{localize "pf2e-artisans-workshop.Window.Shelf" count=shelfCount}}</span>
-        {{#if shelfCount}}
-        <button type="button" class="take" data-action="take">
-            <i class="fa-solid fa-hand-holding" inert></i><span>{{localize "pf2e-artisans-workshop.Window.Take"}}</span>
-        </button>
         {{/if}}
     </div>
     {{/if}}

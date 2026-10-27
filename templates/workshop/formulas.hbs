@@ -116,8 +116,16 @@
                 {{#if pick.maxLevel}}{{localize "pf2e-artisans-workshop.Formulas.ChoosingFor" name=pick.name level=pick.level max=pick.maxLevel}}{{else}}{{localize "pf2e-artisans-workshop.Formulas.ChoosingForAny" name=pick.name level=pick.level}}{{/if}}
                 <button type="button" class="small" data-action="formula" data-op="clear">{{localize "pf2e-artisans-workshop.Formulas.StopChoosing"}}</button></p>
             {{/if}}
-            <input type="search" name="codexSearch" data-codex="search" value="{{search}}" placeholder="{{localize 'pf2e-artisans-workshop.Formulas.Search'}}"
-                   aria-label="{{localize 'pf2e-artisans-workshop.Formulas.Search'}}">
+            <div class="learn-search">
+                <input type="search" name="codexSearch" data-codex="search" value="{{search}}" placeholder="{{localize 'pf2e-artisans-workshop.Formulas.Search'}}"
+                       aria-label="{{localize 'pf2e-artisans-workshop.Formulas.Search'}}">
+                {{!-- The item picker (F, M4.1): pf2e's own Compendium Browser, to drag an item from onto this tab. --}}
+                {{#if canBrowse}}
+                <button type="button" class="browse" data-action="formula" data-op="browse" data-tooltip="{{localize 'pf2e-artisans-workshop.Formulas.BrowseHint'}}">
+                    <i class="fa-solid fa-book-open" inert></i><span>{{localize "pf2e-artisans-workshop.Request.Browse"}}</span>
+                </button>
+                {{/if}}
+            </div>
             {{#if matches.length}}
             <ul class="learn-matches" aria-label="{{localize 'pf2e-artisans-workshop.Request.Matches'}}">
                 {{#each matches}}
@@ -152,9 +160,9 @@
                             <td class="money">{{cost}}{{#if hint}} <span class="note">{{localize "pf2e-artisans-workshop.Formulas.SaveADay" amount=hint}}</span>{{/if}}</td>
                             <td>{{time}}</td>
                             <td>
-                                {{#if (eq route "buy")}}<button type="button" class="small" data-action="formula" data-op="buy" {{#unless ../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.Buy"}}</button>{{/if}}
-                                {{#if (eq route "copy-npc")}}<button type="button" class="small" data-action="formula" data-op="copy-npc" {{#unless ../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.CopyNpc"}}</button>{{/if}}
-                                {{#if (eq route "scanner")}}<button type="button" class="small" data-action="formula" data-op="scanner" {{#unless ../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.Scan"}}</button>{{/if}}
+                                {{#if (eq route "buy")}}<button type="button" class="small" data-action="formula" data-op="buy" data-cost="{{costCp}}" {{#unless ../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.Buy"}}</button>{{/if}}
+                                {{#if (eq route "copy-npc")}}<button type="button" class="small" data-action="formula" data-op="copy-npc" data-cost="{{costCp}}" {{#unless ../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.CopyNpc"}}</button>{{/if}}
+                                {{#if (eq route "scanner")}}<button type="button" class="small" data-action="formula" data-op="scanner" data-cost="{{costCp}}" {{#unless ../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.Scan"}}</button>{{/if}}
                                 {{#if (eq route "invent")}}<button type="button" class="small" data-action="formula" data-op="invent" {{#unless ../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.Invent"}}</button>{{/if}}
                                 {{#if (eq route "reverse-engineer")}}<button type="button" class="small" data-action="formula" data-op="reverse-engineer" {{#unless ../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.Reverse"}}</button>{{/if}}
                                 {{#if (eq route "copy-ally")}}{{#each ../allies}}<button type="button" class="small" data-action="formula" data-op="ask" data-ally="{{uuid}}" {{#unless ../../../ready}}disabled{{/unless}}>{{localize "pf2e-artisans-workshop.Formulas.Ask" name=name}}</button>{{/each}}{{/if}}

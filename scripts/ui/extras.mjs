@@ -4,6 +4,11 @@
  * upgrade, a rune's source, an item to reverse-engineer, precious stock) with "hand over" and "give back"; and below the
  * orders, the service orders (4.5) with "offer", "hand over", "perform" and "cancel". Each button carries `data-action`
  * ("pledgeOp", "custody", "service") and `data-op`; the handlers ask what they need in a dialog and run the Foundry side.
+ *
+ * As built in M5 on M4.1: money is asked for as M4.1 asks for it (`askMoney`): a bought casting asks where its price is
+ * paid from (the party fund or a character's purse), and "Mark cast" asks for a spell's cost, if it has one, in pp, gp,
+ * sp and cp with the same choice of source. The words follow M4.1's: a casting is offered, not pledged, and an item
+ * handed over is given back to its owner.
  */
 import { stockMaterial } from "../logic/materials.mjs";
 import { TARGETED } from "../logic/orders.mjs";
@@ -11,13 +16,14 @@ import { castingsOf, livePledges, spellGate, spellSupply } from "../logic/pledge
 import { serviceActions } from "../logic/services.mjs";
 import { STOCK_STATUSES, giveBack, handOver, heldLines } from "../foundry/custody.mjs";
 import { actingChoices, viewer as currentViewer } from "../foundry/orders.mjs";
-import { buyCasting, fulfilPledge, pledgeCasting, withdrawPledge } from "../foundry/pledges.mjs";
+import { buyCasting, castingPrice, fulfilPledge, pledgeCasting, withdrawPledge } from "../foundry/pledges.mjs";
 import { custodyLine, inCustody, liveItemFacts, productFacts, targetOf } from "../foundry/products.mjs";
+import { fundAvailableCp } from "../foundry/purchases.mjs";
 import * as services from "../foundry/services.mjs";
 import { read } from "../foundry/store.mjs";
-import { money, nameOf, number, parseMoney, report } from "./format.mjs";
+import { money, nameOf, number, report, sourceName } from "./format.mjs";
 import { CRAFT_TYPE, PLEDGE_STATUS, PURPOSE, SERVICE, SERVICE_STATUS } from "./labels.mjs";
-import { askChoice } from "./prompts.mjs";
+import { askChoice, askMoney } from "./prompts.mjs";
 
 const loc = (key) => game.i18n.localize(key);
 const fmt = (key, data) => game.i18n.format(key, data);
@@ -81,8 +87,11 @@ export async function detailExtras(order) {
         extras.pledges = livePledges(order).concat(Object.values(order.pledges ?? {}).filter((p) => p?.status === "withdrawn")).map((p) => ({
             id: p.id, caster: p.caster ? nameOf(p.caster) : loc("pf2e-artisans-workshop.Pledge.Service"), spell: p.spell?.name ?? "",
             rank: p.rank ?? "", castings: number(p.castings), status: loc(PLEDGE_STATUS[p.status] ?? PLEDGE_STATUS.offered), statusKey: p.status,
-            cost: p.costCp ? money(p.costCp) : null,
+            // What it cost and who paid (M5 on M4.1): the party fund, or a member's purse.
+            cost: p.costCp ? fmt("pf2e-artisans-workshop.Pledge.CostFrom", { amount: money(p.costCp), source: sourceName(paidBy(p)) }) : null,
             canFulfil: open && p.status === "offered" && owns(p.caster), canWithdraw: open && p.status === "offered" && (viewer.isGM || owns(p.caster)),
+            // A wand's spell cost is not paid (GM Core p.282): marking it cast asks for nothing.
+            askCost: supply.kind !== "wand",
         }));
     }
     const lines = heldLines(order);
@@ -96,6 +105,9 @@ export async function detailExtras(order) {
     extras.castings = supply ? number(castingsOf(order)) : null;
     return extras;
 }
+
+/** Who paid for a casting: null for the party fund, else the purse's actor (the caster's, by default). */
+const paidBy = (pledge) => (pledge.paidFrom === "fund" ? null : pledge.payer ?? pledge.caster ?? null);
 
 /** Precious-material stock a character carries (6.6). */
 function stockItems(actor) {
@@ -161,24 +173,35 @@ export async function onPledgeOp(app, target) {
             return report(await pledgeCasting(id, { caster, spell: answer.value, castings: answer.number || 1 }));
         }
         case "fulfil": {
-            const answer = await askChoice({ title: "pf2e-artisans-workshop.Pledge.FulfilTitle", text: { label: "pf2e-artisans-workshop.Pledge.Cost" },
-                hint: "pf2e-artisans-workshop.Pledge.CostHint", button: "pf2e-artisans-workshop.Pledge.FulfilButton", icon: "fa-solid fa-wand-magic-sparkles", app });
+            // A wand's spell cost is not paid, so there is nothing to ask (GM Core p.282).
+            if (!target.closest("[data-cost]")) return report(await fulfilPledge(id, pledge));
+            const record = read(`orders.${id}.pledges.${pledge}`);
+            const caster = record?.payer ?? record?.caster ?? null;
+            // A spell's cost, if it has one, in pp, gp, sp and cp, and who pays it (M5 on M4.1); nothing typed is no cost.
+            const answer = await askMoney({ kind: "cast", optional: true, actors: actingChoices(), actor: caster,
+                sources: { fundCp: fundAvailableCp() }, intro: loc("pf2e-artisans-workshop.Pledge.CostHint"), app });
             if (!answer) return null;
-            const costCp = answer.text?.trim() ? parseMoney(answer.text) : 0;
-            if (costCp === null) return report({ ok: false, reason: "nothing" });
-            return report(await fulfilPledge(id, pledge, { costCp }));
+            return report(await fulfilPledge(id, pledge, { costCp: answer.cp, paidFrom: answer.source === "fund" ? "fund" : "purse", payer: answer.actor }));
         }
         case "withdraw":
             return report(await withdrawPledge(id, pledge));
         case "buy": {
+            // The spell and how many castings first; then its price, and where that is paid from (M5 on M4.1).
             const answer = await askChoice({ title: "pf2e-artisans-workshop.Pledge.BuyTitle", text: { label: "pf2e-artisans-workshop.Pledge.SpellName" },
-                options: actingChoices().map((a) => ({ value: a.uuid, name: a.name })), label: "pf2e-artisans-workshop.Pledge.Payer",
                 number: { label: "pf2e-artisans-workshop.Pledge.Castings", value: 1, min: 1 }, hint: "pf2e-artisans-workshop.Pledge.BuyHint",
-                button: "pf2e-artisans-workshop.Pledge.BuyButton", icon: "fa-solid fa-coins", app });
-            if (!answer?.value || !answer.text) return null;
+                button: "pf2e-artisans-workshop.Pledge.BuyNext", icon: "fa-solid fa-coins", app });
+            if (!answer?.text) return null;
             const spell = await findSpell(answer.text);
             if (!spell) return report({ ok: false, reason: "no-spell" });
-            return report(await buyCasting(id, { payer: answer.value, spell, castings: answer.number || 1 }));
+            const castings = answer.number || 1;
+            const price = await castingPrice(id, { spell, castings });
+            if (!price.ok) return report(price);
+            const pay = await askMoney({ kind: "purchase", fixedCp: price.cp, actors: actingChoices(), actor: app.actingActor?.()?.uuid ?? null,
+                sources: { fundCp: fundAvailableCp() }, app,
+                intro: fmt("pf2e-artisans-workshop.Prompt.Intro.Casting", { castings: number(castings), spell: price.spell.name, rank: String(price.rank),
+                    amount: money(price.cp) }) });
+            if (!pay) return null;
+            return report(await buyCasting(id, { payer: pay.actor, paidFrom: pay.source === "fund" ? "fund" : "purse", spell, castings }));
         }
         default: return null;
     }

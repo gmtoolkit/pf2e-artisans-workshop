@@ -44,14 +44,16 @@ const SIGNS = Object.freeze({
  * other way with `back` (an allocation returned to the fund: a cancelled order's share of a contributor whose actor is
  * gone, 6.2.4);
  * `purchase` and `income` move coins through the purse or the strongbox (`via`). Income paid into a purse
- * allocates nothing: the party fund only holds what is in the strongbox.
+ * allocates nothing: the party fund only holds what is in the strongbox. A purchase paid from the strongbox takes its
+ * coins out of the allocation that held them, the party fund's or an order's (As built in M5 on M4.1), so the strongbox
+ * stays the unallocated fund plus what is earmarked (4.7).
  */
 const VARIABLE = Object.freeze({
     allocate: ({ side, back = false }) => {
         const sign = side === "fund" ? -1 : side === "order" ? 1 : null;
         return sign === null ? null : [0, 0, back ? -sign : sign];
     },
-    purchase: ({ via }) => (via === "box" ? [-1, 0, 0] : via === "purse" ? [0, -1, 0] : null),
+    purchase: ({ via }) => (via === "box" ? [-1, 0, -1] : via === "purse" ? [0, -1, 0] : null),
     income: ({ via }) => (via === "box" ? [1, 0, 1] : via === "purse" ? [0, 1, 0] : null),
 });
 

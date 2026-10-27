@@ -1,14 +1,18 @@
 /**
  * Template data for an order, shared by the Workshop window and the chat cards (DESIGN.md 10.3, 10.5): the pure view
- * model of `scripts/logic/views.mjs`, with the crafter's gates and the words and amounts a template shows.
+ * model of `scripts/logic/views.mjs`, with the crafter's gates and the words and amounts a template shows. As built in
+ * M4.1 it adds the requirements in plain words, what the order still needs ("Fill the shortfall"), the work days with
+ * what each took off, what a finished order cost, and where its item went.
  */
+import { MODULE_ID } from "../constants.mjs";
 import { CLOSED } from "../logic/orders.mjs";
 import { orderView } from "../logic/views.mjs";
-import { orderDays, orderRows, viewer as currentViewer } from "../foundry/orders.mjs";
+import { shelfItemsFor } from "../foundry/claims.mjs";
+import { orderDays, orderRows, owns, viewer as currentViewer } from "../foundry/orders.mjs";
 import { crafterFacts, gatesFor, productFacts } from "../foundry/products.mjs";
 import { rulesFromSettings } from "../foundry/settings.mjs";
-import { gateText, money, nameOf, number } from "./format.mjs";
-import { DEGREE_CLASS, DEGREE_KEY, ROUTE, STATUS } from "./labels.mjs";
+import { gateText, money, nameOf, number, requirementName, sourceName } from "./format.mjs";
+import { DEGREE_CLASS, DEGREE_KEY, DELIVERY, ROUTE, STATUS } from "./labels.mjs";
 
 const loc = (key) => game.i18n.localize(key);
 const fmt = (key, data) => game.i18n.format(key, data);
@@ -29,6 +33,12 @@ async function gatesOf(order, rows, rules) {
     return (await gatesFor(order, crafterFacts(actor), product, rows, rules)).gates;
 }
 
+/** How many of a finished order's items wait on the pickup shelf now. */
+function shelfCountOf(order) {
+    if (order.status !== "complete" || order.recipient?.kind !== "actor") return 0;
+    return shelfItemsFor(order.recipient.uuid).filter((item) => item.flags?.[MODULE_ID]?.shelf?.order === order.id).length;
+}
+
 /**
  * Everything a template needs about one order.
  * @param {object} order
@@ -38,14 +48,59 @@ export async function orderContext(order, { no = null, rules = rulesFromSettings
     const rows = orderRows(order.id);
     const days = orderDays(order.id);
     const gates = await gatesOf(order, rows, rules);
-    const view = orderView(order, { rows, days, gates, crafterToday: crafterToday(order), viewer, nameOf, no, rules });
+    const view = orderView(order, { rows, days, gates, crafterToday: crafterToday(order), viewer, nameOf, no, rules,
+        shelfCount: shelfCountOf(order) });
     return decorate(view, order);
 }
 
 /** Whether this user may see Craft DCs: a GM, or pf2e's "show DCs" metagame setting (10.9). */
 export const showDcs = () => game.user.isGM || game.pf2e?.settings?.metagame?.dcs !== false;
 
-/** The view model with its words: status, money, progress sentence, blockers. */
+/** What the order still lacks for its next step, as a sentence, or null when it lacks nothing (M4.1). */
+const SHORTFALL = Object.freeze({
+    upfront: "pf2e-artisans-workshop.Detail.ShortUpfront",
+    retry: "pf2e-artisans-workshop.Detail.ShortRetry",
+    finish: "pf2e-artisans-workshop.Detail.ShortFinish",
+});
+
+/** The requirements of an accepted order in words: "10 of 12 met", the met ones by name, the unmet ones with why. */
+function requirementsText(requirements) {
+    if (!requirements) return null;
+    return {
+        ...requirements,
+        countText: fmt(requirements.allMet ? "pf2e-artisans-workshop.Detail.RequirementsAllMet" : "pf2e-artisans-workshop.Detail.RequirementsMet",
+            { met: number(requirements.met), total: number(requirements.total) }),
+        metList: requirements.metList.map((gate) => ({ id: gate.id, name: requirementName(gate) })),
+        unmet: requirements.unmet.map((gate) => ({ id: gate.id, name: requirementName(gate), text: gateText(gate), action: gate.action,
+            fillCp: gate.action === "fund" ? gate.data?.shortCp ?? null : null })),
+    };
+}
+
+/** The work days as lines: "Setup day 1 of 2", "Day 3: -8 gp 7 sp", or a day that has not counted yet (D, M4.1). */
+function workDaysText(workDays) {
+    return workDays.map((d) => {
+        if (d.kind === "setup") return fmt("pf2e-artisans-workshop.Detail.SetupDay", { n: number(d.n), of: number(d.of) });
+        if (!d.counted) return fmt("pf2e-artisans-workshop.Detail.ExtraDayPending", { n: number(d.n) });
+        return fmt("pf2e-artisans-workshop.Detail.ExtraDay", { n: number(d.n), amount: money(d.cp) });
+    });
+}
+
+/**
+ * What a finished order cost, as one sentence, and one more for ruined materials (D, M4.1), for the material stock it
+ * used up and for what was bought for it (M5 on M4.1).
+ */
+function costText(cost) {
+    if (!cost) return null;
+    const key = cost.workDays === 1 ? "pf2e-artisans-workshop.Detail.CostSummaryOneDay" : "pf2e-artisans-workshop.Detail.CostSummary";
+    const summary = fmt(key, { upfront: money(cost.upfrontCp), days: number(cost.workDays), work: money(cost.workCp),
+        finish: money(cost.finishCp), total: money(cost.totalCp) });
+    const ruined = cost.ruinedCp > 0 ? fmt("pf2e-artisans-workshop.Detail.CostRuined", { amount: money(cost.ruinedCp) }) : null;
+    const stock = cost.stockCp > 0 ? fmt("pf2e-artisans-workshop.Detail.CostStock", { amount: money(cost.stockCp) }) : null;
+    const bought = cost.purchasesCp > 0 ? fmt("pf2e-artisans-workshop.Detail.CostBought", { amount: money(cost.purchasesCp) }) : null;
+    return { summary, ruined, stock, bought };
+}
+
+/** The view model with its words: status, money, progress sentence, blockers, and M4.1's additions. */
 export function decorate(view, order) {
     const status = STATUS[view.status] ?? STATUS.requested;
     const p = view.progress;
@@ -61,6 +116,12 @@ export function decorate(view, order) {
     const statusWord = view.status === "setup" && view.setup
         ? fmt("pf2e-artisans-workshop.Queue.SetupOf", { word: loc(status.key), done: number(view.setup.done), days: number(view.setup.days) })
         : loc(status.key);
+    const short = view.shortfall;
+    const delivery = view.delivery;
+    // Only a user who can collect the item is told to (the Collect button is beside the sentence); everyone else reads
+    // whom it waits for (review fix of M4.1).
+    const canCollect = delivery?.state === "shelf" && !!delivery.to && owns(delivery.to);
+    const deliveryKey = canCollect ? DELIVERY.shelfYours : DELIVERY[delivery?.state];
     return {
         ...view,
         dc: showDcs() ? view.dc : null,
@@ -79,9 +140,24 @@ export function decorate(view, order) {
         // What `finishCp` is: the cost to finish once crafting, before that what the up-front half still lacks.
         finishLabel: p.phase === "crafting" ? "pf2e-artisans-workshop.Detail.FinishNow" : "pf2e-artisans-workshop.Detail.StillNeeded",
         withdrawText: view.withdrawableCp > 0 ? money(view.withdrawableCp) : null,
+        fundReturnText: view.fundReturnableCp > 0 ? money(view.fundReturnableCp) : null,
         checkText: view.check ? loc(DEGREE_KEY[view.check.degree]) : null, checkClass: view.check ? DEGREE_CLASS[view.check.degree] : null,
         conflictText: view.conflict ? loc(DEGREE_KEY[view.conflict.degree]) : null,
-        contributorsText: view.contributors.map((c) => ({ ...c, amount: money(c.cp), name: c.name ?? loc("pf2e-artisans-workshop.Funds.PartyFund") })),
+        contributorsText: view.contributors.map((c) => ({ ...c, amount: money(c.cp), name: sourceName(c.actor) })),
+        // Material stock earmarked for the order, by who handed it over, at Price (M5 on M4.1).
+        stockText: (view.stock ?? []).map((s) => ({ amount: money(s.cp),
+            name: fmt("pf2e-artisans-workshop.Detail.StockFrom", { name: s.actor ? nameOf(s.actor) : loc("pf2e-artisans-workshop.Funds.PartyFund") }) })),
+        spentText: view.spent.map((s) => ({ name: sourceName(s.actor), amount: money(s.cp) })),
+        shortText: short && short.shortCp > 0 && SHORTFALL[short.phase] ? fmt(SHORTFALL[short.phase], { short: money(short.shortCp) }) : null,
+        shortCp: short?.shortCp ?? 0,
+        requirementsText: requirementsText(view.requirements),
+        workDaysText: workDaysText(view.workDays),
+        // The rule behind the work days, for an order that has them or is about to (D).
+        showWorkRule: ["accepted", "setup", "check", "rolled", "finishing", "paused"].includes(view.status),
+        costText: costText(view.cost),
+        deliveryText: delivery ? fmt(deliveryKey, { name: delivery.to ? nameOf(delivery.to) : "" }) : null,
+        deliveryState: delivery?.state ?? null,
+        canCollect,
         isClosed: CLOSED.includes(view.status),
         notes: order.notes ?? "",
     };

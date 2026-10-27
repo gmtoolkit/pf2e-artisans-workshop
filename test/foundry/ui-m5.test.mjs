@@ -196,6 +196,7 @@ test("every M5 label is a key in lang/en.json", () => {
         ...Object.values(labels.ACQUIRE_ROUTE), ...Object.values(labels.PROVENANCE).map((p) => p.key), ...Object.values(labels.CRAFT_TYPE),
         ...Object.values(labels.SERVICE), ...Object.values(labels.SERVICE_STATUS).map((s) => s.key), ...Object.values(labels.PLEDGE_STATUS),
         ...Object.values(labels.PURPOSE), ...Object.values(labels.GATE), ...Object.values(labels.REFUSAL), ...Object.values(labels.ROW_KIND),
+        ...Object.values(labels.REQUIREMENT),
     ];
     assert.deepEqual(keys.filter((key) => !(key in lang)), []);
 });
@@ -231,4 +232,69 @@ test("G8's precious-material failure says what is wrong, with its amounts: the s
     assert.match(text, /500 gp of the materials up front must be Adamantine stock; the order has 100 gp \(only stock counts\)/);
     assert.match(text, /needs .+ in Crafting/, "the standard grade's rank is told too");
     assert.doesNotMatch(text, /not ready/);
+});
+
+/* -------------------------------------------- */
+/*  M5 on M4.1                                   */
+/* -------------------------------------------- */
+
+test("Buy asks where the formula's price is paid from, as Fund this order asks: the price said, the party fund or a purse (M5 on M4.1)", async () => {
+    const app = fakeApp();
+    await onFormulaOp(app, { closest: () => ({ dataset: { op: "select", uuid: STRIKING } }) });
+    const { codex } = await formulasContext(app);
+    assert.equal(codex.learn.selected.routes.find((r) => r.route === "buy").costCp, 500, "the button carries the price");
+    const rendered = [];
+    world.render = (path, data) => { rendered.push({ path, data }); return ""; };
+    let asked = null;
+    foundry.applications.api.DialogV2.prompt = async (config) => { asked = config; return null; };
+    try {
+        const result = await onFormulaOp(app, { closest: () => ({ dataset: { op: "buy", cost: "500" } }) });
+        assert.equal(result, null, "closed: nothing bought");
+    } finally {
+        world.render = null;
+    }
+    const data = rendered.find((r) => r.path.endsWith("prompts/amount.hbs")).data;
+    assert.equal(asked.window.title, "pf2e-artisans-workshop.Prompt.Purchase.Title");
+    assert.equal(data.fixed, "Price: 5 gp");
+    assert.equal(data.intro, "The formula for Striking costs 5 gp.");
+    assert.deepEqual(data.coins.map((c) => [c.denomination, c.value, c.autofocus]), [["pp", "", false], ["gp", "5", false], ["sp", "", false], ["cp", "", false]],
+        "the price rides in hidden fields; there is nothing to type");
+    assert.deepEqual(data.sources.map((x) => [x.value, x.checked, x.disabled]), [["fund", false, true], ["purse", true, false]],
+        "nothing unallocated: Vera's purse");
+    assert.equal(data.sources.find((x) => x.value === "purse").label, "Vera's purse", "paying takes the coins out of the purse, not into the strongbox");
+    assert.match(readFileSync(join(ROOT, "templates/prompts/amount.hbs"), "utf8"), /\{\{#if fixed\}\}[\s\S]*type="hidden" name="\{\{denomination\}\}"/);
+});
+
+test("a price the party fund cannot cover keeps the button off and points at a purse (M5 on M4.1)", async () => {
+    const { wireAmountForm } = await import("../../scripts/ui/prompts.mjs");
+    lang["PF2E.CurrencyAbbreviations.gp"] = "gp";
+    lang["PF2E.CurrencyAbbreviations.sp"] = "sp";
+    const inputs = { pp: { value: "" }, gp: { value: "3" }, sp: { value: "" }, cp: { value: "" } };
+    const listeners = {};
+    const problem = { textContent: "" };
+    const confirm = { disabled: false };
+    const box = { querySelector: (sel) => ({ ".amount-problem": problem })[sel] ?? null, addEventListener: (type, fn) => { listeners[type] = fn; } };
+    const form = { elements: { namedItem: (name) => inputs[name] ?? null }, querySelector: () => null };
+    const root = { querySelector: (sel) => ({ form, ".pf2e-artisans-workshop-amount": box, "button[data-action='ok']": confirm })[sel] ?? null };
+    wireAmountForm(root, () => ({ minCp: 300, maxCp: 300, fundCp: 50 }));
+    assert.equal(confirm.disabled, true);
+    assert.equal(problem.textContent, "The party fund has only 5 sp unallocated and 3 gp is needed: take it from a purse.");
+    wireAmountForm(root, () => ({ minCp: 300, maxCp: 300, fundCp: null }));
+    assert.deepEqual([confirm.disabled, problem.textContent], [false, ""], "from a purse the price is fine");
+    wireAmountForm(root, () => ({ minCp: null, maxCp: null, fundCp: null, optional: true }));
+    inputs.gp.value = "";
+    listeners.input();
+    assert.deepEqual([confirm.disabled, problem.textContent], [false, ""], "a spell with no cost: nothing typed is fine");
+});
+
+test("requirements have a plain name for each kind of order (M5 on M4.1)", async () => {
+    const { requirementName } = await import("../../scripts/ui/format.mjs");
+    assert.equal(requirementName({ id: "G9", variant: "spells" }), "Spells cast for it");
+    assert.equal(requirementName({ id: "G10", variant: "target" }), "Item to work on with the crafter");
+    assert.equal(requirementName({ id: "G12", variant: "rune" }), "A rune this item can take");
+    assert.equal(requirementName({ id: "G9", variant: null }), "Craft Requirements confirmed", "a plain Craft's G9");
+    assert.equal(requirementName({ id: "G10", variant: "unknown" }), lang["pf2e-artisans-workshop.Requirement.G10"]);
+    const queue = readFileSync(join(ROOT, "templates/workshop/queue.hbs"), "utf8");
+    for (const action of ["stock", "castings", "hand-over"]) assert.match(queue, new RegExp(`\\(eq action "${action}"\\)`), `the ${action} fix is offered`);
+    assert.match(queue, /data-fix="requirement"/, "the fix buttons are told from the same buttons below them (10.9)");
 });

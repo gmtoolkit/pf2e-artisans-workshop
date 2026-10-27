@@ -9,18 +9,25 @@
  *
  * The window keeps this tab's state (`app.codex`): the character, the search text, the formula being looked at, the pick
  * being chosen for, the "a seller is available" confirmation and the copy's recipient.
+ *
+ * As built in M5 on M4.1: a route that costs money (Buy, Copy from an NPC, Ask an ally when copying costs anything) asks
+ * where it is paid from, as "Fund this order" does: the party fund's unallocated money or a character's purse, the price
+ * in view. "Browse" beside the search opens pf2e's Compendium Browser to drag an item from (the item picker of M4.1).
  */
 import { MODULE_ID } from "../constants.mjs";
 import { pickFits } from "../logic/codex.mjs";
 import { acquire, codexData, routesFor } from "../foundry/formulas.mjs";
 import { requestOrder } from "../foundry/orders.mjs";
+import { productFacts } from "../foundry/products.mjs";
 import { members } from "../foundry/roster.mjs";
-import { requestService } from "../foundry/services.mjs";
+import { fundAvailableCp } from "../foundry/purchases.mjs";
+import { requestService, serviceCostCp } from "../foundry/services.mjs";
 import { catalogue, searchCatalogue } from "../foundry/catalogue.mjs";
 import { rulesFromSettings } from "../foundry/settings.mjs";
 import { canWrite } from "../foundry/state.mjs";
 import { featName, money, number, report } from "./format.mjs";
 import { ACQUIRE_ROUTE, PROVENANCE } from "./labels.mjs";
+import { askMoney } from "./prompts.mjs";
 
 const loc = (key) => game.i18n.localize(key);
 const fmt = (key, data) => game.i18n.format(key, data);
@@ -112,7 +119,7 @@ async function learnContext(state, actor, data, rules) {
     }
     const learn = {
         search: state.search, pick: pick ? { name: featName(pick.key), level: pick.level, maxLevel: pick.maxLevel } : null,
-        matches: matches.map(itemView), selected: null, ready: canWrite(),
+        matches: matches.map(itemView), selected: null, ready: canWrite(), canBrowse: !!game.pf2e?.compendiumBrowser,
     };
     if (!state.uuid) return learn;
     const info = await routesFor(actor, state.uuid, rules);
@@ -126,7 +133,7 @@ async function learnContext(state, actor, data, rules) {
         ...itemView(info.product), known, pending, route: info.route,
         routeText: info.route ? loc(ACQUIRE_ROUTE[info.route] ?? ACQUIRE_ROUTE.none) : loc("pf2e-artisans-workshop.Formulas.NeedsFormula"),
         routes: known || pending ? [] : info.routes.filter((r) => !["known", "family", "virtual"].includes(r.route)).map((r) => ({
-            route: r.route, label: ACQUIRE_ROUTE[r.route] ?? r.route, cost: r.costCp ? money(r.costCp) : loc("pf2e-artisans-workshop.Formulas.Free"),
+            route: r.route, label: ACQUIRE_ROUTE[r.route] ?? r.route, cost: r.costCp ? money(r.costCp) : loc("pf2e-artisans-workshop.Formulas.Free"), costCp: r.costCp ?? 0,
             time: timeText(r), check: r.check === "craft", needsSeller: r.needs.includes("seller"), hint: r.hintCp ? money(r.hintCp) : null,
             action: r.route !== "none",
         })),
@@ -158,6 +165,31 @@ function told(result, actor) {
 const dataOf = (target) => target.closest("[data-op]")?.dataset ?? {};
 
 /**
+ * Where a formula's price is paid from (As built in M5 on M4.1): the party fund or a character's purse, asked as "Fund
+ * this order" asks, the price in view and the learner's purse first among the user's characters. `{paidFrom: "purse",
+ * payer}` with nothing to pay; null when the user closes the dialog.
+ */
+async function askPayment(app, { cp, actor, intro }) {
+    if (!(cp > 0)) return { paidFrom: "purse", payer: actor?.uuid ?? null };
+    const actors = codexChoices().filter((a) => a.isOwner);
+    const answer = await askMoney({ kind: "purchase", fixedCp: cp, actors, actor: actor?.uuid ?? null, sources: { fundCp: fundAvailableCp() },
+        intro, app });
+    return answer ? { paidFrom: answer.source === "fund" ? "fund" : "purse", payer: answer.actor } : null;
+}
+
+/** "Browse": pf2e's Compendium Browser on its equipment tab, to drag an item from onto the tab (F, M4.1). */
+async function browse() {
+    const browser = game.pf2e?.compendiumBrowser;
+    if (!browser) return;
+    try {
+        await browser.openTab("equipment");
+    } catch (error) {
+        console.warn(`${MODULE_ID} | could not open the Compendium Browser`, error);
+        await browser.render({ force: true });
+    }
+}
+
+/**
  * A Formulas-tab button (`data-action="formula"`, `data-op`, the attribute `focus.mjs` finds a control by after a
  * re-render, 10.9): choose a formula, a pick, or act on a route.
  * Returns a result for `report`, or null.
@@ -179,19 +211,31 @@ export async function onFormulaOp(app, target) {
             state.uuid = null;
             state.search = "";
             return null;
+        case "browse":
+            await browse();
+            return null;
         case "buy":
         case "copy-npc":
-        case "scanner":
-            return told(await acquire({ learner: actor?.uuid, uuid: state.uuid, route: data.op, payer: actor?.uuid,
-                confirm: state.seller ? ["seller"] : [] }), actor);
+        case "scanner": {
+            const cp = Number(data.cost) || 0;
+            const name = (await productFacts(state.uuid))?.name ?? "";
+            const pay = await askPayment(app, { cp, actor, intro: fmt("pf2e-artisans-workshop.Prompt.Intro.Formula", { name, amount: money(cp) }) });
+            if (!pay) return null;
+            return told(await acquire({ learner: actor?.uuid, uuid: state.uuid, route: data.op, ...pay, confirm: state.seller ? ["seller"] : [] }), actor);
+        }
         case "grant": {
             const result = told(await acquire({ learner: actor?.uuid, uuid: state.uuid, route: "grant", source: app.codex.pick?.key ?? null,
                 pickLevel: app.codex.pick?.level ?? null }), actor);
             if (result?.ok) state.pick = null;
             return result;
         }
-        case "ask":
-            return report(await requestService({ kind: "formula-copy", requester: actor?.uuid, performer: data.ally, uuid: state.uuid }));
+        case "ask": {
+            const cp = serviceCostCp("formula-copy");
+            const name = cp > 0 ? (await productFacts(state.uuid))?.name ?? "" : "";
+            const pay = await askPayment(app, { cp, actor, intro: fmt("pf2e-artisans-workshop.Prompt.Intro.FormulaCopy", { name, amount: money(cp) }) });
+            if (!pay) return null;
+            return report(await requestService({ kind: "formula-copy", requester: actor?.uuid, performer: data.ally, uuid: state.uuid, ...pay }));
+        }
         case "invent":
         case "reverse-engineer":
             return report(await requestOrder({ uuid: state.uuid, quantity: 1, requester: actor?.uuid, recipient: { kind: "actor", uuid: actor?.uuid },

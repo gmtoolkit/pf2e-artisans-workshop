@@ -7,15 +7,17 @@
  *
  * Marking a pledge cast does not spend the slot through pf2e (OQ-15 stays open: pf2e has no public call that expends a
  * prepared slot without casting); the caster's owner confirms it, as the checklist does. A scroll's spell cost is the
- * caster's, a `purchase` row from the payer's purse when it is given; a wand's is not paid (GM Core p.282).
+ * caster's to pay, a `purchase` for the order when it is given; a wand's is not paid (GM Core p.282).
+ *
+ * As built in M5 on M4.1: a spell's cost and a bought casting are paid from the source the user picks (`payPurchase`):
+ * a character's purse, or the party fund, whose money is earmarked for the order and spent by it in one move, so the
+ * order lists it as spent by the party fund. The casting record keeps where it came from (`paidFrom`, `payer`).
  */
-import { planPurseDebit } from "../logic/coins.mjs";
 import { idemKey } from "../logic/ids.mjs";
-import { purseLockIds } from "../logic/lock-first.mjs";
 import { closedAs } from "../logic/orders.mjs";
-import { castingServiceCp, livePledges, makePledge, pledgeProblem, pledgeTransition, spellSupply } from "../logic/pledges.mjs";
-import { freeStacks, moveCoins } from "./money.mjs";
+import { castingsPriceCp, livePledges, makePledge, pledgeProblem, pledgeTransition, spellSupply } from "../logic/pledges.mjs";
 import { productFacts } from "./products.mjs";
+import { payPurchase } from "./purchases.mjs";
 import { canWrite } from "./state.mjs";
 import { newId, read, stampNow, write } from "./store.mjs";
 
@@ -68,10 +70,11 @@ export async function pledgeCasting(orderId, { caster, spell, castings = 1 }) {
 }
 
 /**
- * Mark a pledge cast (6.9): the caster's owners. A scroll's spell cost (`costCp`) is paid from the payer's purse as a
- * `purchase` row in the same move.
+ * Mark a pledge cast (6.9): the caster's owners. A scroll's spell cost (`costCp`) is a `purchase` for the order in the
+ * same move, paid from `paidFrom` (As built in M5 on M4.1): `purse`, `payer`'s (the pledge's payer, its caster by
+ * default), or `fund`, the party fund. A wand's spell cost is not paid (GM Core p.282).
  */
-export async function fulfilPledge(orderId, pledgeId, { costCp = 0 } = {}) {
+export async function fulfilPledge(orderId, pledgeId, { costCp = 0, paidFrom = "purse", payer = null } = {}) {
     const { order, supply, refusal } = await openOrder(orderId);
     if (refusal) return refusal;
     const pledge = order.pledges?.[pledgeId];
@@ -79,20 +82,17 @@ export async function fulfilPledge(orderId, pledgeId, { costCp = 0 } = {}) {
     if (!actorOf(pledge.caster)?.isOwner) return refuse("not-owner");
     const step = pledgeTransition(pledge, "fulfil");
     if (!step.ok) return step;
-    const set = { [`orders.${orderId}.pledges.${pledgeId}.status`]: "fulfilled", [`orders.${orderId}.pledges.${pledgeId}.costCp`]: costCp };
-    if (!(costCp > 0) || supply.kind === "wand") {
+    const path = `orders.${orderId}.pledges.${pledgeId}`;
+    const paid = costCp > 0 && supply.kind !== "wand";
+    const set = { [`${path}.status`]: "fulfilled", [`${path}.costCp`]: paid ? costCp : 0 };
+    if (!paid) {
         await write({ set });
         return { ok: true };
     }
-    const payer = actorOf(pledge.payer ?? pledge.caster);
-    if (!payer?.isOwner) return refuse("not-owner");
-    const row = { kind: "purchase", how: { via: "purse" }, idem: idemKey("purchase", "casting", orderId, pledgeId), cp: costCp, actor: payer.uuid, order: orderId };
-    return moveCoins(() => {
-        const stacks = freeStacks(payer);
-        const plan = planPurseDebit(stacks, costCp);
-        if (!plan) return { refuse: "purse-short" };
-        return { rows: [row], debits: [{ target: payer.uuid, plan }], locks: purseLockIds(stacks, plan), ledger: { set } };
-    }, {}, [row]);
+    const source = paidFrom === "fund" ? "fund" : "purse";
+    const purse = source === "purse" ? payer ?? pledge.payer ?? pledge.caster : null;
+    Object.assign(set, { [`${path}.paidFrom`]: source, [`${path}.payer`]: purse });
+    return payPurchase({ source, payer: purse, cp: costCp, idem: idemKey("purchase", "casting", orderId, pledgeId), order: orderId, ledger: { set } });
 }
 
 /** Withdraw a pledge not yet cast (6.9): the caster's owners, or a GM. */
@@ -109,30 +109,38 @@ export async function withdrawPledge(orderId, pledgeId) {
 }
 
 /**
- * Buy castings at the spellcasting-service price (Player Core p.295) from a character's purse: a fulfilled pledge with no
- * caster, and a `purchase` row of the service price per casting at the item's rank (a staff's or spellheart's at the
- * spell's own rank), in one move. `spell` is a compendium spell's UUID. Spellcasting services are uncommon, so this is
- * the table's call: the module records it.
+ * What buying castings of a compendium spell for an order would cost (the window asks for a source with the price in
+ * view): `{ok, cp, rank, spell}`, or the refusals `buyCasting` gives first (`no-spell`, the rule codes of
+ * `pledgeProblem`, `no-casting-service` above rank 9).
  */
-export async function buyCasting(orderId, { payer, spell, castings = 1 }) {
+export async function castingPrice(orderId, { spell, castings = 1 }) {
     const { order, supply, refusal } = await openOrder(orderId);
     if (refusal) return refusal;
-    const purse = actorOf(payer);
-    if (!purse?.isOwner) return refuse("not-owner");
     const doc = typeof spell === "string" ? await fromUuid(spell).catch(() => null) : null;
     if (doc?.type !== "spell") return refuse("no-spell");
     const facts = { ...spellFacts(doc), source: doc.uuid };
     const problem = pledgeProblem({ supply, spell: facts, castings, existing: livePledges(order) });
     if (problem) return refuse(problem.reason, problem.data ?? {});
     const rank = supply.rank ?? facts.rank;
-    const cost = castingServiceCp(rank) * castings;
-    const pledge = makePledge({ id: newId(), caster: null, spell: facts, rank, castings, payer: purse.uuid, service: true, costCp: cost }, stampNow());
-    const row = { kind: "purchase", how: { via: "purse" }, idem: idemKey("purchase", "casting", orderId, pledge.id), cp: cost, actor: purse.uuid, order: orderId };
-    return moveCoins(() => {
-        const stacks = freeStacks(purse);
-        const plan = planPurseDebit(stacks, cost);
-        if (!plan) return { refuse: "purse-short" };
-        return { rows: [row], debits: [{ target: purse.uuid, plan }], locks: purseLockIds(stacks, plan),
-            ledger: { set: { [`orders.${orderId}.pledges.${pledge.id}`]: pledge } } };
-    }, {}, [row]);
+    const cp = castingsPriceCp(rank, castings);
+    if (cp === null) return refuse("no-casting-service", { rank });
+    return { ok: true, cp, rank, spell: facts, order, supply };
+}
+
+/**
+ * Buy castings at the spellcasting-service price (Player Core p.295): a fulfilled pledge with no caster, and a `purchase`
+ * for the order of the service price per casting at the item's rank (a staff's or spellheart's at the spell's own rank),
+ * in one move, paid from `paidFrom` (As built in M5 on M4.1): `purse`, `payer`'s, or `fund`, the party fund. `spell` is
+ * a compendium spell's UUID. Spellcasting services are uncommon, so this is the table's call: the module records it.
+ */
+export async function buyCasting(orderId, { payer = null, paidFrom = "purse", spell, castings = 1 }) {
+    const source = paidFrom === "fund" ? "fund" : "purse";
+    if (source === "purse" && !actorOf(payer)?.isOwner) return refuse("not-owner");
+    const price = await castingPrice(orderId, { spell, castings });
+    if (!price.ok) return price;
+    const purse = source === "purse" ? actorOf(payer).uuid : null;
+    const pledge = { ...makePledge({ id: newId(), caster: null, spell: price.spell, rank: price.rank, castings, payer: purse, service: true,
+        costCp: price.cp }, stampNow()), paidFrom: source };
+    return payPurchase({ source, payer: purse, cp: price.cp, idem: idemKey("purchase", "casting", orderId, pledge.id), order: orderId,
+        ledger: { set: { [`orders.${orderId}.pledges.${pledge.id}`]: pledge } } });
 }

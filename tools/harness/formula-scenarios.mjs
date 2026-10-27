@@ -129,11 +129,11 @@ export const FORMULA_SCENARIOS = {
             return { uuid: item.uuid, compendium: entry.uuid };
         } },
         setting: { about: "GM: set a world setting of the module (params.key, params.value)", run: async (p) => ({ value: await game.settings.set(MODULE_ID, p.key, p.value) }) },
-        acquire: { about: "player: learn params.uuid at once by params.route for the user's character (params.source, params.seller)", run: async (p) => {
+        acquire: { about: "player: learn params.uuid at once by params.route for the user's character (params.source, params.seller, params.paidFrom)", run: async (p) => {
             const actor = actorOf(p);
             const before = purseCp(actor);
-            const result = await formulas.acquire({ learner: actor.uuid, uuid: p.uuid, route: p.route, payer: actor.uuid, source: p.source ?? null,
-                pickLevel: p.pickLevel ?? null, confirm: p.seller ? ["seller"] : [] });
+            const result = await formulas.acquire({ learner: actor.uuid, uuid: p.uuid, route: p.route, payer: actor.uuid, paidFrom: p.paidFrom ?? "purse",
+                source: p.source ?? null, pickLevel: p.pickLevel ?? null, confirm: p.seller ? ["seller"] : [] });
             return { result: plain(result), paid: before - purseCp(actor), ...bookBrief(actor) };
         } },
         book: { about: "any client, after params.ms: the formula book and provenance of params.actor (or the user's character)", run: async (p) => {
@@ -190,20 +190,23 @@ export const FORMULA_SCENARIOS = {
         } },
         pledge: { about: "the caster's owner: pledge params.castings of params.spell (a spell item's UUID) from params.caster to params.order", run: async (p) =>
             plain(await pledges.pledgeCasting(p.order, { caster: p.caster, spell: p.spell, castings: p.castings ?? 1 })) },
-        fulfil: { about: "the caster's owner: mark params.order's pledges by params.caster cast (params.costCp)", run: async (p) => {
+        fulfil: { about: "the caster's owner: mark params.order's pledges by params.caster cast (params.costCp from params.paidFrom)", run: async (p) => {
             const out = [];
             for (const pledge of Object.values(read(`orders.${p.order}.pledges`) ?? {})) {
-                if (pledge.caster === p.caster && pledge.status === "offered") out.push(plain(await pledges.fulfilPledge(p.order, pledge.id, { costCp: p.costCp ?? 0 })));
+                if (pledge.caster === p.caster && pledge.status === "offered") {
+                    out.push(plain(await pledges.fulfilPledge(p.order, pledge.id, { costCp: p.costCp ?? 0, paidFrom: p.paidFrom ?? "purse" })));
+                }
             }
             return { results: out, order: brief(p.order) };
         } },
-        buyCasting: { about: "player: buy params.castings castings of the spell named params.name for params.order", run: async (p) => {
+        buyCasting: { about: "player: buy params.castings castings of the spell named params.name for params.order (params.paidFrom)", run: async (p) => {
             const index = await game.packs.get("pf2e.spells-srd").getIndex();
             const spell = index.find((e) => e.name === p.name)?.uuid;
-            return plain(await pledges.buyCasting(p.order, { payer: game.user.character.uuid, spell, castings: p.castings ?? 1 }));
+            return plain(await pledges.buyCasting(p.order, { payer: game.user.character.uuid, paidFrom: p.paidFrom ?? "purse", spell, castings: p.castings ?? 1 }));
         } },
-        service: { about: "player: ask for a service (params.kind, performer, target, host, uuid)", run: async (p) => plain(await services.requestService({
-            kind: p.kind, requester: game.user.character.uuid, performer: p.performer ?? null, target: p.target ?? null, host: p.host ?? null, uuid: p.uuid ?? null })) },
+        service: { about: "player: ask for a service (params.kind, performer, target, host, uuid, paidFrom)", run: async (p) => plain(await services.requestService({
+            kind: p.kind, requester: game.user.character.uuid, performer: p.performer ?? null, target: p.target ?? null, host: p.host ?? null, uuid: p.uuid ?? null,
+            paidFrom: p.paidFrom ?? "purse" })) },
         offer: { about: "player: offer to perform params.service as the user's character", run: async (p) => plain(await services.offer(p.service, game.user.character.uuid)) },
         perform: { about: "the performer's owner: perform params.service without the check dialog", run: async (p) => {
             const result = plain(await services.perform(p.service, { skipDialog: true }));
@@ -229,6 +232,24 @@ export const FORMULA_SCENARIOS = {
             await sleep(p.ms ?? 1500);
             return { clicked: !!button };
         } },
+        payDialog: { about: "any client: in the open money dialog (M5 on M4.1), choose params.source ('fund' or 'purse') and confirm, then wait params.ms",
+            run: async (p) => {
+                const box = await waitFor(() => document.querySelector(".pf2e-artisans-workshop-amount"), p.wait ?? 5000);
+                if (!box) return { found: false };
+                const root = box.closest(".application") ?? box.closest("dialog") ?? document;
+                const seen = { found: true, fixed: box.querySelector(".amount-fixed")?.textContent.trim() ?? null,
+                    sources: [...box.querySelectorAll("input[name='source']")].map((input) => ({ value: input.value, checked: input.checked, disabled: input.disabled })) };
+                const radio = p.source ? box.querySelector(`input[name='source'][value='${p.source}']`) : null;
+                if (radio && !radio.disabled) {
+                    radio.checked = true;
+                    radio.dispatchEvent(new Event("change", { bubbles: true }));
+                }
+                const ok = root.querySelector("button[data-action='ok']");
+                seen.enabled = !!ok && !ok.disabled;
+                ok?.click();
+                await sleep(p.ms ?? 1500);
+                return seen;
+            } },
         close: { about: "any client: close the Workshop", run: async () => {
             await WorkshopApp.instance?.close();
             return { closed: true };

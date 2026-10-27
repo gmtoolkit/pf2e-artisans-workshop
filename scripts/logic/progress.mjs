@@ -90,14 +90,20 @@ export function extraDayRecord(order, day, { crafter, rateLevel = null }, rules 
  */
 export function reductionCp(order, days, rules = DEFAULT_RULES) {
     if (!(order.check?.settled && order.check.degree >= DEGREE.success)) return 0;
+    return recordsOf(order, days, "extra").reduce((sum, d) => sum + dayReductionCp(order, d, rules), 0);
+}
+
+/**
+ * What one extra-day record takes off (6.2.3): the crafter's share and each helper's that is not forfeited (6.7). It
+ * counts only once the check has settled as a success, which `reductionCp` checks; this is the day's own amount.
+ */
+export function dayReductionCp(order, record, rules = DEFAULT_RULES) {
     const forfeited = (id) => {
         const helper = order.helpers?.[id];
         return helper ? helperForfeits(helper, rules) : rules.communal.helperLeaveRetroactive;
     };
-    return recordsOf(order, days, "extra").reduce((sum, d) => {
-        const helpers = Object.entries(d.helpers ?? {}).reduce((s, [id, cp]) => s + (forfeited(id) ? 0 : cp), 0);
-        return sum + d.crafterCp + helpers;
-    }, 0);
+    const helpers = Object.entries(record.helpers ?? {}).reduce((s, [id, cp]) => s + (forfeited(id) ? 0 : cp), 0);
+    return (record.crafterCp ?? 0) + helpers;
 }
 
 /**

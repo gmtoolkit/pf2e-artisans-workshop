@@ -150,10 +150,14 @@ async function pageServerView({ mod, actorIds, partyId = null }) {
         strongboxes: boxes.map((a) => ({ id: a._id, schema: a.flags[mod].schema ?? null, ownership: a.ownership, coinsCp: coinCp(a.items), items: a.items.length,
             shelf: a.items.filter((i) => i.flags?.[mod]?.shelf).length })),
         pages: ledger ? ledger.pages.map((p) => ({ id: p._id, lock: p.flags?.[mod]?.lock ?? null, move: !!p.flags?.[mod]?.move })) : [],
-        rows: rows.map(({ id, kind, state, cp, box: b, purse, idem, actor, author, at, stopped }) => ({ id, kind, state, cp, box: b, purse, idem, actor, author, at, stopped: stopped ?? null })),
+        rows: rows.map(({ id, kind, state, cp, box: b, purse, alloc, idem, actor, order, author, at, stopped }) => ({ id, kind, state, cp, box: b, purse, alloc,
+            idem, actor, order: order ?? null, author, at, stopped: stopped ?? null })),
         claims: live(flags.claims).map(({ id, kind, actor, cp, idem, at, resolved }) => ({ id, kind, actor, cp, idem, at, resolved: resolved ?? null })),
         roster: Object.keys(flags.roster ?? {}),
         expectedCp: rows.reduce((sum, r) => sum + (r.box ?? 0), 0),
+        // Fund accounting (M4.1): the unallocated party fund and what is earmarked for orders, from the rows' `alloc`.
+        unallocatedCp: rows.filter((r) => !r.order && !r.garden).reduce((sum, r) => sum + (r.alloc ?? 0), 0),
+        earmarkedCp: rows.filter((r) => r.order).reduce((sum, r) => sum + (r.alloc ?? 0), 0),
         actualCp: box ? coinCp(box.items) : 0,
         actors: Object.fromEntries(actorIds.map((id) => [id, summary(actors.find((a) => a._id === id))])),
         party: partyId ? summary(actors.find((a) => a._id === partyId)) : null,
@@ -1849,11 +1853,11 @@ async function m4Ui(h, w) {
         await sleep(1200);
         formWindows = await h.evaluate("p1", pageWindows, { mod: MOD });
         await h.evaluate("p1", pageCloseWindows, { mod: MOD });
-        await popup.click('.order-row button[data-action="pledge"]').catch((error) => h.check("click Pledge in the detached window", false, error.message));
+        await popup.click('.order-row button[data-action="fund"]').catch((error) => h.check("click Fund this order in the detached window", false, error.message));
         await sleep(1200);
     }
     const windows = await h.evaluate("p1", pageWindows, { mod: MOD });
-    h.check("a detached Workshop opens the request form and the pledge dialog in its own window", !!popup && detached.detached
+    h.check("a detached Workshop opens the request form and the funding dialog in its own window", !!popup && detached.detached
         && formWindows?.forms.length === 1 && formWindows.forms[0].in === "detached" && windows.dialogs.length === 1 && windows.dialogs[0].in === "detached",
     { detached, formWindows, windows });
     await h.evaluate("p1", pageCloseWindows, { mod: MOD });
@@ -2194,6 +2198,38 @@ async function m5Scroll(h, w) {
 }
 
 /**
+ * Purchases under fund accounting (M5 on M4.1) with no GM: Player Two adds 20 gp to the party fund; Player One buys
+ * Antidote (Lesser)'s formula from the party fund (her purse untouched, the strongbox pays 1 gp); Player Two files a
+ * scroll order and buys its casting of Force Barrage from the party fund (3 gp, earmarked and spent by the order in one
+ * move); a second formula comes from the fund too. The server's strongbox is the unallocated fund plus what is
+ * earmarked, and reconciles.
+ */
+async function m5Fund(h, w) {
+    await m5Reset(h, w);
+    await h.only(["p1", "p2"]);
+    await h.settle("ready");
+    await h.step("p2", "m4", "deposit", { cp: 2000 });
+    const bought = await h.step("p1", "m5", "acquire", { uuid: ANTIDOTE, route: "buy", paidFrom: "fund" });
+    h.check("the formula is bought from the party fund: Player One's purse is untouched", bought.result?.ok === true && bought.paid === 0
+        && bought.book.includes(ANTIDOTE), bought);
+    const filed = await h.step("p2", "m5", "request", { uuid: M5.scroll1, quantity: 1, crafter: w.pcs.p2.uuid });
+    const casting = await h.step("p2", "m5", "buyCasting", { order: filed.order, name: "Force Barrage", castings: 1, paidFrom: "fund" });
+    h.check("a casting is bought from the party fund (3 gp)", casting.ok === true, casting);
+    const view = await serverView(h, "p2", w);
+    const orderRows = view.rows.filter((r) => r.order === filed.order);
+    h.check("server: 20 gp in, 1 gp for the formula and 3 gp for the casting out of the strongbox", view.actualCp === 1600, { actualCp: view.actualCp });
+    h.check("server: the strongbox is the unallocated fund plus what is earmarked", view.unallocatedCp === 1600 && view.earmarkedCp === 0
+        && view.unallocatedCp + view.earmarkedCp === view.expectedCp, { unallocatedCp: view.unallocatedCp, earmarkedCp: view.earmarkedCp, expectedCp: view.expectedCp });
+    h.check("server: the order's casting is earmarked and spent in one move, by the party fund",
+        orderRows.some((r) => r.kind === "purchase" && r.actor === null && r.alloc === -300) && orderRows.some((r) => r.kind === "allocate" && r.alloc === 300), orderRows);
+    const second = await h.step("p1", "m5", "acquire", { uuid: ELIXIR, route: "buy", paidFrom: "fund" });
+    h.check("a second formula from the party fund: the purse still untouched", second.result?.ok === true && second.paid === 0, second);
+    checkReconciles(h, await serverView(h, "p1", w));
+    await checkStatuses(h);
+    return { bought, casting, second };
+}
+
+/**
  * Services (4.5, 6.13) with no GM online for the work: Player One's damaged shield, handed over, is repaired by Player Two
  * (who carries a repair toolkit) and comes back with its Hit Points; Player One affixes a talisman to armor, is refused a
  * second on the same host, and takes the first off; Player One identifies alchemy through pf2e's own action.
@@ -2238,8 +2274,9 @@ async function m5Services(h, w) {
 }
 
 /**
- * The Formulas tab driven like a user (10.1): Player One opens it, looks up Antidote (Lesser), clicks Buy and sees it in
- * the book; chooses the first owed pick and takes a fitting formula with its button.
+ * The Formulas tab driven like a user (10.1): Player One opens it, looks up Antidote (Lesser), clicks Buy, pays from
+ * her purse in the money dialog (M5 on M4.1: the price shown, the source chosen) and sees it in the book; chooses the
+ * first owed pick and takes a fitting formula with its button.
  */
 async function m5Ui(h, w) {
     await m5Reset(h, w);
@@ -2247,9 +2284,12 @@ async function m5Ui(h, w) {
     await h.settle("ready");
     const opened = await h.step("p1", "m5", "open", { tab: "formulas", uuid: ANTIDOTE });
     h.check("the Formulas tab opens with the routes for Antidote (Lesser)", opened.open && opened.tab === "formulas" && opened.routes >= 2, opened);
-    const clicked = await h.step("p1", "m5", "click", { selector: '.learn-routes button[data-op="buy"]', ms: 2500 });
+    const clicked = await h.step("p1", "m5", "click", { selector: '.learn-routes button[data-op="buy"]', ms: 500 });
+    const paid = await h.step("p1", "m5", "payDialog", { source: "purse", ms: 2500 });
+    h.check("Buy asks where the price is paid from: the price, the party fund and the purse", paid.found && /1 gp/.test(paid.fixed ?? "")
+        && paid.sources?.length === 2 && paid.enabled, paid);
     const book = await h.step("p1", "m5", "book", {});
-    h.check("clicking Buy learns it", clicked.clicked && book.book.includes(ANTIDOTE), book);
+    h.check("clicking Buy and paying learns it", clicked.clicked && book.book.includes(ANTIDOTE), book);
     const owed = await h.step("p1", "m5", "owed", { key: "formula-book" });
     if (owed.pick && owed.fit) {
         await h.step("p1", "m5", "open", { tab: "formulas", uuid: owed.fit.uuid, pick: { key: owed.pick.key, level: owed.pick.level } });
@@ -2313,6 +2353,7 @@ Object.assign(BEHAVIOURS, {
     "m5-upgrade-transfer": m5UpgradeTransfer,
     "m5-precious": m5Precious,
     "m5-scroll": m5Scroll,
+    "m5-fund": m5Fund,
     "m5-services": m5Services,
     "m5-ui": m5Ui,
     "m5-shots": m5Shots,

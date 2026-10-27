@@ -301,9 +301,10 @@ export function pledge({ actor, cp, order = null, garden = null, nonce, note = n
 
 /**
  * Coins from the strongbox into a purse, for a row given in full: a `withdraw` of an unspent share or a
- * `refund` (4.6). `ledger` holds other keys to write with it (a claim's `resolved`).
+ * `refund` (4.6). `ledger` holds other keys to write with it (a claim's `resolved`); `locks` other lock pages its lock
+ * request takes (a withdrawal from the party fund takes the fund slot, `fundSlotLockId`, As built in M4.1).
  */
-export function payout({ actor, row, ledger = {} }) {
+export function payout({ actor, row, ledger = {}, locks = [] }) {
     return moveCoins((strongbox) => {
         if (!ownsPurse(actor)) return { refuse: "not-owner" };
         if (!(row.cp > 0)) return { refuse: "nothing" };
@@ -312,14 +313,14 @@ export function payout({ actor, row, ledger = {} }) {
         const stacks = freeStacks(actor);
         const purse = planPurseCredit(stacks, row.cp);
         return { rows: [row], debits: [{ target: "strongbox", plan: box }], credits: [{ target: actor.uuid, plan: purse }],
-            locks: purseLockIds(stacks, purse) };
+            locks: [...locks, ...purseLockIds(stacks, purse)] };
     }, ledger, [row]);
 }
 
 /** A withdrawal of the actor's unspent, uncommitted share of an order, a garden or the fund (4.6). */
-export function withdraw({ actor, cp, order = null, garden = null, nonce, note = null }) {
+export function withdraw({ actor, cp, order = null, garden = null, nonce, note = null, locks = [] }) {
     const idem = idemKey("withdraw", order ?? garden ?? "fund", actor.uuid, nonce);
-    return payout({ actor, row: { kind: "withdraw", idem, cp, actor: actor.uuid, order, garden, note } });
+    return payout({ actor, row: { kind: "withdraw", idem, cp, actor: actor.uuid, order, garden, note }, locks });
 }
 
 /** Coins minted into a purse, for a row given in full: a `wage` (6.10). */

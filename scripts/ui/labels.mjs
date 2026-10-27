@@ -117,6 +117,8 @@ export const REFUSAL = Object.freeze({
     nothingToTake: "pf2e-artisans-workshop.Refusal.NothingToTake",
     "not-reversible": "pf2e-artisans-workshop.Refusal.NotReversible",
     "in-flight": "pf2e-artisans-workshop.Refusal.InFlight",
+    "fund-short": "pf2e-artisans-workshop.Refusal.FundShort",
+    "no-actor": "pf2e-artisans-workshop.Refusal.NoCharacter",
     resumable: "pf2e-artisans-workshop.Refusal.Resumable",
     // M5: formulas, pledges, custody and services.
     known: "pf2e-artisans-workshop.Refusal.Known",
@@ -124,7 +126,6 @@ export const REFUSAL = Object.freeze({
     "no-route": "pf2e-artisans-workshop.Refusal.NoRoute",
     needs: "pf2e-artisans-workshop.Refusal.NeedsSeller",
     "no-pick": "pf2e-artisans-workshop.Refusal.NoPick",
-    "no-actor": "pf2e-artisans-workshop.Refusal.NoActor",
     "no-recipient": "pf2e-artisans-workshop.Refusal.NoRecipient",
     "not-spell-item": "pf2e-artisans-workshop.Refusal.NotSpellItem",
     "no-spell": "pf2e-artisans-workshop.Refusal.NoSpell",
@@ -135,6 +136,7 @@ export const REFUSAL = Object.freeze({
     "scroll-castings": "pf2e-artisans-workshop.Refusal.ScrollCastings",
     castings: "pf2e-artisans-workshop.Refusal.Castings",
     "no-pledge": "pf2e-artisans-workshop.Refusal.NoPledge",
+    "no-casting-service": "pf2e-artisans-workshop.Refusal.NoCastingService",
     "no-item": "pf2e-artisans-workshop.Refusal.NoItem",
     "in-strongbox": "pf2e-artisans-workshop.Refusal.InStrongbox",
     "not-stock": "pf2e-artisans-workshop.Refusal.NotStock",
@@ -198,6 +200,47 @@ export const ROW_KIND = Object.freeze({
     carry: "pf2e-artisans-workshop.Row.Carry",
     adjust: "pf2e-artisans-workshop.Row.Adjust",
     reversal: "pf2e-artisans-workshop.Row.Reversal",
+    // How the ledger names an allocation by its direction, and an order's item kept in the strongbox (`rowLabel`, M4.1).
+    earmark: "pf2e-artisans-workshop.Row.Earmark",
+    unearmark: "pf2e-artisans-workshop.Row.Unearmark",
+    kept: "pf2e-artisans-workshop.Row.Kept",
+});
+
+/**
+ * Each requirement (gate, 6.5) by a short name, so the order detail says what it is in plain words (As built in M4.1);
+ * the failing ones add the sentence of their reason (`GATE`).
+ */
+export const REQUIREMENT = Object.freeze({
+    G1: "pf2e-artisans-workshop.Requirement.G1",
+    G2: "pf2e-artisans-workshop.Requirement.G2",
+    G3: "pf2e-artisans-workshop.Requirement.G3",
+    G4: "pf2e-artisans-workshop.Requirement.G4",
+    G5: "pf2e-artisans-workshop.Requirement.G5",
+    G6: "pf2e-artisans-workshop.Requirement.G6",
+    G7: "pf2e-artisans-workshop.Requirement.G7",
+    G8: "pf2e-artisans-workshop.Requirement.G8",
+    G9: "pf2e-artisans-workshop.Requirement.G9",
+    G10: "pf2e-artisans-workshop.Requirement.G10",
+    G11: "pf2e-artisans-workshop.Requirement.G11",
+    G12: "pf2e-artisans-workshop.Requirement.G12",
+    // The name a requirement goes by for the order's kind (`requirementVariant`, M5 on M4.1).
+    "G9.spells": "pf2e-artisans-workshop.Requirement.G9Spells",
+    "G10.target": "pf2e-artisans-workshop.Requirement.G10Target",
+    "G10.possession": "pf2e-artisans-workshop.Requirement.G10Possession",
+    "G12.rune": "pf2e-artisans-workshop.Requirement.G12Rune",
+    "G12.upgrade": "pf2e-artisans-workshop.Requirement.G12Upgrade",
+    batch: "pf2e-artisans-workshop.Requirement.Batch",
+    other: "pf2e-artisans-workshop.Requirement.Other",
+});
+
+/** Where a finished order's item went (`deliveryOf`, M4.1): a sentence naming the recipient. */
+export const DELIVERY = Object.freeze({
+    delivered: "pf2e-artisans-workshop.Delivery.Delivered",
+    arriving: "pf2e-artisans-workshop.Delivery.Arriving",
+    shelf: "pf2e-artisans-workshop.Delivery.Shelf",
+    /** The shelf, said to a user who can collect it, next to the Collect button. */
+    shelfYours: "pf2e-artisans-workshop.Delivery.ShelfYours",
+    strongbox: "pf2e-artisans-workshop.Delivery.Strongbox",
 });
 
 /** Formula routes (4.3). */

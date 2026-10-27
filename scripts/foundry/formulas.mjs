@@ -13,6 +13,9 @@
  * claim write the formula once; `applied` follows the book's update, and a claim resolved but never applied (the tab
  * closed between the two) is finished by the learner's responsible client once it is past the grace time
  * (`resumeFormulaClaims`). Appending is idempotent: a formula already in the book is not added twice.
+ *
+ * A formula bought is paid from the source the user picks (As built in M5 on M4.1, `payPurchase`): a character's purse,
+ * or the party fund's unallocated money, whose coins leave the strongbox behind the fund slot's lock.
  */
 import { MODULE_ID } from "../constants.mjs";
 import { makeClaim } from "../logic/claims.mjs";
@@ -20,19 +23,17 @@ import {
     breakEven, codexEntries, familiesOf, makeProvenance, partyFamilies, pickFits, picksOwed, picksSchedule, provenancePath, virtualLists,
     withPending,
 } from "../logic/codex.mjs";
-import { planPurseDebit } from "../logic/coins.mjs";
 import { stampTime } from "../logic/core.mjs";
 import { craftCopyRoute, formulaRoutes, instantPlan } from "../logic/formula-jobs.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
-import { purseLockIds } from "../logic/lock-first.mjs";
 import { PENDING_GRACE_MS } from "../logic/reconcile.mjs";
 import { heldKeys, routeInputs, craftOptions } from "../logic/registry.mjs";
 import { runRequest } from "./batch.mjs";
 import { catalogue } from "./catalogue.mjs";
 import { registerClaimKind } from "./claims.mjs";
 import { withCoinMutex } from "./lease.mjs";
-import { freeStacks, moveCoins } from "./money.mjs";
 import { crafterFacts, productFacts, routeFor } from "./products.mjs";
+import { payPurchase } from "./purchases.mjs";
 import { heldKeysOf, ranksOf } from "./registry.mjs";
 import { isResponsibleFor } from "./responsible.mjs";
 import { members } from "./roster.mjs";
@@ -188,13 +189,15 @@ export function owedPicks(actor, rules = rulesFromSettings()) {
 /**
  * Learn a formula at once (6.8): buy it (`buy`, its Price plus the rarity surcharge), copy it from an NPC (`copy-npc`),
  * scan it (`scanner`: the learner holds a schematic scanner and the item) or take it for an owed pick (`grant`, with the
- * pick's `source` key and `pickLevel`). A cost is a `purchase` row from `payer`'s purse (a character this user owns),
- * written with the formula claim in one lock-first move; the claim is applied now when this tab is responsible for the
+ * pick's `source` key and `pickLevel`). A cost is a `purchase` row written with the formula claim in one lock-first
+ * move, paid from `paidFrom` (As built in M5 on M4.1): `purse`, `payer`'s (a character this user owns; the learner by
+ * default), or `fund`, the party fund's unallocated money. The claim is applied now when this tab is responsible for the
  * learner. `confirm` holds the checklist confirmations an uncommon or rarer formula needs ("seller").
  * Refusals: `not-ready`, `no-actor`, `no-product`, `known`, `pending` (on its way to the book already), `no-route`,
- * `needs`, `no-pick`, `not-owner`, `purse-short`.
+ * `needs`, `no-pick`, `not-owner`, `purse-short`, `fund-short`.
  */
-export async function acquire({ learner, uuid, route, payer = null, source = null, pickLevel = null, confirm = [], nonce = newId() }) {
+export async function acquire({ learner, uuid, route, payer = null, paidFrom = "purse", source = null, pickLevel = null, confirm = [],
+    nonce = newId() }) {
     if (!canWrite()) return refuse("not-ready");
     const actor = actorOf(learner);
     if (!actor) return refuse("no-actor");
@@ -218,22 +221,17 @@ export async function acquire({ learner, uuid, route, payer = null, source = nul
             hasScanner: crafter.toolKeys.includes("schematic-scanner") }, confirm, rules);
         if (!plan.ok) return plan;
     }
-    const purse = plan.costCp > 0 ? actorOf(payer ?? actor.uuid) : null;
-    if (plan.costCp > 0 && !purse?.isOwner) return refuse("not-owner");
-    const rowIdem = plan.costCp > 0 ? idemKey("purchase", "formula", purse.uuid, nonce) : null;
+    const fromFund = plan.costCp > 0 && paidFrom === "fund";
+    const purse = plan.costCp > 0 && !fromFund ? actorOf(payer ?? actor.uuid) : null;
+    if (plan.costCp > 0 && !fromFund && !purse?.isOwner) return refuse("not-owner");
+    const rowIdem = plan.costCp > 0 ? idemKey("purchase", "formula", fromFund ? "fund" : purse.uuid, nonce) : null;
     const claim = makeClaim(formulaClaimInput({
         learner: actor.uuid, uuid, route: plan.provenance, source: route === "grant" ? source : null, pickLevel: pick?.level ?? null,
         row: rowIdem ? hashId(rowIdem) : null, ref: nonce, parties: [purse?.uuid ?? actor.uuid],
     }), stampNow());
     if (plan.costCp > 0) {
-        const row = { kind: "purchase", how: { via: "purse" }, idem: rowIdem, cp: plan.costCp, actor: purse.uuid, note: null };
-        const moved = await moveCoins(() => {
-            const stacks = freeStacks(purse);
-            const debit = planPurseDebit(stacks, plan.costCp);
-            if (!debit) return { refuse: "purse-short" };
-            return { rows: [row], debits: [{ target: purse.uuid, plan: debit }], locks: purseLockIds(stacks, debit),
-                ledger: { set: { [`claims.${claim.id}`]: claim } } };
-        }, {}, [row]);
+        const moved = await payPurchase({ source: fromFund ? "fund" : "purse", payer: purse?.uuid ?? null, cp: plan.costCp, idem: rowIdem,
+            ledger: { set: { [`claims.${claim.id}`]: claim } } });
         if (!moved.ok) return moved;
     } else if (!exists(`claims.${claim.id}`)) {
         await write({ set: { [`claims.${claim.id}`]: claim } });

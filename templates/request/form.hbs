@@ -32,10 +32,17 @@
             {{/if}}
         </div>
         {{#unless product}}
-        <div class="form-group">
+        <div class="form-group request-search">
             <label for="{{formId}}-search">{{localize "pf2e-artisans-workshop.Request.Search"}}</label>
-            <input type="search" name="search" id="{{formId}}-search" value="{{state.search}}" autocomplete="off"
-                   placeholder="{{localize 'pf2e-artisans-workshop.Request.SearchPlaceholder'}}">
+            <div class="form-fields">
+                <input type="search" name="search" id="{{formId}}-search" value="{{state.search}}" autocomplete="off"
+                       placeholder="{{localize 'pf2e-artisans-workshop.Request.SearchPlaceholder'}}">
+                {{#if canBrowse}}
+                <button type="button" class="browse" data-action="browse" data-tooltip="{{localize 'pf2e-artisans-workshop.Request.BrowseHint'}}">
+                    <i class="fa-solid fa-book-open" inert></i><span>{{localize "pf2e-artisans-workshop.Request.Browse"}}</span>
+                </button>
+                {{/if}}
+            </div>
         </div>
         {{#if matches.length}}
         <ul class="request-matches" aria-label="{{localize 'pf2e-artisans-workshop.Request.Matches'}}">

@@ -2,6 +2,44 @@
 
 Newest first.
 
+## 2026-10-26: M5 on fund accounting
+
+**Decision:** M5 is merged onto M4.1 and its money follows the fund accounting of the entry below. Every purchase M5
+writes (a formula bought, a casting bought at the service price, a spell's cost, a formula copy) is paid from a source
+the user picks, the party fund or a character's purse, through M4.1's amount prompt. A purchase from the party fund
+takes its coins out of the strongbox together with the fund's allocation (`purchase` with `via: "box"` is now -n
+`alloc`), behind the fund slot; for an order it is earmarked and spent by the order in one move, so the order shows it as
+spent by the party fund. Material stock counts in what an order still needs and is listed beside the money by who
+handed it over. A formula copy's cost goes back to its source on a cancel. In the window a casting is "offered", not
+"pledged", since "pledge" was the money word M4.1 retired.
+
+**Why:** without it, M5's purchases came only from purses (the party fund could not pay for a formula or a casting),
+"Fill the shortfall" ignored the stock M5 counts toward the up-front half, and M5's casting words collided with the
+money words M4.1 replaced.
+
+**Consequences:** DESIGN 4.6, 4.7, 6.6, 6.9 and 10.11 carry "As built in M5 on M4.1" notes; a new live plan `m5-fund`.
+A purchase for an order never comes out of the money already earmarked for it.
+
+## 2026-10-26: Fund accounting, from the first hands-on session
+
+**Decision:** the party's money is shown and handled as simple fund accounting. The
+strongbox holds the party fund, split into **unallocated** money and money **earmarked**
+for specific orders; each earmarked amount records its source (the party fund or a
+named member), and spending is shown per order. Adding money to the party fund leaves
+it unallocated. Funding an order takes a source: the party fund (re-labels unallocated
+money as earmarked, no coins move; any member may do it, and the ledger records who) or
+the member's purse (coins move in). Spending deducts from the order's earmarked money,
+any shortfall at finish asks which source to draw from, and refunds return each share
+to its source. All money is entered as separate pp/gp/sp/cp fields.
+
+**Why:** in the first real use the author deposited 18 gp to the party fund for an
+order and nothing could move it onto the order; a single amount field read "18" as
+copper; and "pledge" versus "deposit" was not understandable.
+
+**Consequences:** the Funds tab and order funding are reworked in M4.1. The search box
+stays an order filter; a magnifying-glass button opens the existing item picker and
+pf2e's Compendium Browser rather than a new item search.
+
 ## 2026-10-25: Open questions settled by the author
 
 - **Scope added:** every crafting variant in Treasure Vault (Remastered) pp.157-175

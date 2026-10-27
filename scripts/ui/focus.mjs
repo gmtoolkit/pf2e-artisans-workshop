@@ -7,7 +7,7 @@
  */
 
 /** A control's own data attributes that tell it apart, in the order a selector names them. */
-const OWN = Object.freeze(["filter", "action", "op", "tab", "uuid"]);
+const OWN = Object.freeze(["filter", "action", "op", "tab", "uuid", "toggle", "fix", "item"]);
 /** Data attributes of the container a control belongs to: an order (its row or its detail), a ledger row. */
 const SCOPE = Object.freeze(["orderId", "rowId"]);
 

@@ -3,11 +3,13 @@
  * and formula claim, a formula copied from an ally and written by the learner's own client, an owed pick taken, a
  * reverse-engineering job through the order lifecycle (the item kept), a rune etched in place, an item handed over and
  * given back on a cancel, precious stock counted toward the up-front half and consumed at the finish, a Repair, casting
- * pledges as G9, and the scroll built with its pledged spell.
+ * pledges as G9, and the scroll built with its pledged spell. M5 on M4.1: purchases paid from the party fund or a purse,
+ * an order's purchase earmarked and spent in one move, the fund slot against an earmark of the same money, a formula
+ * copy's cost refunded to its source on a cancel, and stock lowering what "Fund this order" fills.
  */
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
-import { MOD, addDocument, coin, installFoundry, resetWorld, setUsers, sharedWorld, world } from "./stubs.mjs";
+import { MOD, addDocument, asUser, coin, installFoundry, interleave, resetWorld, setUsers, sharedWorld, world } from "./stubs.mjs";
 
 installFoundry();
 const { REGISTRY } = await import("../../scripts/data/registry.mjs");
@@ -21,6 +23,9 @@ const { resetCatalogue } = await import("../../scripts/foundry/catalogue.mjs");
 const { coinStacks, setCoinTemplates } = await import("../../scripts/foundry/coins.mjs");
 const custody = await import("../../scripts/foundry/custody.mjs");
 const formulas = await import("../../scripts/foundry/formulas.mjs");
+const funds = await import("../../scripts/foundry/funds.mjs");
+const { fundAccounts, spentBySource, unallocatedCp } = await import("../../scripts/logic/funds.mjs");
+const { allocationsByContributor } = await import("../../scripts/logic/split.mjs");
 const { requestLease, resetLease } = await import("../../scripts/foundry/lease.mjs");
 const orders = await import("../../scripts/foundry/orders.mjs");
 const { spellItemSource } = await import("../../scripts/foundry/outputs.mjs");
@@ -623,4 +628,134 @@ test("a cancel after a settled success keeps the stock spent; one item is given 
     assert.equal((await custody.giveBack({ order: next, line: handed.line })).ok, true);
     assert.equal((await custody.giveBack({ order: next, line: handed.line })).reason, "no-line", "given back once");
     assert.equal(records("rows").filter((r) => r.kind === "material-out" && r.order === next).length, 1);
+});
+
+/* -------------------------------------------- */
+/*  M5 on M4.1: purchases and stock under fund   */
+/*  accounting                                   */
+/* -------------------------------------------- */
+
+const balanced = () => fundAccounts(records("rows"), Object.fromEntries(records("orders").map((o) => [o.id, o]))).balanced;
+const fundCp = () => unallocatedCp(records("rows"));
+
+/**
+ * Two clients planning from the same copy of the ledger: the request `mine` sends is held at the server's door while
+ * `other` runs to the end, then let through (as in `funds.test.mjs`).
+ */
+async function race(mine, other) {
+    let theirs = null;
+    const restore = interleave(() => true, async () => { theirs = await other(); });
+    try {
+        return [await mine(), theirs];
+    } finally {
+        restore();
+    }
+}
+
+test("a formula bought from the party fund: the strongbox pays out of the unallocated fund, and the identity holds (M5 on M4.1)", async () => {
+    assert.equal((await formulas.acquire({ learner: vera.uuid, uuid: ELIXIR, route: "buy", paidFrom: "fund" })).reason, "fund-short",
+        "nothing unallocated yet");
+    assert.deepEqual([records("rows").length, records("claims").length], [0, 0], "a refused purchase writes no claim");
+    as("p2");
+    assert.equal((await funds.deposit(bo.uuid, 5000)).outcome, "ok");
+    as("p1");
+    const result = await formulas.acquire({ learner: vera.uuid, uuid: ELIXIR, route: "buy", paidFrom: "fund" });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(bookOf(vera), [ELIXIR]);
+    assert.deepEqual([cpOf(vera), cpOf(docs.strongbox), fundCp()], [10000, 4900, 4900], "Vera's purse is untouched; the strongbox paid 1 gp");
+    const row = records("rows").find((r) => r.kind === "purchase");
+    assert.deepEqual([row.box, row.purse, row.alloc, row.actor, row.order, row.author], [-100, 0, -100, null, null, "p1"],
+        "the party fund is the source; the row records who spent it");
+    assert.equal(read(provenancePath(vera.id, ELIXIR)).row, row.id);
+    assert.equal(balanced(), true, "strongbox = unallocated + earmarked");
+    assert.equal(reconciliationReport().differenceCp, 0);
+});
+
+test("a casting bought from the party fund is earmarked for the order and spent by it: spent by the fund, nothing left earmarked (M5 on M4.1)", async () => {
+    as("p2");
+    assert.equal((await funds.deposit(bo.uuid, 1000)).outcome, "ok");
+    const [id] = (await orders.requestOrder({ uuid: SCROLL1, quantity: 1, requester: bo.uuid })).orders;
+    const bought = await pledges.buyCasting(id, { paidFrom: "fund", spell: HEAL, castings: 1 });
+    assert.equal(bought.ok, true, JSON.stringify(bought));
+    assert.deepEqual([cpOf(bo), cpOf(docs.strongbox), fundCp()], [9000, 700, 700], "3 gp out of the strongbox and the unallocated fund");
+    const orderRows = records("rows").filter((r) => r.order === id);
+    assert.deepEqual(allocationsByContributor(orderRows), [], "earmarked and spent in one move: nothing stays earmarked");
+    assert.deepEqual(spentBySource(orderRows), [{ actor: null, cp: 300 }], "the order shows it spent by the party fund");
+    const [pledge] = Object.values(read(`orders.${id}.pledges`));
+    assert.deepEqual([pledge.status, pledge.paidFrom, pledge.payer, pledge.costCp], ["fulfilled", "fund", null, 300]);
+    assert.equal(balanced(), true);
+    assert.equal(reconciliationReport().differenceCp, 0);
+});
+
+test("a spell's cost is paid from the source chosen when the casting is marked done; refused, the casting stays offered (M5 on M4.1)", async () => {
+    const heal = bo.addItem({ type: "spell", name: "Heal", sourceId: HEAL, baseRank: 1, traits: new Set(["healing", "vitality"]) });
+    as("p2");
+    const [id] = (await orders.requestOrder({ uuid: SCROLL1, quantity: 1, requester: bo.uuid })).orders;
+    const pledged = await pledges.pledgeCasting(id, { caster: bo.uuid, spell: heal.uuid, castings: 1 });
+    const short = await pledges.fulfilPledge(id, pledged.pledge, { costCp: 50, paidFrom: "fund" });
+    assert.deepEqual([short.ok, short.reason], [false, "fund-short"]);
+    assert.equal(read(`orders.${id}.pledges.${pledged.pledge}.status`), "offered", "the cost and the casting land together or not at all");
+    assert.equal((await funds.deposit(bo.uuid, 200)).outcome, "ok");
+    const cast = await pledges.fulfilPledge(id, pledged.pledge, { costCp: 50, paidFrom: "fund" });
+    assert.equal(cast.ok, true, JSON.stringify(cast));
+    const pledge = read(`orders.${id}.pledges.${pledged.pledge}`);
+    assert.deepEqual([pledge.status, pledge.costCp, pledge.paidFrom, pledge.payer], ["fulfilled", 50, "fund", null]);
+    assert.deepEqual([cpOf(docs.strongbox), fundCp(), balanced()], [150, 150, true]);
+});
+
+test("a purchase from the party fund and an earmark of the same money planned from one copy: only one lands (M5 on M4.1)", async () => {
+    as("p2");
+    assert.equal((await funds.deposit(bo.uuid, 300)).outcome, "ok");
+    const [scroll] = (await orders.requestOrder({ uuid: SCROLL1, quantity: 1, requester: bo.uuid })).orders;
+    const [elixir] = (await orders.requestOrder({ uuid: ELIXIR, quantity: 1, requester: bo.uuid })).orders;
+    const [mine, theirs] = await race(() => pledges.buyCasting(scroll, { paidFrom: "fund", spell: HEAL, castings: 1 }),
+        asUser("p1", () => funds.fundFromParty(elixir, 300)));
+    assert.deepEqual([theirs.ok, mine.ok], [true, false], JSON.stringify({ mine, theirs }));
+    assert.deepEqual([fundCp(), cpOf(docs.strongbox), balanced()], [0, 300, true], "the 3 gp went to the elixir once, and nothing was bought");
+    assert.deepEqual(Object.keys(read(`orders.${scroll}.pledges`) ?? {}), [], "no casting recorded without its payment");
+    assert.equal((await pledges.buyCasting(scroll, { paidFrom: "fund", spell: HEAL, castings: 1 })).reason, "fund-short", "planned again from fresh data");
+    assert.equal(reconciliationReport().differenceCp, 0);
+});
+
+test("a formula copy's cost goes back to its source on a cancel: the party fund at once, a purse by its owner (M5 on M4.1)", async () => {
+    world.settings.set(`${MOD}.rules.allyCopyCostCp`, 200);
+    vera.system.crafting.formulas = [{ uuid: ELIXIR }];
+    as("p2");
+    assert.equal((await funds.deposit(bo.uuid, 500)).outcome, "ok");
+    const asked = await services.requestService({ kind: "formula-copy", requester: bo.uuid, performer: vera.uuid, uuid: ELIXIR, paidFrom: "fund" });
+    assert.equal(asked.ok, true, JSON.stringify(asked));
+    assert.deepEqual([fundCp(), cpOf(docs.strongbox)], [300, 300]);
+    assert.equal(read(`services.${asked.service}.payment.source`), "fund");
+    const cancelled = await services.cancel(asked.service);
+    assert.deepEqual([cancelled.ok, cancelled.refunded], [true, true]);
+    assert.deepEqual([fundCp(), cpOf(docs.strongbox), balanced()], [500, 500, true], "refunded to the party fund");
+    const purse = await services.requestService({ kind: "formula-copy", requester: bo.uuid, performer: vera.uuid, uuid: ELIXIR });
+    assert.equal(cpOf(bo), 10000 - 500 - 200, "from Bo's purse by default");
+    as("p1");
+    assert.deepEqual((({ ok, refunded }) => [ok, refunded])(await services.cancel(purse.service)), [true, false],
+        "Vera's player cancels, but cannot write Bo's purse");
+    as("p2");
+    const row = records("rows").find((r) => r.id === read(`services.${purse.service}.payment.row`));
+    assert.equal((await funds.reverse(row.id)).ok, true, "Bo's player reverses it in the Funds ledger");
+    assert.equal(cpOf(bo), 10000 - 500);
+    assert.equal(reconciliationReport().differenceCp, 0);
+});
+
+test("stock lowers what Fund this order fills: the up-front half less the stock, from the party fund (M5 on M4.1)", async () => {
+    const ingot = vera.addItem({ type: "equipment", name: "Cold Iron Ingot", sourceId: IRON, system: { slug: "cold-iron-ingot", quantity: 1, price: { value: { gp: 2 } } },
+        traits: new Set(["precious"]) });
+    const [id] = (await orders.requestOrder({ uuid: ELIXIR, quantity: 2, requester: vera.uuid, crafter: vera.uuid })).orders;
+    assert.equal(funds.shortfallFor(id).shortCp, 300, "3 gp up front before any stock");
+    assert.equal((await custody.handOver({ order: id, item: ingot.uuid, purpose: "material" })).ok, true);
+    assert.deepEqual((({ phase, needCp, shortCp }) => [phase, needCp, shortCp])(funds.shortfallFor(id)), ["upfront", 100, 100],
+        "2 gp of the half is in stock");
+    as("p2");
+    assert.equal((await funds.deposit(bo.uuid, 100)).outcome, "ok");
+    as("p1");
+    assert.equal((await funds.fundOrder(id, { source: "fund", cp: 100 })).ok, true);
+    assert.equal(funds.shortfallFor(id).shortCp, 0);
+    assert.equal((await orders.start(id)).ok, true);
+    const accounts = fundAccounts(records("rows"), Object.fromEntries(records("orders").map((o) => [o.id, o])));
+    assert.deepEqual(accounts.orders.map((o) => [o.earmarkedCp, o.stock]), [[100, [{ actor: vera.uuid, cp: 200 }]]], "the stock beside the money");
+    assert.equal(accounts.balanced, true, "stock is items, outside the identity");
 });

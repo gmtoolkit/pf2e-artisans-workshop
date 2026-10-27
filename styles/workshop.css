@@ -209,6 +209,9 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .workshop-header .party-name { font-family: var(--serif, var(--font-h2)); font-size: var(--font-size-16, 1rem); }
 .workshop-header .workshop-strongbox .money { font-weight: 700; }
 .workshop-header .workshop-shelf.waiting { color: var(--paw-warning); font-weight: 600; }
+/* The shelf count is itself the Collect button while something waits (E, M4.1). */
+.workshop-header .workshop-shelf button.take { color: inherit; font-weight: inherit; padding: 0.15rem 0.5rem; }
+.workshop-header .workshop-shelf button.take .collect { padding-left: 0.4rem; border-left: 1px solid currentColor; }
 .workshop-header .workshop-acting { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; }
 .workshop-header .workshop-acting select { max-width: 16rem; }
 .workshop-header > div { display: flex; align-items: center; gap: 0.35rem; }
@@ -279,7 +282,7 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 }
 .queue-toolbar select { flex: 0 1 9rem; }
 .queue-toolbar input[type="search"] { flex: 1 1 10rem; min-width: 8rem; }
-.queue-toolbar .request { margin-left: auto; }
+.queue-toolbar .find-item { margin-left: auto; min-width: 2rem; justify-content: center; }
 .queue-summary { margin: 0.35rem 0; color: var(--color-text-secondary, inherit); font-size: var(--font-size-13, 0.8125rem); }
 
 .queue-body {
@@ -355,7 +358,23 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .detail-gates li.ok i { color: var(--paw-crit-success); }
 .detail-gates li.fail i,
 .detail-gates li.fail span { color: var(--paw-crit-failure); }
-.detail-gates .gate-id { font-family: var(--sans-serif-condensed, var(--font-sans)); min-width: 2rem; }
+.detail-gates li.fail { flex-wrap: wrap; }
+.detail-gates .gate-name { font-weight: 600; }
+.detail-gates li.fail .gate-why { flex-basis: 100%; padding-left: 1.2rem; font-weight: normal; }
+.detail-gates li.fail button { margin-left: 1.2rem; }
+.detail-gates li.ok .gate-name { font-weight: normal; }
+.detail-met summary { cursor: pointer; color: var(--paw-crit-success); }
+.detail-met[open] summary { margin-bottom: 0.2rem; }
+.detail-short { color: var(--paw-warning); font-weight: 600; margin: 0.3rem 0; }
+.detail-cost { margin: 0.2rem 0; }
+.detail-delivery,
+.order-facts .delivery { font-weight: 600; }
+.detail-delivery.delivery-shelf,
+.order-facts .delivery-shelf { color: var(--paw-warning); }
+.detail-delivery.delivery-delivered,
+.order-facts .delivery-delivered { color: var(--paw-crit-success); }
+.detail-work-rule { margin: 0.2rem 0 0.35rem; }
+.detail-days { list-style: none; }
 .detail-list li { display: flex; flex-wrap: wrap; gap: 0.25rem 0.6rem; align-items: center; }
 .detail-list li .money { margin-left: auto; }
 .detail-list li .by { color: var(--color-text-subtle, #555); font-size: var(--font-size-12, 0.75rem); }
@@ -377,6 +396,16 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 }
 .funds-card .money.big { font-size: var(--font-size-20, 1.25rem); font-weight: 700; }
 .funds-card .warning { color: var(--paw-warning); font-size: var(--font-size-12, 0.75rem); font-weight: 600; }
+.funds-card-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
+/* The identity of fund accounting (A, M4.1): the strongbox is the unallocated fund plus what is earmarked. */
+.funds-identity { margin: 0 0 0.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.funds-identity.off,
+.workshop-funds > .warning { color: var(--paw-warning); }
+.funds-orders ul.sources { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.1rem 0.75rem; }
+.funds-orders ul.sources li.fund { font-style: italic; }
+.funds-orders th .hint { display: block; font-weight: normal; }
+.funds-orders tfoot th,
+.funds-orders tfoot td { border-top: 1px solid var(--paw-line); font-weight: 700; }
 .funds-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0; }
 .pf2e-artisans-workshop table { width: 100%; border-collapse: collapse; margin: 0.25rem 0 0.5rem; }
 .pf2e-artisans-workshop table th,
@@ -498,6 +527,10 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .pf2e-artisans-workshop .more { font-style: italic; }
 .codex-picks tr.choosing { background: var(--paw-surface-strong); }
 .codex-learn input[type="search"] { width: 100%; }
+/* "Browse" beside the formula search (the item picker of M4.1, M5 on M4.1). */
+.codex-learn .learn-search { display: flex; gap: 0.35rem; align-items: center; }
+.codex-learn .learn-search input[type="search"] { flex: 1; min-width: 0; }
+.codex-learn .learn-search .browse { flex: 0 0 auto; }
 .learn-matches { max-height: 14rem; overflow: auto; margin: 0.3rem 0; }
 .learn-matches button { width: 100%; justify-content: flex-start; }
 .learn-matches .level { margin-left: auto; color: var(--color-text-subtle, #555); }
@@ -583,6 +616,21 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .workshop-request .request-candidates caption { text-align: left; font-weight: 700; }
 .workshop-request .request-candidates tr.blocked th { color: var(--color-text-subtle, #555); }
 .workshop-request .request-estimate { margin: 0; font-weight: 600; }
+.workshop-request .request-search .form-fields { display: flex; gap: 0.35rem; }
+.workshop-request .request-search .browse { flex: 0 0 auto; }
+
+/* The amount prompt (B, M4.1): four coin fields, "Fill the shortfall", and where the money comes from. */
+.pf2e-artisans-workshop-amount fieldset { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.25rem 0; }
+.pf2e-artisans-workshop-amount .coin-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.35rem; }
+.pf2e-artisans-workshop-amount .coin-field { display: flex; align-items: center; gap: 0.25rem; }
+.pf2e-artisans-workshop-amount .coin-field input { width: 100%; min-width: 3rem; text-align: right; font-variant-numeric: tabular-nums; }
+.pf2e-artisans-workshop-amount .source-option { display: flex; align-items: center; gap: 0.35rem; }
+.pf2e-artisans-workshop-amount button.fill { align-self: flex-start; height: auto; }
+.pf2e-artisans-workshop-amount .amount-problem { min-height: 1.2em; color: var(--paw-warning, #7a4f00); }
+/* A price to pay (M5 on M4.1): said once, in place of the fields. */
+.pf2e-artisans-workshop-amount .amount-fixed { margin: 0.35rem 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* Material stock beside the money (M5 on M4.1): items, so set apart from the coins. */
+.funds-orders ul.sources li.stock, .order-detail .detail-list li.stock { font-style: italic; color: var(--color-text-subtle, #555); }
 
 /* ------------------------------------------------------------------ */
 /*  Chat cards (10.5)                                                  */
@@ -592,6 +640,7 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .pf2e-artisans-workshop-augment .augment-line { margin: 0.2rem 0; }
 .pf2e-artisans-workshop-card .card-state { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.3rem 0; }
 .pf2e-artisans-workshop-card .card-blockers { list-style: none; margin: 0.25rem 0; padding: 0; color: var(--paw-crit-failure); }
+.pf2e-artisans-workshop-card .card-delivery { font-weight: 600; }
 .pf2e-artisans-workshop-card .card-buttons,
 .pf2e-artisans-workshop-augment .card-buttons { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.3rem; }
 .pf2e-artisans-workshop-card .card-buttons button,

@@ -21,7 +21,8 @@ test("signs per kind follow the 4.6 table", () => {
     assert.deepEqual(signedAmounts("allocate", 50, { side: "fund" }), { box: 0, purse: 0, alloc: -50 });
     assert.deepEqual(signedAmounts("allocate", 50, { side: "order" }), { box: 0, purse: 0, alloc: 50 });
     assert.deepEqual(signedAmounts("purchase", 50, { via: "purse" }), { box: 0, purse: -50, alloc: 0 });
-    assert.deepEqual(signedAmounts("purchase", 50, { via: "box" }), { box: -50, purse: 0, alloc: 0 });
+    // Paid from the strongbox, a purchase spends the allocation that held the coins (As built in M5 on M4.1).
+    assert.deepEqual(signedAmounts("purchase", 50, { via: "box" }), { box: -50, purse: 0, alloc: -50 });
     assert.deepEqual(signedAmounts("income", 50, { via: "box" }), { box: 50, purse: 0, alloc: 50 });
     assert.deepEqual(signedAmounts("income", 50, { via: "purse" }), { box: 0, purse: 50, alloc: 0 });
     assert.throws(() => signedAmounts("allocate", 50), /side/);

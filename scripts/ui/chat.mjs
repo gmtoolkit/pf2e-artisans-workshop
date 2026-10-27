@@ -13,6 +13,10 @@
  * roll the wrapper linked to an order (6.12): its degree, what it means for the money, a Settle button while the order
  * is `rolled`, and a notice when a roll arrived after the order settled.
  *
+ * The completion card says where the item went (As built in M4.1): delivered into the recipient's inventory, waiting on
+ * the pickup shelf with Collect for the recipient's owners, on its way, or kept in the strongbox, and what the order
+ * cost (paid up front, what the work days took off, paid at the finish).
+ *
  * Cards are whispered to the people involved (the owners of the requester, the recipient, the crafter and the
  * contributors, and GMs); a request goes to every member's owners, since any of them may offer to craft it. The world
  * setting `chat.visibility` "public" posts them to everyone.
@@ -27,12 +31,14 @@ import * as orders from "../foundry/orders.mjs";
 import { members } from "../foundry/roster.mjs";
 import { setting } from "../foundry/settings.mjs";
 import { canWrite } from "../foundry/state.mjs";
-import { read } from "../foundry/store.mjs";
-import { sweepClaims, shelfItemsFor } from "../foundry/claims.mjs";
+import { read, records } from "../foundry/store.mjs";
+import { sweepClaims } from "../foundry/claims.mjs";
+import { shortfallFor, fundOrder } from "../foundry/funds.mjs";
+import { unallocatedCp } from "../logic/funds.mjs";
 import { orderContext } from "./context.mjs";
 import { money, report } from "./format.mjs";
 import { DEGREE_CLASS, DEGREE_KEY, PROVENANCE } from "./labels.mjs";
-import { askAmount } from "./prompts.mjs";
+import { askMoney } from "./prompts.mjs";
 
 const TEMPLATES = Object.freeze({
     card: "modules/pf2e-artisans-workshop/templates/chat/order-card.hbs",
@@ -165,10 +171,10 @@ async function renderCard(message, html, card) {
     const order = read(`orders.${card.order}`);
     if (!order) return;
     const context = await orderContext(order);
-    const shelf = shelfItemsFor(order.recipient?.uuid ?? null).filter((item) => item.flags?.[MODULE_ID]?.shelf?.order === order.id);
+    // Where the item went (E, As built in M4.1): delivered (and to whom), on the shelf with Collect for the recipient's
+    // owners, on its way, or kept in the strongbox. Collect stays until the item is delivered; then the card says so.
     const markup = await foundry.applications.handlebars.renderTemplate(TEMPLATES.card, {
-        kind: card.kind, view: context, onShelf: card.kind === "complete" && shelf.length > 0,
-        canTake: shelf.length > 0 && !!order.recipient?.uuid && orders.owns(order.recipient.uuid), ready: canWrite(),
+        kind: card.kind, view: context, canCollect: context.canCollect, ready: canWrite(),
     });
     host.innerHTML = markup;
     bindOps(host, order.id);
@@ -242,9 +248,14 @@ async function runOp(op, orderId) {
             const { openWorkshop } = await import("./workshop.mjs");
             return openWorkshop({ tab: "queue", order: orderId });
         }
-        case "pledge": {
-            const answer = await askAmount({ kind: "pledge", actors: orders.actingChoices() });
-            return answer ? orders.pledgeTo(orderId, answer.actor, answer.cp) : null;
+        case "fund": {
+            // "Fund this order" from the card: the same choice of source and the four coin fields as in the window (A, B).
+            const short = shortfallFor(orderId);
+            if (!short) return null;
+            const answer = await askMoney({ kind: "fund", actors: orders.actingChoices(), actor: actingActor()?.uuid ?? null,
+                sources: { fundCp: unallocatedCp(records("rows")) },
+                fill: short.shortCp > 0 ? { cp: short.shortCp, key: "pf2e-artisans-workshop.Prompt.Fill" } : null });
+            return answer ? fundOrder(orderId, answer) : null;
         }
         case "accept": {
             const actor = actingActor();

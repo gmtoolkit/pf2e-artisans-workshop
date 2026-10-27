@@ -13,19 +13,24 @@
  * restores Hit Points by Player Core p.236 or the Crafter's Eyepiece (6.13); a critical failure deals 2d6 less Hardness.
  * The performer must carry a repair toolkit (Improvise Tool waives it for Repair, not for affixing); one in the strongbox
  * does not count (4.5).
+ *
+ * A formula copy's cost (`rules.allyCopyCostCp`, 0 by default) is paid when it is asked for, from the source the
+ * requester picks (As built in M5 on M4.1, `payPurchase`): a purse, or the party fund. A cancel refunds it to that source
+ * (the payment row reversed) when the user cancelling may move it back: anyone for the party fund, the purse's owner for
+ * a purse; otherwise its payer reverses it in the Funds ledger.
  */
 import { MODULE_ID } from "../constants.mjs";
 import { REPAIR_CRIT_FAIL_DICE } from "../data/services.mjs";
-import { planPurseDebit } from "../logic/coins.mjs";
+import { liveRows } from "../logic/core.mjs";
 import { levelDC } from "../logic/dc.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
-import { purseLockIds } from "../logic/lock-first.mjs";
 import { repairEyepiece, tools } from "../logic/registry.mjs";
 import { affixProblem, cancelService as cancelRecord, closeService, makeService, offerService, repairResult } from "../logic/services.mjs";
 import { givingBack, heldLines } from "./custody.mjs";
 import { bookOf, formulaClaimInput, applyIfResponsible, knownState } from "./formulas.mjs";
 import { makeClaim } from "../logic/claims.mjs";
-import { freeStacks, lockedWrite, moveCoins } from "./money.mjs";
+import { lockedWrite, moveCoins, reverseRows } from "./money.mjs";
+import { payPurchase } from "./purchases.mjs";
 import { heldKeysOf, ranksOf, toolKeysOf } from "./registry.mjs";
 import { rulesFromSettings, setting } from "./settings.mjs";
 import { canWrite, shared } from "./state.mjs";
@@ -50,13 +55,18 @@ function openService(id) {
     return { service };
 }
 
+/** What a formula copy costs (`rules.allyCopyCostCp`), and 0 for every other service. */
+export const serviceCostCp = (kind) => (kind === "formula-copy" ? rulesFromSettings().allyCopyCostCp : 0);
+
 /**
  * Ask for a service (4.5). The requester is one of this user's characters; a named performer may be anyone's. A formula
  * copy names the formula (`uuid`) and its ally (`performer`), and costs `rules.allyCopyCostCp` (0 by default, the
- * author's decision), paid now as a `purchase` row from the requester's purse when it is more. Repair and affix name the
- * item (`target`); affix its host (`host`).
+ * author's decision), paid now as a `purchase` row when it is more: from `paidFrom` (As built in M5 on M4.1), `purse`
+ * (`payer`'s, the requester's by default) or `fund`, the party fund. The record keeps the payment (`payment: {row,
+ * source, cp}`) so a cancel can refund it. Repair and affix name the item (`target`); affix its host (`host`).
  */
-export async function requestService({ kind, requester, performer = null, target = null, host = null, uuid = null, note = "", nonce = newId() }) {
+export async function requestService({ kind, requester, performer = null, target = null, host = null, uuid = null, note = "",
+    paidFrom = "purse", payer = null, nonce = newId() }) {
     if (!canWrite()) return refuse("not-ready");
     if (!owns(requester)) return refuse("not-owner");
     const already = kind === "formula-copy" ? knownState(actorOf(requester), uuid) : null;
@@ -67,16 +77,13 @@ export async function requestService({ kind, requester, performer = null, target
     } catch {
         return refuse("bad-service");
     }
-    const cost = kind === "formula-copy" ? rulesFromSettings().allyCopyCostCp : 0;
+    const cost = serviceCostCp(kind);
     if (cost > 0) {
-        const purse = actorOf(requester);
-        const row = { kind: "purchase", how: { via: "purse" }, idem: idemKey("purchase", "formula-copy", service.id, nonce), cp: cost, actor: purse.uuid };
-        const moved = await moveCoins(() => {
-            const stacks = freeStacks(purse);
-            const plan = planPurseDebit(stacks, cost);
-            if (!plan) return { refuse: "purse-short" };
-            return { rows: [row], debits: [{ target: purse.uuid, plan }], locks: purseLockIds(stacks, plan), ledger: { set: { [`services.${service.id}`]: service } } };
-        }, {}, [row]);
+        const source = paidFrom === "fund" ? "fund" : "purse";
+        const idem = idemKey("purchase", "formula-copy", service.id, nonce);
+        const paid = { ...service, payment: { row: hashId(idem), source, cp: cost } };
+        const moved = await payPurchase({ source, payer: source === "purse" ? payer ?? requester : null, cp: cost, idem,
+            ledger: { set: { [`services.${service.id}`]: paid } } });
         return moved.ok ? { ok: true, service: service.id } : moved;
     }
     await write({ set: { [`services.${service.id}`]: service } });
@@ -104,7 +111,8 @@ function close(service, status, result, extra = {}) {
 }
 
 /**
- * Cancel an open service: the requester's or the performer's owners, or a GM. Items handed over for it go back.
+ * Cancel an open service: the requester's or the performer's owners, or a GM. Items handed over for it go back, and a
+ * formula copy's cost goes back to where it came from (`refundPayment`).
  */
 export async function cancel(id) {
     const { service, refusal } = openService(id);
@@ -114,11 +122,27 @@ export async function cancel(id) {
     if (!step.ok) return step;
     const lines = heldLines(service);
     const set = { [`services.${id}.status`]: "cancelled", [`services.${id}.closed`]: stampNow() };
-    if (!lines.length) return lockedWrite([closeLockId(id)], [], { set });
-    const back = givingBack({ path: `services.${id}`, key: "service", id }, lines, { ref: "cancel" });
-    if (!back.rows.length) return lockedWrite([closeLockId(id)], [], { set });
-    return moveCoins(() => ({ rows: back.rows, itemUpdates: [{ target: "strongbox", updates: back.updates }], locks: [closeLockId(id)],
-        ledger: { set: { ...set, ...back.marks } } }), {}, back.rows.slice(0, 1));
+    const back = lines.length ? givingBack({ path: `services.${id}`, key: "service", id }, lines, { ref: "cancel" }) : null;
+    const closed = back?.rows.length
+        ? await moveCoins(() => ({ rows: back.rows, itemUpdates: [{ target: "strongbox", updates: back.updates }], locks: [closeLockId(id)],
+            ledger: { set: { ...set, ...back.marks } } }), {}, back.rows.slice(0, 1))
+        : await lockedWrite([closeLockId(id)], [], { set });
+    if (!closed.ok) return closed;
+    const refunded = await refundPayment(service);
+    return { ...closed, refunded };
+}
+
+/**
+ * Refund a cancelled service's payment to its source (As built in M5 on M4.1): the `purchase` row reversed, so the coins
+ * go back into the purse they left, or into the strongbox and the unallocated party fund. Only when this user may move
+ * them back (the party fund: anyone; a purse: its owner); otherwise the payer reverses it in the Funds ledger. Returns
+ * whether it was refunded.
+ */
+async function refundPayment(service) {
+    const row = service.payment?.row ? read(`rows.${service.payment.row}`) : null;
+    if (!row || row.state !== "applied" || !liveRows(records("rows")).some((r) => r.id === row.id)) return false;
+    if ((row.purse ?? 0) !== 0 && !owns(row.actor)) return false;
+    return (await reverseRows([row], {}, null)).ok === true;
 }
 
 /** The item a service works on, if the performer may work it: on the performer, or handed over to the strongbox for it. */

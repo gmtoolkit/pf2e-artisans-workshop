@@ -1,6 +1,17 @@
 <div class="pf2e-artisans-workshop-amount standard-form">
+    {{#if intro}}<p class="amount-intro">{{intro}}</p>{{/if}}
+    {{#if sources}}
+    <fieldset class="amount-source">
+        <legend>{{localize "pf2e-artisans-workshop.Prompt.Source"}}</legend>
+        {{#each sources}}
+        <label class="source-option"><input type="radio" name="source" value="{{value}}" {{#if checked}}checked{{/if}} {{#if disabled}}disabled{{/if}}> <span>{{label}}</span></label>
+        {{/each}}
+    </fieldset>
+    {{/if}}
+    {{#if actors.length}}
     {{#if single}}
-    {{#each actors}}<input type="hidden" name="actor" value="{{uuid}}"><p class="hint">{{localize "pf2e-artisans-workshop.Prompt.From" name=name}}</p>{{/each}}
+    {{#each actors}}<input type="hidden" name="actor" value="{{uuid}}">{{/each}}
+    {{#if from}}<p class="hint">{{from}}</p>{{/if}}
     {{else}}
     <div class="form-group">
         <label for="pf2e-artisans-workshop-amount-actor">{{localize "pf2e-artisans-workshop.Prompt.Character"}}</label>
@@ -9,10 +20,26 @@
         </select>
     </div>
     {{/if}}
-    <div class="form-group">
-        <label for="pf2e-artisans-workshop-amount-value">{{localize "pf2e-artisans-workshop.Prompt.Amount"}}</label>
-        <input type="text" name="amount" id="pf2e-artisans-workshop-amount-value" autofocus placeholder="{{localize 'pf2e-artisans-workshop.Prompt.AmountPlaceholder'}}">
-    </div>
+    {{/if}}
+    {{#if fixed}}
+    {{!-- A price (M5 on M4.1): said once, carried by hidden fields so the same checks apply. --}}
+    <p class="amount-fixed"><i class="fa-solid fa-tag" inert></i> {{fixed}}</p>
+    {{#each coins}}<input type="hidden" name="{{denomination}}" value="{{value}}">{{/each}}
+    {{else}}
+    <fieldset class="amount-coins">
+        <legend>{{localize "pf2e-artisans-workshop.Prompt.Amount"}}</legend>
+        <div class="coin-fields">
+            {{#each coins}}
+            <label class="coin-field"><input type="number" name="{{denomination}}" min="0" step="1" value="{{value}}" placeholder="0" {{#if autofocus}}autofocus{{/if}}> <span>{{label}}</span></label>
+            {{/each}}
+        </div>
+        {{#if fill}}
+        <button type="button" class="fill" data-fill data-pp="{{fill.pp}}" data-gp="{{fill.gp}}" data-sp="{{fill.sp}}" data-cp="{{fill.cp}}">
+            <i class="fa-solid fa-fill-drip" inert></i><span>{{fill.label}}</span>
+        </button>
+        {{/if}}
+    </fieldset>
+    {{/if}}
     {{#if max}}<p class="hint">{{localize "pf2e-artisans-workshop.Prompt.Max" max=max}}</p>{{/if}}
-    <p class="hint">{{localize "pf2e-artisans-workshop.Prompt.AmountHint"}}</p>
+    <p class="hint amount-problem" aria-live="polite"></p>
 </div>

@@ -111,7 +111,7 @@ connection between a move's two requests and waits out the 60 s grace time twice
 npm run harness:live -- --runs 2 --behaviours all --out /tmp/live     # everything
 npm run harness:live -- --scenarios 3c --runs 1 --behaviours none --canvas
 npm run harness:live -- --scenarios none --behaviours m4-lifecycle,m4-no-gm,m4-cancel,m4-double-delivery,m4-reroll-race,m4-shots,m4-ui --runs 1 --shots /tmp/m4-shots
-npm run harness:live -- --scenarios none --behaviours m5-buy,m5-ally-copy,m5-pick,m5-jobs,m5-etch,m5-upgrade-transfer,m5-precious,m5-scroll,m5-services,m5-ui,m5-shots --runs 1 --shots /tmp/m5-shots
+npm run harness:live -- --scenarios none --behaviours m5-buy,m5-ally-copy,m5-pick,m5-jobs,m5-etch,m5-upgrade-transfer,m5-precious,m5-scroll,m5-fund,m5-services,m5-ui,m5-shots --runs 1 --shots /tmp/m5-shots
 ```
 
 The M4 behaviours run the order lifecycle with a GM and two players (`m4-lifecycle`), with two players and no GM, the

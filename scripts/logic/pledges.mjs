@@ -135,6 +135,15 @@ export function castingServiceCp(rank) {
     return SPELLCASTING_SERVICE[rank - 1];
 }
 
+/**
+ * The spellcasting-service price of `castings` castings at `rank` (Player Core p.295), or null where no service sells
+ * one (the table stops at rank 9), so a 10th-rank scroll's "Buy a casting" is refused rather than thrown (M5 review).
+ */
+export function castingsPriceCp(rank, castings = 1) {
+    if (!Number.isInteger(rank) || rank < 1 || rank > SPELLCASTING_SERVICE.length) return null;
+    return castingServiceCp(rank) * castings;
+}
+
 /** The spell a finished scroll or wand holds: the first live pledge's (6.9). Null when none names one. */
 export function pledgedSpell(order) {
     return livePledges(order).find((p) => p.spell?.uuid)?.spell ?? null;

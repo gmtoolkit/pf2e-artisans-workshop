@@ -11,7 +11,9 @@
  *
  * Searching by name reads the pf2e equipment compendium's index, so every drag has a keyboard alternative (10.9). A
  * re-render keeps the focused field and its caret (`focus.mjs`), so typing on after the search's re-render goes on where
- * it was. Opened from the Workshop, the form is its child and opens in the same browser window.
+ * it was. Opened from the Workshop, the form is its child and opens in the same browser window. The Queue's magnifying
+ * glass opens it with the search focused (F, As built in M4.1), and "Browse" opens pf2e's own Compendium Browser on its
+ * equipment tab, to drag an item from: the module builds no item search of its own beyond this one.
  */
 import { MODULE_ID } from "../constants.mjs";
 import { DEGREE } from "../logic/core.mjs";
@@ -87,7 +89,7 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
         window: { title: "pf2e-artisans-workshop.Request.Title", icon: "fa-solid fa-file-circle-plus", resizable: true },
         position: { width: 560, height: "auto" },
         form: { handler: RequestForm.#onSubmit, closeOnSubmit: false, submitOnChange: false },
-        actions: { pick: RequestForm.#onPick, clear: RequestForm.#onClear },
+        actions: { pick: RequestForm.#onPick, clear: RequestForm.#onClear, browse: RequestForm.#onBrowse },
     };
 
     static PARTS = {
@@ -100,8 +102,12 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
         kind: "item", target: "", source: "", serviceKind: "repair", host: "", performer: "",
     };
 
-    constructor({ uuid = null, requester = null, kind = null, ...options } = {}) {
+    /** Whether the next render puts focus in the item search (the Queue's magnifying glass). */
+    #focusSearch = false;
+
+    constructor({ uuid = null, requester = null, kind = null, focusSearch = false, ...options } = {}) {
         super(options);
+        this.#focusSearch = focusSearch && !uuid;
         const choices = actingChoices();
         this.state.uuid = uuid;
         this.state.requester = requester ?? choices.find((a) => a === game.user.character)?.uuid ?? choices[0]?.uuid ?? null;
@@ -125,7 +131,7 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
         const items = (opts) => itemChoices(requester, s.kind, product, opts).map((i) => ({ ...i, selected: false }));
         const mark = (list, current) => list.map((i) => ({ ...i, selected: i.uuid === current }));
         return Object.assign(context, {
-            formId: this.id, ready: canWrite(), state: s, product, service, single,
+            formId: this.id, ready: canWrite(), state: s, product, service, single, canBrowse: !!game.pf2e?.compendiumBrowser,
             kinds: KINDS.map((k) => option(k, k === "service" ? "pf2e-artisans-workshop.Request.Kind.Service" : CRAFT_TYPE[k], s.kind)),
             serviceKinds: SERVICE_KINDS.map((k) => option(k, SERVICE[k], s.serviceKind)),
             targets: single ? mark(items({}), s.target) : service && s.serviceKind !== "identify-alchemy"
@@ -216,6 +222,10 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
         new foundry.applications.ux.DragDrop.implementation({
             dropSelector: ".request-drop", callbacks: { drop: (event) => this.#onDrop(event) },
         }).bind(this.element);
+        if (this.#focusSearch) {
+            this.#focusSearch = false;
+            this.element.querySelector("input[name='search']")?.focus();
+        }
     }
 
     #searchLater = foundry.utils.debounce(() => this.render(), 300);
@@ -245,6 +255,18 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
     static #onClear() {
         this.state.uuid = null;
         return this.render();
+    }
+
+    /** "Browse": pf2e's Compendium Browser on its equipment tab; an item dragged from it onto the form is the request's. */
+    static async #onBrowse() {
+        const browser = game.pf2e?.compendiumBrowser;
+        if (!browser) return;
+        try {
+            await browser.openTab("equipment");
+        } catch (error) {
+            console.warn(`${MODULE_ID} | could not open the Compendium Browser`, error);
+            await browser.render({ force: true });
+        }
     }
 
     static async #onSubmit() {
@@ -281,10 +303,11 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
 }
 
 /**
- * Open the request form, optionally with an item and a requester. From a window (`parent`, the Workshop) it is that
- * window's child, so it opens in the browser window the Workshop is in, detached or not.
+ * Open the request form, optionally with an item and a requester, and with `focusSearch` its item search focused. From a
+ * window (`parent`, the Workshop) it is that window's child, so it opens in the browser window the Workshop is in,
+ * detached or not.
  */
-export function openRequestForm({ uuid = null, requester = null, parent = null, kind = null } = {}) {
-    const form = new RequestForm({ uuid, requester, kind });
+export function openRequestForm({ uuid = null, requester = null, parent = null, kind = null, focusSearch = false } = {}) {
+    const form = new RequestForm({ uuid, requester, kind, focusSearch });
     return parent ? parent.renderChild(form) : form.render({ force: true });
 }
