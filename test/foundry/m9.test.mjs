@@ -241,6 +241,13 @@ test("a tattoo for Bo: his owner consents and sits for it; one at a time; healin
     const tattoo = madeOn(bo, id);
     assert.ok(tattoo, "on Bo");
     assert.deepEqual(await crafts.subjectSweep(), [], "still healing");
+    // Bo's player invests it on pf2e's sheet before it has healed: it has no effect yet, so his client takes it back.
+    await tattoo.update({ "system.equipped.invested": true });
+    const early = await crafts.subjectSweep();
+    assert.deepEqual(early.map((s) => s.changed.map((c) => [c.state, c.uninvested])), [[["healing", true]]]);
+    assert.deepEqual([tattoo.system.equipped.invested, tattoo.flags[MOD].subject.state], [false, "healing"]);
+    assert.ok(world.notes.some(([level, message]) => level === "warn" && message === "pf2e-artisans-workshop.Subject.Uninvested.Healing"), "he is told");
+    assert.deepEqual(await crafts.subjectSweep(), [], "once (P5)");
     const healed = await crafts.recordHealing(tattoo.uuid);
     assert.deepEqual([healed.ok, healed.until], [true, 1]);
     assert.equal(read(`orders.${id}.healing.until`), 1, "the order notes it for everyone");
@@ -252,13 +259,30 @@ test("a tattoo for Bo: his owner consents and sits for it; one at a time; healin
     assert.equal((await crafts.recordHealing(tattoo.uuid)).reason, "state");
 });
 
+test("a subject in downtime with days still to resolve resolves them first: its earlier days stay its own (6.14)", async () => {
+    const [id] = (await orders.requestOrder({ uuid: TATTOO, requester: vera.uuid, target: bo.uuid, crafter: vera.uuid })).orders;
+    as("p2");
+    assert.equal((await downtime.setDowntime(bo.uuid, true)).ok, true);
+    assert.equal((await downtime.setActivity(bo.uuid, { kind: "retrain" })).ok, true);
+    await logDays(5);
+    assert.deepEqual(await crafts.consent(id, bo.uuid), { ok: false, reason: "days-pending", data: { count: 5 } });
+    assert.equal(read(`orders.${id}.subject`), undefined, "nothing written");
+    assert.deepEqual(downtime.statusOf(bo).activity, { kind: "retrain", ref: null });
+    const resolved = await downtime.resolveDays({ actor: bo });
+    assert.deepEqual([resolved.ok, resolved.records.length, resolved.stop], [true, 5, null], "Bo's five days are his retraining");
+    assert.deepEqual(await crafts.consent(id, bo.uuid), { ok: true, presence: true });
+    assert.deepEqual(downtime.statusOf(bo).activity, { kind: "subject", ref: id });
+});
+
 test("a new magical tattoo on a subject whose invest limit is already zero stays decorative; one with room left works (settled)", async () => {
     bo.system.resources.investiture.max = 2;
     bo.addItem({ type: "equipment", name: "Old Tattoo", system: { traits: { value: ["invested", "magical", "tattoo"] }, equipped: { carryType: "worn", invested: true } } });
     const make = async () => {
         const [id] = (await orders.requestOrder({ uuid: TATTOO, requester: vera.uuid, target: bo.uuid, crafter: vera.uuid })).orders;
         as("p2");
-        await crafts.consent(id, bo.uuid);
+        // Bo's days since the last tattoo are his own to resolve before he agrees to the next (review fix).
+        if (downtime.pendingOf(bo).count) assert.equal((await downtime.resolveDays({ actor: bo, activity: { kind: "other" } })).ok, true);
+        assert.equal((await crafts.consent(id, bo.uuid)).ok, true);
         as("p1");
         await craft(id);
         as("p2");
@@ -280,6 +304,11 @@ test("a new magical tattoo on a subject whose invest limit is already zero stays
     const late = madeOn(bo, second);
     assert.deepEqual([late.flags[MOD].subject.state, late.system.equipped.invested], ["decorative", false], "no limit left: decorative for good");
     assert.ok(world.notes.some(([level, message]) => level === "info" && message === "pf2e-artisans-workshop.Subject.Settled.Decorative"), "Bo's player is told");
+    assert.deepEqual([late.system.traits.value, late.system.rules], [["tattoo"], []],
+        "a non-magical tattoo (Secrets of Magic p.164): nothing for pf2e to invest, count or apply");
+    await late.update({ "system.equipped.invested": true });
+    await crafts.subjectSweep();
+    assert.equal(late.system.equipped.invested, false, "invested by hand, taken back");
     bo.system.resources.investiture.max = 10;
     await crafts.subjectSweep();
     assert.equal(late.flags[MOD].subject.state, "decorative");
@@ -428,23 +457,30 @@ test("a staff needs a casting of each listed spell at each listed rank; a caster
     assert.equal((await g9()).ok, true);
 });
 
-test("quick-deploy snares: marks the character's feats allow, the ledger, and pf2e's own craft to deploy one (7.1)", async () => {
+test("quick-deploy snares: marks the character's feats allow, the ledger, and pf2e's own expend toggle to deploy one (7.1)", async () => {
     vera.addItem(feat("giant-snare"));
     const crafted = [];
-    const prepared = [{ uuid: "S1", item: { name: "Alarm Snare" }, expended: false }, { uuid: "S1", item: { name: "Alarm Snare" }, expended: false }];
-    const ability = { slug: "snarecrafter", isPrepared: true, isDailyPrep: false, maxSlots: 2, getPreparedCraftingFormulas: async () => prepared,
-        craft: async (index) => {
+    const prepared = [{ uuid: "S1", item: { name: "Alarm Snare", system: { traits: { value: ["snare", "trap"] } } }, expended: false },
+        { uuid: "S1", item: { name: "Alarm Snare", system: { traits: { value: ["snare", "trap"] } } }, expended: false }];
+    // As pf2e 8.6.1's `CraftingAbility` (ability.ts): `craft` expends the slot, then returns null for a snare; the sheet's
+    // expend toggle is `toggleFormulaExpended`.
+    const ability = { slug: "snarecrafter", isPrepared: true, isDailyPrep: false, maxSlots: 2,
+        getPreparedCraftingFormulas: async () => prepared.map((p) => ({ ...p })),
+        toggleFormulaExpended: async (index, value) => {
             crafted.push(index);
-            prepared[index].expended = true;
-            return { uuid: "Actor.x.Item.snare" };
+            prepared[index].expended = value ?? !prepared[index].expended;
+        },
+        craft: async (index) => {
+            await ability.toggleFormulaExpended(index);
+            return prepared[index].item.system.traits.value.includes("snare") ? null : { uuid: "Actor.x.Item.made" };
         } };
     vera.crafting = { abilities: [ability] };
     assert.equal((await crafts.setSnareMark(vera.uuid, "snarecrafter", "S1#1", "broad")).reason, "mark", "no Broad Snare");
     assert.equal((await crafts.setSnareMark(vera.uuid, "snarecrafter", "S1#1", "giant")).ok, true);
     const ledger = crafts.snareLedger(vera, { slug: "snarecrafter", maxSlots: 2, prepared: prepared.map((p) => ({ uuid: p.uuid, name: p.item.name, expended: p.expended })) });
     assert.deepEqual([ledger.used, ledger.over, ledger.allowed], [3, 1, ["giant"]], "a giant snare costs two");
-    assert.equal((await crafts.deploySnare(vera.uuid, "snarecrafter", 1)).ok, true);
-    assert.deepEqual(crafted, [1]);
+    assert.deepEqual(await crafts.deploySnare(vera.uuid, "snarecrafter", 1), { ok: true, item: null });
+    assert.deepEqual([crafted, prepared.map((p) => p.expended)], [[1], [false, true]], "the slot expended once, by pf2e");
     assert.equal((await crafts.deploySnare(vera.uuid, "snarecrafter", 1)).reason, "deployed");
     assert.equal((await crafts.setSnareMark(vera.uuid, "snarecrafter", "S1#1", null)).ok, true);
     assert.deepEqual(crafts.snareMarksOf(vera), { snarecrafter: {} });

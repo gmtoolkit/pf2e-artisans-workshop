@@ -3801,7 +3801,7 @@ async function m9Staff(h, w) {
 
 /**
  * 14f. Quick-deploy snares (7.1): the ranger fixture prepares two Alarm Snares in its snarecrafter pool; with Giant Snare one
- * is marked giant and costs two; one is deployed through pf2e's own craft.
+ * is marked giant and costs two; one is deployed through pf2e's own expend toggle (its craft makes nothing for a snare).
  */
 async function m9Snares(h, w) {
     const ranger = fixtureOf(h, w, "ranger-snares-8");

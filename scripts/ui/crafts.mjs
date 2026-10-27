@@ -12,13 +12,15 @@ import { WITH_SUBJECT } from "../logic/orders.mjs";
 import { livePledges } from "../logic/pledges.mjs";
 import { entryMatches } from "../logic/spell-lists.mjs";
 import * as crafts from "../foundry/crafts.mjs";
+import { pendingOf, statusOf as downtimeStatusOf } from "../foundry/downtime.mjs";
 import { actingChoices, viewer as currentViewer } from "../foundry/orders.mjs";
 import { traditionsOf } from "../foundry/products.mjs";
 import { rulesFromSettings } from "../foundry/settings.mjs";
 import { read } from "../foundry/store.mjs";
 import { nameOf, number, report } from "./format.mjs";
 import { SUBJECT_STATE, TATTOO_PROCESS } from "./labels.mjs";
-import { askChoice } from "./prompts.mjs";
+import { activityText, orderName } from "./days.mjs";
+import { askChoice, confirm } from "./prompts.mjs";
 
 const loc = (key) => game.i18n.localize(key);
 const fmt = (key, data) => game.i18n.format(key, data);
@@ -156,6 +158,28 @@ export function listedBuyOptions(order, supply) {
 
 const orderOf = (target) => target.closest("[data-order-id]")?.dataset.orderId ?? null;
 
+/**
+ * Whether the subject's owner goes on with "Agree" (6.14). Where the process needs the subject present, agreeing puts the
+ * subject in downtime sitting for the order until it is finished, in place of what it does now, and it can withdraw only
+ * before the work starts or after a failed check: the dialog says so, naming the activity it replaces. A subject with
+ * days still to resolve is refused by `consent` itself (`days-pending`), and a process with no presence asks nothing.
+ */
+async function consentConfirmed(order, app) {
+    const subject = actorOf(order.target);
+    const process = subjectProcess(order.craftType, rulesFromSettings(), order.variant?.process ?? null);
+    if (!subject || !process?.presence || selfSubject(order) || pendingOf(subject).count > 0) return true;
+    const status = downtimeStatusOf(subject);
+    const sitting = status.activity?.kind === "subject" && status.activity.ref === order.id;
+    if (sitting && status.inDowntime) return true;
+    const data = { name: subject.name, item: orderName(order.id) };
+    const content = [{ key: "pf2e-artisans-workshop.Subject.Confirm.Sit", data }];
+    if (status.inDowntime && status.activity && !sitting) {
+        content.push({ key: "pf2e-artisans-workshop.Subject.Confirm.Replaces", data: { ...data, activity: activityText(status.activity) } });
+    }
+    content.push({ key: "pf2e-artisans-workshop.Subject.Confirm.Withdraw", data });
+    return (await confirm({ title: "pf2e-artisans-workshop.Subject.Confirm.Title", content, app })) === true;
+}
+
 /** M9 buttons (`data-action="craft"`): agree, withdraw, choose a tradition, record healing, compose a missive. */
 export async function onCraftOp(app, target) {
     const id = orderOf(target);
@@ -163,7 +187,8 @@ export async function onCraftOp(app, target) {
     const { op, item } = target.closest("[data-op]")?.dataset ?? {};
     switch (op) {
         case "consent":
-            return order ? report(await crafts.consent(id, order.target)) : null;
+            if (!order || !(await consentConfirmed(order, app))) return null;
+            return report(await crafts.consent(id, order.target));
         case "withdraw-consent":
             return order ? report(await crafts.withdrawConsent(id, order.target)) : null;
         case "tradition": {

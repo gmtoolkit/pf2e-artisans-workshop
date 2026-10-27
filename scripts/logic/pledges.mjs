@@ -131,7 +131,8 @@ export function entryFor(supply, spell, existing = [], key = null) {
  *
  * As built in M9, for an item that lists its spells: a pledge names an open entry (`entry`, or the first open one the
  * spell matches), which takes one casting of that spell at no lower base rank (`not-on-list`, `covered`, `one-casting`,
- * `spell-rank`); cantrips go only into an entry for a cantrip. Castings asked for without a link (`any`) take any spell
+ * `spell-rank`); cantrips go only into an entry for a cantrip, or into one at the spell's own rank that names a cantrip
+ * (a spellheart's). Castings asked for without a link (`any`) take any spell
  * that can go into an item, up to that count (`any-castings`). A specialty wand is a wand.
  *
  * @param {object} p
@@ -154,7 +155,9 @@ export function pledgeProblem({ supply, spell, castings, existing = [], entry = 
         if (!found) return { reason: listed.some((e) => entryMatches(e, spell)) ? "covered" : "not-on-list" };
         if (castings !== 1) return { reason: "one-casting" };
         if (spell.category === "focus" || spell.category === "ritual" || hasTrait(spell, "focus")) return { reason: "unscribable" };
-        if (found.cantrip !== isCantrip(spell)) return { reason: "not-on-list" };
+        // An entry at a listed rank says whether it is a cantrip; one at the spell's own rank (a spellheart's "You cast
+        // @UUID[…]") takes the spell as it is, a cantrip included.
+        if (found.rank !== null && found.cantrip !== isCantrip(spell)) return { reason: "not-on-list" };
         if (!found.cantrip && found.rank !== null && spell.rank > found.rank) return { reason: "spell-rank", data: { rank: found.rank } };
         return null;
     }
@@ -178,6 +181,19 @@ export function pledgeProblem({ supply, spell, castings, existing = [], entry = 
         if (loose + castings > room) return { reason: "any-castings", data: { max: room } };
     }
     return null;
+}
+
+/**
+ * The rank a casting is recorded and bought at (6.9): a listed casting's (0 for a cantrip, including a cantrip named at its
+ * own rank), else the item's, else the spell's own.
+ *
+ * @param {{rank: number|null}|null} supply   `spellSupply`
+ * @param {{rank: number|null}|null} entry    the listed casting the pledge supplies, or null
+ * @param {{rank?: number, category?: string, traits?: string[]}|null} spell
+ */
+export function castingRank(supply, entry, spell) {
+    if (entry) return entry.rank ?? (isCantrip(spell) ? 0 : spell?.rank ?? null);
+    return supply?.rank ?? spell?.rank ?? null;
 }
 
 /**

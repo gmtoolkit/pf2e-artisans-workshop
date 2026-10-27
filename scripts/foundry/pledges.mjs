@@ -19,7 +19,7 @@
  */
 import { idemKey } from "../logic/ids.mjs";
 import { closedAs } from "../logic/orders.mjs";
-import { castingsPriceCp, entryFor, livePledges, makePledge, pledgeProblem, pledgeTransition, spellSupply } from "../logic/pledges.mjs";
+import { castingRank, castingsPriceCp, entryFor, livePledges, makePledge, pledgeProblem, pledgeTransition, spellSupply } from "../logic/pledges.mjs";
 import { productFacts } from "./products.mjs";
 import { payPurchase } from "./purchases.mjs";
 import { canWrite } from "./state.mjs";
@@ -50,9 +50,6 @@ export function spellFacts(spell) {
     };
 }
 
-/** The rank a pledge records: a listed casting's (a cantrip's 0), else the item's, else the spell's own. */
-const pledgeRank = (supply, entry, facts) => (entry ? entry.rank ?? facts?.rank ?? null : supply.rank ?? facts?.rank ?? null);
-
 /**
  * Pledge castings of a caster's spell to an order (6.9). The user must own the caster, and the spell must be one of the
  * caster's own spell items. Refusals: `not-ready`, `no-order`, `state`, `not-spell-item`, `not-owner`, `no-spell`, and
@@ -74,7 +71,7 @@ export async function pledgeCasting(orderId, { caster, spell, castings = 1, entr
     const problem = pledgeProblem({ supply, spell: facts, castings, existing, entry });
     if (problem) return refuse(problem.reason, problem.data ?? {});
     const listed = facts ? entryFor(supply, facts, existing, entry) : null;
-    const pledge = makePledge({ id: newId(), caster: actor.uuid, spell: facts, rank: pledgeRank(supply, listed, facts), castings,
+    const pledge = makePledge({ id: newId(), caster: actor.uuid, spell: facts, rank: castingRank(supply, listed, facts), castings,
         entry: listed?.key ?? null }, stampNow());
     await write({ set: { [`orders.${orderId}.pledges.${pledge.id}`]: pledge } });
     return { ok: true, pledge: pledge.id };
@@ -122,7 +119,7 @@ export async function withdrawPledge(orderId, pledgeId) {
 /**
  * What buying castings of a compendium spell for an order would cost (the window asks for a source with the price in
  * view): `{ok, cp, rank, spell}`, or the refusals `buyCasting` gives first (`no-spell`, the rule codes of
- * `pledgeProblem`, `no-casting-service` above rank 9).
+ * `pledgeProblem`, `no-casting-service` above rank 9, `cantrip-service` for a cantrip, which a caster supplies).
  */
 export async function castingPrice(orderId, { spell, castings = 1, entry = null }) {
     const { order, supply, refusal } = await openOrder(orderId);
@@ -133,9 +130,10 @@ export async function castingPrice(orderId, { spell, castings = 1, entry = null 
     const existing = livePledges(order);
     const problem = pledgeProblem({ supply, spell: facts, castings, existing, entry });
     if (problem) return refuse(problem.reason, problem.data ?? {});
-    // M9: a listed casting is bought at its own rank; a cantrip has no spellcasting service price.
+    // M9: a listed casting is bought at its own rank; a cantrip (rank 0) has no spellcasting service price.
     const listed = entryFor(supply, facts, existing, entry);
-    const rank = pledgeRank(supply, listed, facts);
+    const rank = castingRank(supply, listed, facts);
+    if (rank === 0) return refuse("cantrip-service");
     const cp = castingsPriceCp(rank, castings);
     if (cp === null) return refuse("no-casting-service", { rank });
     return { ok: true, cp, rank, spell: facts, order, supply, entry: listed?.key ?? null };

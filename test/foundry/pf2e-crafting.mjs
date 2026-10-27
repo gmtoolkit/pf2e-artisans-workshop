@@ -4,7 +4,8 @@
  * - `CraftingAbility`: `getPreparedCraftingFormulas` drops prepared formulas the book does not know; `setFormulaQuantity`
  *   refuses an increase or a new formula once the slots are spent, clamps an increase to the slots left and refuses one
  *   the pool cannot craft, and rounds an existing formula's quantity up to whole batches (0 unprepares);
- *   `updateFormulas` replaces the prepared list; `craft(uuid, {consume, destination})` makes one batch of a temporary item,
+ *   `updateFormulas` replaces the prepared list; `toggleFormulaExpended(index, value)` is the sheet's expend toggle;
+ *   `craft(uuid, {consume, destination})` makes one batch of a temporary item (nothing for a snare, as pf2e),
  *   infused when alchemical, and adds to an identical stack WITHOUT waiting for the update (pf2e does not await it). With a
  *   `resource` (M8: Quick Alchemy's versatile vials) and `consume`, it takes one through `actor.updateResource`, and makes
  *   nothing, with pf2e's warning, at 0; `destination: "hand"` makes it held, and a held item stacks only with a held stack
@@ -143,6 +144,13 @@ export class FakeAbility {
         this.preparedFormulaData = formulas.map((f) => ({ ...f }));
     }
 
+    /** pf2e's `toggleFormulaExpended(index, value)`: the sheet's expend toggle on a prepared entry. */
+    async toggleFormulaExpended(index, value) {
+        this.calls.push(["toggleFormulaExpended", index, value ?? null]);
+        const data = this.preparedFormulaData[index];
+        data.expended = value ?? !data.expended;
+    }
+
     async craft(itemOrUuid, { consume = true, destination } = {}) {
         const item = typeof itemOrUuid === "string" ? world.compendium[itemOrUuid] : itemOrUuid;
         this.calls.push(["craft", typeof itemOrUuid === "string" ? itemOrUuid : itemOrUuid?.uuid ?? null, consume, destination ?? null]);
@@ -155,6 +163,8 @@ export class FakeAbility {
             }
             await this.actor.updateResource(this.resource, value - 1);
         }
+        // pf2e: "Snares operate under entirely different rules", so `craft` makes nothing for one.
+        if (item.system?.traits?.value?.includes("snare")) return null;
         const source = sourceOf(item, this.batchFor(item));
         if (destination === "hand") source.system.equipped = { carryType: "held", handsHeld: 1 };
         const held = (i) => i.system?.equipped?.carryType === "held";

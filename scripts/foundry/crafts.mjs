@@ -16,20 +16,20 @@
  *   subject's invest limit allows, else stays decorative (a tattoo) or inactive (a graft); an upgraded one removes the item
  *   it replaced. Idempotent (P5): it changes only items whose state moves.
  * - **Recording healing**, **composing a missive**, **marking a quick-deploy snare** and **deploying one** (pf2e's own
- *   `CraftingAbility#craft`) are the owner's own actions.
+ *   `CraftingAbility#toggleFormulaExpended`) are the owner's own actions.
  */
 import { MODULE_ID } from "../constants.mjs";
 import { isMagical } from "../logic/core.mjs";
 import {
-    CONSENT_STATUSES, TRADITIONS, composePlan, consentProblem, fuluStamp, fuluTraits, healedUntil, investitureCheck, isMissive, markFor,
-    quickDeployLedger, raiseActivated, raiseResistances, settleSubject, subjectProcess, subjectRecord,
+    CONSENT_STATUSES, NOT_WORKING, TRADITIONS, composePlan, consentProblem, decorativeTraits, fuluStamp, fuluTraits, healedUntil, investitureCheck,
+    isMissive, markFor, quickDeployLedger, raiseActivated, raiseResistances, settleSubject, stillMagical, subjectProcess, subjectRecord,
 } from "../logic/crafts.mjs";
 import { PC_VERSION, lockOf } from "../logic/downtime.mjs";
 import { hashId } from "../logic/ids.mjs";
 import { WITH_SUBJECT, closedAs } from "../logic/orders.mjs";
 import { pledgedSpell } from "../logic/pledges.mjs";
 import { crafterMarks, investitureExemptions, quickDeployMarks, testPredicate } from "../logic/registry.mjs";
-import { dayWatcher, secondsPerDay, statusOf, today } from "./downtime.mjs";
+import { dayWatcher, pendingOf, secondsPerDay, statusOf, today } from "./downtime.mjs";
 import { heldKeysOf } from "./registry.mjs";
 import { isResponsibleFor } from "./responsible.mjs";
 import { rulesFromSettings } from "./settings.mjs";
@@ -56,7 +56,9 @@ const carryTypeOf = (kind) => (kind === "graft" ? "implanted" : "worn");
  * The subject's owner consents to a tattoo or graft (6.14). Where the process needs the subject present (the Secrets of
  * Magic tattoo process with `rules.tattooSubjectLocked`, every graft), the subject goes into downtime (from the day after
  * today, if it was not) sitting for the order, and is locked to it. Refused: `not-ready`, `not-owner`, `no-order`, `state`,
- * `not-subject`, `subject-locked` (the subject is locked to another order as a helper or a subject).
+ * `not-subject`, `subject-locked` (the subject is locked to another order as a helper or a subject), `days-pending` (with
+ * the count: where it will sit for the order, a subject in downtime resolves the days it has not yet resolved first, as it
+ * would before leaving downtime, since the lock has no start day and every unresolved day would be spent sitting).
  */
 export async function consent(orderId, actorUuid) {
     if (!canWrite()) return refuse("not-ready");
@@ -72,9 +74,13 @@ export async function consent(orderId, actorUuid) {
     const replace = { [`orders.${orderId}.subject`]: { actor: actor.uuid, consented: true, presence: process.presence, process: process.process, ...stamp } };
     const set = {};
     if (process.presence && order.crafter !== actor.uuid) {
+        const status = statusOf(actor);
+        const sitting = status.activity?.kind === "subject" && status.activity.ref === orderId;
+        const pending = sitting ? null : pendingOf(actor);
+        if (pending?.count > 0) return refuse("days-pending", { count: pending.count });
         replace[`pcs.${actor.id}.activity`] = { kind: "subject", ref: orderId };
         Object.assign(set, { [`pcs.${actor.id}.id`]: actor.id, [`pcs.${actor.id}.v`]: PC_VERSION, [`pcs.${actor.id}.lockedBy`]: orderId });
-        if (!statusOf(actor).inDowntime) Object.assign(set, { [`pcs.${actor.id}.inDowntime`]: true, [`pcs.${actor.id}.since`]: today().day });
+        if (!status.inDowntime) Object.assign(set, { [`pcs.${actor.id}.inDowntime`]: true, [`pcs.${actor.id}.since`]: today().day });
     }
     await write({ set, replace });
     return { ok: true, presence: process.presence };
@@ -221,10 +227,21 @@ export function investitureOf(actor, item, kind, overrides = new Map()) {
     return { kind, max: Number.isInteger(max) ? max : 10, tattoos, grafts, exempt, otherInvested };
 }
 
+/** An item's own traits (its source's, before pf2e prepares derived ones). */
+const ownTraits = (item) => [...(item?._source?.system?.traits?.value ?? item?.system?.traits?.value ?? [])];
+
+/**
+ * What makes a tattoo decorative on the item (6.14): no `magical`, `invested` or tradition trait and no rule elements, so
+ * pf2e's sheet offers no investment and applies nothing.
+ */
+const decorativeData = (item) => ({ "system.traits.value": decorativeTraits(ownTraits(item)), "system.rules": [] });
+
 /**
  * Settle the tattoos and grafts one actor holds (6.14): an upgrade removes the item it replaced; one whose healing ended,
- * and an inactive graft, is invested if the invest limit allows, else stays decorative (a tattoo) or inactive (a graft).
- * One at a time, so two healed on the same day are counted against each other. Returns what changed.
+ * and an inactive graft, is invested if the invest limit allows, else stays decorative (a tattoo, which then loses its
+ * magic: `decorativeData`) or inactive (a graft). One at a time, so two healed on the same day are counted against each
+ * other. One that does not work (`NOT_WORKING`: still healing, decorative or inactive) but was invested on pf2e's sheet is
+ * uninvested again, and its owner told. Returns what changed.
  */
 export async function settleActor(actor, day = today().day) {
     const items = (actor.items ?? []).filter((i) => subjectRecordOf(i));
@@ -250,16 +267,29 @@ export async function settleActor(actor, day = today().day) {
             over = result.over;
             return result;
         } });
-        if (!patch) continue;
+        if (!patch) {
+            const invested = NOT_WORKING.includes(record.state) && item.system?.equipped?.invested === true;
+            const magical = record.state === "decorative" && stillMagical(ownTraits(item));
+            if (!invested && !magical) continue;
+            overrides.set(item.id, false);
+            update(item, { "system.equipped.invested": false, ...(magical ? decorativeData(item) : {}) });
+            if (invested) changed.push({ id: item.id, name: item.name, state: record.state, uninvested: true, over: false });
+            continue;
+        }
         overrides.set(item.id, patch.invested);
         update(item, { [`flags.${MODULE_ID}.subject.state`]: patch.state, [`flags.${MODULE_ID}.subject.settled`]: { day, at },
-            "system.equipped.carryType": carryTypeOf(record.kind), "system.equipped.invested": patch.invested });
+            "system.equipped.carryType": carryTypeOf(record.kind), "system.equipped.invested": patch.invested,
+            ...(patch.state === "decorative" ? decorativeData(item) : {}) });
         changed.push({ id: item.id, name: item.name, state: patch.state, over: patch.invested && over });
     }
     if (deletes.length) await actor.deleteEmbeddedDocuments("Item", deletes);
     if (updates.size) await actor.updateEmbeddedDocuments("Item", [...updates.values()]);
     // Told on this client, the subject's responsible one (P4): what each tattoo or graft became, and an invest limit now passed.
     for (const c of changed) {
+        if (c.uninvested) {
+            ui.notifications.warn(UNINVESTED[c.state], { format: { item: c.name, name: actor.name } });
+            continue;
+        }
         ui.notifications.info(SETTLED[c.state] ?? SETTLED.invested, { format: { item: c.name, name: actor.name } });
         if (c.over) ui.notifications.warn("pf2e-artisans-workshop.Subject.Over", { format: { name: actor.name } });
     }
@@ -271,6 +301,13 @@ const SETTLED = Object.freeze({
     invested: "pf2e-artisans-workshop.Subject.Settled.Invested",
     decorative: "pf2e-artisans-workshop.Subject.Settled.Decorative",
     inactive: "pf2e-artisans-workshop.Subject.Settled.Inactive",
+});
+
+/** What the subject is told when a tattoo or graft that does not work was invested by hand and is uninvested again. */
+const UNINVESTED = Object.freeze({
+    healing: "pf2e-artisans-workshop.Subject.Uninvested.Healing",
+    decorative: "pf2e-artisans-workshop.Subject.Uninvested.Decorative",
+    inactive: "pf2e-artisans-workshop.Subject.Uninvested.Inactive",
 });
 
 let sweeping = null;
@@ -399,8 +436,10 @@ export async function setSnareMark(actorUuid, slug, key, mark) {
 }
 
 /**
- * Deploy a prepared snare, as its owner: pf2e's own `CraftingAbility#craft` with the entry's index, which expends the slot
- * and makes the snare (P6). Refused: `not-owner`, `no-pool`, `deployed` (already expended), `system` (pf2e made nothing).
+ * Deploy a prepared snare, as its owner: pf2e's own `CraftingAbility#toggleFormulaExpended(index, true)`, the call its
+ * sheet's expend toggle makes (P6). pf2e's `craft` expends the slot and then makes nothing for a snare ("Snares operate under
+ * entirely different rules"), and placing it on the map is a non-goal (1.2), so no item is made. Refused: `not-owner`,
+ * `no-pool`, `deployed` (already expended), `not-deployed` (pf2e's list still shows the slot ready afterwards).
  */
 export async function deploySnare(actorUuid, slug, index) {
     const actor = actorOf(actorUuid);
@@ -410,8 +449,9 @@ export async function deploySnare(actorUuid, slug, index) {
     const prepared = await ability.getPreparedCraftingFormulas?.() ?? [];
     if (!prepared[index]) return refuse("no-pool");
     if (prepared[index].expended) return refuse("deployed");
-    const made = await ability.craft(index);
-    return made ? { ok: true, item: made.uuid ?? null } : refuse("system");
+    await ability.toggleFormulaExpended(index, true);
+    const after = await ability.getPreparedCraftingFormulas?.() ?? [];
+    return after[index]?.expended ? { ok: true, item: null } : refuse("not-deployed");
 }
 
 /* -------------------------------------------- */
@@ -440,7 +480,7 @@ export function registerCraftHooks() {
         if (subjectRecordOf(item)) scheduleSubjects();
     });
     Hooks.on("updateItem", (item, changed) => {
-        if (changed?.system?.equipped && (item.parent?.items ?? []).some((i) => ["inactive", "healing"].includes(subjectRecordOf(i)?.state))) scheduleSubjects();
+        if (changed?.system?.equipped && (item.parent?.items ?? []).some((i) => NOT_WORKING.includes(subjectRecordOf(i)?.state))) scheduleSubjects();
     });
     Hooks.on("updateJournalEntry", (doc, changed) => {
         if (doc !== shared().ledger) return;

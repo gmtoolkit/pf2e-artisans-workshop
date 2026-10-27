@@ -2,6 +2,27 @@
 
 Newest first.
 
+## 2026-10-27: Tattoos and spell-supplied items after the M9 review
+
+**Decision:** four rules settled while fixing the M9 review (DESIGN 10.16, After the M9 review):
+
+- A decorative tattoo is made non-magical on the item: its `magical`, `invested` and tradition traits and its rule elements are
+  removed. A tattoo still healing, a decorative one and an inactive graft are uninvested again if invested by hand.
+- A subject who will sit for a tattoo or graft resolves its earlier downtime days before agreeing (`days-pending`), and "Agree"
+  says what the subject gives up first. The lock still runs from the consent (no start day).
+- A spellheart's casting at the spell's own rank takes the spell as it is, cantrips included; a cantrip's casting is not sold by
+  a spellcasting service, so a caster supplies it.
+- Prepared snares are deployed by marking the slot expended through pf2e, not by `craft`, and make no item.
+
+**Why:** Secrets of Magic says the failed tattoo "becomes a non-magical tattoo", and pf2e applies a worn item's rules and offers to
+invest anything with the `invested` trait, so only the item's own data can say so; a lock with no start day spends every
+unresolved day sitting, and leaving downtime already asks for days to be resolved first; every spellheart casts a cantrip, and
+the Player Core service table starts at rank 1; pf2e's `craft` expends a snare's slot and returns nothing (DESIGN 6.15 gap 23),
+and placing snares is a non-goal (1.2).
+
+**Consequences:** DESIGN 6.14, 7.1 and 10.16; refusal codes `cantrip-service` and `not-deployed`; the follow-ups the review
+logged are in 10.16, Follow-ups (M9, low).
+
 ## 2026-10-27: Tattoos, grafts and the remaining crafts (M9)
 
 **Decision:** eight rules settled while building M9 (DESIGN 6.9, 6.14, 10.16):

@@ -2,17 +2,17 @@
  * The spells an item's Craft needs (DESIGN.md 6.9, M9): read from the item's own description in the installed compendium,
  * at runtime, so no rules text ships (P9). Pure: the Foundry side (`productFacts`) hands it the description's HTML.
  *
- * - A staff or a coda instrument lists its spells by rank (`<li><strong>Cantrip|1st|2nd…</strong> @UUID[…], …</li>`), and
- *   its Craft Requirements ask for one casting of every listed rank of every listed spell (GM Core p.282; staff Craft
- *   Requirements): one entry per spell and rank, cantrips included.
+ * - A staff or a coda instrument lists its spells by rank (`<li><strong>Cantrip|1st|2nd…</strong> @UUID[…], …</li>`, the line
+ *   wrapped in a `<p>` in some, or a `<p>` alone), and its Craft Requirements ask for one casting of every listed rank of
+ *   every listed spell (GM Core p.282; staff Craft Requirements): one entry per spell and rank, cantrips included.
  * - A spellheart needs the spells it can cast (Secrets of Magic p.170: "Crafting a spellheart requires the spells the
  *   spellheart can cast"): one entry per "You cast [Nth-rank] @UUID[…]" in its description; a spell with no rank named is
  *   cast at its own rank.
  * - A specialty wand (the wand trait, not one of pf2e's base wands) takes one casting of a spell of its rank, read from its
- *   name ("(3rd-Rank Spell)", "(Rank 2)"), as a magic wand does (GM Core p.282).
+ *   name ("(3rd-Rank Spell)", "(9th-rank)", "(Rank 2)"), as a magic wand does (GM Core p.282).
  * - Any other item whose Craft Requirements supply castings names them there: one entry per spell link in that paragraph
- *   (its rank from "(Nth rank)" right after the link, else the spell's own); a paragraph that asks for castings without
- *   linking a spell asks for one casting the crafter's table reads from the text (`any`).
+ *   (its rank from "(Nth rank)" right after the link or "Nth-rank" right before it, else the spell's own); a paragraph
+ *   that asks for castings without linking a spell asks for one casting the crafter's table reads from the text (`any`).
  *
  * An entry is `{key, uuid, rank, cantrip}`: `key` is `<uuid>@<rank>` (`@c` for a cantrip, `@base` for the spell's own rank),
  * which a pledge names (`entry`) to say which listed casting it supplies.
@@ -53,15 +53,17 @@ export function spellEntry(uuid, rank) {
 const unique = (entries) => [...new Map(entries.map((entry) => [entry.key, entry])).values()];
 
 /**
- * A staff's or coda's listed spells (6.9): every spell link in each `<li><strong>Rank</strong> …</li>` line, at that
- * line's rank. Empty when the description has no list.
+ * A staff's or coda's listed spells (6.9): every spell link in each `<li><strong>Rank</strong> …</li>` line (or
+ * `<li><p><strong>Rank</strong> …</p></li>` and `<p><strong>Rank</strong> …</p>`, as some staves write it), at that line's
+ * rank. Lines whose bold word is not a rank ("Activate", "Craft Requirements") are not the list. Empty when the description
+ * has no list.
  */
 export function parseSpellList(html) {
     const entries = [];
-    for (const line of String(html ?? "").matchAll(/<li>\s*<strong>([^<]*)<\/strong>([\s\S]*?)<\/li>/gi)) {
-        const rank = rankWord(line[1]);
+    for (const line of String(html ?? "").matchAll(/<(li|p)>\s*(?:<p>\s*)?<strong>([^<]*)<\/strong>([\s\S]*?)<\/\1>/gi)) {
+        const rank = rankWord(line[2]);
         if (rank === null) continue;
-        for (const link of line[2].matchAll(LINK)) if (isSpellLink(link[1])) entries.push(spellEntry(link[1], rank));
+        for (const link of line[3].matchAll(LINK)) if (isSpellLink(link[1])) entries.push(spellEntry(link[1], rank));
     }
     return unique(entries);
 }
@@ -78,7 +80,8 @@ export function parseCastSpells(html) {
 
 /**
  * The castings a Craft Requirements paragraph supplies (6.9): each spell link, at the rank written right after it
- * ("(4th rank)") or the spell's own; `any` 1 when the paragraph asks to supply castings without linking a spell, else 0.
+ * ("(4th rank)") or right before it ("8th-rank @UUID[…]", as `parseCastSpells` reads it), else the spell's own; `any` 1
+ * when the paragraph asks to supply castings without linking a spell, else 0.
  */
 export function parseRequirementSpells(paragraph) {
     const html = String(paragraph ?? "");
@@ -86,17 +89,21 @@ export function parseRequirementSpells(paragraph) {
     for (const link of html.matchAll(LINK)) {
         if (!isSpellLink(link[1])) continue;
         const after = textOf(html.slice(link.index + link[0].length, link.index + link[0].length + 40));
-        const rank = /^\s*\((\d+)(?:st|nd|rd|th)[-\s]rank\)/i.exec(after);
+        const before = textOf(html.slice(Math.max(0, link.index - 40), link.index));
+        const rank = /^\s*\((\d+)(?:st|nd|rd|th)[-\s]rank\)/i.exec(after) ?? /\b(\d+)(?:st|nd|rd|th)[-\s]rank\s*$/i.exec(before);
         entries.push(spellEntry(link[1], rank ? Number(rank[1]) : null));
     }
     const supplies = /\bsuppl(?:y|ying)\b[^.]*?\bcastings?\b/i.test(textOf(html));
     return { entries: unique(entries), any: supplies && !entries.length ? 1 : 0 };
 }
 
-/** A specialty wand's rank from its name: "(3rd-Rank Spell)" or "(Rank 2)"; null when the name names none. */
+/**
+ * A specialty wand's rank from its name: "(3rd-Rank Spell)", "(9th-rank)", "(2nd-Rank)" or "(Rank 2)"; null when the name
+ * names none. Any ordinal suffix is taken ("(4nd-Rank)" is in pf2e's data as written).
+ */
 export function wandRankOf(name) {
     const text = String(name ?? "");
-    const ordinal = /\((\d+)(?:st|nd|rd|th)-Rank Spell\)/i.exec(text);
+    const ordinal = /\((\d+)(?:st|nd|rd|th)-rank(?: spell)?\)/i.exec(text);
     if (ordinal) return Number(ordinal[1]);
     const plain = /\(Rank (\d+)\)/i.exec(text);
     return plain ? Number(plain[1]) : null;

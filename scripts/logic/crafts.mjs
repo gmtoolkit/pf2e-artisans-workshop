@@ -188,6 +188,21 @@ export function settleSubject(record, { day, check }) {
     return { state: record.kind === "graft" ? "inactive" : "decorative", invested: false };
 }
 
+/** States in which a delivered tattoo or graft does not work, so it is never invested: still healing, decorative, inactive. */
+export const NOT_WORKING = Object.freeze(["healing", "decorative", "inactive"]);
+
+/**
+ * A decorative tattoo's traits (6.14; Secrets of Magic p.164: the magic fails to take hold and it "becomes a non-magical
+ * tattoo"): `magical`, `invested` and any magic tradition dropped, so pf2e neither offers to invest it nor counts it as
+ * magical. Its rule elements go too (`settleActor`), since pf2e applies a worn item's rules when it needs no investment.
+ */
+export function decorativeTraits(traits = []) {
+    return [...traits].filter((t) => t !== "magical" && t !== "invested" && !TRADITIONS.includes(t));
+}
+
+/** Whether a decorative tattoo still carries what makes pf2e treat it as a magic item (traits from before `decorativeTraits`). */
+export const stillMagical = (traits = []) => decorativeTraits(traits).length !== [...traits].length;
+
 /* -------------------------------------------- */
 /*  Legendary Tattoo Artist                      */
 /* -------------------------------------------- */

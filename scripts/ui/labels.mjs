@@ -141,6 +141,7 @@ export const REFUSAL = Object.freeze({
     castings: "pf2e-artisans-workshop.Refusal.Castings",
     "no-pledge": "pf2e-artisans-workshop.Refusal.NoPledge",
     "no-casting-service": "pf2e-artisans-workshop.Refusal.NoCastingService",
+    "cantrip-service": "pf2e-artisans-workshop.Refusal.CantripService",
     "no-item": "pf2e-artisans-workshop.Refusal.NoItem",
     "in-strongbox": "pf2e-artisans-workshop.Refusal.InStrongbox",
     "not-stock": "pf2e-artisans-workshop.Refusal.NotStock",
@@ -294,6 +295,7 @@ export const REFUSAL = Object.freeze({
     "no-pool": "pf2e-artisans-workshop.Refusal.NoPool",
     mark: "pf2e-artisans-workshop.Refusal.Mark",
     deployed: "pf2e-artisans-workshop.Refusal.Deployed",
+    "not-deployed": "pf2e-artisans-workshop.Refusal.NotDeployed",
     other: "pf2e-artisans-workshop.Refusal.Other",
 });
 

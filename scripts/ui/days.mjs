@@ -52,6 +52,7 @@ export function dayLines(records) {
             case "setup": return fmt(plural(p.n, "pf2e-artisans-workshop.Days.Setup"), { n, item: orderName(p.ref) });
             case "extra": return fmt(plural(p.n, "pf2e-artisans-workshop.Days.Extra"), { n, item: orderName(p.ref), amount: money(p.cp) });
             case "help": return fmt(plural(p.n, "pf2e-artisans-workshop.Days.Help"), { n, item: orderName(p.ref) });
+            case "subject": return fmt(plural(p.n, "pf2e-artisans-workshop.Days.Subject"), { n, item: orderName(p.ref) });
             case "earn": return fmt(plural(p.n, "pf2e-artisans-workshop.Days.Earn"), { n, job: jobName(p.ref), amount: money(p.cp) });
             case "not-downtime": return fmt(plural(p.n, "pf2e-artisans-workshop.Days.NotDowntime"), { n });
             default: return fmt(plural(p.n, "pf2e-artisans-workshop.Days.Other"), { n, activity: loc(ACTIVITY[p.kind] ?? ACTIVITY.other) });

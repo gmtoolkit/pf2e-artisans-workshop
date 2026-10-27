@@ -2544,8 +2544,8 @@ investiture, and stays inactive while the subject's limit is used up. Replacing 
 an upgrade order at the Price difference.
 
 As built in M9 (10.16): the investiture rule is the settled one: each magical tattoo and each graft lowers the subject's invest
-limit by one, and a new one fails only when that limit is already zero (a tattoo stays decorative, a graft inactive until the
-limit rises); the subject is locked from its consent, not from the start; the one-at-a-time limit is on the crafter; healing ends
+limit by one, and a new one fails only when that limit is already zero (a tattoo stays decorative, losing its magic traits and
+rule elements, a graft inactive until the limit rises); the subject is locked from its consent, not from the start; the one-at-a-time limit is on the crafter; healing ends
 on the day it is recorded, never before the day after the finish; the invest step is the subject's own client's sweep, not a
 ledger claim; an upgrade is a tattoo or graft order naming the item it replaces (`variant.replaces`).
 
@@ -3180,7 +3180,8 @@ standing order that does not fit is left out for the day (7.6); the gap entries 
 Preservation's designations, and their item-making flows are follow-ups (10.13, Follow-ups (M7, low)).
 As built in M9 (10.16): the prepared snare pools (`snarecrafter`, `snare-genius`, `snare-specialist`) carry a quick-deploy ledger
 on the Morning tab: each prepared snare ready or deployed, giant and broad marks at two slots each (Giant Snare, Broad Snare), the
-slots used against pf2e's count, and "Deploy" through pf2e's own `CraftingAbility#craft`.
+slots used against pf2e's count, and "Deploy" through pf2e's own `CraftingAbility#toggleFormulaExpended` (its `craft` expends
+the slot and then makes nothing for a snare, gap 23; M9 review).
 
 ---
 
@@ -6030,7 +6031,8 @@ not run yet (below). DECISIONS.md 2026-10-27 "Tattoos, grafts and the remaining 
   are `{order, result: "subject"}`, any other activity stops at `sitting` (a helper's stop stays `locked`), a day plan with no
   activity is refused, and it
   cannot leave downtime (`subject`) or help elsewhere until the order closes or it withdraws, which it may before the start or
-  after a failure (`withdrawConsent`). G10 passes once the subject has consented and, where presence is needed, is in
+  after a failure (`withdrawConsent`). A subject in downtime with days still to resolve resolves them first (`days-pending`,
+  as for leaving downtime: the lock has no start day), and "Agree" asks first, naming the activity it replaces (M9 review). G10 passes once the subject has consented and, where presence is needed, is in
   downtime sitting for this order (`subjectCustody`); a subject who left the chair agrees again from the same button. A crafter
   on themself needs neither. The simple toggle needs consent only and locks nothing.
 - **One at a time** (G11): a tattooist under the Secrets of Magic process, and every implanter, has at most one tattoo (graft)
@@ -6054,8 +6056,10 @@ not run yet (below). DECISIONS.md 2026-10-27 "Tattoos, grafts and the remaining 
   until the limit rises (a graft) (`investitureCheck`: the limit is pf2e's `system.resources.investiture.max` less one for
   each magical tattoo and each graft that works, Tattooed Historian's exemptions aside (registry `investitureExempt`, one per
   two of pf2e's `flags.system.tattooedHistorian.archetypeFeatCount`); the new one fails only when that limit is already zero).
-  Two healed on the same day are counted against each other. An upgrade removes the item it replaces when the new one
-  arrives. The subject's player is told what each became, and when it now invests more than its lowered limit allows. No
+  Two healed on the same day are counted against each other. A decorative tattoo loses its `magical`, `invested` and
+  tradition traits and its rule elements ("becomes a non-magical tattoo"), so pf2e neither offers to invest it nor applies it;
+  one still healing, decorative or inactive that was invested on pf2e's sheet is uninvested again and its owner told (M9
+  review). An upgrade removes the item it replaces when the new one arrives. The subject's player is told what each became, and when it now invests more than its lowered limit allows. No
   ledger claim is needed: the item is on the subject, whose own client writes it. "Record healing" (the item's owner) ends the
   healing on that day, never before the day after the finish, and notes it on the order (`orders.<id>.healing`).
 - **Spell-supplied items beyond scrolls and wands** (6.9, `spellNeedsOf`, from the item's description in the installed
@@ -6080,7 +6084,9 @@ not run yet (below). DECISIONS.md 2026-10-27 "Tattoos, grafts and the remaining 
 - **Snares** (7.1): a prepared snare pool's quick-deploy ledger on the Morning tab (`quickDeployLedger`, `snareLedger`): each
   prepared snare ready or deployed (pf2e's own `expended`), a giant or broad mark where the character holds Giant Snare or
   Broad Snare (registry `quickDeploy`; `flags.MOD.quickDeploy.<pool>.<hash>`), each costing two slots, the slots used and any
-  excess; "Deploy" runs pf2e's own `CraftingAbility#craft` on the entry. The toolkit stays M1's G7 (`snareToolkitIsArtisans`).
+  excess; "Deploy" expends the entry through pf2e's own `CraftingAbility#toggleFormulaExpended(index, true)`, the call its
+  sheet's expend toggle makes, and makes no item (M9 review: pf2e's `craft` returns nothing for a snare). The toolkit stays M1's
+  G7 (`snareToolkitIsArtisans`).
 - **Gadgets**: the inventor class has access to uncommon gadgets (registry `inventor@class`, `craftUnlock access`); keyed
   apart from the Inventor skill feat, whose slug it shares, so a class item no longer reads as that feat. Gadget Specialist's
   daily gadgets were M7's pool already; no feat is needed (G4).
@@ -6096,6 +6102,25 @@ not run yet (below). DECISIONS.md 2026-10-27 "Tattoos, grafts and the remaining 
   (`subject-locked`); `RequestForm` kept its fields in a class field named `state`, shadowing ApplicationV2's own render state
   (now `draft`; the screenshots tool follows); a crafter with no single tradition was listed as blocked for every fulu in the
   request form and the Queue's "can make it" (the tradition is chosen after accepting).
+- **After the M9 review** (one pass; every high and medium finding fixed, each with a test that fails on the code before it,
+  shown by running the new tests with that one fix taken out: `test/logic/spell-lists.test.mjs`, `test/foundry/m9.test.mjs` and
+  `ui-m9.test.mjs`):
+  - No spellheart could pass G9: the cantrip each one casts ("You cast @UUID[gale blast]") is an entry at the spell's own rank,
+    which refused any cantrip. Such an entry takes the spell as it is; a cantrip's casting is recorded at rank 0 (`castingRank`)
+    and has no service price (`cantrip-service`).
+  - "Deploy" always failed after expending the slot: pf2e 8.6.1's `craft` returns null for a snare (gap 23). It uses pf2e's
+    `toggleFormulaExpended` and makes nothing; the stubs now return null for a snare as pf2e does.
+  - Specialty wands named "(9th-rank)" or "(2nd-Rank)" (98 in pf2e) had no rank, so took any spell at its own rank's price:
+    the name reads any "(Nth-rank)" with or without "Spell".
+  - Staff lists written `<li><p><strong>…</p></li>` or as bare `<p><strong>1st</strong> …</p>` lines (33 staves) were not read,
+    so G9 asked for one casting of anything: both are read.
+  - Craft Requirements that put the rank before the link ("8th-rank @UUID[harm]") took the spell's own rank: read as
+    `parseCastSpells` does. A corpus test (with `PF2E_SRC`) now reads every spell-supplied item in pf2e and pledges each listed
+    casting with its own spell.
+  - A decorative or healing tattoo stayed magical and investable on pf2e's sheet, which applied it and counted it while the
+    module did not (above).
+  - A subject's sitting days read "Sitting for {item}" on the day card and in the wizard: `Days.Subject`.
+  - Agreeing replaced the subject's activity without a word and claimed its unresolved days (above).
 - **Live plans** (15.3 scenario 14; `tools/harness/craft-scenarios.mjs`, scenario `m9`; `live-plans.mjs`), to run later:
   - `m9-tattoo` (GM, P2): the rogue tattoo-artist fixture tattoos Player Two's character (Eye Slash); G10 waits; Player Two
     agrees and sits for it in downtime; the Craft runs, the process frozen; Player Two's client collects it healing and
@@ -6108,7 +6133,7 @@ not run yet (below). DECISIONS.md 2026-10-27 "Tattoos, grafts and the remaining 
   - `m9-staff` (GM): Staff of Fire by the fighter crafter; the wizard fixture offers Ignition and Breathe Fire, each naming
     its entry; G9 passes once both are cast.
   - `m9-snares` (GM): the ranger fixture prepares two Alarm Snares in its snarecrafter pool; with Giant Snare one is marked
-    giant (three slots used); one is deployed through pf2e, once.
+    giant (three slots used); one is deployed through pf2e's expend toggle, once.
   - `m9-gadget` (GM): the inventor fixture may craft an uncommon gadget (G4, G5).
   - `m9-shots` (GM, P2): the Queue's tattoo detail as Player Two, 1440x900 and 1024x768, dark and light (`--shots`).
 
@@ -6130,6 +6155,30 @@ not run yet (below). DECISIONS.md 2026-10-27 "Tattoos, grafts and the remaining 
   same snare. Ranger's Survival for snarecrafter feats (6.11 follow-up) is unchanged.
 - "Regions with access to inventors" (Guns & Gears) is not a setting: an uncommon gadget needs the formula or the inventor class.
 - The live plans have not run.
+- From the M9 review:
+  - A fulu crafter may choose any tradition, even with one of their own, and a choice survives the order passing to another
+    crafter (`chooseTradition`, the Queue's dialog, `fuluTradition` prefers the choice): refuse traditions outside the crafter's
+    own when they have any.
+  - Replacing a tattoo or graft with a different one (Howl of the Wild; altering a tattoo, Secrets of Magic) is not possible:
+    `replacePlan` refuses `not-upgrade` outside the same family at a higher level, so the old one keeps counting.
+  - G4 skips everything for a gadget, so the eight magical gadgets (Portable Seal, Vanishing Shocker, Nap Gas Dispenser) need no
+    Magical Crafting.
+  - Craft Requirements offering alternatives ("@UUID[ancestral memories] or @UUID[mindlink]") read as both; the corpus test lists
+    the Genealogy Mask (whose first choice is a focus spell) and the Staff of the Ruling Beast (Concordant Choir on its cantrip
+    line, not a cantrip in pf2e) as known quirks.
+  - `IN_PROGRESS` (logic/crafts.mjs) leaves out `gathering`, which `STARTED` has; a subject order in it would not count for G11.
+  - A started tattoo or graft its crafter pauses keeps the subject locked: no withdrawing, leaving downtime or cancelling.
+  - Withdrawing consent is a plain write, so it can land beside the crafter's locked start: the order in `setup` with consent
+    false. Write it behind the order's log-slot lock.
+  - The inactive graft's words say to free an invested item, but only tattoos, grafts and the invest maximum matter
+    (`Subject.State.Inactive`, `Subject.Settled.Inactive`).
+  - A graft's G6 `needs-formula` has no rarity: "This  item needs its formula."
+  - A tattoo or graft request with `features.tattoos` off is refused as `off`, worded as daily preparations being off.
+  - The request form's "who can make it" for a graft filters and rates by Crafting, not Medicine (`skillFor`).
+  - Once a tattoo or graft order closes, the subject's unresolved sitting days stop at `not-subject` (no day bound on
+    `CLOSED`), and the released lock lets them be resolved as another activity.
+  - An uninvested or decorative notice is shown on the subject's responsible client, which is the GM's when the player is
+    offline; nothing tells the player on their next login.
 
 ---
 

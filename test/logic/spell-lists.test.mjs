@@ -4,8 +4,12 @@
  * Requirements.
  */
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
-import { castingsNeeded, entryFor, makePledge, openEntries, pledgeProblem, spellGate, spellSupply } from "../../scripts/logic/pledges.mjs";
+import {
+    castingRank, castingsNeeded, castingsPriceCp, entryFor, makePledge, openEntries, pledgeProblem, spellGate, spellSupply,
+} from "../../scripts/logic/pledges.mjs";
 import {
     craftRequirementsOf, entryMatches, parseCastSpells, parseRequirementSpells, parseSpellList, rankWord, spellEntry, spellNeedsOf, wandRankOf,
 } from "../../scripts/logic/spell-lists.mjs";
@@ -131,4 +135,119 @@ test("castings asked for without a link take any spell, up to that count; a spec
     assert.equal(pledgeProblem({ supply: wand, spell: null, castings: 1 }).reason, "no-spell");
     const fulfilled = { quantity: 1, pledges: { p: { ...makePledge({ id: "p", caster: "A", spell: { uuid: "x" }, rank: 2, castings: 1 }, stamp(1)), status: "fulfilled" } } };
     assert.equal(spellGate(fulfilled, wand).spellsSupplied, true);
+});
+
+/* -------------------------------------------- */
+/*  M9 review: pf2e's own markup and wording     */
+/* -------------------------------------------- */
+
+const GALE = S("galeblast0000000");
+const WALL = S("wallofwind000000");
+const FLY = S("fly0000000000000");
+const HARM = S("harm000000000000");
+/** A major five-feather wreath's activations (Secrets of Magic p.170): a cantrip, a ranked spell and a spell at its own rank. */
+const WREATH = `<p><strong>Activate</strong> Cast a Spell</p><p><strong>Effect</strong> You cast @UUID[${GALE}].</p>
+<p><strong>Activate</strong> Cast a Spell</p><p><strong>Effect</strong> You cast 4th-rank @UUID[${WALL}].</p>
+<p><strong>Activate</strong> Cast a Spell</p><p><strong>Effect</strong> You cast @UUID[${FLY}].</p>`;
+
+test("a spellheart's cantrip, cast at its own rank, is pledged by casting it, and G9 passes once every spell is cast", () => {
+    const supply = spellSupply({ traits: ["magical", "spellheart"], spellNeeds: spellNeedsOf({ html: WREATH, traits: ["magical", "spellheart"] }) });
+    assert.deepEqual(supply.entries.map((e) => e.key), [`${GALE}@base`, `${WALL}@4`, `${FLY}@base`]);
+    const gale = caster(GALE, 1, { category: "cantrip", traits: ["cantrip"] });
+    assert.equal(pledgeProblem({ supply, spell: gale, castings: 1 }), null, "the listed cantrip is the casting asked for");
+    assert.equal(pledgeProblem({ supply, spell: gale, castings: 1, entry: `${GALE}@base` }), null);
+    assert.equal(castingRank(supply, supply.entries[0], gale), 0, "recorded as a cantrip");
+    assert.equal(castingsPriceCp(castingRank(supply, supply.entries[0], gale)), null, "no spellcasting service sells it");
+    assert.equal(castingRank(supply, supply.entries[2], caster(FLY, 4)), 4, "a spell at its own rank");
+    assert.equal(castingRank(supply, supply.entries[1], caster(WALL, 3)), 4, "a listed rank");
+    const pledges = {};
+    for (const [i, entry] of supply.entries.entries()) {
+        pledges[`p${i}`] = { ...makePledge({ id: `p${i}`, caster: "A", spell: { uuid: entry.uuid }, rank: entry.rank, castings: 1, entry: entry.key }, stamp(i)),
+            status: "fulfilled" };
+    }
+    assert.equal(spellGate({ quantity: 1, pledges }, supply).spellsSupplied, true);
+    const staffed = staff();
+    assert.equal(pledgeProblem({ supply: staffed, spell: gale, castings: 1, entry: `${BREATHE}@1` }).reason, "not-on-list", "a ranked entry still refuses another spell");
+});
+
+test("a staff list wrapped in paragraphs is read as pf2e's Staff of Nature's Cunning writes it", () => {
+    const html = `<ul><li><p><strong>Cantrip</strong> @UUID[${IGNITION}]</p></li><li><p><strong>1st</strong> @UUID[${BREATHE}], @UUID[${SUMMON}]</p></li>
+<li><p><strong>2nd</strong> @UUID[${BREATHE}]</p></li></ul><hr /><p><strong>Craft Requirements</strong> Supply one casting of all listed levels of all listed spells.</p>`;
+    const needs = spellNeedsOf({ html, traits: ["magical", "staff"] });
+    assert.deepEqual(needs.entries.map((e) => [e.uuid, e.rank]), [[IGNITION, 0], [BREATHE, 1], [SUMMON, 1], [BREATHE, 2]]);
+    assert.deepEqual([needs.any, castingsNeeded(spellSupply({ traits: ["staff"], spellNeeds: needs }), 1)], [0, 4]);
+    const bare = `<p><strong>Activate</strong> Cast a Spell</p><p><strong>Effect</strong> You expend charges.</p><hr /><p><strong>Cantrip</strong> @UUID[${IGNITION}]</p>
+<p><strong>1st</strong> @UUID[${BREATHE}] (snakes only), @UUID[${SUMMON}]</p>`;
+    assert.deepEqual(parseSpellList(bare).map((e) => [e.uuid, e.rank]), [[IGNITION, 0], [BREATHE, 1], [SUMMON, 1]], "a list in bare paragraphs (Staff of Sverenagati)");
+});
+
+test("a specialty wand named '(9th-rank)' or '(2nd-Rank)' has that rank, and its casting is priced and recorded at it", () => {
+    assert.deepEqual(["Wand of Mercy (9th-rank)", "Wand of Choking Mist (2nd-Rank)", "Wand of Teeming Ghosts (4nd-Rank)"].map(wandRankOf), [9, 2, 4]);
+    const html = "<p><strong>Craft Requirements</strong> Supply a casting of a spell of the appropriate rank.</p>";
+    const supply = spellSupply({ traits: ["magical", "wand"], spellNeeds: spellNeedsOf({ html, traits: ["magical", "wand"], name: "Wand of Mercy (9th-rank)" }) });
+    assert.equal(supply.rank, 9);
+    assert.equal(pledgeProblem({ supply, spell: caster(BREATHE, 1), castings: 1 }), null, "heightened to 9th rank");
+    assert.equal(castingRank(supply, null, caster(BREATHE, 1)), 9);
+});
+
+test("a Craft Requirements rank written before the link ('8th-rank @UUID[harm]') is that entry's rank", () => {
+    const html = `<p><strong>Craft Requirements</strong> Supply one casting of 8th-rank @UUID[${HARM}].</p>`;
+    const needs = spellNeedsOf({ html, traits: ["consumable", "magical"] });
+    assert.deepEqual(needs.entries.map((e) => e.key), [`${HARM}@8`]);
+    const supply = spellSupply({ traits: ["magical"], spellNeeds: needs });
+    assert.equal(pledgeProblem({ supply, spell: caster(HARM, 1), castings: 1 }), null, "heightened to 8th");
+    assert.equal(castingRank(supply, supply.entries[0], caster(HARM, 1)), 8, "bought at 8th rank");
+    const mixed = parseRequirementSpells(`Supply one casting of @UUID[${FIREBALL}] (4th rank) and 5th-rank @UUID[${HARM}], and @UUID[${SUNBURST}].`);
+    assert.deepEqual(mixed.entries.map((e) => e.rank), [4, 5, null]);
+});
+
+/* -------------------------------------------- */
+/*  Against a pf2e source checkout (PF2E_SRC)    */
+/* -------------------------------------------- */
+
+const NEEDS_SOURCE = { skip: !process.env.PF2E_SRC && "set PF2E_SRC to a pf2e checkout" };
+/** Every item of a pf2e source pack, as its JSON source. */
+function packItems(pack) {
+    const walk = (dir) => readdirSync(dir, { withFileTypes: true })
+        .flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : e.name.endsWith(".json") ? [join(dir, e.name)] : []));
+    return walk(join(process.env.PF2E_SRC, "packs/pf2e", pack)).map((file) => JSON.parse(readFileSync(file, "utf8")));
+}
+
+/**
+ * Listed castings pf2e's own data makes impossible, left as they are: the Staff of the Ruling Beast lists Concordant Choir
+ * on its cantrip line though the spell is not a cantrip, and the Genealogy Mask offers Ancestral Memories (a focus spell)
+ * "or" Mindlink, which reads as both (DESIGN 10.16 Follow-ups).
+ */
+const CORPUS_QUIRKS = ["Staff of the Ruling Beast: Concordant Choir (c) not-on-list", "Genealogy Mask: Ancestral Memories (base) unscribable"];
+
+test("every spell-supplied item in the pf2e checkout reads as it is written, and each listed casting can be pledged with its own spell", NEEDS_SOURCE, () => {
+    const spells = new Map(packItems("spells").filter((s) => s.type === "spell").map((s) => [s.name.toLowerCase(), s]));
+    const problems = [];
+    let listed = 0;
+    for (const item of packItems("equipment").filter((i) => i.system)) {
+        const traits = item.system?.traits?.value ?? [];
+        const html = item.system?.description?.value ?? "";
+        const needs = spellNeedsOf({ html, traits, name: item.name });
+        if (traits.includes("wand") && /\(\d+\w*-rank/i.test(item.name) && needs?.rank == null) problems.push(`${item.name}: no rank`);
+        if (traits.includes("staff") && /<strong>(?:Cantrip|1st)<\/strong>/.test(html) && !needs?.entries.length) problems.push(`${item.name}: no list`);
+        if (/\d+(?:st|nd|rd|th)[-\s]rank\s*@UUID\[Compendium\.pf2e\.spells/i.test(craftRequirementsOf(html) ?? "") && needs?.entries.some((e) => e.rank === null)) {
+            problems.push(`${item.name}: a written rank read as the spell's own`);
+        }
+        if (!needs?.entries.length) continue;
+        const supply = spellSupply({ traits, spellNeeds: needs });
+        for (const entry of needs.entries) {
+            const spell = spells.get(entry.uuid.split(".").pop().toLowerCase());
+            if (!spell) continue;
+            // The source's links name spells; the built compendium's (and so a caster's spell source) are ids, matched by source.
+            const facts = { uuid: `Actor.a.Item.${spell._id}`, source: entry.uuid, name: spell.name, rank: spell.system.level.value, traits: spell.system.traits.value,
+                category: spell.system.traits.value.includes("cantrip") ? "cantrip" : "spell" };
+            const rank = entry.rank === null || entry.cantrip ? facts.rank : Math.min(facts.rank, entry.rank);
+            const problem = pledgeProblem({ supply, spell: { ...facts, rank }, castings: 1, entry: entry.key });
+            listed += 1;
+            const line = `${item.name}: ${spell.name} (${entry.key.split("@").pop()}) ${problem?.reason}`;
+            if (problem && !CORPUS_QUIRKS.includes(line)) problems.push(line);
+        }
+    }
+    assert.ok(listed > 1000, `listed castings checked: ${listed}`);
+    assert.deepEqual(problems, []);
 });

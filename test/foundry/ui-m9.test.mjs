@@ -34,6 +34,7 @@ const state = await import("../../scripts/foundry/state.mjs");
 const { read, write } = await import("../../scripts/foundry/store.mjs");
 const { detailExtras, kindText, targetText } = await import("../../scripts/ui/extras.mjs");
 const { onCraftOp } = await import("../../scripts/ui/crafts.mjs");
+const { dayLines } = await import("../../scripts/ui/days.mjs");
 const labels = await import("../../scripts/ui/labels.mjs");
 const { replaceChoices } = await import("../../scripts/ui/request.mjs");
 const { gateText } = await import("../../scripts/ui/format.mjs");
@@ -166,6 +167,13 @@ test("a staff's listed castings on the detail: each spell and rank, needed, offe
     assert.equal(entries[0].state, "offered");
 });
 
+test("a subject's sitting days read as a sentence on the days card and in the wizard", async () => {
+    await tattooOrder({ product: { uuid: TATTOO, snapshot: { name: "Warding Tattoo" } } });
+    const record = (day) => ({ id: `${bo.id}-${day}`, actor: bo.id, day, toDay: day, activity: { kind: "subject", ref: "o1" }, order: "o1", result: "subject" });
+    assert.deepEqual(dayLines([record(1), record(2)]), ["2 days sitting for Warding Tattoo"]);
+    assert.deepEqual(dayLines([record(3)]), ["1 day sitting for Warding Tattoo"]);
+});
+
 test("the request form offers the subject's tattoos of the family below the one asked for", () => {
     const own = bo.addItem({ type: "equipment", name: "Warding Tattoo", sourceId: TATTOO, system: { level: { value: 4 }, traits: { value: ["invested", "magical", "tattoo"] } } });
     own.isOfType = (t) => t === "physical";
@@ -178,10 +186,33 @@ test("the request form offers the subject's tattoos of the family below the one 
     assert.deepEqual(replaceChoices(bo, { name: "Warding Tattoo", type: "equipment", category: null, level: 4 }), [], "not the same level");
 });
 
+test("Agree asks first where the subject will sit for it, naming what it replaces; declining writes nothing (6.14)", async () => {
+    await tattooOrder({ product: { uuid: TATTOO, snapshot: { name: "Warding Tattoo" } } });
+    await write({ set: { [`pcs.${bo.id}.inDowntime`]: true, [`pcs.${bo.id}.since`]: 0 }, replace: { [`pcs.${bo.id}.activity`]: { kind: "retrain", ref: null } } });
+    world.currentUser = "p2";
+    const target = { closest: (selector) => (selector === "[data-order-id]" ? { dataset: { orderId: "o1" } } : { dataset: { op: "consent" } }) };
+    let asked = null;
+    foundry.applications.api.DialogV2.confirm = async (config) => {
+        asked = config;
+        return false;
+    };
+    assert.equal(await onCraftOp({}, target), null);
+    assert.equal(read("orders.o1.subject"), undefined, "nothing written");
+    assert.deepEqual(read(`pcs.${bo.id}.activity`), { kind: "retrain", ref: null }, "Bo still retrains");
+    assert.equal(asked.window.title, "pf2e-artisans-workshop.Subject.Confirm.Title");
+    assert.match(asked.content, /Bo goes into downtime and spends every day sitting for Warding Tattoo until it is finished/);
+    assert.match(asked.content, /This replaces what Bo is doing now: Retraining\./);
+    assert.match(asked.content, /withdraw only before the work starts or after a failed check/);
+    foundry.applications.api.DialogV2.confirm = async () => true;
+    assert.equal((await onCraftOp({}, target)).ok, true);
+    assert.deepEqual(read(`pcs.${bo.id}.activity`), { kind: "subject", ref: "o1" });
+});
+
 test("Agree from the Queue runs the subject's consent; the button carries its order", async () => {
     await tattooOrder();
     world.currentUser = "p2";
     const target = { closest: (selector) => (selector === "[data-order-id]" ? { dataset: { orderId: "o1" } } : { dataset: { op: "consent" } }) };
+    foundry.applications.api.DialogV2.confirm = async () => true;
     const result = await onCraftOp({}, target);
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(read("orders.o1.subject.consented"), true);
@@ -199,7 +230,9 @@ test("M9's gates and refusals read as sentences; every M9 label is a key in lang
         labels.GATE["one-at-a-time"], labels.GATE["fulu-tradition"], labels.GATE["no-reverse-engineer"], labels.REQUIREMENT["G10.subject"],
         labels.REQUIREMENT["G11.subject"], labels.DAY_STOP["not-subject"], labels.ACTIVITY.subject,
         ...["subject", "not-subject", "subject-recipient", "no-consent", "subject-locked", "not-on-list", "covered", "any-castings", "tradition", "not-missive",
-            "composed", "no-pool", "mark", "deployed"].map((code) => labels.REFUSAL[code]),
+            "composed", "no-pool", "mark", "deployed", "cantrip-service", "not-deployed"].map((code) => labels.REFUSAL[code]),
+        "pf2e-artisans-workshop.Days.Subject", "pf2e-artisans-workshop.Days.SubjectOne", "pf2e-artisans-workshop.Subject.Confirm.Title",
+        ...["Healing", "Decorative", "Inactive"].map((state) => `pf2e-artisans-workshop.Subject.Uninvested.${state}`),
     ];
     assert.deepEqual(keys.filter((key) => !(key in lang)), []);
 });
