@@ -166,6 +166,16 @@ All notable changes to this module are documented here. The format follows
   own description, and each offered casting names the one it supplies. Fulus take their crafter's tradition and last a year;
   missives are made blank and composed one at a time; prepared snares get a quick-deploy ledger with giant and broad snares on
   the Morning tab; inventors have access to uncommon gadgets. Live-harness plans `m9-*`.
+- Treasure Vault (Remastered) crafting variants (milestone M9a), each a world setting that is off by default and costs
+  nothing while off, with a notice in Settings when variants of more than one group are on: Complex Crafting with Quick
+  Setup (Table 5-1 setups, rushed setups frozen at the start, "Set up now" for setups of hours, rushed finishing with its
+  flat check, quirks and ruined or cursed items); items crafted with their adjustments, delivered together; crafting
+  downtime events rolled once by worked days, optionally pausing the order; Critical Crafting on special items, with secret
+  (blind) rolls while a GM is connected, recorded results and the crafter's curse; Deconstruct, which turns an item into
+  components for a similar item or raw materials and counts its day toward a follow-on order; Grow with Nature or the
+  hybrid skills, left untended across seasons with a season check each; Gardens of Wonder funded by the party and harvested
+  once a day; bestowed gifts that lie dormant in the wrong hands; crafting quests gathered by the party and delivered once
+  every component is found. Live-harness plans `m9a-*`.
 
 ### Changed
 

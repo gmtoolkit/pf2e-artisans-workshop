@@ -75,6 +75,13 @@ export const GATE = Object.freeze({
     "one-at-a-time": "pf2e-artisans-workshop.Gate.OneAtATime",
     "fulu-tradition": "pf2e-artisans-workshop.Gate.FuluTradition",
     "no-reverse-engineer": "pf2e-artisans-workshop.Gate.NoReverseEngineer",
+    // M9a (6.16): Deconstruct's items and workshop, Grow's tools, a quest's components, an adjustment that does not fit.
+    "hard-to-destroy": "pf2e-artisans-workshop.Gate.HardToDestroy",
+    consumable: "pf2e-artisans-workshop.Gate.Consumable",
+    workshop: "pf2e-artisans-workshop.Gate.Workshop",
+    "grow-tools": "pf2e-artisans-workshop.Gate.GrowTools",
+    "quest-components": "pf2e-artisans-workshop.Gate.QuestComponents",
+    "adjustment-fit": "pf2e-artisans-workshop.Gate.AdjustmentFit",
     other: "pf2e-artisans-workshop.Gate.Other",
 });
 
@@ -296,6 +303,39 @@ export const REFUSAL = Object.freeze({
     mark: "pf2e-artisans-workshop.Refusal.Mark",
     deployed: "pf2e-artisans-workshop.Refusal.Deployed",
     "not-deployed": "pf2e-artisans-workshop.Refusal.NotDeployed",
+    // M9a (6.16): the variants.
+    "variant-off": "pf2e-artisans-workshop.Refusal.VariantOff",
+    rush: "pf2e-artisans-workshop.Refusal.Rush",
+    "no-hours": "pf2e-artisans-workshop.Refusal.NoHours",
+    "setup-days": "pf2e-artisans-workshop.Refusal.SetupDays",
+    rank: "pf2e-artisans-workshop.Refusal.Rank",
+    "no-event": "pf2e-artisans-workshop.Refusal.NoEvent",
+    "not-member": "pf2e-artisans-workshop.Refusal.NotMember",
+    "no-critical": "pf2e-artisans-workshop.Refusal.NoCritical",
+    cursed: "pf2e-artisans-workshop.Refusal.Cursed",
+    "no-check": "pf2e-artisans-workshop.Refusal.NoCheck",
+    gifted: "pf2e-artisans-workshop.Refusal.Gifted",
+    dormant: "pf2e-artisans-workshop.Refusal.Dormant",
+    damaged: "pf2e-artisans-workshop.Refusal.Damaged",
+    raw: "pf2e-artisans-workshop.Refusal.Raw",
+    "not-similar": "pf2e-artisans-workshop.Refusal.NotSimilar",
+    purpose: "pf2e-artisans-workshop.Refusal.Purpose",
+    key: "pf2e-artisans-workshop.Refusal.Key",
+    expired: "pf2e-artisans-workshop.Refusal.Expired",
+    "one-components": "pf2e-artisans-workshop.Refusal.OneComponents",
+    "no-garden": "pf2e-artisans-workshop.Refusal.NoGarden",
+    planted: "pf2e-artisans-workshop.Refusal.Planted",
+    "not-planted": "pf2e-artisans-workshop.Refusal.NotPlanted",
+    harvested: "pf2e-artisans-workshop.Refusal.Harvested",
+    "garden-limit": "pf2e-artisans-workshop.Refusal.GardenLimit",
+    "not-consumable": "pf2e-artisans-workshop.Refusal.NotConsumable",
+    funded: "pf2e-artisans-workshop.Refusal.Funded",
+    encounters: "pf2e-artisans-workshop.Refusal.Encounters",
+    "no-component": "pf2e-artisans-workshop.Refusal.NoComponent",
+    found: "pf2e-artisans-workshop.Refusal.Found",
+    missing: "pf2e-artisans-workshop.Refusal.Missing",
+    "not-due": "pf2e-artisans-workshop.Refusal.NotDue",
+    "adjustment-fit": "pf2e-artisans-workshop.Refusal.AdjustmentFit",
     other: "pf2e-artisans-workshop.Refusal.Other",
 });
 
@@ -421,6 +461,10 @@ export const CRAFT_TYPE = Object.freeze({
     // M9 (6.14).
     tattoo: "pf2e-artisans-workshop.CraftType.Tattoo",
     graft: "pf2e-artisans-workshop.CraftType.Graft",
+    // M9a (6.16), while their variants are on.
+    deconstruct: "pf2e-artisans-workshop.CraftType.Deconstruct",
+    grow: "pf2e-artisans-workshop.CraftType.Grow",
+    quest: "pf2e-artisans-workshop.CraftType.Quest",
 });
 
 /** A delivered tattoo's or graft's state (6.14, M9): a word and an icon each. */
@@ -498,6 +542,9 @@ export const EVENT = Object.freeze({
     finish: "pf2e-artisans-workshop.Event.Finish",
     cancel: "pf2e-artisans-workshop.Event.Cancel",
     undo: "pf2e-artisans-workshop.Event.Undo",
+    // M9a (6.16): a Deconstruct that made components, a quest assembled or delivered.
+    deconstruct: "pf2e-artisans-workshop.Event.Deconstruct",
+    assemble: "pf2e-artisans-workshop.Event.Assemble",
     other: "pf2e-artisans-workshop.Event.Other",
 });
 
@@ -519,6 +566,10 @@ export const DAY_STOP = Object.freeze({
     "no-job": "pf2e-artisans-workshop.DayStop.NoJob",
     "job-ended": "pf2e-artisans-workshop.DayStop.JobEnded",
     "income-check": "pf2e-artisans-workshop.DayStop.IncomeCheck",
+    // M9a (6.16.1, 6.16.3).
+    event: "pf2e-artisans-workshop.DayStop.Event",
+    "event-due": "pf2e-artisans-workshop.DayStop.EventDue",
+    "setup-hours": "pf2e-artisans-workshop.DayStop.SetupHours",
     other: "pf2e-artisans-workshop.DayStop.Other",
 });
 
@@ -562,4 +613,41 @@ export const SETTLEMENT_SIZE = Object.freeze({
     town: "pf2e-artisans-workshop.Settlement.Size.Town",
     city: "pf2e-artisans-workshop.Settlement.Size.City",
     metropolis: "pf2e-artisans-workshop.Settlement.Size.Metropolis",
+});
+
+/** Quest threats (6.16.9, TV-R p.172). */
+export const THREAT = Object.freeze({
+    low: "pf2e-artisans-workshop.Variant.Quest.Threat.Low",
+    moderate: "pf2e-artisans-workshop.Variant.Quest.Threat.Moderate",
+    severe: "pf2e-artisans-workshop.Variant.Quest.Threat.Severe",
+});
+
+/** Critical Crafting's categories (6.16.4): the author's own words, no book text. */
+export const CRITICAL_CATEGORY = Object.freeze({
+    "success.intelligent": "pf2e-artisans-workshop.Variant.Critical.Category.Intelligent",
+    "success.beyond-level": "pf2e-artisans-workshop.Variant.Critical.Category.BeyondLevel",
+    "success.minor-ability": "pf2e-artisans-workshop.Variant.Critical.Category.MinorAbility",
+    "success.durable": "pf2e-artisans-workshop.Variant.Critical.Category.Durable",
+    "success.beautiful": "pf2e-artisans-workshop.Variant.Critical.Category.Beautiful",
+    "success.distracting": "pf2e-artisans-workshop.Variant.Critical.Category.Distracting",
+    "success.relic": "pf2e-artisans-workshop.Variant.Critical.Category.Relic",
+    "success.other": "pf2e-artisans-workshop.Variant.Critical.Category.Other",
+    "failure.secret-curse": "pf2e-artisans-workshop.Variant.Critical.Category.SecretCurse",
+    "failure.life-drain": "pf2e-artisans-workshop.Variant.Critical.Category.LifeDrain",
+    "failure.lasting-harm": "pf2e-artisans-workshop.Variant.Critical.Category.LastingHarm",
+    "failure.malevolent": "pf2e-artisans-workshop.Variant.Critical.Category.Malevolent",
+    "failure.fails-in-use": "pf2e-artisans-workshop.Variant.Critical.Category.FailsInUse",
+    "failure.crafter-cursed": "pf2e-artisans-workshop.Variant.Critical.Category.CrafterCursed",
+    "failure.pollution": "pf2e-artisans-workshop.Variant.Critical.Category.Pollution",
+    "failure.other": "pf2e-artisans-workshop.Variant.Critical.Category.Other",
+});
+
+/** What a rushed finish's flat check or a quest's assembly did to the item (6.16.1, 6.16.9). */
+export const ITEM_OUTCOME = Object.freeze({
+    fine: "pf2e-artisans-workshop.Variant.Outcome.Fine",
+    deliver: "pf2e-artisans-workshop.Variant.Outcome.Fine",
+    quirk: "pf2e-artisans-workshop.Variant.Outcome.Quirk",
+    ruined: "pf2e-artisans-workshop.Variant.Outcome.Ruined",
+    cursed: "pf2e-artisans-workshop.Variant.Outcome.Cursed",
+    destroyed: "pf2e-artisans-workshop.Variant.Outcome.Destroyed",
 });

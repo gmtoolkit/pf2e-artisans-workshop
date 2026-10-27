@@ -9,6 +9,7 @@
 import { isComplexCraftSetup, complexSetup } from "./complex.mjs";
 import { DEGREE, ROUTES_WITH_FORMULA, liveRows, requireCp, requireDegree, requireInteger } from "./core.mjs";
 import { DEFAULT_RULES } from "./defaults.mjs";
+import { moneyDegree } from "./variants.mjs";
 
 /** Days of setup without and with the formula. Player Core p.237. */
 const SETUP_DAYS = { withFormula: 1, without: 2 };
@@ -202,7 +203,8 @@ export function settleCheck(order, { committedCp, alchemical = false } = {}) {
     if (degree === DEGREE.success || degree === DEGREE.critSuccess) {
         return { ok: true, patch: { check, status: "finishing" }, rows: rowsOf([["expend", committedCp]]), notices: [] };
     }
-    if (degree === DEGREE.fail) {
+    // M9a (6.16.4): under Critical Crafting's `replace`, a critical failure's special effect ruins nothing.
+    if (degree === DEGREE.fail || moneyDegree(order.check) === DEGREE.fail) {
         return { ok: true, patch: { check, status: "failed" }, rows: rowsOf([["release", committedCp]]), notices: [] };
     }
     // Only a critical failure is left (requireDegree).

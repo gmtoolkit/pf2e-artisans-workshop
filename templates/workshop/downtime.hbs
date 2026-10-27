@@ -123,6 +123,23 @@
     </details>
     {{/if}}
 
+    {{!-- M9a (6.16.7): today's harvests, while the gardens variant is on --}}
+    {{#if harvests}}
+    {{#with harvests}}
+    <h3>{{localize "pf2e-artisans-workshop.Variant.Garden.HarvestHeading"}}</h3>
+    <p class="hint">{{#if acting}}{{localize "pf2e-artisans-workshop.Variant.Garden.HarvestHint" day=day actor=acting}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Garden.HarvestNoActor"}}{{/if}}</p>
+    <ul class="detail-list downtime-harvests">
+        {{#each list}}
+        <li>
+            {{#if img}}<img class="order-img" src="{{img}}" alt="">{{/if}}
+            <span>{{localize "pf2e-artisans-workshop.Variant.Garden.Line" name=name product=product}}</span>
+            <span class="by">{{#if done}}{{done}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Garden.Ripe"}}{{/if}}</span>
+            {{#if canHarvest}}<button type="button" class="small primary" data-action="variant" data-op="harvest" data-garden="{{id}}"><i class="fa-solid fa-basket-shopping" inert></i>{{localize "pf2e-artisans-workshop.Variant.Garden.Harvest"}}</button>{{/if}}
+        </li>
+        {{/each}}
+    </ul>
+    {{/with}}
+    {{/if}}
     {{#if income}}
     <h3>{{localize "pf2e-artisans-workshop.Job.Heading"}}</h3>
     {{#if jobs.length}}

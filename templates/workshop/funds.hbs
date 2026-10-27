@@ -90,6 +90,46 @@
         <button type="button" data-action="adjust" {{#unless funds.reconciliation.canAdjust}}disabled{{/unless}}><i class="fa-solid fa-scale-unbalanced" inert></i>{{localize "pf2e-artisans-workshop.Action.Adjust"}}</button>
     </div>
     {{/if}}
+    {{!-- M9a (6.16.7, 6.16.8): gardens of wonder and bestowed gifts, while their variants are on --}}
+    {{#if variantFunds.gardens}}
+    {{#with variantFunds.gardens}}
+    <h3>{{localize "pf2e-artisans-workshop.Variant.Garden.Heading"}}</h3>
+    <p class="hint">{{limit}}</p>
+    {{#if list.length}}
+    <ul class="detail-list funds-gardens">
+        {{#each list}}
+        <li data-garden="{{id}}">
+            {{#if img}}<img class="order-img" src="{{img}}" alt="">{{/if}}
+            <span>{{localize "pf2e-artisans-workshop.Variant.Garden.Line" name=name product=product}}{{#if kind}} · {{kind}}{{/if}}</span>
+            <span class="money">{{#if planted}}{{planted}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Garden.Funding" held=held seed=seed}}{{/if}}</span>
+            {{#if canFund}}<button type="button" class="small" data-action="variant" data-op="garden-fund" data-garden="{{id}}"><i class="fa-solid fa-coins" inert></i>{{localize "pf2e-artisans-workshop.Variant.Garden.Fund"}}</button>{{/if}}
+            {{#if canRemove}}<button type="button" class="small" data-action="variant" data-op="garden-remove" data-garden="{{id}}">{{localize "pf2e-artisans-workshop.Variant.Garden.Remove"}}</button>{{/if}}
+        </li>
+        {{/each}}
+    </ul>
+    {{else}}<p class="empty">{{localize "pf2e-artisans-workshop.Variant.Garden.None"}}</p>{{/if}}
+    {{#if canAdd}}<div class="detail-actions"><button type="button" data-action="variant" data-op="garden-add"><i class="fa-solid fa-seedling" inert></i>{{localize "pf2e-artisans-workshop.Variant.Garden.Add"}}</button></div>{{/if}}
+    {{/with}}
+    {{/if}}
+    {{#if variantFunds.gifts}}
+    {{#with variantFunds.gifts}}
+    <h3>{{localize "pf2e-artisans-workshop.Variant.Gift.Heading"}}</h3>
+    {{#if list.length}}
+    <ul class="detail-list funds-gifts">
+        {{#each list}}
+        <li class="{{#if dormant}}dormant{{/if}}">
+            <span>{{localize "pf2e-artisans-workshop.Variant.Gift.Line" item=name holder=holder bound=bound}}{{#if giver}} · {{localize "pf2e-artisans-workshop.Variant.Gift.From" giver=giver}}{{/if}}{{#if heirs}} · {{localize "pf2e-artisans-workshop.Variant.Gift.Heirs" heirs=heirs}}{{/if}}</span>
+            {{#if dormant}}<span class="chip warn">{{localize "pf2e-artisans-workshop.Variant.Gift.DormantChip"}}</span>{{/if}}
+            <span class="money">{{price}}</span>
+            {{#if canHeir}}<button type="button" class="small" data-action="variant" data-op="heir" data-item="{{uuid}}">{{localize "pf2e-artisans-workshop.Variant.Gift.Heir"}}</button>{{/if}}
+        </li>
+        {{/each}}
+    </ul>
+    <p class="hint">{{localize "pf2e-artisans-workshop.Variant.Gift.Total" total=total}}</p>
+    {{else}}<p class="empty">{{localize "pf2e-artisans-workshop.Variant.Gift.None"}}</p>{{/if}}
+    {{#if canBestow}}<div class="detail-actions"><button type="button" data-action="variant" data-op="bestow"><i class="fa-solid fa-gift" inert></i>{{localize "pf2e-artisans-workshop.Variant.Gift.Record"}}</button></div>{{/if}}
+    {{/with}}
+    {{/if}}
     <h3>{{localize "pf2e-artisans-workshop.Funds.Ledger"}}</h3>
     {{#if funds.ledger.length}}
     <table class="funds-ledger">

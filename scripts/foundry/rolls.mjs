@@ -25,6 +25,9 @@ import { MODULE_ID } from "../constants.mjs";
 import { helperCheckPatch } from "../logic/communal.mjs";
 import { liveRows } from "../logic/core.mjs";
 import { committedFromRows, hasSettlementRows, recordCheck, settleCheck } from "../logic/craft.mjs";
+import { DEGREE } from "../logic/core.mjs";
+import { lineValueCp, materialLines } from "../logic/materials.mjs";
+import { componentsRuinCp, criticalRecord, moneyDegree, secretRoll } from "../logic/variants.mjs";
 import { wageDaysOf } from "../logic/downtime.mjs";
 import { wageKey, wageSeq } from "../logic/earn-income.mjs";
 import { returnSlotLockId } from "../logic/funds.mjs";
@@ -44,6 +47,10 @@ import { featKeysOf, heldKeysOf, ranksOf } from "./registry.mjs";
 import { isResponsibleFor } from "./responsible.mjs";
 import { rulesFromSettings } from "./settings.mjs";
 import { canWrite } from "./state.mjs";
+import { settleDeconstruct } from "./deconstruct.mjs";
+import { recordSeasonCheck } from "./nature.mjs";
+import { settleQuest } from "./quests.mjs";
+import { liftCurse } from "./variants.mjs";
 import { exists, read, records, stampNow, write } from "./store.mjs";
 
 const refuse = (reason, data = {}) => ({ ok: false, reason, data });
@@ -86,8 +93,12 @@ export async function rollCraft(orderId, { skipDialog } = {}) {
     // An unsaved copy owned by the crafter, so its roll options are those of the item in the crafter's hands (OQ-2).
     // It is not passed as `item`: a bomb passed that way becomes the context item for weapon targeting.
     const item = new CONFIG.Item.documentClass(product.toObject(), { parent: crafter });
-    const plan = craftRollPlan({ item: item.getRollOptions("item"), held: heldKeysOf(crafter), ranks: ranksOf(crafter), order }, rulesFromSettings());
+    const rules = rulesFromSettings();
+    const plan = craftRollPlan({ item: item.getRollOptions("item"), held: heldKeysOf(crafter), ranks: ranksOf(crafter), order }, rules);
+    // M9a (6.16.4): Critical Crafting's secret checks are rolled blind while a GM is connected to see them (P2).
+    const secret = secretRoll(order, rules, !!game.users.activeGM);
     const roll = await statistic.roll({
+        ...(secret ? { rollMode: "blindroll" } : {}),
         dc: { value: order.dc.final, label: game.i18n.localize("pf2e-artisans-workshop.Roll.CraftDC") },
         extraRollOptions: plan.options,
         modifiers: await pf2eModifiers(plan.modifiers),
@@ -182,9 +193,11 @@ export async function onCheckMessage(message) {
         ui.notifications.warn("pf2e-artisans-workshop.Roll.FortuneBlocked", { localize: true });
         return guarded;
     }
-    const check = { ...guarded.check, messageId: message.id };
+    // M9a (6.16.4): a blind roll is a secret check, hidden from players until it settles.
+    const check = { ...guarded.check, messageId: message.id, ...(message.blind === true ? { secret: true } : {}) };
     if (link.kind === "order") return recordOrderCheck(link, check, message.actor, context.options ?? []);
     if (link.kind === "help") return recordHelperCheck(link, check, message.actor);
+    if (link.kind === "season") return recordSeasonCheck(link, check, message.actor);
     return recordJobCheck(link, check, message.actor);
 }
 
@@ -242,6 +255,8 @@ async function recordOrderCheck({ id, attempt }, check, actor, options) {
     const reroll = !!order.check;
     await write({ replace: { [`orders.${id}.check`]: result.patch.check }, set: reroll ? {} : { [`orders.${id}.status`]: result.patch.status } });
     if (reroll) await rememberReroll(id, result.patch.check);
+    // M9a (6.16.4): a critical success at a Craft check lifts the crafter's curse.
+    if (degree === DEGREE.critSuccess && order.craftType !== "deconstruct" && order.craftType !== "quest") await liftCurse(crafter);
     return { ok: true, check: result.patch.check };
 }
 
@@ -291,9 +306,17 @@ async function recordJobCheck({ id: jobId, round }, check, actor) {
  */
 export async function settleOrder(orderId) {
     if (!canWrite()) return refuse("not-ready");
-    const order = read(`orders.${orderId}`);
-    if (!order) return refuse("no-order");
-    if (closedAs(order)) return refuse("state", { status: closedAs(order) });
+    const stored = read(`orders.${orderId}`);
+    if (!stored) return refuse("no-order");
+    if (closedAs(stored)) return refuse("state", { status: closedAs(stored) });
+    // M9a (6.16.5, 6.16.9): a Deconstruct and a quest settle through their own rows of 4.2.3, with no money.
+    if (stored.craftType === "deconstruct") return settleDeconstruct(stored);
+    if (stored.craftType === "quest") return settleQuest(stored);
+    // M9a (6.16.4): a check that triggers Critical Crafting is stamped with its record (and the mode the setting has now),
+    // which decides the money effect from here on.
+    const rules = rulesFromSettings();
+    const critical = stored.status === "rolled" && stored.check && !stored.check.settled ? criticalRecord(stored.check, stored, rules, stampNow()) : null;
+    const order = critical ? { ...stored, check: { ...stored.check, critical } } : stored;
     const rows = rowsOf("order", orderId);
     const alchemical = (order.product?.snapshot?.traits ?? []).includes("alchemical");
     const result = settleCheck(order, { committedCp: committedFromRows(rows), alchemical });
@@ -318,6 +341,13 @@ export async function settleOrder(orderId) {
     const settlement = settlementRecord(order, result.patch, rowIds, stamp);
     const change = transitionChange(order, "settle", { check, status: fields.status, settlement }, { rows: rowIds }, stamp);
     const ledger = { replace: change.replace, set: { ...change.set, ...Object.fromEntries(releases.map((row) => [`rows.${row.id}`, row])) } };
+    // M9a (6.16.5): a critical failure ruins 10% of a components line too, with the rest of the materials (unless Critical
+    // Crafting's `replace` took the money effect's place).
+    if (fields.status === "failed" && moneyDegree(check) === DEGREE.critFail) {
+        for (const line of materialLines(order).filter((l) => l.components)) {
+            ledger.set[`orders.${orderId}.materials.${line.id}.ruinedCp`] = (order.materials?.[line.id]?.ruinedCp ?? 0) + componentsRuinCp(lineValueCp(line, order));
+        }
+    }
     // The log slot, and the return slot: a give-back or take-back planned from the same copy would change the shares.
     const locks = [change.lock, returnSlotLockId(order, rows)];
     if (!spent) {

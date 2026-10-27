@@ -21,6 +21,9 @@ import { CLOSED } from "../logic/orders.mjs";
 import { itemVersion } from "./coins.mjs";
 import { moveCoins } from "./money.mjs";
 import { liveItemFacts } from "./products.mjs";
+import { componentsExpired } from "../logic/variants.mjs";
+import { today } from "./downtime.mjs";
+import { rulesFromSettings } from "./settings.mjs";
 import { canWrite, shared } from "./state.mjs";
 import { newId, read, stampNow } from "./store.mjs";
 
@@ -73,15 +76,23 @@ export async function handOver({ order = null, service = null, item: itemUuid, p
     if (owner === shared().strongbox) return refuse("in-strongbox");
     if (!owner.isOwner) return refuse("not-owner");
     const facts = liveItemFacts(item);
-    const material = purpose === "material" ? stockMaterial({ slug: facts.slug, traits: facts.traits }) : null;
-    if (purpose === "material" && !material) return refuse("not-stock");
+    // M9a (6.16.5): a deconstructed item's components count as raw materials for one later order, at their credit.
+    const components = purpose === "material" && order ? item.flags?.[MODULE_ID]?.components ?? null : null;
+    const material = purpose === "material" && !components ? stockMaterial({ slug: facts.slug, traits: facts.traits }) : null;
+    if (purpose === "material" && !material && !components) return refuse("not-stock");
+    if (components) {
+        if (rulesFromSettings().variants.deconstruct !== true) return refuse("variant-off");
+        if (componentsExpired(components, today().day)) return refuse("expired");
+        if (heldLines(record).some((line) => line.components)) return refuse("one-components");
+    }
     const stack = Math.max(1, facts.quantity);
-    const qty = quantity ?? (purpose === "material" ? stack : 1);
+    const qty = components ? 1 : quantity ?? (purpose === "material" ? stack : 1);
     if (!Number.isInteger(qty) || qty < 1 || qty > stack) return refuse("stack", { max: stack });
     const box = shared().strongbox;
     const id = newId();
     const line = newId();
-    const valueCp = facts.priceCp * qty;
+    // A components line counts at its raw credit until the crafter confirms the product similar (`lineValueCp`).
+    const valueCp = components ? components.rawCp : facts.priceCp * qty;
     const source = item.toObject();
     source._id = id;
     source.system = { ...source.system, quantity: qty };
@@ -90,6 +101,8 @@ export async function handOver({ order = null, service = null, item: itemUuid, p
     const entry = {
         id: line, purpose, itemId: id, uuid: `${box.uuid}.Item.${id}`, from: owner.uuid, name: item.name, img: item.img, sourceId: facts.sourceId,
         qty, valueCp, material, returned: null, used: null, ...stampNow(),
+        ...(components ? { components: { valueCp: components.valueCp, rawCp: components.rawCp, purpose: components.purpose, from: components.from,
+            order: components.order } } : {}),
     };
     const field = purpose === "material" ? "materials" : "custody";
     const row = {

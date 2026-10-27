@@ -2593,6 +2593,7 @@ adjustments, crafting downtime events, Critical Crafting, converting magic items
 nature crafting (the Grow activity, its skill adjustment, Bestowed Gifts, Gardens of Wonder) and
 story-based crafting (crafting quests). The module builds all of them. Each is a world setting that is
 off by default, because they are variant rules (14.4); P10's "features default on" does not apply.
+As built in M9a: all of them (10.17).
 
 - **One group at a time.** The book advises adding one subsection at a time, and warns that the
   alternate rules, especially Complex Crafting, can interact badly with nature or story-based crafting
@@ -2726,6 +2727,8 @@ function complexExtraDay(order, day, ctx) {               // wraps extraDayRecor
   because `setupPlan` (6.2.2) calls it. It returns the rush actually applied after the caps, and `quick` is
   true only when Quick Setup set the hours: a Quick Setup crafter whose setup stays at a day or more gets
   `quick: false`. `rushedFinishDC`, `complexExtraDay` and the flat check remain M9a.
+- **As built in M9a** (10.17): `rushedFinishDC`, the flat check (`rushFlatCheck`, once per attempt), Set up now and the rush
+  choice; the rushed finish is an order toggle each day record captures (`rushDay`), not a per-day choice in the resolver.
 
 #### 6.16.2 Crafting items with adjustments (TV-R p.159)
 
@@ -6277,6 +6280,121 @@ not run yet (below). DECISIONS.md 2026-10-27 "Tattoos, grafts and the remaining 
   - An uninvested or decorative notice is shown on the subject's responsible client, which is the GM's when the player is
     offline; nothing tells the player on their next login.
 
+### 10.17 As built in M9a
+
+M9a builds every Treasure Vault (Remastered) crafting variant of 6.16, each behind its own world setting of 14.4, all off
+by default (pure parts in `scripts/logic/variants.mjs` with its numbers in `scripts/data/variants.mjs`, and additions to
+`complex.mjs`, `materials.mjs`, `progress.mjs`, `craft.mjs`, `orders.mjs`, `downtime.mjs`, `gates.mjs`, `rolls.mjs` and
+`defaults.mjs`; Foundry parts in `scripts/foundry/variants.mjs`, `deconstruct.mjs`, `nature.mjs` and `quests.mjs`, with
+additions to `products.mjs`, `orders.mjs`, `rolls.mjs`, `outputs.mjs`, `claims.mjs`, `custody.mjs`, `expiry.mjs`,
+`settings.mjs`, `sync.mjs`, `api.mjs` and `module.mjs`; the window in `scripts/ui/variants.mjs` and additions to `extras.mjs`,
+`request.mjs`, `workshop.mjs`, `downtime.mjs`, `context.mjs`, `chat.mjs`, `labels.mjs`, the Queue, Funds, Downtime, request
+and check-card templates and `styles/workshop.css`). Unit tests cover the variant math (`test/logic/variants.test.mjs`, with
+the book's vectors), stub tests the Foundry and window parts (`test/foundry/m9a.test.mjs`, `ui-m9a.test.mjs`,
+`harness-m9a.test.mjs`); the live plans have not run yet (below). Every number was checked against TV-R pp.157-175 on AoN and
+the pf2e 8.6.1 compendium (Deconstruct, Grow, Quick Setup, the GM Screen's "Downtime Events" page).
+
+- **Off costs nothing.** While a variant is off its kinds are refused (`variant-off`), the request drops its fields, its
+  catch-up returns at once and schedules nothing (`anyVariantOn`: a sub-setting's default such as `critical.specialOnly` is
+  no variant), the window shows nothing of it and nothing is written. `variantsNow`/`variantOn` read the settings each call.
+- **One group at a time.** Turning a setting on that mixes groups warns the user who changed it
+  (`Settings.Variants.Mixed`), and Settings shows the notice in the module's tab (`renderSettingsConfig`); nothing is blocked.
+- **Complex Crafting** (6.16.1): the start form's rush is the crafter's choice before the start (`variant.rushRequest`,
+  `chooseRush`), frozen with the plan (`variant.complex = {rush, band, quick}`, `dc.adjust`); the Queue says the setup in words
+  ("Setup: 1 day, rushed 1 day (DC +5)"). "Set up now" writes the `setup-hours` record behind the lock page
+  `setup-hours:<id>:<attempt>`, so it is recorded once, on any day, beside the crafter's own day record. The rushed finish is an
+  order toggle (`variant.rushFinish`) that each finishing day captures (`rushed`, twice the crafter's reduction, helpers not
+  doubled); the finish rolls the flat check once per attempt (`check.rushFlat = {attempt, dc, die, degree, outcome}`, a d20
+  card; DC 1 or lower is no roll, DC 21 or higher can at best fail), so a finish refused for money rolls nothing again. A
+  failure delivers with `flags.MOD.quirk`, a critical failure ruins (no item, `make` false) or curses by
+  `variants.complex.rushCritFail`.
+- **Adjustments** (6.16.2): the request form lists the adjustments that fit the base item (by usage: armor, shields,
+  weapons); one plan for the whole (`adjustedPlan`: the summed Price, the highest level, the highest rarity of the parts), each
+  part's feats, access and formula folded into G4-G6 by name, G12 `adjustment-fit` for a part that does not fit. The finish
+  makes the host and its parts together, each part's `flags.MOD.appliedTo.host` naming the host; delivery moves the group as one
+  shelf entry and remaps the host id on the recipient.
+- **Events** (6.16.3): due by worked downtime days (first on day `events.firstDay`, then every `events.everyDays`), rolled on
+  the crafter's responsible client (or by "Roll event") behind the lock page `event:<id>:<attempt>:<k>`, recorded at
+  `orders.<id>.events.<attempt>-<k>` before its card is posted; a d20 on Table 5-2 (1-3 link the GM Screen's "Downtime Events"
+  page), or a draw from the world table named by `events.table`. With `events.pauses` the day planner stops at `event-due` and
+  `event` until a member resolves it.
+- **Critical Crafting** (6.16.4): settlement stamps `check.critical = {kind, natural, mode, category, note}` when the trigger
+  fires (natural or any; special items only by default; "Special" is the requester's or crafter's toggle before the start);
+  `replace` mode settles a critical with the money of a plain success or failure (`moneyDegree`: no 10% ruin, no higher
+  rate). The crafter records a category and note; the crafter's curse is an effect (`artisans-workshop-crafter-curse`, a status
+  penalty to Crafting) that the next critical success at a Craft check lifts, or its owner deletes after a 4th-rank cleanse
+  affliction. Secret rolls are pf2e blind rolls (`rollMode: "blindroll"`) while a GM is
+  connected: players read "rolled (secret)" in the Queue and on the card until it settles or a GM reveals it.
+- **Deconstruct** (6.16.5): `craftType: "deconstruct"`, quantity 1, its target a physical item whose holder is the recipient;
+  its gates (6.16.5: level, rank, feats, the workshop checklist, no consumables, artifacts or cursed items); 1 day, no Price, the check
+  through `action:deconstruct`. A success turns the item into components (renamed, inert, unequipped and uninvested,
+  `flags.MOD.components = {valueCp, rawCp, purpose, ...}`, expiring after `deconstruct.expiryDays` when set); a similar
+  purpose's day becomes the named follow-on's first setup day when the check settles (a non-undoable `deconstruct` event). A
+  critical failure damages the item: a retry needs a repair since, or accepts another 5% loss. Components go into an order as
+  materials (one per order) at the similar share when the follow-on is confirmed similar, else raw; their excess over the
+  up-front half reduces the remainder; a Craft's money critical failure ruins 10% of them.
+- **Grow** (6.16.6): `craftType: "grow"`, the formula required, the grow-tools checklist (G7), 4 days, the skill by
+  `natureCrafting.skills` (Crafting, Nature, or Nature with every other Craft on Arcana). Untended after a success; season
+  checks come from the core calendar's seasons when it defines them, else every `natureCrafting.seasonDays` days, prompted on
+  the crafter's responsible client, rolled by the crafter's owner, recorded once a season (`season:<id>:<n>` lock) as a
+  `season` record whose day of Income reduces the remainder.
+- **Gardens** (6.16.7): `gardens.<id>` in the ledger; the add button refuses past half the party's PCs; members pledge from
+  their purse or earmark from the fund; the change that completes the seed cost plants it on that writer's responsible client
+  (pro rata `plant` rows behind `plant:<id>`); one harvest a day per garden (`harvest:<id>:<day>` lock), created by the
+  harvester's own client, temporary, with a `world` stamp ending that day. The Downtime tab lists today's harvests, the Funds
+  tab the gardens with their funding.
+- **Gifts** (6.16.8): "Bestow" on a held item (or `variant.bestow` on an order, set at delivery) writes `flags.MOD.gift`; held
+  by anyone but the bound actor or an heir, its use is cancelled with a notice (the inert guard's `preCreateChatMessage`).
+  The Funds tab lists the party's gifts with their Price.
+- **Quests** (6.16.9): `craftType: "quest"`, quantity 1, no coins and no downtime activity; it starts in `gathering`; any member
+  marks a component found; the crafter's responsible client moves it on once all are found, to `check` when an assembly check
+  is needed, else delivered behind the order's log slot and `deliver:<id>:<attempt>`, so it leaves `gathering` once. The
+  assembly's failure delivers with a quirk, its critical failure destroys it or curses it by `quests.critFail`. The Queue
+  shows the equivalent cost against treasure, the per-encounter reduction and the Table 5-3 budget.
+- **Settings** (14.4): every key of the table, registered with its default; the public API's `variants` namespace (11.2).
+- **After the M9a review** (one pass; each fix with a test that fails without it): the catch-up was scheduled after every
+  ledger change while every variant was off, and an order's variant note still showed, because `critical.specialOnly`'s
+  default counted as a variant on (`anyVariantOn` now); "rushed 1 days" (`Variant.Rush.RushedOne`).
+- **Live plans** (15.3 scenario 13; `tools/harness/variant-scenarios.mjs`, scenario `m9a`, with M9's `m9` steps; `live-plans.mjs`),
+  to run later:
+  - `m9a-notice` (GM, P1): Complex Crafting then Grow: the GM is told once, Player One is not, Settings shows the notice.
+  - `m9a-complex` (GM, P2): Player Two's fighter rushes a Cloak of Feline Rest without its formula to 1 day at +5 DC and rushes a
+    finishing day (flat DC at most 1: no die); the legacy alchemist fixture rushes Alchemist's Fire (Lesser) to 4 hours, Set up
+    now (once), rushes a finishing day and rolls the DC 4 flat check once.
+  - `m9a-quick-setup` (GM, P2): with Quick Setup the cloak takes 4 hours; Player Two's fighter subsists in downtime; the day is
+    resolved as subsistence and Set up now records the hours on the same day under their own key.
+  - `m9a-deconstruct` (GM, P2): the fighter breaks a Cloak of Feline Rest down for a similar follow-on: G9 waits for the
+    workshop; components worth 15 gp; the day is the follow-on's first setup day; handed over, they let it start with no coins.
+  - `m9a-grow` (GM, P1, P2): the druid fixture, lent to Player One, grows a Versatile Tinderbox with Nature, untended; with the
+    GM gone Player One logs 100 days: one season check, prompted on Player One's client only, rolled once, not by Player Two.
+  - `m9a-garden` (GM, P1, P2): a 60 gp garden, the second refused; 40 gp and 20 gp plant it once; both harvest at the same moment,
+    one wins; produce temporary with a day's stamp; the next day's harvest.
+  - `m9a-quest` (GM, P1, P2): a three-encounter quest; the last two components marked by both players at once; it leaves
+    `gathering` exactly once and one cloak is delivered.
+  - `m9a-adjust` (GM, P1, P2): a Breastplate with Armor Latches from Player Two's fighter for Player One's alchemist: 12 gp, both
+    collected by Player One's client, the latches applied to the breastplate there.
+  - `m9a-secret` (GM, P1, P2): a special Elixir of Life (Minor) rolled blind: both players read "rolled (secret)", the GM the
+    degree; revealed, the players read it too.
+  - `m9a-shots` (GM, P2): the Queue's Complex Crafting detail and the Funds tab's garden, 1440x900 and 1024x768, dark and light.
+
+#### Follow-ups (M9a, low)
+
+- A Grow order whose product is the garden (6.16.7, "with Grow on, a Grow order ... plants it") is not built: gardens are
+  planted by pledges only.
+- The rushed finish is an order toggle the crafter sets, not a per-day choice in the day resolver and the wizard (6.16.1); a
+  mixed run is still possible by switching it between days.
+- Legendary proficiency for Deconstruct and Grow follows `rules.legendaryItemLevel` (default 17, Player Core p.237); the TV-R
+  text says 16 for both.
+- A components item's `material-in` row carries 0 cp, as custody's other hand-overs do; its value lives on the order line.
+- A damaged item's repair is found only by a Repair service order targeting the same item UUID.
+- "Too hard to destroy" (D3) is the `artifact` and `cursed` traits only; the registry has no list for other items.
+- The request form still shows a quantity for a Deconstruct or quest (both are refused above 1).
+- The pf2e compendium's Deconstruct and Grow actions carry no `rare` trait, though the book calls them rare.
+- A precious material stock line is not ruined by a critical failure (since M5); components are.
+- Event and rushed-finish cards are plain roll cards with a flavour line; the GM Screen link is in the Queue only.
+- The author of a blind roll records its check from a message whose content they cannot see; the live plan checks it.
+- The live plans have not run.
+
 ---
 
 ## 11. Macros and public API
@@ -6633,7 +6751,7 @@ read them, with the defaults listed here; `strongbox: party` comes with the Fund
 encounter's items one round of world time from its end), `bandolier.autoOpen` (U, on) and the hidden `bandolier.position`
 (U, `{left, top}`) (10.14). As built in M8a: `features.afflictions` (W, on) and every setting of 14.5 with its default (10.15). As
 built in M9: `features.tattoos` (W, on; off, a tattoo or graft is crafted as a plain item), `rules.tattooSubjectLocked` (W, on) and
-`rules.tattooHealingDays` (W, 30) (10.16).
+`rules.tattooHealingDays` (W, 30) (10.16). As built in M9a: every setting of 14.4 with its default, all off (10.17).
 
 ### 14.4 Treasure Vault (Remastered) variants
 
@@ -6962,6 +7080,12 @@ read fully, 110 overridden, 5 ignored, none failing (10.15); `spells` and `besti
   `m9-fulu-missive`, `m9-staff`, `m9-snares`, `m9-gadget` and `m9-shots`, described in 10.16; not run yet. They are scenario 14 of
   the list above. They use the fixtures (12, 13, 6, 7, 8, 9 of 15.4), owned by the GM, with the GM's steps paying from Player
   One's purse; `m9-graft` gives the cleric Graft Technician and an effect that makes it expert in Medicine.
+- As built in M9a: scenario `m9a` (`tools/harness/variant-scenarios.mjs`, using M9's `m9` steps to file and work orders) and the
+  behaviours `m9a-notice`, `m9a-complex`, `m9a-quick-setup`, `m9a-deconstruct`, `m9a-grow`, `m9a-garden`, `m9a-quest`,
+  `m9a-adjust`, `m9a-secret` and `m9a-shots`, described in 10.17; not run yet. They are scenario 13 of the list above. The two
+  player characters are fixtures 3 and 6; the legacy alchemist (14) rolls the rushed finish's flat check, which the master
+  fighter cannot fail, and the druid (15) is lent to Player One for the Grow plan, so its season check has an owner online
+  with no GM; `reset` turns every variant setting back to its default and gives the druid back.
 - As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
   counts the rows that are new since `purseBefore` by id, not by a server-time cut-off (two devices' estimates of
   the server's time differ by milliseconds, and one real row was left out); the `claim` step reports its own rows
@@ -7159,7 +7283,7 @@ draft; the letters keep the existing milestone numbers stable.
 | M8 | Combat | Bandolier, HUD palette, Quick Alchemy panel, quick vials, Quick Bomber, Healing Bomb, additives, vial gathering, turn expiry, Duct Tape step-aside, Use best consumable; built, first live pass run (10.14) | M7 |
 | M8a | Afflictions | 8.10: the affliction rules engine with tests; the parser, `scripts/data/afflictions.mjs` overrides and the corpus check in the validation script; backend detection, the effect backend and the native backend with its constraints and migration; grant flags and the stage guard; exposure and coating-spend claims; coatings and Strike handling; saves (with the source item, for incapacitation), recording and pending state; turn and world-time timing, catch-up and the affliction time function for logged days; the DC stamp at creation; Afflictions drawer and cards; Affliction Forge coexistence and the GM-routed hand-off; harness scenario 12; built, first live pass run (10.15) | M3 (validation script, roll recording), M6 (day resolver for logged days), M7 (creation stamps, infused expiry), M8 (Bandolier entry point) |
 | M9 | Tattoos and remaining crafts | tattoo process and toggle, grafts, spellhearts, fulus, missives, snares and gadgets specifics, spell-supplied items beyond scrolls and wands; harness scenario 14; built, live plans not yet run (10.16) | M5, M6 |
-| M9a | Treasure Vault (Remastered) variants | 6.16 behind their settings: Complex Crafting and Quick Setup (setup, rush, sub-day setups, rushed finishing), crafting with adjustments, downtime events, Critical Crafting, Deconstruct and components, Grow with untended growth and seasons, gardens, bestowed gifts, crafting quests; the one-group-at-a-time notice; harness scenario 13 | M5 (service orders, materials, Repair), M6 (day resolver, seasons, events), M7 (expiry stamps and the inert guard for produce, components and gifts) |
+| M9a | Treasure Vault (Remastered) variants | 6.16 behind their settings: Complex Crafting and Quick Setup (setup, rush, sub-day setups, rushed finishing), crafting with adjustments, downtime events, Critical Crafting, Deconstruct and components, Grow with untended growth and seasons, gardens, bestowed gifts, crafting quests; the one-group-at-a-time notice; harness scenario 13; built, live plans not yet run (10.17) | M5 (service orders, materials, Repair), M6 (day resolver, seasons, events), M7 (expiry stamps and the inert guard for produce, components and gifts) |
 | M10 | Extension API | registration, interfaces, hooks, extension store; the separate circus module built against it as acceptance test | M6 |
 | M11 | Integration surface | sheet and party entry points, macros and shelf, keybindings, theming, accessibility pass | M4-M9a |
 | M12 | Hardening | full section 15 matrix, performance, pre-release to a test table by manifest URL; the first pre-release run at a real table hosted on the Forge is the Forge smoke test (15.6) | M10, M11 |

@@ -18,6 +18,7 @@ import { isPlainObject } from "./keypath.mjs";
 import { extraDayRecord, recordsOf, setupComplete } from "./progress.mjs";
 import { committedFromRows } from "./craft.mjs";
 import { allocationsByContributor, splitProRata } from "./split.mjs";
+import { rushDay } from "./variants.mjs";
 
 export const ORDER_VERSION = 1;
 export const DAY_VERSION = 1;
@@ -72,6 +73,9 @@ export function makeOrder({ id, party = null, requester, recipient, product, qua
     if (WITH_SUBJECT.includes(craftType) && (!target || recipient.kind !== "actor" || recipient.uuid !== target || quantity !== 1)) {
         throw new TypeError(`a ${craftType} order names its subject, who receives one`);
     }
+    // M9a (6.16.5, 6.16.9): a Deconstruct names the item it breaks down; a Deconstruct and a quest make one.
+    if (craftType === "deconstruct" && !target) throw new TypeError("a deconstruct order names the item it breaks down");
+    if ((craftType === "deconstruct" || craftType === "quest") && quantity !== 1) throw new RangeError(`a ${craftType} order is for one item`);
     return {
         id, v: ORDER_VERSION, party, requester, recipient: { kind: recipient.kind, uuid: recipient.uuid ?? null },
         product: { type: productType, uuid: product.uuid, family: product.family ?? null, snapshot: { ...product.snapshot } },
@@ -83,8 +87,13 @@ export function makeOrder({ id, party = null, requester, recipient, product, qua
     };
 }
 
-/** Craft types the order machine runs (4.2.1): M5's, and M9's tattoos and grafts; the variant ones (6.16) arrive with M9a. */
-export const CRAFT_TYPES = Object.freeze(["item", "upgrade", "rune-etch", "rune-transfer", "spell-item", "tattoo", "graft"]);
+/**
+ * Craft types the order machine runs (4.2.1): M5's, M9's tattoos and grafts, and M9a's variant activities (6.16:
+ * Deconstruct, Grow, crafting quests), which exist only while their variant is on (`craftTypeOn`, `variants.mjs`).
+ */
+export const CRAFT_TYPES = Object.freeze(["item", "upgrade", "rune-etch", "rune-transfer", "spell-item", "tattoo", "graft", "deconstruct", "grow", "quest"]);
+/** Craft types that move no money (M9a): a Deconstruct breaks an item down, a quest is earned through encounters. */
+export const MONEYLESS = Object.freeze(["deconstruct", "quest"]);
 /** Craft types with a subject, who consents and receives the item (6.14, M9; `scripts/logic/crafts.mjs`). */
 export const WITH_SUBJECT = Object.freeze(["tattoo", "graft"]);
 /** Craft types that work on an item the crafter must hold for the whole job (G10, GM Core p.225). */
@@ -346,8 +355,10 @@ export function workDayRecord(order, day, crafter, days, stamp, rules = DEFAULT_
         const done = setupComplete(order, [...days, record]);
         return { record, patch: done ? { status: "check" } : {} };
     }
-    const extra = extraDayRecord(order, day, { crafter, rateLevel: crafter.rateLevel ?? null }, rules);
+    let extra = extraDayRecord(order, day, { crafter, rateLevel: crafter.rateLevel ?? null }, rules);
     if (!extra) return null;
+    // M9a (6.16.1): a day of rushed finishing, while the crafter has the order's rush on.
+    if (order.variant?.rushFinish === true) extra = rushDay(extra, crafter.rank ?? 0, rules);
     return { record: { ...base, ...extra, id: base.id, v: DAY_VERSION, actor: crafter.actorId, toDay: day }, patch: {} };
 }
 

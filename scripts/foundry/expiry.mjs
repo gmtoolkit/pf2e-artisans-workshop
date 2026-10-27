@@ -38,6 +38,7 @@ import { combatOn, turnStateOf } from "./combat.mjs";
 import { today } from "./downtime.mjs";
 import { isElected, isResponsibleFor } from "./responsible.mjs";
 import { setting } from "./settings.mjs";
+import { isDormantGift } from "./variants.mjs";
 import { canWrite, shared } from "./state.mjs";
 import { read, stampNow, write } from "./store.mjs";
 
@@ -299,11 +300,16 @@ async function applyExpiryClaim(claim) {
 /*  Hooks                                        */
 /* -------------------------------------------- */
 
-/** Whether a chat message uses or strikes with an inert item (its pf2e origin). */
-function inertOrigin(message) {
+/** The item a chat message uses or strikes with (its pf2e origin), or null. */
+function originItem(message) {
     const uuid = message?.flags?.pf2e?.origin?.uuid ?? message?._source?.flags?.pf2e?.origin?.uuid ?? null;
     if (!uuid || uuid.startsWith("Compendium.")) return null;
-    const item = fromUuidSync(uuid, { strict: false });
+    return fromUuidSync(uuid, { strict: false }) ?? null;
+}
+
+/** Whether a chat message uses or strikes with an inert item (its pf2e origin). */
+function inertOrigin(message) {
+    const item = originItem(message);
     return item && isInert(item) ? item : null;
 }
 
@@ -341,9 +347,17 @@ export function registerExpiryHooks() {
     // OQ-19: cancel a message that uses or strikes with an inert item, on the client creating it.
     Hooks.on("preCreateChatMessage", (message) => {
         const item = inertOrigin(message);
-        if (!item) return true;
-        ui.notifications.warn("pf2e-artisans-workshop.Expiry.Used", { format: { item: item.name } });
-        return false;
+        if (item) {
+            ui.notifications.warn("pf2e-artisans-workshop.Expiry.Used", { format: { item: item.name } });
+            return false;
+        }
+        // M9a (6.16.8): a bestowed gift is dormant in the hands of anyone but its recipient or an heir.
+        const gift = originItem(message);
+        if (gift && isDormantGift(gift)) {
+            ui.notifications.warn("pf2e-artisans-workshop.Variant.Gift.Dormant", { format: { item: gift.name } });
+            return false;
+        }
+        return true;
     });
 }
 

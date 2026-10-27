@@ -7,6 +7,7 @@
 import { MODULE_ID } from "../constants.mjs";
 import { CLOSED } from "../logic/orders.mjs";
 import { orderView } from "../logic/views.mjs";
+import { checkHidden } from "../logic/variants.mjs";
 import { shelfItemsFor } from "../foundry/claims.mjs";
 import { orderDays, orderRows, owns, viewer as currentViewer } from "../foundry/orders.mjs";
 import { crafterFacts, gatesFor, planEstimate, productFacts } from "../foundry/products.mjs";
@@ -144,7 +145,10 @@ export function decorate(view, order) {
         finishLabel: p.phase === "crafting" ? "pf2e-artisans-workshop.Detail.FinishNow" : "pf2e-artisans-workshop.Detail.StillNeeded",
         withdrawText: view.withdrawableCp > 0 ? money(view.withdrawableCp) : null,
         fundReturnText: view.fundReturnableCp > 0 ? money(view.fundReturnableCp) : null,
-        checkText: view.check ? loc(DEGREE_KEY[view.check.degree]) : null, checkClass: view.check ? DEGREE_CLASS[view.check.degree] : null,
+        // M9a (6.16.4): a secret check reads "rolled (secret)" to players until it settles or a GM reveals it.
+        ...(checkHidden(order.check, currentViewer())
+            ? { checkText: loc("pf2e-artisans-workshop.Variant.Critical.Secret"), checkClass: null, secretCheck: true }
+            : { checkText: view.check ? loc(DEGREE_KEY[view.check.degree]) : null, checkClass: view.check ? DEGREE_CLASS[view.check.degree] : null }),
         conflictText: view.conflict ? loc(DEGREE_KEY[view.conflict.degree]) : null,
         contributorsText: view.contributors.map((c) => ({ ...c, amount: money(c.cp), name: sourceName(c.actor) })),
         // Material stock earmarked for the order, by who handed it over, at Price (M5 on M4.1).

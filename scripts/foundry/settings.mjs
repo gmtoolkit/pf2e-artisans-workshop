@@ -9,6 +9,7 @@
  */
 import { MODULE_ID } from "../constants.mjs";
 import { DEFAULT_RULES, rulesWith } from "../logic/defaults.mjs";
+import { mixedGroups } from "../logic/variants.mjs";
 
 /**
  * The rule settings: the setting key, the path in `DEFAULT_RULES`, the i18n keys, and choices where the value
@@ -47,8 +48,63 @@ export const RULE_SETTINGS = Object.freeze([
     { key: "rules.communal.helperLeaveRetroactive", rule: "communal.helperLeaveRetroactive", name: "pf2e-artisans-workshop.Settings.HelperLeaveRetroactive.Name", hint: "pf2e-artisans-workshop.Settings.HelperLeaveRetroactive.Hint" },
     { key: "rules.communal.helperCap", rule: "communal.helperCap", name: "pf2e-artisans-workshop.Settings.HelperCap.Name", hint: "pf2e-artisans-workshop.Settings.HelperCap.Hint" },
     { key: "rules.communal.countHelpersWithoutFeat", rule: "communal.countHelpersWithoutFeat", name: "pf2e-artisans-workshop.Settings.CountHelpersWithoutFeat.Name", hint: "pf2e-artisans-workshop.Settings.CountHelpersWithoutFeat.Hint" },
-    { key: "variants.complexCrafting", rule: "variants.complexCrafting", name: "pf2e-artisans-workshop.Settings.ComplexCrafting.Name", hint: "pf2e-artisans-workshop.Settings.ComplexCrafting.Hint" },
+    // Treasure Vault (Remastered) variants (14.4, 6.16): each off by default; M9a registers them all.
+    { key: "variants.complexCrafting", rule: "variants.complexCrafting", variant: true, name: "pf2e-artisans-workshop.Settings.ComplexCrafting.Name", hint: "pf2e-artisans-workshop.Settings.ComplexCrafting.Hint" },
+    { key: "variants.complex.rushCritFail", rule: "variants.complexRushCritFail", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.RushCritFail.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.RushCritFail.Hint",
+        choices: { ruined: "pf2e-artisans-workshop.Settings.Variants.RushCritFail.Ruined", cursed: "pf2e-artisans-workshop.Settings.Variants.RushCritFail.Cursed" } },
+    { key: "variants.adjustments", rule: "variants.adjustments", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.Adjustments.Name", hint: "pf2e-artisans-workshop.Settings.Variants.Adjustments.Hint" },
+    { key: "variants.events", rule: "variants.events", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.Events.Name", hint: "pf2e-artisans-workshop.Settings.Variants.Events.Hint" },
+    { key: "variants.events.firstDay", rule: "variants.eventsFirstDay", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.EventsFirstDay.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.EventsFirstDay.Hint" },
+    { key: "variants.events.everyDays", rule: "variants.eventsEveryDays", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.EventsEveryDays.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.EventsEveryDays.Hint" },
+    { key: "variants.events.table", rule: "variants.eventsTable", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.EventsTable.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.EventsTable.Hint" },
+    { key: "variants.events.pauses", rule: "variants.eventsPauses", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.EventsPauses.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.EventsPauses.Hint" },
+    { key: "variants.criticalCrafting", rule: "variants.criticalCrafting", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.Critical.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.Critical.Hint" },
+    { key: "variants.critical.trigger", rule: "variants.criticalTrigger", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.CriticalTrigger.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.CriticalTrigger.Hint",
+        choices: { natural: "pf2e-artisans-workshop.Settings.Variants.CriticalTrigger.Natural", any: "pf2e-artisans-workshop.Settings.Variants.CriticalTrigger.Any" } },
+    { key: "variants.critical.specialOnly", rule: "variants.criticalSpecialOnly", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.CriticalSpecialOnly.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.CriticalSpecialOnly.Hint" },
+    { key: "variants.critical.mode", rule: "variants.criticalMode", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.CriticalMode.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.CriticalMode.Hint",
+        choices: { alongside: "pf2e-artisans-workshop.Settings.Variants.CriticalMode.Alongside", replace: "pf2e-artisans-workshop.Settings.Variants.CriticalMode.Replace" } },
+    { key: "variants.critical.secret", rule: "variants.criticalSecret", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.CriticalSecret.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.CriticalSecret.Hint" },
+    { key: "variants.deconstruct", rule: "variants.deconstruct", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.Deconstruct.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.Deconstruct.Hint" },
+    { key: "variants.deconstruct.expiryDays", rule: "variants.deconstructExpiryDays", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.DeconstructExpiryDays.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.DeconstructExpiryDays.Hint" },
+    { key: "variants.grow", rule: "variants.grow", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.Grow.Name", hint: "pf2e-artisans-workshop.Settings.Variants.Grow.Hint" },
+    { key: "variants.natureCrafting.skills", rule: "variants.natureSkills", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.NatureSkills.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.NatureSkills.Hint",
+        choices: { crafting: "pf2e-artisans-workshop.Settings.Variants.NatureSkills.Crafting", nature: "pf2e-artisans-workshop.Settings.Variants.NatureSkills.Nature",
+            "nature-arcana": "pf2e-artisans-workshop.Settings.Variants.NatureSkills.NatureArcana" } },
+    { key: "variants.natureCrafting.seasonDays", rule: "variants.seasonDays", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.SeasonDays.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.SeasonDays.Hint" },
+    { key: "variants.gardens", rule: "variants.gardens", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.Gardens.Name", hint: "pf2e-artisans-workshop.Settings.Variants.Gardens.Hint" },
+    { key: "variants.gifts", rule: "variants.gifts", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.Gifts.Name", hint: "pf2e-artisans-workshop.Settings.Variants.Gifts.Hint" },
+    { key: "variants.quests", rule: "variants.quests", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.Quests.Name", hint: "pf2e-artisans-workshop.Settings.Variants.Quests.Hint" },
+    { key: "variants.quests.critFail", rule: "variants.questsCritFail", variant: true, name: "pf2e-artisans-workshop.Settings.Variants.QuestsCritFail.Name",
+        hint: "pf2e-artisans-workshop.Settings.Variants.QuestsCritFail.Hint",
+        choices: { destroyed: "pf2e-artisans-workshop.Settings.Variants.QuestsCritFail.Destroyed", cursed: "pf2e-artisans-workshop.Settings.Variants.QuestsCritFail.Cursed" } },
 ]);
+
+/**
+ * A variant setting changed (M9a, 6.16 "One group at a time"): the user who changed it is told when variants of more than
+ * one of the book's groups are now on (nothing is blocked), and every client hears `variantsChanged` so the window shows or
+ * hides what the variant adds.
+ */
+function onVariantChange(userId) {
+    if (userId === game.user.id && mixedGroups(rulesFromSettings())) {
+        ui.notifications.warn("pf2e-artisans-workshop.Settings.Variants.Mixed", { localize: true });
+    }
+    Hooks.callAll("pf2e-artisans-workshop.variantsChanged");
+}
 
 /** The value at a dotted path of the rules object. */
 const ruleDefault = (path) => path.split(".").reduce((object, key) => object[key], DEFAULT_RULES);
@@ -224,6 +280,7 @@ export function registerSettings(handlers) {
         game.settings.register(MODULE_ID, setting.key, {
             name: setting.name, hint: setting.hint, scope: "world", config: setting.config ?? true,
             type: typeOf(value), default: value, ...(setting.choices ? { choices: setting.choices } : {}),
+            ...(setting.variant ? { onChange: (_value, _options, userId) => onVariantChange(userId) } : {}),
         });
     }
 }

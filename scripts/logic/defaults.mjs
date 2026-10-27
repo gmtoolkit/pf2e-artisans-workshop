@@ -49,9 +49,31 @@ export const DEFAULT_RULES = Object.freeze({
         helperCap: 0,                    // 0: no cap
         countHelpersWithoutFeat: false,  // GM Core p.46 Cooperation
     }),
-    // Treasure Vault (Remastered) variants (14.4); only the ones the M1 rules read.
+    // Treasure Vault (Remastered) variants (14.4, 6.16), each off by default; the sub-settings matter only while their
+    // variant is on. Keys are flat: `variants.complex.rushCritFail` is `variants.complexRushCritFail`, and so on (M9a).
     variants: Object.freeze({
         complexCrafting: false,
+        complexRushCritFail: "ruined",   // or "cursed" (TV-R p.158 leaves it to the GM)
+        adjustments: false,
+        events: false,
+        eventsFirstDay: 7,               // GM Core p.46: one event for a week or a month of downtime
+        eventsEveryDays: 91,             // GM Core p.46: about four for a year or more
+        eventsTable: "",                 // UUID of a world RollTable built from TV-R Table 5-2
+        eventsPauses: false,
+        criticalCrafting: false,
+        criticalTrigger: "natural",      // TV-R p.161; or "any"
+        criticalSpecialOnly: true,
+        criticalMode: "alongside",       // or "replace" (interpretation, 6.16.4)
+        criticalSecret: false,
+        deconstruct: false,
+        deconstructExpiryDays: 0,        // 0: components never expire (TV-R p.162 leaves it to the GM)
+        grow: false,
+        natureSkills: "crafting",        // TV-R p.165: or "nature", or "nature-arcana"
+        seasonDays: 91,                  // when the world calendar defines no seasons
+        gardens: false,
+        gifts: false,
+        quests: false,
+        questsCritFail: "destroyed",     // TV-R p.172: or "cursed"
     }),
 });
 

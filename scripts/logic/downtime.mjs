@@ -16,8 +16,9 @@ import { DEFAULT_RULES } from "./defaults.mjs";
 import { wageKey, wageSeq } from "./earn-income.mjs";
 import { hashId } from "./ids.mjs";
 import { CLOSED, DAY_VERSION, workDayRecord } from "./orders.mjs";
-import { remainingCp, setupComplete } from "./progress.mjs";
+import { remainingCp, setupComplete, setupDaysDone } from "./progress.mjs";
 import { subjectLockOf } from "./crafts.mjs";
+import { eventPause } from "./variants.mjs";
 
 /** Seconds in a day of the core calendar. */
 export const SECONDS_PER_DAY = 86400;
@@ -217,7 +218,9 @@ export function notDowntimeRecord(actorId, from, to, stamp) {
  * - `not-helping`: the PC is not (or no longer) a helper on that order;
  * - `not-subject` (M9): the PC is not the consenting subject of that order, or the order is over;
  * - `no-job`, `job-ended`: the job is gone, not the PC's, ended, or fired before this day;
- * - `income-check`: the job's Earn Income check is due (6.10: rolled after the first day; every day pays its result).
+ * - `income-check`: the job's Earn Income check is due (6.10: rolled after the first day; every day pays its result);
+ * - `event`, `event-due` (M9a, 6.16.3): with `variants.eventsPauses`, a crafting event is open, or due and not rolled yet;
+ * - `setup-hours` (M9a, 6.16.1): a Complex Crafting setup rushed below one day waits for its "Set up now".
  *
  * A craft day is the order's setup or extra day (`workDayRecord`, 6.2.3); a setup day that completes the setup moves the
  * order to `check` (`status`, for the crafter's owner to write; the crafter's responsible client writes it otherwise). A
@@ -279,6 +282,14 @@ export function planDays({ actorId, actorUuid, days, activity, orders = [], jobs
             if (order.status === "check") return stop(day, "check", { ref: order.id });
             if (order.status === "rolled") return stop(day, "settle", { ref: order.id });
             const orderDays = all.filter((d) => d.order === order.id);
+            // M9a (6.16.3): with `eventsPauses`, an open event (or one due and not rolled yet) pauses the order.
+            const paused = eventPause(order, orderDays, rules);
+            if (paused) return stop(day, paused, { ref: order.id });
+            // M9a (6.16.1): a setup rushed below one day takes no downtime day: its crafter records it with "Set up now".
+            if (order.status === "setup" && (order.setup?.hours ?? 0) > 0 && setupDaysDone(order, orderDays) >= order.setup.days &&
+                !setupComplete(order, orderDays)) {
+                return stop(day, "setup-hours", { ref: order.id });
+            }
             if (order.status === "setup" && order.setup && setupComplete(order, orderDays)) {
                 // Day records completed the setup, and the crafter's client has not moved the order on yet: no more setup days.
                 out.status[order.id] = "check";

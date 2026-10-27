@@ -29,6 +29,7 @@ import { givingBack, heldLines } from "./custody.mjs";
 import { formulaClaimInput } from "./formulas.mjs";
 import { crafterFacts, inCustody, planFor, productFacts, targetOf } from "./products.mjs";
 import { dcStampFor } from "./affliction-defs.mjs";
+import { giftRecord } from "../logic/variants.mjs";
 import { rulesFromSettings } from "./settings.mjs";
 import { shared } from "./state.mjs";
 import { stampNow } from "./store.mjs";
@@ -134,10 +135,54 @@ function merge(a, b) {
 }
 
 /**
+ * The flags M9a adds to what a finish makes (6.16): `extra` (a rushed finish's or an assembly's quirk or curse note), and a
+ * bestowed gift's binding to the recipient while the gifts variant is on (6.16.8).
+ */
+function variantFlags(order, extra, rules) {
+    const flags = { ...extra };
+    if (rules.variants?.gifts && order.variant?.bestow && order.recipient?.kind === "actor") {
+        flags.gift = giftRecord({ bound: order.recipient.uuid, giver: order.variant.bestow.giver ?? "" }, stampNow());
+    }
+    return flags;
+}
+
+/** An item source with `flags.MOD` added to. */
+function withFlags(source, flags) {
+    if (!Object.keys(flags).length) return source;
+    const out = foundry.utils.deepClone(source);
+    foundry.utils.setProperty(out, `flags.${MODULE_ID}`, { ...(out.flags?.[MODULE_ID] ?? {}), ...flags });
+    return out;
+}
+
+/**
+ * An item and its adjustments (6.16.2, M9a): the host and each adjustment, created together with ids of their own so every
+ * adjustment's `flags.MOD.appliedTo.host` names the host's id in the same request (the delivery remaps it to the
+ * recipient's copy, `claims.mjs`). Each carries the order's shelf flag, so they travel as one delivery.
+ */
+async function adjustedSources(host, order) {
+    const hostId = foundry.utils.randomID();
+    const out = [{ ...host, _id: hostId }];
+    for (const uuid of order.variant?.adjustments ?? []) {
+        const source = await sourceOf(uuid, 1, order);
+        if (!source) return null;
+        source._id = foundry.utils.randomID();
+        foundry.utils.setProperty(source, `flags.${MODULE_ID}.appliedTo`, { host: hostId, order: order.id });
+        out.push(source);
+    }
+    return out;
+}
+
+/**
  * The outputs of finishing an order, or `{refuse}`: "no-product", "no-spell" (a scroll or wand with no spell pledged),
  * "no-target" (the item an etching, upgrade or transfer works on is gone or out of custody), or the plan's reason.
+ *
+ * M9a: `flags` are added to what it makes (a quirk or curse note, 6.16.1, 6.16.9), with a bestowed gift's binding
+ * (6.16.8); `make` false makes nothing (a rushed finish's critical failure ruined it, 6.16.1) while the rest (stock used,
+ * items given back) stays; an item crafted with its adjustments makes the host and its adjustments (6.16.2).
  */
-export async function finishOutputs(order) {
+export async function finishOutputs(order, { flags: extra = {}, make = true } = {}) {
+    const rules = rulesFromSettings();
+    const flags = variantFlags(order, extra, rules);
     let out = empty();
     const holder = { path: `orders.${order.id}`, key: "order", id: order.id };
     const lines = heldLines(order);
@@ -204,9 +249,16 @@ export async function finishOutputs(order) {
         if (traits.includes("missive")) made = missiveSource(made);
         // A specialty wand that names no spell of its own holds the one cast into it; one with its own spell keeps that.
         if (supply?.kind === "wand-special" && !supply.entries.length && !made.system?.spell) made = await chosenSpellSource(made, order, supply);
-        out.items.push({ target: "strongbox", data: [made] });
-        out.rows.push({ kind: "shelved", idem: idemKey("shelve", order.id, order.attempt), cp: 0, order: order.id,
-            actor: order.recipient?.kind === "actor" ? order.recipient.uuid : null, items: [{ uuid: order.product.uuid, name: made.name, qty: order.quantity }] });
+        made = withFlags(made, flags);
+        // M9a (6.16.2): the host and its adjustments, as one delivery.
+        const data = rules.variants?.adjustments && order.variant?.adjustments?.length ? await adjustedSources(made, order) : [made];
+        if (!data) return { refuse: "no-product" };
+        if (make) {
+            out.items.push({ target: "strongbox", data });
+            out.rows.push({ kind: "shelved", idem: idemKey("shelve", order.id, order.attempt), cp: 0, order: order.id,
+                actor: order.recipient?.kind === "actor" ? order.recipient.uuid : null,
+                items: data.map((d, i) => ({ uuid: i === 0 ? order.product.uuid : d._stats?.compendiumSource ?? null, name: d.name, qty: i === 0 ? order.quantity : 1 })) });
+        }
     }
     // Handed-over items not changed above go back; the target and source were placed or changed already.
     const back = givingBack(holder, lines.filter((line) => !["target"].includes(line.purpose)), { consume: true, ref });

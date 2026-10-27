@@ -28,6 +28,7 @@ import { money, nameOf, number, report, sourceName } from "./format.mjs";
 import { CRAFT_TYPE, PLEDGE_STATUS, PURPOSE, SERVICE, SERVICE_STATUS } from "./labels.mjs";
 import { askChoice, askMoney } from "./prompts.mjs";
 import { entriesView, listedBuyOptions, listedPledgeOptions, missiveView, subjectView, traditionView } from "./crafts.mjs";
+import { variantDetail } from "./variants.mjs";
 
 const loc = (key) => game.i18n.localize(key);
 const fmt = (key, data) => game.i18n.format(key, data);
@@ -44,7 +45,7 @@ export function kindText(order) {
 /** The name of the item an order works on (an etching's, an upgrade's, a transfer's target); M9: a tattoo's subject. */
 export function targetText(order) {
     if (WITH_SUBJECT.includes(order.craftType)) return actorOf(order.target)?.name ?? null;
-    if (!TARGETED.includes(order.craftType)) return null;
+    if (!TARGETED.includes(order.craftType) && order.craftType !== "deconstruct") return null;
     return targetOf(order)?.name ?? actorOf(order.target)?.name ?? null;
 }
 
@@ -59,7 +60,7 @@ function handOverChoices(order) {
         if (!item?.parent || item.parent.uuid === order.crafter || !item.parent.isOwner || inCustody(order, item)) return;
         out.push({ uuid: item.uuid, name: item.name, purpose, purposeText: loc(PURPOSE[purpose]) });
     };
-    if (TARGETED.includes(order.craftType)) {
+    if (TARGETED.includes(order.craftType) || order.craftType === "deconstruct") {
         if (!custodyLine(order, "target")) offer(targetOf(order), "target");
         if (order.craftType === "rune-transfer" && !custodyLine(order, "source")) offer(targetOf(order, "source"), "source");
     }
@@ -113,6 +114,8 @@ export async function detailExtras(order) {
     extras.tradition = traditionView(order, product);
     extras.missives = missiveView(order, product);
     extras.entries = supply ? entriesView(order, supply) : [];
+    // M9a (6.16): what the variants that are on add to the detail (null while every one is off).
+    extras.variants = await variantDetail(order, product);
     return extras;
 }
 

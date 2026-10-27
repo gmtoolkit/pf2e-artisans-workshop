@@ -37,6 +37,7 @@ import { activityText, orderName } from "./days.mjs";
 import { money, number, rankName, report, skillName, userName, when } from "./format.mjs";
 import { ACTIVITY, DEGREE_CLASS, DEGREE_KEY, HELPER_REASON, JOB_STATUS, SETTLEMENT_SIZE } from "./labels.mjs";
 import { askChoice, confirm } from "./prompts.mjs";
+import { harvestView } from "./variants.mjs";
 
 const loc = (key) => game.i18n.localize(key);
 const fmt = (key, data) => game.i18n.format(key, data);
@@ -237,6 +238,8 @@ export function downtimeContext(app) {
             pcs, pending: pcs.reduce((sum, pc) => sum + pc.pending, 0), canAdvance: canWrite() && viewer.hasCharacter,
             settlement: settlementView(), profiles: profilesView(state),
             income: incomeOn(), jobs, jobForm: incomeOn() ? jobForm(state) : null,
+            // M9a (6.16.7): today's harvests of the party's gardens, while the gardens variant is on.
+            harvests: harvestView(app.actingActor?.() ?? null),
         },
     };
 }

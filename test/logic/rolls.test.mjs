@@ -80,11 +80,12 @@ test("the unadjusted degree, as pf2e's DegreeOfSuccess computes it", () => {
 
 test("a check from a message's context: a reroll's stale unadjusted outcome is recomputed; bad outcomes are not recorded", () => {
     const first = checkFromContext({ outcome: "success", unadjustedOutcome: "success", dc: { value: 20 }, options: [] }, { total: 22, die: 12 });
-    assert.deepEqual(first, { ok: true, check: { degree: DEGREE.success, unadjusted: DEGREE.success, total: 22, rerolled: false, fortune: false } });
+    // M9a: the d20 is kept, for Critical Crafting's natural 20s and 1s (6.16.4).
+    assert.deepEqual(first, { ok: true, check: { degree: DEGREE.success, unadjusted: DEGREE.success, total: 22, die: 12, rerolled: false, fortune: false } });
     // pf2e copies the first roll's context into the reroll's message and updates only `outcome`.
     const reroll = checkFromContext({ outcome: "criticalFailure", unadjustedOutcome: "success", isReroll: true, dc: { value: 20 },
         options: ["check:reroll", "check:reroll:hero-points"] }, { total: 9, die: 2 });
-    assert.deepEqual(reroll.check, { degree: DEGREE.critFail, unadjusted: DEGREE.critFail, total: 9, rerolled: true, fortune: true });
+    assert.deepEqual(reroll.check, { degree: DEGREE.critFail, unadjusted: DEGREE.critFail, total: 9, die: 2, rerolled: true, fortune: true });
     // Experienced Professional's rule element turned a critical failure into a failure: the unadjusted degree is kept.
     const adjusted = checkFromContext({ outcome: "failure", unadjustedOutcome: "criticalFailure", dc: { value: 20 }, options: [] }, { total: 8, die: 3 });
     assert.deepEqual([adjusted.check.degree, adjusted.check.unadjusted], [DEGREE.fail, DEGREE.critFail]);

@@ -6,6 +6,9 @@ import { publishApi } from "./foundry/api.mjs";
 import { registerFormulaClaims } from "./foundry/formulas.mjs";
 import { registerDowntimeHooks } from "./foundry/downtime.mjs";
 import { registerCraftHooks } from "./foundry/crafts.mjs";
+import { registerNatureHooks } from "./foundry/nature.mjs";
+import { registerQuestHooks } from "./foundry/quests.mjs";
+import { registerVariantHooks } from "./foundry/variants.mjs";
 import { registerDailies } from "./foundry/dailies.mjs";
 import { registerExpiryHooks } from "./foundry/expiry.mjs";
 import { registerRestHooks } from "./foundry/rest.mjs";
@@ -64,6 +67,11 @@ Hooks.once("init", () => {
     registerRestHooks();
     // M9: tattoos and grafts (6.14): healing ends and investiture on the subject's responsible client.
     registerCraftHooks();
+    // M9a: the Treasure Vault (Remastered) variants (6.16), each a world setting off by default: Settings' one-group
+    // notice, and the catch-up of events, season checks, quests and gardens, which do nothing while their variant is off.
+    registerVariantHooks();
+    registerNatureHooks();
+    registerQuestHooks();
     // M8: combat (DESIGN.md 8): the 10-minute cap on Quick Alchemy effects, vial gathering as world time passes, and the
     // Bandolier, the Quick Alchemy panel, the token HUD palette, the keybindings and the combat cards. Turn expiry is part
     // of the expiry hooks above; all of it steps aside while Duct Tape is active.

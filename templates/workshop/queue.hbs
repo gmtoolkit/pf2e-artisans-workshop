@@ -283,6 +283,132 @@
             {{#if stock}}
             <div class="detail-actions"><button type="button" data-action="custody" data-op="stock"><i class="fa-solid fa-cubes" inert></i>{{localize "pf2e-artisans-workshop.Custody.AddStock"}}</button></div>
             {{/if}}
+            {{!-- M9a (6.16): what the Treasure Vault (Remastered) variants that are on add to the order --}}
+            {{#if variants}}
+            {{#with variants}}
+            <section class="detail-variants" aria-label="{{localize 'pf2e-artisans-workshop.Variant.Heading'}}">
+            {{#if complex}}
+            <h4>{{localize "pf2e-artisans-workshop.Variant.Rush.Heading"}}</h4>
+            {{#each complex.lines}}<p class="detail-variant-line">{{this}}</p>{{/each}}
+            {{#if complex.flat}}<p class="detail-variant-line"><i class="fa-solid fa-dice-d20" inert></i> {{complex.flat}}</p>{{/if}}
+            {{#if complex.rushFinish}}{{#if complex.rushFinish.on}}<p class="hint">{{localize "pf2e-artisans-workshop.Variant.Rush.Rushing"}}</p>{{/if}}{{/if}}
+            <div class="detail-actions">
+                {{#if complex.rush.can}}<button type="button" data-action="variant" data-op="rush"><i class="fa-solid fa-gauge-high" inert></i>{{localize "pf2e-artisans-workshop.Variant.Rush.Choose"}}</button>{{/if}}
+                {{#if complex.setUpNow}}<button type="button" class="primary" data-action="variant" data-op="setup-now"><i class="fa-solid fa-stopwatch" inert></i>{{localize "pf2e-artisans-workshop.Variant.Rush.SetUpNow"}}</button>{{/if}}
+                {{#if complex.rushFinish.can}}<button type="button" data-action="variant" data-op="rush-finish" aria-pressed="{{#if complex.rushFinish.on}}true{{else}}false{{/if}}"><i class="fa-solid fa-forward" inert></i>{{#if complex.rushFinish.on}}{{localize "pf2e-artisans-workshop.Variant.Rush.FinishOff"}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Rush.FinishOn"}}{{/if}}</button>{{/if}}
+            </div>
+            {{/if}}
+            {{#if critical}}
+            <h4>{{localize "pf2e-artisans-workshop.Variant.Critical.Heading"}}</h4>
+            {{#if critical.special}}<p class="detail-variant-line">{{#if critical.special.on}}{{localize "pf2e-artisans-workshop.Variant.Critical.Special"}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Critical.NotSpecial"}}{{/if}}</p>{{/if}}
+            {{#if critical.secret}}<p class="detail-variant-line"><i class="fa-solid fa-eye-slash" inert></i> {{critical.secret.text}}</p>{{/if}}
+            {{#if critical.pending}}<p class="hint">{{critical.pending}}</p>{{/if}}
+            {{#with critical.record}}
+            <p class="detail-variant-line critical-{{kind}}"><i class="fa-solid fa-star" inert></i> {{kindText}}{{#if natural}} · {{natural}}{{/if}} · {{mode}}</p>
+            {{#if category}}<p class="detail-variant-line">{{category}}</p>{{/if}}
+            {{#if note}}<p class="detail-notes">{{note}}</p>{{/if}}
+            {{#if curse}}<p class="detail-variant-line"><i class="fa-solid fa-skull" inert></i> {{curse}}</p>{{/if}}
+            {{/with}}
+            <div class="detail-actions">
+                {{#if critical.special.can}}<button type="button" data-action="variant" data-op="special" aria-pressed="{{#if critical.special.on}}true{{else}}false{{/if}}"><i class="fa-solid fa-gem" inert></i>{{#if critical.special.on}}{{localize "pf2e-artisans-workshop.Variant.Critical.Unmark"}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Critical.Mark"}}{{/if}}</button>{{/if}}
+                {{#if critical.secret.canReveal}}<button type="button" data-action="variant" data-op="reveal"><i class="fa-solid fa-eye" inert></i>{{localize "pf2e-artisans-workshop.Variant.Critical.Reveal"}}</button>{{/if}}
+                {{#if critical.record.canRecord}}<button type="button" data-action="variant" data-op="critical"><i class="fa-solid fa-star" inert></i>{{localize "pf2e-artisans-workshop.Variant.Critical.Record"}}</button>{{/if}}
+                {{#if critical.record.canCurse}}<button type="button" data-action="variant" data-op="curse"><i class="fa-solid fa-skull" inert></i>{{localize "pf2e-artisans-workshop.Variant.Critical.Curse"}}</button>{{/if}}
+            </div>
+            {{/if}}
+            {{#if events}}
+            <h4>{{localize "pf2e-artisans-workshop.Variant.Event.Heading"}}</h4>
+            {{#if events.list.length}}
+            <ul class="detail-list detail-events">
+                {{#each events.list}}
+                <li class="event-{{#if open}}open{{else}}resolved{{/if}}">
+                    <span>{{localize "pf2e-artisans-workshop.Variant.Event.Line" k=k day=day roll=roll text=text}}{{#if gmCore}} <a class="content-link" data-link data-uuid="{{link}}" draggable="true"><i class="fa-solid fa-book-open" inert></i>{{localize "pf2e-artisans-workshop.Variant.Event.Link"}}</a>{{/if}}</span>
+                    <span class="by">{{#if open}}{{localize "pf2e-artisans-workshop.Variant.Event.Open"}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Event.Resolved"}}{{/if}}{{#if note}} · {{note}}{{/if}}</span>
+                    {{#if canResolve}}<button type="button" class="small" data-action="variant" data-op="resolve-event" data-slot="{{slot}}">{{localize "pf2e-artisans-workshop.Variant.Event.Resolve"}}</button>{{/if}}
+                </li>
+                {{/each}}
+            </ul>
+            {{/if}}
+            {{#if events.pauses}}<p class="hint">{{localize "pf2e-artisans-workshop.Variant.Event.Pauses"}}</p>{{/if}}
+            {{#if events.canRoll}}<div class="detail-actions"><button type="button" data-action="variant" data-op="roll-event"><i class="fa-solid fa-dice-d20" inert></i>{{localize "pf2e-artisans-workshop.Variant.Event.Roll"}}</button></div>{{/if}}
+            {{/if}}
+            {{#if deconstruct}}
+            {{#with deconstruct}}
+            <h4>{{localize "pf2e-artisans-workshop.Variant.Deconstruct.Heading"}}</h4>
+            <p class="detail-variant-line">{{localize "pf2e-artisans-workshop.Variant.Deconstruct.Purpose" purpose=purpose}}{{#if similarNote}} · {{similarNote}}{{/if}}</p>
+            {{#if followOn}}<p class="detail-variant-line">{{#if followOn.name}}{{localize "pf2e-artisans-workshop.Variant.Deconstruct.FollowOn" name=followOn.name}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Deconstruct.NoFollowOn"}}{{/if}}</p>{{/if}}
+            <p class="detail-variant-line">{{#if workshop.on}}<i class="fa-solid fa-check" inert></i> {{localize "pf2e-artisans-workshop.Variant.Deconstruct.WorkshopOn"}}{{else}}<i class="fa-solid fa-xmark" inert></i> {{localize "pf2e-artisans-workshop.Variant.Deconstruct.WorkshopOff"}}{{/if}}</p>
+            {{#if damaged}}<p class="detail-variant-line warning"><i class="fa-solid fa-heart-crack" inert></i> {{damaged}}</p>{{/if}}
+            {{#if loss}}<p class="detail-variant-line">{{loss}}</p>{{/if}}
+            {{#if result}}<p class="detail-variant-line"><i class="fa-solid fa-cubes" inert></i> {{result}}</p>{{/if}}
+            <div class="detail-actions">
+                {{#if canPurpose}}<button type="button" data-action="variant" data-op="purpose"><i class="fa-solid fa-hammer" inert></i>{{localize "pf2e-artisans-workshop.Variant.Deconstruct.PurposeTitle"}}</button>{{/if}}
+                {{#if workshop.can}}<button type="button" data-action="variant" data-op="checklist" data-key="workshop" aria-pressed="{{#if workshop.on}}true{{else}}false{{/if}}"><i class="fa-solid fa-warehouse" inert></i>{{#if workshop.on}}{{localize "pf2e-artisans-workshop.Variant.Checklist.Unconfirm"}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Deconstruct.ConfirmWorkshop"}}{{/if}}</button>{{/if}}
+                {{#if followOn.can}}<button type="button" data-action="variant" data-op="follow-on"><i class="fa-solid fa-link" inert></i>{{localize "pf2e-artisans-workshop.Variant.Deconstruct.FollowOnTitle"}}</button>{{/if}}
+                {{#if canRetryLoss}}<button type="button" data-action="variant" data-op="retry-loss"><i class="fa-solid fa-rotate-right" inert></i>{{localize "pf2e-artisans-workshop.Variant.Deconstruct.RetryLoss"}}</button>{{/if}}
+            </div>
+            {{/with}}
+            {{/if}}
+            {{#if components}}
+            <h4>{{localize "pf2e-artisans-workshop.Variant.Deconstruct.ComponentsHeading"}}</h4>
+            {{#if components.lines.length}}
+            <ul class="detail-list">{{#each components.lines}}<li><span>{{name}} · {{purpose}}</span><span class="money">{{credit}}</span></li>{{/each}}</ul>
+            {{/if}}
+            <p class="detail-variant-line">{{#if components.similar.on}}<i class="fa-solid fa-check" inert></i> {{localize "pf2e-artisans-workshop.Variant.Deconstruct.SimilarOn"}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Deconstruct.SimilarOff"}}{{/if}}</p>
+            <div class="detail-actions">
+                {{#if components.canHandOver}}<button type="button" data-action="variant" data-op="components"><i class="fa-solid fa-cubes" inert></i>{{localize "pf2e-artisans-workshop.Variant.Deconstruct.UseComponents"}}</button>{{/if}}
+                {{#if components.similar.can}}<button type="button" data-action="variant" data-op="checklist" data-key="similar" aria-pressed="{{#if components.similar.on}}true{{else}}false{{/if}}"><i class="fa-solid fa-equals" inert></i>{{#if components.similar.on}}{{localize "pf2e-artisans-workshop.Variant.Checklist.Unconfirm"}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Deconstruct.ConfirmSimilar"}}{{/if}}</button>{{/if}}
+            </div>
+            {{/if}}
+            {{#if grow}}
+            {{#with grow}}
+            <h4>{{localize "pf2e-artisans-workshop.Variant.Grow.Heading"}}</h4>
+            <p class="detail-variant-line">{{skill}}</p>
+            <p class="detail-variant-line">{{#if tools.on}}<i class="fa-solid fa-check" inert></i> {{localize "pf2e-artisans-workshop.Variant.Grow.ToolsOn"}}{{else}}<i class="fa-solid fa-xmark" inert></i> {{localize "pf2e-artisans-workshop.Variant.Grow.ToolsOff"}}{{/if}}</p>
+            {{#if untended}}<p class="detail-variant-line">{{#if untended.on}}{{localize "pf2e-artisans-workshop.Variant.Grow.Untended"}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Grow.Tended"}}{{/if}}</p>{{/if}}
+            {{#each seasons}}<p class="detail-variant-line">{{this}}</p>{{/each}}
+            <div class="detail-actions">
+                {{#if tools.can}}<button type="button" data-action="variant" data-op="checklist" data-key="grow-tools" aria-pressed="{{#if tools.on}}true{{else}}false{{/if}}"><i class="fa-solid fa-seedling" inert></i>{{#if tools.on}}{{localize "pf2e-artisans-workshop.Variant.Checklist.Unconfirm"}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Grow.ConfirmTools"}}{{/if}}</button>{{/if}}
+                {{#if untended.can}}<button type="button" data-action="variant" data-op="untended" aria-pressed="{{#if untended.on}}true{{else}}false{{/if}}"><i class="fa-solid fa-leaf" inert></i>{{#if untended.on}}{{localize "pf2e-artisans-workshop.Variant.Grow.Tend"}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Grow.LeaveUntended"}}{{/if}}</button>{{/if}}
+                {{#each due}}{{#if can}}<button type="button" class="primary" data-action="variant" data-op="season" data-season="{{season}}"><i class="fa-solid fa-dice-d20" inert></i>{{text}}</button>{{else}}<p class="hint">{{text}}</p>{{/if}}{{/each}}
+            </div>
+            {{/with}}
+            {{/if}}
+            {{#if quest}}
+            {{#with quest}}
+            <h4>{{localize "pf2e-artisans-workshop.Variant.Quest.Heading"}}</h4>
+            <p class="detail-variant-line">{{cost}}</p>
+            <p class="detail-variant-line">{{assembly}}</p>
+            {{#if hint}}<p class="hint">{{hint}}</p>{{/if}}
+            {{#if outcome}}<p class="detail-variant-line">{{outcome}}</p>{{/if}}
+            <ul class="detail-list detail-quest">
+                {{#each components}}
+                <li class="{{#if found}}found{{/if}}">
+                    <span>{{label}} · {{threat}}</span>
+                    <span class="by">{{#if found}}{{found}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Quest.NotFound"}}{{/if}}</span>
+                    {{#if over}}<span class="chip warn">{{over}}</span>{{/if}}
+                    {{#if canMark}}<button type="button" class="small primary" data-action="variant" data-op="found" data-component="{{id}}">{{localize "pf2e-artisans-workshop.Variant.Quest.MarkFound"}}</button>{{/if}}
+                    {{#if canUnmark}}<button type="button" class="small" data-action="variant" data-op="unfound" data-component="{{id}}">{{localize "pf2e-artisans-workshop.Variant.Quest.Unmark"}}</button>{{/if}}
+                    {{#if canEdit}}<button type="button" class="small" data-action="variant" data-op="component" data-component="{{id}}">{{localize "pf2e-artisans-workshop.Variant.Quest.EditComponent"}}</button>{{/if}}
+                </li>
+                {{/each}}
+            </ul>
+            {{#if canConfigure}}<div class="detail-actions"><button type="button" data-action="variant" data-op="quest-config"><i class="fa-solid fa-compass" inert></i>{{localize "pf2e-artisans-workshop.Variant.Quest.Configure"}}</button></div>{{/if}}
+            {{/with}}
+            {{/if}}
+            {{#if adjustments}}
+            <h4>{{localize "pf2e-artisans-workshop.Variant.Adjustments.Heading"}}</h4>
+            <ul class="detail-list">{{#each adjustments}}<li>{{this}}</li>{{/each}}</ul>
+            {{/if}}
+            {{#if bestow}}<p class="detail-variant-line"><i class="fa-solid fa-gift" inert></i> {{bestow}}</p>{{/if}}
+            {{#if note}}
+            {{#if note.ask}}<p class="detail-variant-line">{{note.ask}}</p>{{/if}}
+            {{#if note.text}}<p class="detail-notes">{{note.text}}</p>{{/if}}
+            {{#if note.can}}<div class="detail-actions"><button type="button" data-action="variant" data-op="note"><i class="fa-solid fa-pen" inert></i>{{localize "pf2e-artisans-workshop.Variant.NoteTitle"}}</button></div>{{/if}}
+            {{/if}}
+            </section>
+            {{/with}}
+            {{/if}}
             {{/with}}
             {{#if helpers}}{{#if (or helpers.list.length helpers.canJoin)}}
             <h4>{{localize "pf2e-artisans-workshop.Helper.Heading"}}</h4>
