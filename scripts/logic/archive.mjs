@@ -319,7 +319,8 @@ export function carryRows(rows, { runs, today, stamp }) {
     const out = [];
     for (const [actor, s] of [...sums].sort(([a], [b]) => compareIds(a ?? "", b ?? ""))) {
         if (!s.box && !s.purse && !s.alloc && !s.share && !s.fundDebits) continue;
-        const row = makeRow({ kind: "carry", idem: idemKey("carry", actor ?? "fund", runs), cp: 0, signed: { box: s.box, purse: s.purse, alloc: s.alloc },
+        // `cp`, the row's unsigned amount, is the coins it stands for in the strongbox: what the Funds tab shows beside it.
+        const row = makeRow({ kind: "carry", idem: idemKey("carry", actor ?? "fund", runs), cp: Math.abs(s.box), signed: { box: s.box, purse: s.purse, alloc: s.alloc },
             actor, day: today }, stamp);
         out.push({ ...row, state: "applied", share: s.share, fundDebits: s.fundDebits, count: s.count });
     }

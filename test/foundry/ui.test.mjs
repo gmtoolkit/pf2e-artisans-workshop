@@ -520,6 +520,30 @@ test("the Funds tab's member table agrees with its cards: Bo's 18 gp is 16 gp un
     for (const key of ["Funds.InOrders", "Funds.FundShareUnallocated", "Funds.FundShareEarmarked", "Funds.MembersHint"]) assert.ok(table.includes(key), key);
 });
 
+test("the Funds tab lists the archived ledger from the Crafting Log on request, read-only (M12b, 5.3.3)", async () => {
+    lang["PF2E.CurrencyAbbreviations.gp"] = "gp";
+    await fundedLedger();
+    const stamp = { by: "p2", at: { world: 1, real: 1, server: 1, launch: 0 } };
+    const old = { ...makeRow({ kind: "deposit", idem: "deposit:fund:b:old", cp: 500, actor: bo.uuid }, stamp), state: "applied" };
+    const archivedOrder = makeOrder({ id: "o0", requester: bo.uuid, recipient: { kind: "actor", uuid: bo.uuid },
+        product: { uuid: "U", snapshot: { name: "Old Elixir", img: "e.webp", level: 1, rarity: "common", traits: [], priceCp: 300, per: 1 } }, quantity: 1 }, stamp);
+    const pledged = { ...makeRow({ kind: "pledge", idem: "pledge:o0:b:n", cp: 100, actor: bo.uuid, order: "o0" }, stamp), state: "applied" };
+    const log = addDocument("JournalEntry", { name: "Crafting Log", ownership: { default: 2 }, flags: { [MOD]: { role: "archive" } } });
+    await log.createEmbeddedDocuments("JournalEntryPage", [{ _id: "year000000000001", name: "Year 1", type: "text",
+        flags: { [MOD]: { role: "archive-page", year: 0, orders: { o0: archivedOrder }, rows: { [old.id]: old, [pledged.id]: pledged }, days: {}, claims: {}, jobs: {} } } }]);
+    const app = new WorkshopApp();
+    app.render = async () => app;
+    const context = await app._prepareContext({});
+    const hidden = (await app._preparePartContext("funds", { ...context }, {})).funds.history;
+    assert.deepEqual([hidden.count, hidden.shown, hidden.rows.length], [2, false, 0], "counted, not listed until asked for");
+    await WorkshopApp.DEFAULT_OPTIONS.actions.toggleHistory.call(app);
+    const shown = (await app._preparePartContext("funds", { ...context }, {})).funds.history;
+    assert.deepEqual(shown.rows.map((r) => [r.kindLabel, r.order, r.archived, r.canReverse]),
+        [["pf2e-artisans-workshop.Row.Deposit", null, true, false], ["pf2e-artisans-workshop.Row.Pledge", "Old Elixir", true, false]]);
+    const table = template("workshop/funds.hbs");
+    for (const key of ["Funds.ShowHistory", "Funds.HideHistory", "Funds.HistoryHint", "Funds.ArchivedMark", 'data-action="toggleHistory"']) assert.ok(table.includes(key), key);
+});
+
 test("a live update keeps the met requirements as the user left them, and focus on the summary or the right Fund button (review fix, 10.9)", async () => {
     const app = new WorkshopApp();
     const listeners = [];

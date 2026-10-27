@@ -2,6 +2,33 @@
 
 Newest first.
 
+## 2026-10-27: Archiving and lock pruning (M12b)
+
+**Decision:** how the ledger is kept small (DESIGN 5.3.3 and 5.4, As built in M12b; OQ-36):
+
+- Every lock page says what it guards (`lock.kind`, and the idempotency key for a keyed kind), and the elected client prunes the
+  spent ones: a page goes once it is older than 15 minutes (three answer limits) and what it guards says the same on every client
+  (its row applied, its stack moved on, its slot passed, its cycle over, its coating, tracker or order gone). A page of a pending
+  or resumable move, a stack still at its locked version, a current cycle's preparations, a live coating, tracker or order marker,
+  and any page whose kind is unknown stay. Pages from before kinds are worked out from the live data where they can be, else kept.
+  This is the bound OQ-36 asked for: on what is spent and old, not a count; a soft count (300) only brings a pass forward.
+- Archiving moves records into the **Crafting Log**, a journal of its own that a GM writes and every player reads, not into pages of
+  the ledger: a page of the ledger is part of the ledger document, so it would keep the cost the archive is meant to remove. The
+  archive write is therefore the one thing that waits for a GM; pruning, which is what the measured cost depends on, does not.
+- OQ-36's ages stay 30 workshop days (closed orders, ended jobs) and 60 (the fund's own rows, day records, claims), with a floor of
+  one real day, since logged days can run far ahead of the clock and rows carry no workshop day of their own.
+- Each run leaves one `carry` row per actor with the sums the live ledger needs (coins, fund, each member's share and the fund
+  slot's count) and folds the earlier ones into it. A run takes its slot and the next log slot of every order and job it moves, so
+  two archivers, or a run and an undo, never both land. Archived rows are not reversible; the Funds tab lists them read-only.
+
+**Why:** the M12 pass measured that lock pages, not flags, set the cost of every write, and that no pruner could be written while
+a page did not say what it guards (15.7). Kinds make each page's lifetime a rule the data decides; the age floor makes the rule safe
+against a request still on its way. A GM-owned log keeps the history out of the ledger document and out of tampering reach; the
+ground rule "nothing waits on a GM" holds for everything a user does, since the archive is housekeeping.
+
+**Consequences:** DESIGN 4.1, 4.2.3, 4.6, 5.1, 5.2, 5.3.3, 5.4, 5.9, 15.7 (the archiving pass) and OQ-36; the purge deletes the
+Crafting Log; `npm run harness:perf` gains S3 (S2 after the archive ages are crossed).
+
 ## 2026-10-27: The Queue lists a page at a time; the lock pages wait for the author (M12 performance fixes)
 
 **Decision:**
