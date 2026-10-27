@@ -3,7 +3,7 @@
     <button type="button" role="tab" class="workshop-tab {{tab.cssClass}}" data-action="tab" data-group="{{tab.group}}" data-tab="{{tab.id}}"
             id="pf2e-artisans-workshop-tab-{{tab.id}}" aria-controls="pf2e-artisans-workshop-panel-{{tab.id}}"
             aria-selected="{{#if tab.active}}true{{else}}false{{/if}}" tabindex="{{#if tab.active}}0{{else}}-1{{/if}}"
-            aria-label="{{localize tab.label}}" data-tooltip="{{localize tab.label}}"{{#if (lookup ../badgeLabels tab.id)}} aria-description="{{lookup ../badgeLabels tab.id}}"{{/if}}>
+            aria-label="{{localize tab.label}}"{{#if (lookup ../badgeLabels tab.id)}} aria-description="{{lookup ../badgeLabels tab.id}}"{{/if}}>
         <i class="{{tab.icon}}" inert></i><span class="label">{{localize tab.label}}</span>
         {{#if (lookup ../badges tab.id)}}<span class="tab-badge" aria-hidden="true">{{lookup ../badges tab.id}}</span>{{/if}}
     </button>

@@ -81,6 +81,9 @@ const SELECTORS = Object.freeze({
     bandolier: `#${MODULE_ID}-bandolier`,
     "quick-alchemy": `#${MODULE_ID}-quick-alchemy`,
     afflictions: `#${MODULE_ID}-afflictions`,
+    // M11: the macro shelf, and the character sheet's Crafting tab with the Workshop's strip at its top.
+    shelf: `#${MODULE_ID}-macros`,
+    strip: ".tab.crafting.crafting-pane",
 });
 
 /**
@@ -116,10 +119,15 @@ export const CAPTURES = Object.freeze([
 /**
  * Captures taken and written beside `CAPTURES` but not yet linked from the README (17.1 "refreshed whenever a milestone adds
  * a tab"): a new tab's capture goes here first. After a run, check the file by eye, move its entry into `CAPTURES` and add
- * its caption to the README's Screenshots section, which `test/screenshots.test.mjs` then holds to it. Empty since the M9
- * live pass linked `tattoo.png`.
+ * its caption to the README's Screenshots section, which `test/screenshots.test.mjs` then holds to it. M11 adds the macro
+ * shelf and the Crafting tab strip (not a tab, but the two new places a player sees the Workshop).
  */
-export const NEXT_CAPTURES = Object.freeze([]);
+export const NEXT_CAPTURES = Object.freeze([
+    { file: "macro-shelf.png", scheme: "dark", view: "shelf",
+        caption: "The macro shelf: every Workshop macro with what it calls, to run, drag onto the hotbar or add to it from the keyboard." },
+    { file: "sheet-strip.png", scheme: "dark", view: "strip",
+        caption: "The character sheet's Crafting tab with the Workshop's strip at its top: the character's jobs and what waits on them." },
+]);
 
 /** Names that must never appear in a capture: the fixture actors' labels and the character imported into the dev world. */
 export const BANNED_NAMES = Object.freeze(["Fixture"]);
@@ -391,6 +399,12 @@ function pageScrollDetail({ selector, row }) {
     return !!el && !!line;
 }
 
+/** Close the character sheets a capture opened (M11's strip). */
+function pageCloseSheets() {
+    for (const app of Object.values(ui.windows)) if (app.actor?.type === "character") app.close();
+    return true;
+}
+
 /** Show again what `pageIsolate` hid. */
 function pageShowAll() {
     for (const el of window.__workshopHidden ?? []) el.style.visibility = "";
@@ -613,6 +627,8 @@ async function show(h, capture, orders, demo, morning = {}) {
     await h.evaluate("p1", pageCloseForms, { mod: MODULE_ID });
     await h.step("p1", "m8", "close", {});
     await h.step("p1", "m8a", "close", {});
+    await h.step("p1", "m11", "close", {});
+    await h.evaluate("p1", pageCloseSheets, null, "close the character sheets");
     if (capture.view === "formulas") {
         return h.step("p1", "m5", "open", { tab: "formulas", actor: demo.alchemist.uuid, uuid: ITEMS.lightningModerate, ms: 2000 });
     }
@@ -629,6 +645,9 @@ async function show(h, capture, orders, demo, morning = {}) {
     if (capture.view === "bandolier") return h.step("p1", "m8", "bandolier", { actor: demo.alchemist.uuid });
     if (capture.view === "quick-alchemy") return h.step("p1", "m8", "panel", { actor: demo.alchemist.uuid, query: "elixir", close: false });
     if (capture.view === "afflictions") return h.step("p1", "m8a", "window", { ms: 1500 });
+    // M11: the shelf from the status bar, and Ilsa's sheet on its Crafting tab (kept open for the capture).
+    if (capture.view === "shelf") return h.step("p1", "m11", "shelf", {});
+    if (capture.view === "strip") return h.step("p1", "m11", "sheet", { actor: demo.alchemist.uuid, keep: true, ms: 1500 });
     const tab = capture.view === "funds" ? "funds" : "queue";
     const opened = await h.step("p1", "m4", "open", { tab, order: capture.order ? orders[capture.order] : null, ms: 1500 });
     // A part of the order's detail further down (M9: the tattoo's requirements and subject), scrolled to the top of it.

@@ -158,7 +158,9 @@ export function decorate(view, order) {
         // Material stock earmarked for the order, by who handed it over, at Price (M5 on M4.1).
         stockText: (view.stock ?? []).map((s) => ({ amount: money(s.cp),
             name: fmt("pf2e-artisans-workshop.Detail.StockFrom", { name: s.actor ? nameOf(s.actor) : loc("pf2e-artisans-workshop.Funds.PartyFund") }) })),
-        spentText: view.spent.map((s) => ({ name: sourceName(s.actor), amount: money(s.cp) })),
+        // M11: in a fixed order, the party fund first and then by name (two runs of one staging showed either order).
+        spentText: view.spent.map((s) => ({ fund: s.actor === null, name: sourceName(s.actor), amount: money(s.cp) }))
+            .sort((a, b) => Number(b.fund) - Number(a.fund) || a.name.localeCompare(b.name, game.i18n.lang || "en")),
         shortText: short && short.shortCp > 0 && SHORTFALL[short.phase] ? fmt(SHORTFALL[short.phase], { short: money(short.shortCp) }) : null,
         shortCp: short?.shortCp ?? 0,
         requirementsText: requirementsText(view.requirements),

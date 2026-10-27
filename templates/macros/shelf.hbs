@@ -1,0 +1,26 @@
+<section class="macro-shelf" aria-labelledby="pf2e-artisans-workshop-shelf-intro">
+    <p class="hint" id="pf2e-artisans-workshop-shelf-intro">{{localize "pf2e-artisans-workshop.Macro.Shelf.Intro"}}</p>
+    {{#unless canScript}}
+    <p class="shelf-note" role="note"><i class="fa-solid fa-circle-info" inert></i> {{localize "pf2e-artisans-workshop.Macro.Shelf.NoScript"}}</p>
+    {{/unless}}
+    {{#each groups}}
+    <h3 id="pf2e-artisans-workshop-shelf-{{group}}">{{localize heading}}</h3>
+    <ul class="macro-tiles" aria-labelledby="pf2e-artisans-workshop-shelf-{{group}}">
+        {{#each macros}}
+        <li class="macro-tile" data-macro="{{id}}"{{#if @root.canScript}} draggable="true"{{/if}}>
+            <i class="tile-icon {{icon}}" inert></i>
+            <div class="tile-text">
+                <span class="tile-name"><strong>{{name}}</strong>{{#if onHotbar}} <span class="tile-on"><i class="fa-solid fa-check" inert></i> {{localize "pf2e-artisans-workshop.Macro.OnHotbar"}}</span>{{/if}}</span>
+                <span class="tile-who">{{who}}</span>
+                <span class="tile-hint">{{hint}}</span>
+                <code class="tile-call">{{call}}</code>
+            </div>
+            <div class="tile-actions">
+                <button type="button" data-action="run" aria-label="{{runLabel}}"><i class="fa-solid fa-play" inert></i><span>{{localize "pf2e-artisans-workshop.Macro.Run"}}</span></button>
+                {{#if @root.canScript}}<button type="button" data-action="hotbar" aria-label="{{hotbarLabel}}"><i class="fa-solid fa-plus" inert></i><span>{{localize "pf2e-artisans-workshop.Macro.ToHotbar"}}</span></button>{{/if}}
+            </div>
+        </li>
+        {{/each}}
+    </ul>
+    {{/each}}
+</section>

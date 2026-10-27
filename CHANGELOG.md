@@ -188,6 +188,17 @@ All notable changes to this module are documented here. The format follows
   written with the day, once. Extensions can post income and expenses to the party fund or a purse, pay income per event,
   per day or per week, take alchemical items through the Bandolier, and add modifiers to the Workshop's downtime checks.
   New hooks for status changes, ledger rows, crafted items, computed income and spent items.
+- Integration surface (milestone M11). The character sheet has a Workshop button in its header and, at the top of the
+  Crafting tab, a strip with the character's Workshop jobs, what waits on its roll, its pickup shelf, its downtime days and
+  its daily preparations, with Workshop, Request and Morning buttons; it sits beside PF2e Toolbelt's sort buttons and PF2e
+  Workbench's colours without touching them. The Party sheet's overview has a Workshop card, and the Actors directory's
+  context menu has "Open Workshop". A macro shelf, opened from the Workshop's status bar, lists every Workshop macro: run one,
+  drag it onto the hotbar, or add it to the first free slot from the keyboard; a macro without what it needs asks for it.
+  Copy-paste macros live in `macros/`. A keybinding opens the Workshop. A "Parchment look" setting gives the windows the pf2e
+  sheet's parchment in either colour scheme, and the Workshop opens at the size it was last given. The order rows have a
+  right-click menu, the order detail keeps keyboard focus inside it while it covers the list, and the light theme's focus
+  ring and chat cards keep their contrast. A window opened from the keyboard (the keybinding, the sheet's and the card's
+  buttons, the Macros button) puts focus in it, and focus stays where it was when the shelf, the strip or the card update.
 
 ### Changed
 
@@ -197,6 +208,18 @@ All notable changes to this module are documented here. The format follows
   back with "Give the item back".
 
 ### Fixed
+
+- Counts of one read as one ("1 day", "1 casting", "1 order filed", "in 1 round" and the others); the request form hides its
+  DC column from players who may not see DCs; a finished order's check card no longer offers "0 more days"; "Acting as" stays
+  on one line; the formula routes table keeps its Route column readable; the order detail's labels lose a stray text shadow in
+  the light theme; unmet requirements say so to screen readers.
+- Keys pressed on the Workshop's order rows and tabs, in the Quick Alchemy panel's list, and Tab, Space and Enter anywhere in
+  the module's windows no longer also reach Foundry's own shortcuts: Space no longer pauses the game for a GM, the arrows no
+  longer pan the canvas and Tab no longer cycles the selected token.
+- Switching the Workshop off or on updates open character and party sheets at once; the Parchment look applies to every
+  Workshop window, not only the main one and the macro shelf; the Downtime tab's activity choice is named by its visible label;
+  "Roll Craft check" and "Finish order" with nothing to do say so instead of "That order no longer exists"; the macro shelf
+  says "Fund an order" and "Collect waiting items", as the Workshop does.
 
 - Talismanic Sage was never recognised when affixing (its feat was missing from the rules registry), so a sage could not
   put a second talisman on an item.

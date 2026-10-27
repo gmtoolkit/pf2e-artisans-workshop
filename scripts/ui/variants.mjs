@@ -327,7 +327,8 @@ export function gardensView(on = true) {
                 canWithdraw: acting.some((a) => nature.gardenShareOf(g.id, a.uuid) > 0), canReturn: member && nature.gardenShareOf(g.id, null) > 0,
             };
         }),
-        limit: fmt("pf2e-artisans-workshop.Variant.Garden.Limit", { n: number(list.length), max: number(gardenLimit(pcs)) }),
+        limit: fmt(gardenLimit(pcs) === 1 ? "pf2e-artisans-workshop.Variant.Garden.LimitOne" : "pf2e-artisans-workshop.Variant.Garden.Limit",
+            { n: number(list.length), max: number(gardenLimit(pcs)) }),
         canAdd: on && member && list.length < gardenLimit(pcs),
     };
 }

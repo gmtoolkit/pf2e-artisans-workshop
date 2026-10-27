@@ -9,7 +9,7 @@
         {{#if worldDate}}<span class="date">{{worldDate}}</span>{{/if}}
         {{#if aheadText}}<span class="ahead"><i class="fa-solid fa-forward" inert></i> {{aheadText}}</span>{{/if}}
         {{#if canMatch}}<button type="button" class="small" data-action="downtime" data-op="match"><i class="fa-solid fa-clock" inert></i>{{localize "pf2e-artisans-workshop.Downtime.Match"}}</button>{{/if}}
-        {{#if behindText}}<span class="behind" role="status"><i class="fa-solid fa-triangle-exclamation" inert></i> {{behindText}}</span>{{/if}}
+        {{#if behindText}}<span class="behind"><i class="fa-solid fa-triangle-exclamation" inert></i> {{behindText}}</span>{{/if}}
         {{#if canAdvance}}<button type="button" class="primary" data-action="downtime" data-op="advance"><i class="fa-solid fa-forward-fast" inert></i>{{localize "pf2e-artisans-workshop.Downtime.Advance"}}</button>{{/if}}
     </div>
     <p class="hint">{{localize "pf2e-artisans-workshop.Downtime.Rule"}}</p>
@@ -21,20 +21,20 @@
         <li class="downtime-pc{{#if pending}} has-pending{{/if}}" data-actor="{{uuid}}">
             {{#if img}}<img src="{{img}}" alt="">{{/if}}
             <div class="pc-main">
-                <strong class="pc-name">{{name}}</strong>
+                <strong class="pc-name" id="pf2e-artisans-workshop-dt-name-{{@index}}">{{name}}</strong>
                 <span class="pc-state">
                     {{#if inDowntime}}<span class="chip on"><i class="fa-solid fa-mug-hot" inert></i> {{localize "pf2e-artisans-workshop.Downtime.In"}}</span>{{#if sinceText}} <span class="since">{{sinceText}}</span>{{/if}}
                     {{else}}<span class="chip off"><i class="fa-solid fa-person-hiking" inert></i> {{localize "pf2e-artisans-workshop.Downtime.Out"}}</span>{{/if}}
                 </span>
-                {{#if pendingText}}<span class="pc-pending" role="status"><i class="fa-solid fa-hourglass-half" inert></i> {{pendingText}}</span>{{/if}}
+                {{#if pendingText}}<span class="pc-pending"><i class="fa-solid fa-hourglass-half" inert></i> {{pendingText}}</span>{{/if}}
                 <span class="pc-facts">{{#if resolvedText}}{{resolvedText}} {{/if}}{{nextText}}</span>
                 {{#if locked}}<span class="pc-locked"><i class="fa-solid fa-lock" inert></i> {{locked}}</span>{{/if}}
             </div>
             <div class="pc-activity">
                 {{#if activityOptions}}
                 <label>
-                    <span class="label">{{localize "pf2e-artisans-workshop.Downtime.Activity"}}</span>
-                    <select name="dtActivity" data-actor="{{uuid}}" {{#if locked}}disabled{{/if}}>
+                    <span class="label" id="pf2e-artisans-workshop-dt-activity-{{@index}}">{{localize "pf2e-artisans-workshop.Downtime.Activity"}}</span>
+                    <select name="dtActivity" data-actor="{{uuid}}" aria-labelledby="pf2e-artisans-workshop-dt-activity-{{@index}} pf2e-artisans-workshop-dt-name-{{@index}}" {{#if locked}}disabled{{/if}}>
                         {{#each activityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
                     </select>
                 </label>
@@ -43,7 +43,7 @@
                 {{/if}}
             </div>
             <div class="pc-actions">
-                {{#if owner}}<button type="button" class="small" data-action="downtime" data-op="toggle" data-actor="{{uuid}}" aria-pressed="{{#if inDowntime}}true{{else}}false{{/if}}">
+                {{#if owner}}<button type="button" class="small" data-action="downtime" data-op="toggle" data-actor="{{uuid}}">
                     {{#if inDowntime}}<i class="fa-solid fa-person-hiking" inert></i>{{localize "pf2e-artisans-workshop.Downtime.End"}}{{else}}<i class="fa-solid fa-mug-hot" inert></i>{{localize "pf2e-artisans-workshop.Downtime.Begin"}}{{/if}}</button>{{/if}}
                 {{#if canResolve}}<button type="button" class="small primary" data-action="downtime" data-op="resolve" data-actor="{{uuid}}"><i class="fa-solid fa-list-check" inert></i>{{localize "pf2e-artisans-workshop.Downtime.Resolve"}}</button>{{/if}}
                 {{#if noActivity}}<span class="hint">{{localize "pf2e-artisans-workshop.Downtime.NoActivityHint"}}</span>{{/if}}

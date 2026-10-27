@@ -4,7 +4,8 @@
  * alchemy and "Use best consumable" (M8, `alchemy`, `consumables`), the affliction tracker (M8a, `afflictions`, `rules.afflictionStep`), M9's
  * crafts and M9a's Treasure Vault (Remastered) variants (`variants`). It is
  * published at `game.modules.get("pf2e-artisans-workshop").api` in `ready`, and the `pf2e-artisans-workshop.ready` hook
- * fires right after with the same object. Later milestones add their namespaces; M11 completes the macros of 11.1.
+ * fires right after with the same object. Later milestones add their namespaces; M11 completes the macros of 11.1 (`macros`,
+ * `ui.macros`, `orders.postSummary`, and `orders.rollCheck` without an order).
  *
  * The API resolves an actor as 11.1 says: an explicit `actor` (document or UUID), the single controlled token's actor,
  * the user's assigned character; otherwise it returns `{ok: false, reason: "no-actor"}`.
@@ -53,6 +54,11 @@ import { status } from "./state.mjs";
 import * as ext from "./extensions.mjs";
 import { API_VERSION } from "../logic/extensions.mjs";
 import { levelDC } from "../logic/dc.mjs";
+import { MACROS, macroById, macroCommand } from "../logic/macros.mjs";
+import { nextCheckOrder } from "../logic/entry.mjs";
+import { queueOrder } from "../logic/views.mjs";
+import { addToHotbar, openShelf, runMacro } from "../ui/macros.mjs";
+import { postQueueSummary } from "../ui/chat.mjs";
 
 /** The integer that changes only when an extension interface or hook payload changes incompatibly (11.3, 12). */
 export { API_VERSION };
@@ -99,7 +105,7 @@ function payOf(pay = null, fallback = null) {
 
 /** The API object. */
 export function buildApi() {
-    return {
+    const api = {
         version: game.modules.get(MODULE_ID).version,
         apiVersion: API_VERSION,
         isReady: () => status() === "ready",
@@ -109,6 +115,8 @@ export function buildApi() {
             requestForm: (uuidOrItem = null, options = {}) => openRequestForm({
                 uuid: typeof uuidOrItem === "string" ? uuidOrItem : uuidOrItem?.uuid ?? null, requester: resolveActor(options.actor)?.uuid ?? null,
             }),
+            // M11 (11.1, 10.2): the macro shelf.
+            macros: () => openShelf(),
         },
         orders: {
             list: (filter = {}) => records("orders").filter((o) => !filter.status || o.status === filter.status),
@@ -130,7 +138,15 @@ export function buildApi() {
             release: (id) => orders.release(id),
             start: (id) => orders.start(id),
             workDay: (id) => orders.workDay(id),
-            rollCheck: ({ order, skipDialog } = {}) => orders.roll(order, { skipDialog }),
+            // M11 (11.1 macro 4): without `order`, the actor's oldest order waiting for its check.
+            rollCheck: ({ order = null, actor = null, skipDialog } = {}) => {
+                if (order) return orders.roll(order, { skipDialog });
+                const who = resolveActor(actor);
+                if (!who) return Promise.resolve(noActor());
+                const next = nextCheckOrder(queueOrder(records("orders")), who.uuid);
+                // M11 review: not "no-order" ("That order no longer exists."), since no order was named.
+                return next ? orders.roll(next.id, { skipDialog }) : Promise.resolve({ ok: false, reason: "no-check-order", data: { actor: who.name } });
+            },
             settle: (id) => orders.settle(id),
             pause: (id) => orders.pause(id),
             resume: (id) => orders.resume(id),
@@ -143,6 +159,8 @@ export function buildApi() {
             },
             cancel: (id) => orders.cancel(id),
             undo: (id) => orders.undo(id),
+            // M11 (11.1 macro 19): the open orders as a chat card, whispered to the poster unless `whisper` is false.
+            postSummary: ({ whisper = true } = {}) => postQueueSummary({ whisper }),
         },
         funds: {
             balance: ({ actor = null } = {}) => {
@@ -606,6 +624,19 @@ export function buildApi() {
             },
         },
     };
+    // M11 (11.1): the macro catalogue. `run` is what every macro holds: the catalogue's API call with its arguments,
+    // reported to the user, asking for a required argument that is missing.
+    api.macros = {
+        list: () => MACROS.map((m) => ({ id: m.id, no: m.no, call: m.call, args: { ...m.args }, required: [...m.required], feature: m.feature })),
+        command: (id, args) => {
+            const entry = macroById(id);
+            return entry ? macroCommand(entry, MODULE_ID, args ?? entry.args) : null;
+        },
+        run: (id, args = {}) => runMacro(api, id, args),
+        toHotbar: (id, slot = null) => addToHotbar(id, slot),
+        open: () => openShelf(),
+    };
+    return api;
 }
 
 /** Publish the API, at `ready`, and announce it. */

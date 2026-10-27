@@ -136,6 +136,21 @@ export const AFFLICTION_SETTINGS = Object.freeze([
 ]);
 
 /**
+ * Render the open character and party sheets again (Application V1 in pf2e 8.6.1, in `ui.windows`), so the sheet entry
+ * points (10.4) come or go with `features.sheetEntryPoints` and, after the M11 review, with the master switch: a sheet open
+ * when the Workshop is switched off keeps no header button, Crafting tab strip or Party card.
+ */
+export function renderEntrySheets() {
+    let count = 0;
+    for (const app of Object.values(ui.windows ?? {})) {
+        if (!["character", "party"].includes(app?.actor?.type) || !app.rendered) continue;
+        app.render(false);
+        count++;
+    }
+    return count;
+}
+
+/**
  * Register every M2 setting. `handlers` are the sync's reactions: `enabled(value, userId)` when the master
  * switch changes and `docs()` when the shared documents' ids change.
  */
@@ -174,6 +189,23 @@ export function registerSettings(handlers) {
         },
     });
     game.settings.register(MODULE_ID, "ui.lastTab", { scope: "user", config: false, type: String, default: "queue" });
+    // M11 (DESIGN.md 14.1, 14.3): the sheet entry points (the character sheet's header button and Crafting tab strip, the
+    // Party sheet's header button and card); the Parchment look in either colour scheme; the Workshop window's size, kept
+    // per client.
+    game.settings.register(MODULE_ID, "features.sheetEntryPoints", {
+        name: "pf2e-artisans-workshop.Settings.FeaturesSheetEntryPoints.Name",
+        hint: "pf2e-artisans-workshop.Settings.FeaturesSheetEntryPoints.Hint",
+        scope: "world", config: true, type: Boolean, default: true,
+        // The open character and party sheets render again with or without them.
+        onChange: () => renderEntrySheets(),
+    });
+    game.settings.register(MODULE_ID, "ui.parchment", {
+        name: "pf2e-artisans-workshop.Settings.Parchment.Name",
+        hint: "pf2e-artisans-workshop.Settings.Parchment.Hint",
+        scope: "client", config: true, type: Boolean, default: false,
+        onChange: async (value) => (await import("../ui/theme.mjs")).applyParchment(value === true),
+    });
+    game.settings.register(MODULE_ID, "ui.windowSize", { scope: "client", config: false, type: Object, default: {} });
     // M5 (DESIGN.md 14.1): the Formulas tab, formula jobs and services; off hides the tab and the formula routes.
     game.settings.register(MODULE_ID, "features.formulas", {
         name: "pf2e-artisans-workshop.Settings.FeaturesFormulas.Name",

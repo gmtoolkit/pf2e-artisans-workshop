@@ -45,7 +45,7 @@ import { rulesFromSettings, setting } from "../foundry/settings.mjs";
 import { canWrite, shared, status } from "../foundry/state.mjs";
 import { read, records } from "../foundry/store.mjs";
 import { orderContext } from "./context.mjs";
-import { focusState, restoreFocus } from "./focus.mjs";
+import { consumeKey, focusState, focusablesIn, keepControlKeys, restoreFocus, tierOf, trapStep } from "./focus.mjs";
 import { money, nameOf, number, report, sourceName, userName, when } from "./format.mjs";
 import { EVENT, ROW_KIND, STATUS } from "./labels.mjs";
 import { askMoney, confirm } from "./prompts.mjs";
@@ -60,6 +60,7 @@ import { downtimeContext, helpersContext, onDowntimeChange, onDowntimeInput, onD
 import { morningBadge, morningContext, onMorningChange, onMorningInput, onMorningOp } from "./morning.mjs";
 import { afflictionsOn } from "../foundry/afflictions.mjs";
 import { openAfflictions, pendingBadge as afflictionBadge } from "./afflictions.mjs";
+import { openingSize, rememberSize, savedSize, themeClasses } from "./theme.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -92,14 +93,16 @@ const BANNER = Object.freeze({
 
 /**
  * The default size (10.8): `clamp(720, innerWidth - 380, 1180)` by `clamp(600, innerHeight - 120, 860)`, from the main
- * window, which the sidebar lives in (a detached Workshop keeps the size it had).
+ * window, which the sidebar lives in (a detached Workshop keeps the size it had). As built in M11 the size the user last
+ * gave the window on this client (`ui.windowSize`, 14.3) comes first, clamped to the screen.
  */
 function defaultSize() {
     const clamp = (value, low, high) => Math.min(Math.max(value, low), high);
     const view = ui.sidebar?.element?.ownerDocument?.defaultView;
     const width = view?.innerWidth ?? 1440;
     const height = view?.innerHeight ?? 900;
-    return { width: clamp(width - 380, 720, 1180), height: clamp(height - 120, 600, 860) };
+    const fallback = { width: clamp(width - 380, 720, 1180), height: clamp(height - 120, 600, 860) };
+    return openingSize(savedSize(), fallback, { width, height });
 }
 
 export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
@@ -142,6 +145,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             craft: WorkshopApp.#onCraft,
             // M9a: the Treasure Vault (Remastered) variants (6.16).
             variant: WorkshopApp.#onVariant,
+            // M11: the macro shelf, from the status bar (10.2, 11.1).
+            macros: WorkshopApp.#onMacros,
         },
     };
 
@@ -182,7 +187,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     lastEvent = "";
 
     constructor(options = {}) {
-        super(foundry.utils.mergeObject({ position: defaultSize() }, options));
+        // M11 (10.9): Parchment's classes, when the client setting is on.
+        super(foundry.utils.mergeObject({ position: defaultSize(), classes: themeClasses() }, options));
         const last = setting("ui.lastTab");
         if (WorkshopApp.TABS.primary.tabs.some((tab) => tab.id === last)) this.tabGroups.primary = last;
     }
@@ -296,6 +302,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             afflictionsOn: current === "ready" && afflictionsOn(),
             acting: orders.actingChoices().map((a) => ({ uuid: a.uuid, name: a.name, level: a.level, selected: a === acting })),
             actingUuid: acting?.uuid ?? null,
+            // M11: the whole "Name (level n)" as the select's tooltip, since a narrow header cuts it short (M4 live pass).
+            actingText: acting ? game.i18n.format("pf2e-artisans-workshop.Window.ActingOption", { name: acting.name, level: acting.level }) : null,
             lastEvent: this.lastEvent,
         });
     }
@@ -335,6 +343,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             const view = await orderContext(order, { no, viewer });
             if (passesFilters(view, order, this.filters)) views.push({ ...view, kindText: kindText(order), targetText: targetText(order) });
         }
+        this.#rowActions = new Map(views.map((v) => [v.id, v.actions ?? {}]));
         // One row is the list's tab stop (roving tabindex, 10.9): the one the user was on, else the first.
         const stop = views.some((v) => v.id === this.activeRow) ? this.activeRow : views[0]?.id ?? null;
         for (const view of views) view.tabStop = view.id === stop;
@@ -470,10 +479,65 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.element.addEventListener("change", (event) => this.#onChange(event));
         this.element.addEventListener("input", (event) => this.#onInput(event));
         this.element.addEventListener("keydown", (event) => this.#onKeydown(event));
+        // M11 review: Tab, Space and Enter belong to the focused control, never to core's keybindings (token cycling, pause).
+        this.element.addEventListener("keydown", keepControlKeys);
         this.element.addEventListener("click", (event) => this.#onRowClick(event));
         this.element.addEventListener("focusin", (event) => this.#onFocusIn(event));
         // `toggle` does not bubble: listen in the capture phase.
         this.element.addEventListener("toggle", (event) => this.#onToggle(event), true);
+        // M11 (10.3): secondary actions in a context menu on the order rows. The window's element outlives its parts, so one
+        // menu serves every render. Each action is also in the detail drawer, its keyboard path.
+        const Menu = foundry.applications.ux.ContextMenu?.implementation;
+        if (Menu) this.contextMenu = new Menu(this.element, ".order-row[data-order-id]", this.#rowMenu(), { jQuery: false, fixed: true });
+        this.#openedAt = { width: this.position?.width, height: this.position?.height };
+        this.#syncTooltips();
+    }
+
+    /** The order rows' context menu (10.3). */
+    contextMenu = null;
+
+    /** The size the window opened at: a resize away from it is remembered (`ui.windowSize`, 14.3). */
+    #openedAt = null;
+
+    /** Each listed order's actions as last rendered, which the context menu's entries read. */
+    #rowActions = new Map();
+
+    /** The context menu's entries: open the detail, fund, pause, resume, release, undo, cancel; each where the row allows it. */
+    #rowMenu() {
+        const id = (li) => li?.closest?.("[data-order-id]")?.dataset.orderId ?? null;
+        const can = (key) => (li) => this.#rowActions.get(id(li))?.[key] === true;
+        const op = (name) => (_event, li) => this.orderOp(id(li), name);
+        return [
+            { label: "pf2e-artisans-workshop.Action.Open", icon: "fa-solid fa-up-right-from-square", onClick: (_event, li) => this.#select(id(li)) },
+            { label: "pf2e-artisans-workshop.Action.Fund", icon: "fa-solid fa-coins", visible: can("fund"), onClick: (_event, li) => this.fundPrompt(id(li)) },
+            { label: "pf2e-artisans-workshop.Action.Pause", icon: "fa-solid fa-pause", visible: can("pause"), onClick: op("pause") },
+            { label: "pf2e-artisans-workshop.Action.Resume", icon: "fa-solid fa-play", visible: can("resume"), onClick: op("resume") },
+            { label: "pf2e-artisans-workshop.Action.Release", icon: "fa-solid fa-hand", visible: can("release"), onClick: op("release") },
+            { label: "pf2e-artisans-workshop.Action.Undo", icon: "fa-solid fa-rotate-left", visible: can("undo"), onClick: op("undo") },
+            { label: "pf2e-artisans-workshop.Action.Cancel", icon: "fa-solid fa-ban", visible: can("cancel"), onClick: op("cancel") },
+        ];
+    }
+
+    /** A resize is remembered for the next window on this client, once the user stops (not a move, not while detached). */
+    #saveSize = foundry.utils.debounce((position) => rememberSize(position), 500);
+
+    _onPosition(position) {
+        super._onPosition?.(position);
+        if (!this.#openedAt || this.window?.windowId) return;
+        if (position?.width !== this.#openedAt.width || position?.height !== this.#openedAt.height) this.#saveSize(position);
+        this.#syncTooltips();
+    }
+
+    /**
+     * A tab's word is its tooltip only in the narrow tier, where the word is hidden (10.8); in the others the tooltip would
+     * repeat it (M7 live pass). The name for screen readers is the button's `aria-label` in every tier.
+     */
+    #syncTooltips() {
+        const narrow = tierOf(this.element?.clientWidth ?? 0) === "narrow";
+        for (const button of this.element?.querySelectorAll?.(".workshop-tabs [data-tab]") ?? []) {
+            if (narrow) button.dataset.tooltip = button.getAttribute("aria-label") ?? "";
+            else delete button.dataset.tooltip;
+        }
     }
 
     /** Before a part is replaced: which control has focus, by its data attributes, and its caret (10.9). */
@@ -508,6 +572,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             }).bind(this.element);
         }
         this.#syncTabs();
+        this.#syncTooltips();
     }
 
     _onClose(options) {
@@ -535,8 +600,11 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         if (setting("ui.lastTab") !== tab) game.settings.set(MODULE_ID, "ui.lastTab", tab);
     }
 
-    /** Open the window on a tab, and optionally on an order's detail. */
-    async show({ tab = null, order = null } = {}) {
+    /**
+     * Open the window on a tab, and optionally on an order's detail. `focus` (M11 review: the keybinding and the sheet
+     * entries) moves keyboard focus into it, as core does only for an `[autofocus]` element on the first render.
+     */
+    async show({ tab = null, order = null, focus = false } = {}) {
         if (order) {
             this.selected = order;
             tab ??= "queue";
@@ -544,7 +612,17 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         if (tab && WorkshopApp.TABS.primary.tabs.some((t) => t.id === tab)) this.tabGroups.primary = tab;
         await this.render({ force: true });
         if (this.rendered && tab) this.#syncTabs();
+        if (this.rendered && focus) this.focusWindow();
         return this;
+    }
+
+    /** Put keyboard focus in the window: on the open order's detail, else on the active tab (10.9). */
+    focusWindow() {
+        const element = this.element;
+        const target = (this.selected && element?.querySelector(".order-detail"))
+            || element?.querySelector(`.workshop-tabs [data-tab="${this.tabGroups.primary}"]`) || element?.querySelector(".workshop-tabs [data-tab]");
+        target?.focus({ preventScroll: true });
+        return !!target;
     }
 
     /* -------------------------------------------- */
@@ -622,7 +700,9 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     /**
      * Keyboard (10.3, 10.9): a roving tabindex over the order rows (Up and Down, Home and End move; Enter or Space opens the
-     * detail); Escape closes the detail and returns focus to its row; Left and Right move between the tabs.
+     * detail); Escape closes the detail and returns focus to its row; Left and Right move between the tabs. A key answered
+     * here stops at the window (M11 review): core would pan the canvas on an arrow, pause the game on Space, cycle the
+     * controlled token on Tab, since none of these controls is a field to it.
      */
     #onKeydown(event) {
         const row = event.target.closest?.(".order-row");
@@ -631,27 +711,37 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             const index = rows.indexOf(row);
             const move = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: rows.length - 1 }[event.key];
             if (move !== undefined) {
-                event.preventDefault();
+                consumeKey(event);
                 const next = rows[Math.max(0, Math.min(rows.length - 1, move))];
                 this.#makeTabStop(next);
                 next.focus();
                 return;
             }
             if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
+                consumeKey(event);
                 this.#select(row.dataset.orderId);
                 return;
             }
         }
+        // M11 (10.9): while the detail covers the list (the medium tier's slide-over, the narrow tier's full view), Tab and
+        // Shift+Tab stay inside it; Escape closes it and gives focus back to its row.
+        const detail = event.target.closest?.(".order-detail");
+        if (event.key === "Tab" && detail && tierOf(this.element.clientWidth) !== "wide") {
+            const next = trapStep(focusablesIn(detail), event.target, event.shiftKey);
+            if (next) {
+                consumeKey(event);
+                next.focus();
+                return;
+            }
+        }
         if (event.key === "Escape" && this.selected && event.target.closest?.(".order-detail")) {
-            event.preventDefault();
-            event.stopPropagation();
+            consumeKey(event);
             this.#closeDetail();
             return;
         }
         const tab = event.target.closest?.(".workshop-tabs [data-tab]");
         if (tab && ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)) {
-            event.preventDefault();
+            consumeKey(event);
             const tabs = [...this.element.querySelectorAll(".workshop-tabs [data-tab]")];
             const step = event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1;
             const next = tabs[(tabs.indexOf(tab) + step + tabs.length) % tabs.length];
@@ -728,29 +818,35 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         if (!id || !op) return;
         target.disabled = true;
         try {
-            switch (op) {
-                case "accept": {
-                    const actor = this.actingActor();
-                    return await this.#run(actor ? orders.accept(id, actor.uuid) : { ok: false, reason: "not-owner" }, "pf2e-artisans-workshop.Event.Accept");
-                }
-                case "release": return await this.#run(orders.release(id), "pf2e-artisans-workshop.Event.Release");
-                case "start": return await this.#run(orders.start(id), "pf2e-artisans-workshop.Event.Start");
-                case "work": return await this.#run(orders.workDay(id), "pf2e-artisans-workshop.Event.Work");
-                case "roll": return await this.#run(orders.roll(id));
-                case "settle": return await this.#run(orders.settle(id), "pf2e-artisans-workshop.Event.Settle");
-                case "finish": return await this.#finish(id);
-                case "pause": return await this.#run(orders.pause(id), "pf2e-artisans-workshop.Event.Pause");
-                case "resume": return await this.#run(orders.resume(id), "pf2e-artisans-workshop.Event.Resume");
-                case "retry": return await this.#retry(id);
-                case "undo": return await this.#run(orders.undo(id), "pf2e-artisans-workshop.Event.Undo");
-                case "cancel": {
-                    const ok = await confirm({ title: "pf2e-artisans-workshop.Prompt.Cancel.Title", content: "pf2e-artisans-workshop.Prompt.Cancel.Content", app: this });
-                    return ok ? await this.#run(orders.cancel(id), "pf2e-artisans-workshop.Event.Cancel") : null;
-                }
-                default: return null;
-            }
+            return await this.orderOp(id, op);
         } finally {
             if (target.isConnected) target.disabled = false;
+        }
+    }
+
+    /** A lifecycle step on an order (4.2.3), from a button or the row's context menu (M11). */
+    async orderOp(id, op) {
+        if (!id || !op) return null;
+        switch (op) {
+            case "accept": {
+                const actor = this.actingActor();
+                return await this.#run(actor ? orders.accept(id, actor.uuid) : { ok: false, reason: "not-owner" }, "pf2e-artisans-workshop.Event.Accept");
+            }
+            case "release": return await this.#run(orders.release(id), "pf2e-artisans-workshop.Event.Release");
+            case "start": return await this.#run(orders.start(id), "pf2e-artisans-workshop.Event.Start");
+            case "work": return await this.#run(orders.workDay(id), "pf2e-artisans-workshop.Event.Work");
+            case "roll": return await this.#run(orders.roll(id));
+            case "settle": return await this.#run(orders.settle(id), "pf2e-artisans-workshop.Event.Settle");
+            case "finish": return await this.#finish(id);
+            case "pause": return await this.#run(orders.pause(id), "pf2e-artisans-workshop.Event.Pause");
+            case "resume": return await this.#run(orders.resume(id), "pf2e-artisans-workshop.Event.Resume");
+            case "retry": return await this.#retry(id);
+            case "undo": return await this.#run(orders.undo(id), "pf2e-artisans-workshop.Event.Undo");
+            case "cancel": {
+                const ok = await confirm({ title: "pf2e-artisans-workshop.Prompt.Cancel.Title", content: "pf2e-artisans-workshop.Prompt.Cancel.Content", app: this });
+                return ok ? await this.#run(orders.cancel(id), "pf2e-artisans-workshop.Event.Cancel") : null;
+            }
+            default: return null;
         }
     }
 
@@ -960,6 +1056,12 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         return this.render({ parts: ["morning", "nav"] });
     }
 
+    /** The status bar's Macros button (M11, 10.2): the macro shelf, in the window the Workshop is in. */
+    static async #onMacros() {
+        const { openShelf } = await import("./macros.mjs");
+        return openShelf({ parent: this, focus: true });
+    }
+
     /** The header's pending affliction saves (M8a, 10.2): open the Afflictions window. */
     static #onAfflictions() {
         return openAfflictions();
@@ -983,13 +1085,13 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
 /**
  * Open the Workshop (11.1 `api.ui.open`): on a tab, on an order's detail, as a character (`actor`, a UUID or document),
- * with a Queue filter.
+ * with a Queue filter; `focus` puts keyboard focus in it (the keybinding, the sheet entries, the context menu).
  */
-export async function openWorkshop({ tab = null, order = null, actor = null, filter = null } = {}) {
+export async function openWorkshop({ tab = null, order = null, actor = null, filter = null, focus = false } = {}) {
     const app = WorkshopApp.instance ?? new WorkshopApp();
     if (actor) app.acting = typeof actor === "string" ? actor : actor.uuid;
     if (filter && ["mine", "open", "blocked", "all"].includes(filter)) app.filters = { ...app.filters, scope: filter };
-    return app.show({ tab, order });
+    return app.show({ tab, order, focus });
 }
 
 /** Hooks that re-render the open window when the shared state changes (10.1). */

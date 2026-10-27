@@ -219,7 +219,7 @@ export async function morningContext(app) {
                 hosts: board.hosts.filter((h) => h.count > 0 || board.loose.length).map((h) => ({ id: h.id, name: h.name, state: loc(HOST_STATE[h.state]), suppressed: h.state === "suppressed",
                     sage: h.sage, warn: h.warn, talismans: h.talismans.map((t) => ({ id: t.id, name: t.name, inert: t.inert })) })),
                 loose: board.loose.map((t) => ({ id: t.id, name: t.name, inert: t.inert })), hostChoices: board.hosts.map((h) => ({ id: h.id, name: h.name })),
-                minutes: board.loose.length ? fmt("pf2e-artisans-workshop.Morning.Affix.Minutes", { n: number(board.minutes) }) : null, sage: board.sage,
+                minutes: board.loose.length ? fmt(board.minutes === 1 ? "pf2e-artisans-workshop.Morning.Affix.MinutesOne" : "pf2e-artisans-workshop.Morning.Affix.Minutes", { n: number(board.minutes) }) : null, sage: board.sage,
             } : null,
             manager: board?.manager === true,
             expiring: held.filter((item) => !isInert(item)).map((item) => ({ id: item.id, name: item.name, qty: number(item.quantity ?? 1), text: expiryText(item),

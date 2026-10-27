@@ -140,7 +140,7 @@ async function learnContext(state, actor, data, rules) {
         allies: info.allies, seller: state.seller, needsSeller: !known && !pending && info.routes.some((r) => r.needs.includes("seller")),
         breakEven: info.breakEven ? {
             needed: info.breakEven.needed, formula: money(info.breakEven.formulaCp), day: money(info.breakEven.daySavedCp),
-            crafts: info.breakEven.crafts === null ? null : number(info.breakEven.crafts),
+            crafts: info.breakEven.crafts === null ? null : number(info.breakEven.crafts), craftsOne: info.breakEven.crafts === 1,
         } : null,
         copy: info.copy && others.length ? { cost: money(info.copy.costCp), recipients: others.map((m) => ({ uuid: m.uuid, name: m.name, selected: m.uuid === state.recipient })) } : null,
         pickable: !!pick && fits && !known && !pending,

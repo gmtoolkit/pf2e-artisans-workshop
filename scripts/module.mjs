@@ -20,6 +20,7 @@ import { registerAfflictionUi } from "./ui/afflictions.mjs";
 import { registerChatHooks } from "./ui/chat.mjs";
 import { registerCombatEntry } from "./ui/combat-entry.mjs";
 import { registerEntryPoints } from "./ui/entry.mjs";
+import { registerMacroHooks } from "./ui/macros.mjs";
 import { primeNotifications, registerNotifications } from "./ui/notify.mjs";
 import { registerWindowHooks } from "./ui/workshop.mjs";
 
@@ -87,7 +88,10 @@ Hooks.once("init", () => {
     registerChatHooks();
     registerNotifications();
     registerWindowHooks();
+    // M11 (DESIGN.md 10.4, 11.1): the sheet and directory entry points, the "Open Workshop" keybinding, and the hotbar drop
+    // of the macro shelf's tiles.
     registerEntryPoints();
+    registerMacroHooks();
 });
 
 // M10 (DESIGN.md 12.1): the extension registry is open from `setup` (after every module's `init`, where extensions subscribe to

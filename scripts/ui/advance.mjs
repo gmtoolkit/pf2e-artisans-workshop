@@ -37,7 +37,8 @@ import { read } from "../foundry/store.mjs";
 import { activityOptions } from "./downtime.mjs";
 import { dayLines, extActivityName, jobName, orderName, spanText, stopText } from "./days.mjs";
 import { rollActivity } from "../foundry/extensions.mjs";
-import { focusState, restoreFocus } from "./focus.mjs";
+import { focusState, keepControlKeys, restoreFocus } from "./focus.mjs";
+import { withTheme } from "./theme.mjs";
 import { money, number, refusalText, report } from "./format.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -79,11 +80,13 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
      * @param {"advance"|"resolve"} [options.mode]
      * @param {string|null} [options.actor]   the PC the resolver is for
      */
-    constructor({ mode = "advance", actor = null, ...options } = {}) {
-        super(options);
-        // Not `state`: that is ApplicationV2's render state, a getter with no setter (Foundry 14).
+    constructor({ mode = "advance", actor = null, count = 1, advanceClock = false, ...options } = {}) {
+        super(withTheme(options));
+        // Not `state`: that is ApplicationV2's render state, a getter with no setter (Foundry 14). `count` and `advanceClock`
+        // prefill the first step (M11: the "Advance days" macro's `days` and `advanceClock`, 11.1); moving the clock stays a GM's.
         this.wizard = {
-            mode, actor, step: STEPS[mode][0], kind: "days", count: 1, advanceClock: false, assignments: {}, result: null, toDay: null, busy: false,
+            mode, actor, step: STEPS[mode][0], kind: "days", count: Number.isInteger(count) && count > 0 ? count : 1,
+            advanceClock: advanceClock === true && game.user.isGM, assignments: {}, result: null, toDay: null, busy: false,
             pin: null, notice: null, skipped: [],
         };
     }
@@ -272,6 +275,8 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.element.addEventListener("input", (event) => {
             if (event.target?.name === "count") this.fieldChanged(event.target);
         });
+        // M11 review: Tab, Space and Enter belong to the focused control, never to core's keybindings (token cycling, pause).
+        this.element.addEventListener("keydown", keepControlKeys);
         this.element.addEventListener("keydown", (event) => {
             // Enter in the number of days goes on, as in a form.
             if (event.key !== "Enter" || event.target?.name !== "count") return;
@@ -449,10 +454,10 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
  * Open the wizard (`mode` "advance") or the day resolver for one PC (`mode` "resolve"). From the Workshop (`parent`) it is
  * that window's child, so it opens in the browser window the Workshop is in (10.1, detached windows).
  */
-export async function openAdvance({ mode = "advance", actor = null, parent = null } = {}) {
+export async function openAdvance({ mode = "advance", actor = null, parent = null, count = 1, advanceClock = false } = {}) {
     // One wizard at a time, under one id: the old window is gone before the new one renders.
     await AdvanceDaysApp.instance?.close({ animate: false });
-    const app = new AdvanceDaysApp({ mode, actor });
+    const app = new AdvanceDaysApp({ mode, actor, count, advanceClock });
     if (parent?.renderChild) parent.renderChild(app);
     else app.render({ force: true });
     return app;

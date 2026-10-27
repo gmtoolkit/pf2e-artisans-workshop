@@ -28,7 +28,8 @@ import { shared } from "../foundry/state.mjs";
 import { read, write } from "../foundry/store.mjs";
 import { rerenderShown } from "./chat.mjs";
 import { whisperFor } from "./combat-cards.mjs";
-import { focusState, restoreFocus } from "./focus.mjs";
+import { focusState, keepControlKeys, restoreFocus } from "./focus.mjs";
+import { withTheme } from "./theme.mjs";
 import { number, report } from "./format.mjs";
 import { askChoice, confirm } from "./prompts.mjs";
 
@@ -50,10 +51,12 @@ export const AFFLICTION_CARDS = Object.freeze(["affliction-prompt", "affliction-
 export function inText(seconds) {
     if (!Number.isFinite(seconds)) return null;
     if (seconds <= 0) return loc("pf2e-artisans-workshop.Affliction.In.Now");
-    if (seconds < 60) return fmt("pf2e-artisans-workshop.Affliction.In.Rounds", { n: number(Math.ceil(seconds / 6)) });
-    if (seconds < 3600) return fmt("pf2e-artisans-workshop.Affliction.In.Minutes", { n: number(Math.ceil(seconds / 60)) });
-    if (seconds < 86400) return fmt("pf2e-artisans-workshop.Affliction.In.Hours", { n: number(Math.ceil(seconds / 3600)) });
-    return fmt("pf2e-artisans-workshop.Affliction.In.Days", { n: number(Math.ceil(seconds / 86400)) });
+    // M11: one of a unit is said as one ("in 1 round"), the M8a follow-up on "in 1 rounds".
+    const say = (n, one, many) => (n === 1 ? loc(one) : fmt(many, { n: number(n) }));
+    if (seconds < 60) return say(Math.ceil(seconds / 6), "pf2e-artisans-workshop.Affliction.In.RoundsOne", "pf2e-artisans-workshop.Affliction.In.Rounds");
+    if (seconds < 3600) return say(Math.ceil(seconds / 60), "pf2e-artisans-workshop.Affliction.In.MinutesOne", "pf2e-artisans-workshop.Affliction.In.Minutes");
+    if (seconds < 86400) return say(Math.ceil(seconds / 3600), "pf2e-artisans-workshop.Affliction.In.HoursOne", "pf2e-artisans-workshop.Affliction.In.Hours");
+    return say(Math.ceil(seconds / 86400), "pf2e-artisans-workshop.Affliction.In.DaysOne", "pf2e-artisans-workshop.Affliction.In.Days");
 }
 
 /** A condition's name as pf2e labels it. */
@@ -80,10 +83,16 @@ const UNIT = Object.freeze({
     rounds: "pf2e-artisans-workshop.Affliction.Unit.Rounds", minutes: "pf2e-artisans-workshop.Affliction.Unit.Minutes",
     hours: "pf2e-artisans-workshop.Affliction.Unit.Hours", days: "pf2e-artisans-workshop.Affliction.Unit.Days",
 });
+/** One of each unit (M11). */
+const UNIT_ONE = Object.freeze({
+    rounds: "pf2e-artisans-workshop.Affliction.Unit.RoundsOne", minutes: "pf2e-artisans-workshop.Affliction.Unit.MinutesOne",
+    hours: "pf2e-artisans-workshop.Affliction.Unit.HoursOne", days: "pf2e-artisans-workshop.Affliction.Unit.DaysOne",
+});
 
 /** A duration in words. */
 function durationText(duration) {
     if (!duration || !UNIT[duration.unit]) return null;
+    if (!duration.formula && duration.value === 1) return loc(UNIT_ONE[duration.unit]);
     return fmt(UNIT[duration.unit], { n: duration.formula ?? number(duration.value) });
 }
 
@@ -204,6 +213,11 @@ export class AfflictionsApp extends HandlebarsApplicationMixin(ApplicationV2) {
         body: { template: "modules/pf2e-artisans-workshop/templates/afflictions/drawer.hbs", scrollable: [""] },
     };
 
+    /** Parchment's classes while the setting is on (M11 review). */
+    constructor(options = {}) {
+        super(withTheme(options));
+    }
+
     /** Re-render after changes stop for a moment (10.1). */
     refresh = foundry.utils.debounce(() => {
         if (this.rendered) this.render({ parts: ["body"] });
@@ -218,6 +232,8 @@ export class AfflictionsApp extends HandlebarsApplicationMixin(ApplicationV2) {
         super._onFirstRender?.(context, options);
         AfflictionsApp.instance = this;
         this.element.addEventListener("click", (event) => this.#onClick(event));
+        // M11 review: Tab, Space and Enter belong to the focused control, never to core's keybindings (token cycling, pause).
+        this.element.addEventListener("keydown", keepControlKeys);
     }
 
     _preSyncPartState(partId, newElement, priorElement, state) {
