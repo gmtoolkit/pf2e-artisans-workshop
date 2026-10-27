@@ -4543,8 +4543,16 @@ async function contextOpen(h, role, actorId, { party = false } = {}) {
     return { label, open: await h.step(role, "m11", "open", {}) };
 }
 
-/** The Actors directory's context menu (10.4): "Open Workshop" on the party and, acting as it, on the user's own member. */
+/**
+ * The Actors directory's context menu (10.4): "Open Workshop" on the party and, acting as it, on the user's own member. Needs
+ * `--canvas` (M11 live pass): without one, pf2e 8.6.1's "Request Trade" entry reads `canvas.tokens.controlled` while core
+ * checks which entries to show, throws, and core renders no menu at all for any actor; without a canvas it says it was skipped.
+ */
 async function m11Context(h, w) {
+    if (!h.canvas) {
+        h.check("m11-context needs --canvas (pf2e's Request Trade entry throws without one, so no directory menu opens): skipped", true, { skipped: true });
+        return { skipped: true };
+    }
     await m11Reset(h, w);
     const party = await contextOpen(h, "p1", w.party.id, { party: true });
     h.check("Open Workshop is in the party's context menu and opens the window", party.label.some((l) => l.includes("Open Workshop")) && party.open.open, party);

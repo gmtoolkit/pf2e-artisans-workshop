@@ -297,3 +297,26 @@ test("the companions step turns Workbench's feats colours on with the formulas' 
     await BEHAVIOURS["m11-companions"](plan.h, WORLD());
     assert.ok(plan.calls.some((c) => c.step === "companions" && c.client === "gm" && c.params.restore), "the plan puts the GM's settings back");
 });
+
+test("m11-context runs only with a canvas: pf2e's directory menu throws without one (M11 live pass)", async () => {
+    const without = fakeHarness();
+    const out = await BEHAVIOURS["m11-context"](without.h, WORLD());
+    assert.deepEqual(out, { skipped: true });
+    assert.equal(without.calls.length, 0);
+    const withCanvas = fakeHarness({}, { canvas: true });
+    await quickly(() => BEHAVIOURS["m11-context"](withCanvas.h, WORLD()));
+    assert.deepEqual(failed(withCanvas.checks), []);
+    assert.ok(withCanvas.checks.some((c) => /acting as that character/.test(c.name)));
+});
+
+test("the driver finds a module stylesheet Foundry 14.368 imports in a <style>, and adds it only when nothing loads it (M11 live pass)", async () => {
+    const { styleLoaded } = await import("../../tools/harness/run-live.mjs");
+    const path = "modules/pf2e-artisans-workshop/styles/workshop.css";
+    const sheet = (href, rules = []) => ({ href, cssRules: rules });
+    const imported = { styleSheets: [sheet("http://localhost:30000/css/foundry2.css"),
+        sheet(null, [{ href: `${path}`, styleSheet: sheet(`http://localhost:30000/${path}`) }])] };
+    assert.equal(styleLoaded(path, imported), true, "an @import in a <style> element");
+    assert.equal(styleLoaded(path, { styleSheets: [sheet(`http://localhost:30000/${path}`)] }), true, "a <link>");
+    const locked = { href: null, get cssRules() { throw new Error("SecurityError"); } };
+    assert.equal(styleLoaded(path, { styleSheets: [sheet("http://localhost:30000/css/foundry2.css"), locked] }), false, "not loaded");
+});
