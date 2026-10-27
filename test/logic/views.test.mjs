@@ -7,7 +7,7 @@ import { makeRow, reversalRow } from "../../scripts/logic/rows.mjs";
 import { earmarkInputs } from "../../scripts/logic/funds.mjs";
 import {
     DEFAULT_FILTERS, blockers, canReverse, coinParts, costSummary, deliveryOf, estimateOf, fundWithdrawableCp, fundsView, orderProgress,
-    orderView, passesFilters, percent, perDayCp, queueOrder, queueSummary, requirementVariant, requirementsView, rowLabel, workDaysView,
+    orderView, passesEverything, passesFilters, percent, perDayCp, queueOrder, queueSummary, requirementVariant, requirementsView, rowLabel, workDaysView,
 } from "../../scripts/logic/views.mjs";
 
 const at = (real) => ({ world: real, real, server: real, launch: 0 });
@@ -99,6 +99,20 @@ test("queue filters, order and numbering (10.3)", () => {
     assert.equal(passesFilters(view(a), a, { status: "requested", search: "strik" }), true);
     assert.equal(passesFilters(view(a), a, { search: "elixir" }), false);
     assert.deepEqual(queueSummary([a, b, c]), { open: 2, requested: 1, accepted: 1, working: 0, failed: 0, complete: 1 });
+});
+
+test("filters that let every order through: the Queue then views only the orders it lists (M12 performance pass)", () => {
+    assert.equal(passesEverything(DEFAULT_FILTERS), true);
+    assert.equal(passesEverything({}), true);
+    assert.equal(passesEverything({ ...DEFAULT_FILTERS, search: "   " }), true, "blank search text filters nothing, as in passesFilters");
+    for (const narrowing of [{ scope: "mine" }, { scope: "open" }, { scope: "blocked" }, { status: "complete" }, { crafter: "none" },
+        { crafter: "Actor.c" }, { recipient: "strongbox" }, { recipient: "Actor.f" }, { search: "rune" }]) {
+        assert.equal(passesEverything({ ...DEFAULT_FILTERS, ...narrowing }), false, JSON.stringify(narrowing));
+    }
+    // Wherever passesEverything holds, passesFilters lets any view through.
+    const odd = order({ id: "z", status: "cancelled", crafter: "Actor.q", recipient: { kind: "strongbox", uuid: null } }, 9);
+    const view = { mine: false, closed: true, blocked: [{ id: "G1" }], name: "" };
+    assert.equal(passesFilters(view, odd, { ...DEFAULT_FILTERS, search: "  " }), true);
 });
 
 test("reversal: financial rows that count, by their author or a GM, while the coins can move back (4.6)", () => {

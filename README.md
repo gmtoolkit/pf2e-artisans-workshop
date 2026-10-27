@@ -267,7 +267,9 @@ ledger rows (default 200 and 2000) and measures a third time: the Workshop's ope
 as Player One, what one change to the ledger costs every open window, reconciliation, a ledger write and a deposit, and a
 full Advance days run through the wizard, with CPU profiles of each on the GM's page summed by function and file. Then it
 puts the party back, deletes the copies and the run's chat messages, and resets the shared documents as `harness:live`
-does; the results are in `<out>/results.json`.
+does; the results are in `<out>/results.json`. Each stage's medians are held to the 50 ms re-render budget of DESIGN.md 15.7
+(every tab's part, a live refresh on the Queue tab, and what one ledger change costs each open window); a miss is a failed
+check and the run exits 1.
 
 Options: `--shots` (where screenshots go), `--url` (default `http://localhost:30000`), `--chromium` (the browser binary; on
 Arch the default is `/usr/lib/chromium/chromium`, behind the `/usr/bin/chromium` launcher

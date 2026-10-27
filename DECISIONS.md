@@ -2,6 +2,27 @@
 
 Newest first.
 
+## 2026-10-27: The Queue lists a page at a time; the lock pages wait for the author (M12 performance fixes)
+
+**Decision:**
+
+- The Queue lists at most 30 of the orders that pass its filters (`QUEUE_PAGE`), open orders first as before, with
+  "30 of 200 orders listed" and "Show 30 more" under the list. New filters and a new window start at the first page; a live
+  refresh keeps what is shown. With no filter set, the orders past the page get no view; with one, every order is still
+  judged, since a filter needs each order's view (DESIGN 10.3).
+- The performance pass holds each stage to the 50 ms re-render budget it set (15.7) as failing checks, and times a live
+  refresh as `WorkshopApp#refresh` now renders it (header, status bar, shown tab).
+- The ledger's lock pages are not pruned in this pass. Bounding them needs a design call: lock pages carry no kind (their ids
+  are hashes of row ids, stack versions, apply marks and the "once" markers of coatings, saves, vials and the like), so a
+  pruner cannot tell which ones still guard something; 5.3.3 prunes those of archived rows (and stacks that are gone or have
+  moved on), by age, while the pass measured the cost growing with their count long before the archive ages; and moving them
+  to a document of their own changes the shared documents (5.2), every reader of the ledger's pages and the purge. Listed for
+  the author with the options (15.7 Follow-ups, OQ-36).
+
+**Why:** after the first fixes the Queue was still over budget at 200 orders (57 ms, 82 ms for a refresh) and most of it was
+Foundry's work on the DOM of 200 rows; a party works on its open orders, and closed ones stay listed until archiving. A
+pruner that guessed which lock pages are spent would trade a speed problem for double-spent coins.
+
 ## 2026-10-27: Performance pass (M12)
 
 **Decision:** what the first performance pass changes, and what it leaves to archiving (DESIGN 15.7, OQ-36):

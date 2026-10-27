@@ -85,8 +85,10 @@ the accessibility and contrast pass); DESIGN 10.18 says what was built, and the 
 (`tools/harness/integration-scenarios.mjs`) passed their first live pass, with and without a canvas (10.18, M11 live pass).
 M12's companions matrix and performance pass ran on the dev server (DESIGN 15.7): the core plans with pf2e-dailies, Toolbelt,
 Workbench and Item Piles all off and all on; `npm run harness:perf` (`tools/harness/perf.mjs`) stages 200 orders, 2000 rows,
-five members and 60 workshop days and times and profiles the window, writes, reconciliation and the Advance days wizard.
-Archiving (5.3.3) is still not built, and the ledger's lock pages, which only archiving prunes, decide how slow it gets.
+five members and 60 workshop days and times and profiles the window, writes, reconciliation and the Advance days wizard,
+and holds every stage to the 50 ms re-render budget (`budgetChecks`); the Queue lists a page of orders at a time
+(`QUEUE_PAGE`, DESIGN 10.3). Archiving (5.3.3) is still not built, and the ledger's lock pages, which only archiving prunes,
+decide what every write costs: the author's design call (DESIGN 15.7 Follow-ups, OQ-36).
 README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
 world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every

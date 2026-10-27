@@ -303,6 +303,15 @@ export function passesFilters(view, order, filters = DEFAULT_FILTERS) {
 }
 
 /**
+ * Whether `filters` let every order through (`passesFilters` is true whatever the order): the Queue then needs no view of an
+ * order it does not list (M12 performance pass, 10.3).
+ */
+export function passesEverything(filters = DEFAULT_FILTERS) {
+    const f = { ...DEFAULT_FILTERS, ...filters };
+    return f.scope === "all" && f.status === "any" && f.crafter === "any" && f.recipient === "any" && !f.search.trim();
+}
+
+/**
  * The Queue's orders in display order (10.3): open orders first, oldest first; closed ones after, newest first. Each
  * order's number is its place among all orders by filing time, so it does not change with the filters.
  * @returns {{order: object, no: number}[]}

@@ -19,11 +19,12 @@
  *
  * Measured at each stage, with the GM and both players online (`measure`): the ledger's size; on the GM's and Player One's
  * clients the Workshop's first and later opens and each part's render (Queue, Funds, Downtime, the header, the status bar),
- * and the set of parts a store change renders (`REFRESH_PARTS`, `WorkshopApp#refresh`); reconciliation on the GM's client;
- * a ledger write and a deposit as the GM, and what they cost the players' open windows (their renders, timed in place); from
- * S1 on, a full Advance days run through the wizard's window (span, who, checks, review, commit) as the GM, and the players'
- * renders meanwhile. At S2 the GM's client is profiled (Chrome DevTools Protocol sampling) around each, and the self time is
- * summed by function and by file (`hotspots`).
+ * and the parts a store change renders on the Queue tab (`REFRESH_PARTS`, `WorkshopApp#refresh`); reconciliation on the
+ * GM's client; a ledger write and a deposit as the GM, and what they cost the players' open windows (their renders, timed in
+ * place); from S1 on, a full Advance days run through the wizard's window (span, who, checks, review, commit) as the GM, and
+ * the players' renders meanwhile. At S2 the GM's client is profiled (Chrome DevTools Protocol sampling) around each, and the
+ * self time is summed by function and by file (`hotspots`). Every stage's medians are checked against the 50 ms re-render
+ * budget of 15.7 (`budgetChecks`); a miss fails the run.
  *
  * At the end, as the screenshot tool does: a reset with the module off, the party's members back and the copies and every
  * chat message of the run deleted, then a reset with it on. The results go to `<out>/results.json`. Console output only: a
@@ -59,11 +60,41 @@ export const PRODUCTS = Object.freeze([
 /** An alchemist's lab for the strongbox (G7: it counts for every crafter). */
 const LAB = "Compendium.pf2e.equipment-srd.Item.k6xZkDUpF7E1Totd";
 
-/** The parts `WorkshopApp#refresh` renders after any store change (the Morning part only while its tab is shown). */
-export const REFRESH_PARTS = Object.freeze(["header", "queue", "funds", "formulas", "downtime", "status"]);
+/**
+ * The parts `WorkshopApp#refresh` renders after a store change with the Queue tab shown: the header, the status bar and the
+ * shown tab (M12: hidden tabs render when shown; the first version of this pass timed every tab's part here).
+ */
+export const REFRESH_PARTS = Object.freeze(["header", "status", "queue"]);
 
 /** What DESIGN.md asks of these numbers: OQ-36's archive ages (workshop days), and the re-render budget this pass judges by. */
 export const BUDGETS = Object.freeze({ renderMs: 50, archiveOrderDays: 30, archiveRowDays: 60 });
+
+/**
+ * Whether the line under a paged Queue (10.3) reads "<listed> of <total> orders listed" and "Show <n> more", with the numbers
+ * filled in: no raw key and no `{placeholder}` left.
+ */
+export function pageLine(text, listed, total) {
+    return typeof text === "string" && text.includes(`${listed} of ${total} orders listed`) && /Show \d+ more/.test(text) && !/[{}]|pf2e-artisans-workshop\./.test(text);
+}
+
+/**
+ * The re-render budget's checks for one measured stage (15.7): on the GM's and Player One's clients, each tab's part and a
+ * live refresh on the Queue tab, and on every client what one ledger change costs its open window, each by its median.
+ * @returns {{name: string, ok: boolean, data: object}[]}
+ */
+export function budgetChecks(stage, measured, budget = BUDGETS.renderMs) {
+    const checks = [];
+    const within = (name, timing) => {
+        if (Number.isFinite(timing?.median)) checks.push({ name: `${stage}: ${name} within ${budget} ms`, ok: timing.median <= budget, data: timing });
+    };
+    for (const who of ["gm", "p1"]) {
+        const client = measured?.[who];
+        for (const part of ["queue", "funds", "downtime"]) within(`${who}'s ${part} part`, client?.parts?.[part]);
+        within(`${who}'s live refresh on the Queue tab`, client?.refresh);
+    }
+    for (const who of ["gm", "p1", "p2"]) within(`a ledger change in ${who}'s open window`, measured?.liveRenders?.[who]);
+    return checks;
+}
 
 /* -------------------------------------------- */
 /*  Pure parts                                   */
@@ -410,9 +441,32 @@ async function pageWindowTimes({ mod, runs, parts, refresh }) {
     await sleep(200);
     for (let i = 0; i < runs; i++) out.refresh.push(await time(() => app.render({ parts: refresh })));
     out.dom = { orderRows: app.element.querySelectorAll(".order-row").length, ledgerRows: app.element.querySelectorAll(".workshop-funds tbody tr").length,
-        elements: app.element.querySelectorAll("*").length };
+        elements: app.element.querySelectorAll("*").length, more: app.element.querySelector(".queue-more")?.textContent.replace(/\s+/g, " ").trim() ?? null };
     if (game.settings.get(mod, "ui.lastTab") !== lastTab) await game.settings.set(mod, "ui.lastTab", lastTab);
     return out;
+}
+
+/**
+ * This client: "Show more" under the Queue (10.3), clicked as a user would: the rows before and after, which row has focus and
+ * how many are tab stops, and what the status bar and the line under the list say. `{button: false}` when the list fits one page.
+ */
+async function pageShowMore({ mod }) {
+    const { openWorkshop, WorkshopApp } = await import(`/modules/${mod}/scripts/ui/workshop.mjs`);
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const app = WorkshopApp.instance ?? await openWorkshop({ tab: "queue" });
+    if (app.tabGroups.primary !== "queue") app.changeTab("queue", "primary");
+    await app.render({ parts: ["queue"] });
+    const rows = () => [...app.element.querySelectorAll(".order-row")];
+    const button = app.element.querySelector(".queue-more button");
+    if (!button) return { button: false, rows: rows().length };
+    const before = rows().length;
+    button.click();
+    for (let i = 0; i < 150 && rows().length === before; i++) await sleep(20);
+    await sleep(100);
+    const after = rows();
+    return { button: true, before, after: after.length, focusedIndex: after.indexOf(app.element.ownerDocument.activeElement),
+        tabStops: after.filter((row) => row.tabIndex === 0).length, status: app.element.querySelector(".workshop-live")?.textContent.trim() ?? null,
+        line: app.element.querySelector(".queue-more")?.textContent.replace(/\s+/g, " ").trim() ?? null };
 }
 
 /** This client: time each render of the open Workshop from now on (`pageRenderLog` reads them), opening it on the Queue if needed. */
@@ -630,6 +684,8 @@ async function measure(h, world, { runs, wizard, profile }) {
         out.profiles.depositSeenByP1 = await profiled(h, "gm", "profile deposit on p1", pageWrites, deposits, "p1").then((r) => r.hotspots);
         if (wizard) out.profiles.wizard = await p("profile wizard", pageWizard, { mod: MODULE_ID, count: 7 });
     }
+    // Last, since it leaves Player One's Queue two pages long: "Show more", clicked (10.3).
+    out.showMore = await h.evaluate("p1", pageShowMore, { mod: MODULE_ID }, "show more");
     await h.closeAll();
     return out;
 }
@@ -705,6 +761,7 @@ async function main() {
         ];
         h.label = "S0";
         report.stages.S0 = await measure(h, world, { runs, wizard: false, profile: false });
+        for (const c of budgetChecks("S0", report.stages.S0)) h.check(c.name, c.ok, c.data);
         save();
 
         h.label = "seed";
@@ -723,6 +780,7 @@ async function main() {
         h.check(`${n("days")} days advanced for every member`, report.downtime.advance?.ok === true, report.downtime.advance);
         h.label = "S1";
         report.stages.S1 = await measure(h, world, { runs, wizard: true, profile: true });
+        for (const c of budgetChecks("S1", report.stages.S1)) h.check(c.name, c.ok, c.data);
         save();
 
         h.label = "clone";
@@ -736,8 +794,18 @@ async function main() {
         report.clone.writes = await h.evaluate("gm", pageWriteClones, { mod: MODULE_ID, set: plan.set, pages: plan.pages, boxCp: plan.boxCp, chunk: 150 }, "write copies");
         h.label = "S2";
         report.stages.S2 = await measure(h, world, { runs, wizard: true, profile: true });
+        for (const c of budgetChecks("S2", report.stages.S2)) h.check(c.name, c.ok, c.data);
         h.check("S2 reached the orders and rows asked for", report.stages.S2.ledger.orders >= n("orders") && report.stages.S2.ledger.rows >= n("rows"), report.stages.S2.ledger);
         h.check("S2 still reconciles", report.stages.S2.reconcile.differenceCp === 0 && report.stages.S2.reconcile.pending === 0, report.stages.S2.reconcile);
+        const more = report.stages.S2.showMore ?? {};
+        h.check("S2: Show more lists the next page, puts focus on its first order and says how many are listed", more.button === true &&
+            more.after > more.before && more.focusedIndex === more.before && more.tabStops === 1 &&
+            more.status === `${more.after} of ${report.stages.S2.ledger.orders} orders listed`, more);
+        for (const who of ["gm", "p1"]) {
+            const dom = report.stages.S2[who]?.dom ?? {};
+            h.check(`S2: ${who}'s Queue lists one page of the orders, and says so in words`, dom.orderRows < report.stages.S2.ledger.orders &&
+                pageLine(dom.more, dom.orderRows, report.stages.S2.ledger.orders), dom);
+        }
     } catch (error) {
         report.error = error.stack ?? error.message;
         console.log(`! ${error.message}`);

@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { hashId } from "../scripts/logic/ids.mjs";
 import { isDayRecord } from "../scripts/logic/downtime.mjs";
 import { FIXTURES } from "../tools/harness/fixtures.mjs";
-import { EXTRA, cloneRecords, hotspots, shortUrl, stats } from "../tools/harness/perf.mjs";
+import { BUDGETS, EXTRA, REFRESH_PARTS, budgetChecks, cloneRecords, hotspots, pageLine, shortUrl, stats } from "../tools/harness/perf.mjs";
 
 const ACTOR = "Actor.aaaaaaaaaaaaaaaa";
 
@@ -147,4 +147,26 @@ test("the three extra members are copies of fixture characters with generic name
         assert.ok(FIXTURES.some((f) => f.id === member.fixture && !f.npc), member.fixture);
         assert.doesNotMatch(member.name, /fixture|\d|:/i);
     }
+});
+
+test("the re-render budget's checks: every part, the refresh and each window's cost per change, by median", () => {
+    const t = (median) => ({ n: 5, median });
+    const client = (queue) => ({ parts: { queue: t(queue), funds: t(27), downtime: t(10), header: t(1) }, refresh: t(queue + 5) });
+    const stage = { gm: client(12), p1: client(57), liveRenders: { gm: t(20), p1: t(62), p2: t(null) } };
+    const checks = budgetChecks("S2", stage);
+    assert.equal(BUDGETS.renderMs, 50);
+    assert.deepEqual(checks.filter((c) => !c.ok).map((c) => c.name), [
+        "S2: p1's queue part within 50 ms", "S2: p1's live refresh on the Queue tab within 50 ms", "S2: a ledger change in p1's open window within 50 ms",
+    ]);
+    assert.equal(checks.length, 2 * 4 + 2, "nothing measured, nothing checked (p2's window had no render)");
+    assert.deepEqual(budgetChecks("S0", {}), []);
+    assert.deepEqual(REFRESH_PARTS, ["header", "status", "queue"], "what a live refresh renders on the Queue tab, hidden tabs left stale");
+});
+
+test("the paged Queue's line is checked as the user reads it: numbers filled in, no raw key", () => {
+    assert.equal(pageLine("30 of 200 orders listed Show 30 more", 30, 200), true);
+    assert.equal(pageLine("30 of 200 orders listed Show {n} more", 30, 200), false);
+    assert.equal(pageLine("pf2e-artisans-workshop.Queue.Listed Show 30 more", 30, 200), false);
+    assert.equal(pageLine(null, 30, 200), false);
+    assert.equal(pageLine("30 of 200 orders listed", 30, 200), false, "the button is part of it");
 });

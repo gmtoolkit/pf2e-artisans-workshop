@@ -209,6 +209,8 @@ All notable changes to this module are documented here. The format follows
   amount dialog no longer accepts a single number read as copper.
 - A casting for a scroll or wand is "offered" rather than "pledged", and an item handed over for an order is given
   back with "Give the item back".
+- The Queue lists 30 orders at a time, open orders first, with "Show 30 more" under the list for the next ones; a new filter
+  starts again from the top. With hundreds of orders behind a campaign the Workshop no longer slows down redrawing all of them.
 
 ### Fixed
 

@@ -353,6 +353,9 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .order-actions { justify-content: flex-end; }
 .order-actions button { flex: 0 0 auto; padding: 0.15rem 0.55rem; }
 .drop-hint { margin: 0.5rem 0; text-align: center; border: 1px dashed var(--paw-line); border-radius: 5px; padding: 0.4rem; }
+.queue-more { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.3rem 0.75rem; margin: 0.5rem 0 0; }
+.queue-more .listed { color: var(--color-text-secondary, inherit); font-variant-numeric: tabular-nums; }
+.queue-more button { flex: 0 0 auto; width: auto; padding: 0.15rem 0.75rem; }
 
 .order-detail {
     min-height: 0;

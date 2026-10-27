@@ -4142,6 +4142,14 @@ per day; three extra days leave 1,450 cp, and (3,250 + 1,800) / 6,500 = 78%.
 - **Rows** are focusable with a roving tabindex; Enter opens the detail (drawer at wide sizes,
   slide-over at medium, full view at narrow); a context menu (`ContextMenu` with `jQuery: false`) holds
   secondary actions.
+- **One page at a time** (as built in M12, 15.7): the list holds at most 30 of the orders that pass the filters
+  (`QUEUE_PAGE`), open orders first as above; under it "30 of 200 orders listed" and "Show 30 more" add the next page,
+  focus moving to the first order added and the status bar saying how many are listed. New filters, and a new window,
+  start at the first page; a live refresh keeps the pages shown. With no filter set, an order past the page gets no view at
+  all (`passesEverything`); a filter still judges every order, since it needs each one's view. An order opened from
+  elsewhere (a chat card, `api.ui.open`) opens its detail even when its row is not on the page. Why: at 200 orders most of
+  a Queue render was Foundry's work on the DOM of every order ever made, and closed orders stay listed until archiving
+  (5.3.3).
 
 ### 10.4 Entry points into sheets
 
@@ -8106,7 +8114,8 @@ match the GM's within a few ms, except that a player's Funds tab has no reconcil
 
 - **Budget.** DESIGN set no number for a re-render; this pass judges by 50 ms (about three frames), as the M12 brief asked.
   After the fixes S1 is inside it everywhere; at S2 the Funds and Downtime tabs are, the Queue is not (57 ms alone, 82 ms for a
-  refresh with the header), nor is what a change costs a window showing the Queue (62 ms).
+  refresh with the header), nor is what a change costs a window showing the Queue (62 ms). The second pass, on main (below),
+  pages the Queue and brings all of S2 inside it.
 - **Hotspots** (CPU profiles of the GM's page, self time). Before the fixes, at S2: `liveRecords` 31% of a Queue render (each
   order read every row and day record of the ledger: `orderRows`, `orderDays`), Foundry's `_syncPartState` 26%, `money` and
   `number` 13% (a new `Intl.NumberFormat` for every amount; `when` made an `Intl.DateTimeFormat` for every row). After them: the
@@ -8138,20 +8147,75 @@ Fixed in this pass (each with a test that fails without it):
   once (`orderContext` takes them; `test/foundry/ui.test.mjs`).
 - **A formatter per amount**: `number` and `when` keep one `Intl` formatter per interface language (`test/foundry/format.test.mjs`).
 
-**Follow-ups** (low, except the first two, which are the archiving work 5.3.3 already describes):
+**Second pass, on main** (2026-10-27). The fixes above were merged onto main without the rest of the M12 branch, and the
+Queue was still over budget at S2. Fixed, each with a test that fails without it:
 
-- Archiving (5.3.3) and with it the pruning of lock pages (5.4) are built in no milestone; until they are, a long campaign's
-  ledger only grows, and every write with it (above). Medium for 1.0: worth a milestone of its own before the listing.
-- The Queue lists every order ever made, the closed ones until archiving: at 200 orders its render is over budget, and most of
-  it is Foundry's work on the DOM. Archiving answers it; a collapsed "Closed" group or paging would until then.
+- **The Queue listed every order ever made**, closed ones until archiving: at 200 orders about 8800 elements, most of a Queue
+  render Foundry's work on them. It now lists one page of 30 of the orders that pass its filters (10.3, `QUEUE_PAGE`), with
+  "30 of 200 orders listed" and "Show 30 more" under the list; with no filter set the orders past the page get no view at
+  all (`passesEverything`). `test/foundry/queue-budget.test.mjs` seeds S2's shape (200 orders, 2000 rows, 500 day records)
+  over the fake world and holds the Queue to one page in the DOM, to views built for no more orders than it lists, and the
+  module's part to the 50 ms budget; it also covers the next page, a new filter starting at the first, and where "Show more"
+  puts focus.
+- **The budget is checked, not only reported.** `budgetChecks` makes each stage's medians failing checks of the run (every
+  tab's part and a live refresh on the Queue tab as the GM and Player One, a ledger change in each user's open window), and at
+  S2 the run checks that the Queue lists one page and says so in words (no raw key, no `{placeholder}`, `pageLine`) and that
+  "Show more", clicked, adds the next page with focus on its first order and the count in the status bar. The first pass timed
+  its "live refresh" as a render of every tab's part, which its own fix stopped the refresh doing; `REFRESH_PARTS` is now
+  what a refresh renders on the Queue tab (header, status bar, Queue), so the first pass's 82 ms for S2 overstates it.
+
+The run on main with every fix served (`npm run harness:perf`, defaults; medians in ms, the GM's then Player One's where two):
+
+| | S1 | S2, first pass after its fixes | S2 now |
+|---|---|---|---|
+| Queue part | 10.8, 11.5 | 57, 59 | 12.8, 12.4 |
+| A live refresh on the Queue tab | 11.7, 12.5 | 82, 79 (every tab's part) | 13, 12.7 |
+| A ledger change in each open window (GM, Player One, Player Two) | 18, 13, 18 | 62, 62, 63 | 19, 14, 18 |
+| Workshop open: first in the page, then | 88, 22 | 173, 88 | 131, 32 |
+| Elements in the GM's window | 3037 | 8800 | 4231 |
+| Funds part | 14, 15 | 27, 25 | 30, 27 |
+| A plain ledger write; a deposit | 60; 365 | 202; 1329 | 212; 1379 |
+| Advance days, 7 days, 5 PCs: the commit | 1.7 s | 9.5 s | 9.8 s |
+
+Every budget check passed at S0, S1 and S2, and so did the page and "Show more" checks; no console error on any client. The
+Queue's render is now Foundry's again (`_syncPartState` 38%, `_deepClone` 20% of its CPU at S2). The writes and the wizard did
+not move: they are the lock pages' (Follow-ups). The 20 plans of the first pass's regression run (scenario 7, `wage-once`,
+`resume`, `m4-lifecycle`, `m4-cancel`, `m4-ui`, `m5-fund`, `m5-ui`, the six `m6-*` plans, `m7-morning`, `m8-turn`, `m9a-off`,
+`m11-keyboard`, `m11-keyboard-gm`, `m11-themes`) passed again on main, 217 checks, with the same console errors as before (the
+deliberate lock collisions of scenario 7, `resume` and `m6-income`, the dropped connection `resume` makes, and pf2e's own null
+`id` in `m8-turn` without a canvas).
+
+**Follow-ups:**
+
+- **High: archiving (5.3.3) and the lock pages (5.4) are built in no milestone, and bounding the lock pages is a design call
+  for the author.** Every write's cost grows with the ledger's lock pages and nothing removes them: on main, a plain write took
+  3.5 ms at S0, 60 ms at S1 (479 pages) and 212 ms at S2 (2220), a deposit 50, 365 and 1379 ms, on the server and on every
+  client. Archiving as 5.3.3 describes it would not bound them: it goes by age (30 and 60 workshop days), while the cost grows
+  with their count from the first weeks. And no pruner can be written safely today, because a lock page carries no kind: its
+  id is a hash (a row id, `stack:<id>:<version>`, `apply:<row>`, a delivery's re-creation, and the "once" markers of coatings,
+  affliction saves, vials, expiry, morning preparations, formulas, Deconstruct, gardens and extensions), so nothing tells a
+  spent stack lock from a marker that must stay. The options, each a change to 5.4: give every new lock page its kind and what
+  it guards (`flags.<module>.lock = {kind, ...}`), then prune spent ones by kind and count (a row's lock once the row is applied
+  and older than `ANSWER_LIMIT_MS` plus `PENDING_GRACE_MS`, which every move then checks by the row itself; a stack lock once its
+  stack has moved on or gone), with the untagged pages of older worlds left or migrated; or move the lock pages to a journal
+  entry of their own (5.2), so the ledger's own updates stop carrying them, which leaves the lock requests' cost as it is. Worth
+  its own milestone before the listing.
+- With a filter set, the Queue still builds every order's view to judge it (the module's part of a Queue render, about 25 ms at
+  200 orders in the first pass's profile): a filter on what the order record holds (status, crafter, recipient) could judge it
+  without a view.
+- The Funds tab lists every ledger row (338 at S2) and grows with them: 30 ms at S2, inside the budget; a page would bound it as
+  it bounds the Queue.
 - An Advance days commit writes each PC's days in its own request, then each earner's wages, then the logged-day mark and the
   card: 10 requests for five PCs, each a ledger update every client re-initialises. One request for all the PCs' days would
   shorten it further.
 - Opening the Workshop reads `clientWidth` right after rendering (`#syncTooltips`), which forces a layout of the new DOM in the
-  open's own time.
+  open's own time (25% of an open's CPU at S2 now).
+- The matrix ran all four companions off and all on; each alone (15.5's middle row), Duct Tape (stand-ins only, as in M8) and a
+  calendar module (not installed in the dev world) were not run.
 - The performance pass cannot profile the server (the dev server runs without an inspector and the pass does not restart it);
   the probe journal above stands in for it. Its copies of S1's records repeat S1's orders (the same items, crafters and
-  states), and a copied order's work days get ids that are not day records (`-p<n>`), so they count for the order only.
+  states, two in three of them open), and a copied order's work days get ids that are not day records (`-p<n>`), so they count
+  for the order only.
 
 ---
 
@@ -8445,7 +8509,7 @@ strip, the Party card and the shelf in both schemes into `--shots`.
 | OQ-33 | Do PF2e HUD or Token Action HUD alter the core token HUD's left column? | inject anyway, null-guarded | harness |
 | OQ-34 | How the Forge test will be run (trial world or a Forge-hosted test table) | **Resolved:** no dedicated Forge test; the first pre-release run at a real table hosted on the Forge is the Forge smoke test (15.6, M12) | author decision, 2026-10-25 |
 | OQ-35 | Does the module rely on Paizo's Community Use Policy at all, given it ships only ORC/OGL mechanics and references by UUID? Is "PF2e" in the title acceptable to Paizo? | **Resolved:** the title is "PF2e Artisan's Workshop", with the Community Use Policy notice plus the ORC and OGL notices (16.6) | author decision, 2026-10-25 |
-| OQ-36 | Archive thresholds and the ledger document size at which performance suffers | 30 and 60 workshop days; M12 measured that the lock pages, not the flags, set the cost of every write (59 ms with 474 pages, 202 ms with 2209), so the bound must be on them (15.7) | archiving (5.3.3), then `npm run harness:perf` |
+| OQ-36 | Archive thresholds and the ledger document size at which performance suffers | 30 and 60 workshop days; M12 measured that the lock pages, not the flags, set the cost of every write (59 ms with 474 pages, 202 ms with 2209), so the bound must be on them, and a lock page needs a kind before anything can prune it safely (15.7, Follow-ups) | the author's choice of bound (15.7), archiving (5.3.3), then `npm run harness:perf` |
 | OQ-37 | Uncommon or rarer items without a formula: Player Core p.237 allows any access; GM Core p.223 requires the formula | Player Core reading: access from a known formula or a registry grant; `rules.uncommonNeedsFormula` off | Paizo errata or author decision |
 | OQ-38 | Does tier-4 legacy content include items that exist only in the PF2e Legacy Data module (different UUIDs)? | **Resolved:** system packs only; items that exist only in the PF2e Legacy Data module are out of scope (1.2, 6.11) | author decision, 2026-10-25 |
 | OQ-39 | Affliction rules gaps: does a virulent critical success reduce the stage at once (as designed) or count as one of the two consecutive successes; does a virulent success that changes nothing repeat the stage's effects (as designed); does the maximum duration start after the onset (as designed, supported by poisons whose onset exceeds their maximum duration)? Affliction Forge reads the virulent critical success the same way | as in 8.10.6 | rules reading by the author |

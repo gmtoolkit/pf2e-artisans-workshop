@@ -83,6 +83,10 @@
                 </li>
                 {{/each}}
             </ol>
+            {{#if more}}
+            <p class="queue-more"><span class="listed">{{more.listedText}}</span>
+                <button type="button" data-action="moreOrders"><i class="fa-solid fa-angles-down" inert></i>{{more.buttonText}}</button></p>
+            {{/if}}
             {{else}}
             <p class="queue-empty">{{#if total}}{{localize "pf2e-artisans-workshop.Queue.NoMatch"}}{{else}}{{localize "pf2e-artisans-workshop.Queue.Empty"}}{{/if}}</p>
             {{/if}}

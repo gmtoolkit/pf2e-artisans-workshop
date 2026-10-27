@@ -31,7 +31,7 @@ import { MODULE_ID } from "../constants.mjs";
 import { unallocatedCp } from "../logic/funds.mjs";
 import { CLOSED, logEntries, withdrawableCp } from "../logic/orders.mjs";
 import {
-    DEFAULT_FILTERS, fundWithdrawableCp, fundsView, passesFilters, queueOrder, queueSummary, rowLabel,
+    DEFAULT_FILTERS, fundWithdrawableCp, fundsView, passesEverything, passesFilters, queueOrder, queueSummary, rowLabel,
 } from "../logic/views.mjs";
 import { holdingsOf, valueCp } from "../logic/coins.mjs";
 import { coinStacks } from "../foundry/coins.mjs";
@@ -68,6 +68,13 @@ const T = (name) => `modules/pf2e-artisans-workshop/templates/workshop/${name}.h
 
 /** The tabs a live refresh renders while shown, and leaves stale while hidden (`WorkshopApp#refresh`). */
 const LIVE_TABS = Object.freeze(["queue", "funds", "morning", "formulas", "downtime"]);
+
+/**
+ * How many orders the Queue lists at first, and how many more each "Show more" adds (10.3, M12 performance pass: with 200
+ * orders, most of a Queue render was Foundry's work on the DOM of every order ever made, about 8800 elements, and the Queue
+ * was over the 50 ms re-render budget of 15.7). Open orders come first, so a page holds the ones a party works on.
+ */
+export const QUEUE_PAGE = 30;
 
 /** The longest a press in the window holds renders back (`renderParts`): a human click is far shorter. */
 export const PRESS_HOLD_MS = 1500;
@@ -132,6 +139,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             closeRow: WorkshopApp.#onCloseRow,
             adjust: WorkshopApp.#onAdjust,
             clearFilters: WorkshopApp.#onClearFilters,
+            moreOrders: WorkshopApp.#onMoreOrders,
             // M5: the Formulas tab, casting pledges, custody and service orders.
             formula: WorkshopApp.#onFormula,
             pledgeOp: WorkshopApp.#onPledgeOp,
@@ -182,8 +190,21 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
      * the detail's list of met requirements is expanded (kept across live re-renders), the character this user acts as,
      * the last event.
      */
-    filters = { ...DEFAULT_FILTERS };
+    #filters = { ...DEFAULT_FILTERS };
     selected = null;
+
+    /** How many of the orders that pass the filters the Queue lists (`QUEUE_PAGE` more per "Show more"). */
+    queueLimit = QUEUE_PAGE;
+
+    get filters() {
+        return this.#filters;
+    }
+
+    /** New filters list their first page again. */
+    set filters(value) {
+        this.#filters = value;
+        this.queueLimit = QUEUE_PAGE;
+    }
     activeRow = null;
     metOpen = false;
     acting = null;
@@ -359,11 +380,26 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const rules = rulesFromSettings();
         const rowsByOrder = byOrder(records("rows"));
         const daysByOrder = byOrder(records("days"));
+        // One page of the orders that pass the filters (`QUEUE_PAGE`, M12 performance pass). With no filter every order passes,
+        // so the ones past the page are counted without a view; a filter needs each order's view to judge it.
+        const everything = passesEverything(this.filters);
         const views = [];
+        let matched = 0;
         for (const { order, no } of queueOrder(all)) {
+            if (everything && views.length >= this.queueLimit) {
+                matched += 1;
+                continue;
+            }
             const view = await orderContext(order, { no, viewer, rules, rows: rowsByOrder.get(order.id) ?? [], days: daysByOrder.get(order.id) ?? [] });
-            if (passesFilters(view, order, this.filters)) views.push({ ...view, kindText: kindText(order), targetText: targetText(order) });
+            if (!passesFilters(view, order, this.filters)) continue;
+            matched += 1;
+            if (views.length < this.queueLimit) views.push({ ...view, kindText: kindText(order), targetText: targetText(order) });
         }
+        const left = matched - views.length;
+        const more = left > 0 ? {
+            listedText: game.i18n.format("pf2e-artisans-workshop.Queue.Listed", { shown: number(views.length), total: number(matched) }),
+            buttonText: game.i18n.format("pf2e-artisans-workshop.Queue.ShowMore", { n: number(Math.min(QUEUE_PAGE, left)) }),
+        } : null;
         this.#rowActions = new Map(views.map((v) => [v.id, v.actions ?? {}]));
         // One row is the list's tab stop (roving tabindex, 10.9): the one the user was on, else the first.
         const stop = views.some((v) => v.id === this.activeRow) ? this.activeRow : views[0]?.id ?? null;
@@ -377,8 +413,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const option = (value, label, current) => ({ value, label, selected: value === current });
         const people = members();
         return {
-            orders: views, selected, total: all.length, summary: queueSummary(all), services: servicesView(allServices()),
-            filters: this.filters, filtered: views.length !== all.length,
+            orders: views, more, selected, total: all.length, summary: queueSummary(all), services: servicesView(allServices()),
+            filters: this.filters, filtered: matched !== all.length,
             scopeOptions: [
                 option("all", "pf2e-artisans-workshop.Queue.Filter.All", this.filters.scope),
                 option("mine", "pf2e-artisans-workshop.Queue.Filter.Mine", this.filters.scope),
@@ -783,7 +819,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.selected = null;
         this.activeRow = id ?? this.activeRow;
         await this.render({ parts: ["queue"] });
-        const row = this.element.querySelector(`.order-row[data-order-id="${id}"]`);
+        // An order opened from elsewhere may not be on the Queue's page (`QUEUE_PAGE`): focus goes to the list's tab stop then.
+        const row = this.element.querySelector(`.order-row[data-order-id="${id}"]`) ?? this.element.querySelector(".order-row[tabindex='0']");
         if (row) {
             this.#makeTabStop(row);
             row.focus();
@@ -830,6 +867,24 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     static #onClearFilters() {
         this.filters = { ...DEFAULT_FILTERS };
         return this.render({ parts: ["queue"] });
+    }
+
+    /**
+     * "Show more" under the order list: the next page of orders (`QUEUE_PAGE`). Focus moves to the first order it adds, which
+     * becomes the list's tab stop, and the status bar says how many are listed now (10.9).
+     */
+    static async #onMoreOrders() {
+        const first = this.queueLimit;
+        this.queueLimit += QUEUE_PAGE;
+        await this.render({ parts: ["queue"] });
+        const rows = [...(this.element?.querySelectorAll(".order-row") ?? [])];
+        const row = rows[first];
+        if (row) {
+            this.#makeTabStop(row);
+            row.focus();
+        }
+        const listed = this.element?.querySelector(".queue-more .listed")?.textContent;
+        this.announce(listed || game.i18n.format("pf2e-artisans-workshop.Queue.ListedAll", { n: number(rows.length) }));
     }
 
     /** The order buttons: `data-op` names the lifecycle step (4.2.3). */
