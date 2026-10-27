@@ -67,6 +67,12 @@ export function applyOverride(def, override) {
     if (override.traits) out.traits = [...new Set([...out.traits, ...override.traits])];
     if (override.reExposure) out.reExposure = override.reExposure;
     if (override.keepsCoating) out.keepsCoating = true;
+    // Rules an intro sets for a stage condition (8.10.2): `cumulative` values add up with each failed save and never go down
+    // while it lasts (King's Sleep's drained); `detach` conditions outlast their stage and the affliction (Nethershade's
+    // enfeebled); `intro: "table"` marks an intro whose rule the table applies, reviewed.
+    if (override.cumulative) out.cumulative = [...override.cumulative];
+    if (override.detach) out.detach = [...override.detach];
+    if (override.intro) out.intro = { ...(out.intro ?? {}), rule: override.intro };
     out.overridden = true;
     out.problems = (out.problems ?? []).filter((p) => !/^(?:stage|interval)-\d+$/.test(p) || out.stages[Number(p.split("-")[1]) - 1]?.unparsed);
     if (override.save) out.problems = out.problems.filter((p) => p !== "save");
@@ -147,12 +153,17 @@ export function typicalSeconds(duration) {
 }
 
 /**
- * The tracker's clock (8.10.7): world time, or, once days have been logged without moving it, the end of the last logged
- * day if that is later. `afflictionNow = max(worldTime, (manualDay + 1) × secondsPerDay − offset)`.
+ * The tracker's clock (8.10.7): world time, moved on by the whole days the Advance days wizard's log runs ahead of the clock's
+ * day, `afflictionNow = worldTime + max(0, manualDay − clockDay) × secondsPerDay`. While the log is ahead it reads the
+ * workshop day (4.8, the same max rule) at the world's time of day, so rounds, minutes and hours still move it; once the
+ * clock's day reaches the log ("advance clock to match", which keeps the time of day) it is world time, with no jump. A
+ * midnight the world clock crosses while the log is still ahead lands inside the logged days and adds nothing, as for the
+ * workshop day: the clock reads a day less, and, as for a clock set back, due times wait (8.10.7).
  */
 export function afflictionNow({ worldTime, manualDay = null, secondsPerDay = 86400, offset = 0 }) {
     if (!Number.isInteger(manualDay)) return worldTime;
-    return Math.max(worldTime, (manualDay + 1) * secondsPerDay - offset);
+    const clockDay = Math.floor((worldTime + offset) / secondsPerDay);
+    return worldTime + Math.max(0, manualDay - clockDay) * secondsPerDay;
 }
 
 /**
@@ -258,12 +269,13 @@ export function newRun({ id, source, defKey, dc, mods = [], by = null, at = null
 /** What a stage does when it is reached (8.10.1): its conditions, effects and damage, with the modifiers' damage type. */
 export function stageEffects(def, stage, mods = []) {
     const data = def.stages?.[stage - 1];
-    if (!data) return { conditions: [], effects: [], damage: [], unparsed: false };
+    if (!data) return { conditions: [], effects: [], damage: [], unparsed: false, cumulative: [] };
     const acid = hasMod(mods, "toxicologist-acid");
+    const detach = def.detach ?? [];
     return {
-        conditions: clone(data.conditions ?? []), effects: clone(data.effects ?? []),
+        conditions: clone(data.conditions ?? []).map((c) => (detach.includes(c.slug) ? { ...c, linked: false } : c)), effects: clone(data.effects ?? []),
         damage: (data.damage ?? []).map((d) => ({ ...d, damageType: acid && d.damageType === "poison" ? "acid" : d.damageType })),
-        unparsed: !!data.unparsed,
+        unparsed: !!data.unparsed, cumulative: [...(def.cumulative ?? [])],
     };
 }
 
@@ -272,8 +284,11 @@ export function ended(run, reason = "saved", now = null) {
     return { ...run, phase: "ended", nextDueAt: null, pending: null, endedAt: now, endReason: reason };
 }
 
-/** Enter (or repeat) a stage at `now` (8.10.6 `enterStage`): its interval starts; the maximum duration starts with the first. */
-export function enterStage(run, def, stage, now, ctx = {}, { keepMax = false } = {}) {
+/**
+ * Enter (or repeat) a stage at `now` (8.10.6 `enterStage`): its interval starts; the maximum duration starts with the first.
+ * `failed`: a failed save brought it here (a `cumulative` condition adds its value then, 8.10.2).
+ */
+export function enterStage(run, def, stage, now, ctx = {}, { keepMax = false, failed = false } = {}) {
     const first = run.phase !== "active";
     const repeat = !first && run.stage === stage;
     const interval = rollDuration(def.stages[stage - 1]?.duration ?? null, ctx.random);
@@ -284,7 +299,7 @@ export function enterStage(run, def, stage, now, ctx = {}, { keepMax = false } =
             ...run, phase: "active", stage, interval, nextDueAt: Number.isFinite(interval.seconds) ? now + interval.seconds : null,
             maxEndsAt, onsetEndsAt: null, anchor: ctx.anchor ?? null, enteredAt: now,
         },
-        effects: { stage, repeat, ...stageEffects(def, stage, run.mods) },
+        effects: { stage, repeat, failed, ...stageEffects(def, stage, run.mods) },
     };
 }
 
@@ -312,20 +327,26 @@ export function applyDegree(run, def, degree, kind, now, ctx = {}) {
         const extras = initialExtras(counted, run.source?.level ?? def.level ?? 0, run.mods);
         if (counted >= DEGREE.success) return { run: ended(run, "saved", now), effects: null, extras, ended: true, degree: counted };
         const stage = Math.min(max, counted === DEGREE.critFail ? 2 : 1);   // a single-stage affliction stays at 1
-        const step = def.onset ? startOnset(run, def, stage, now, ctx) : enterStage(run, def, stage, now, ctx);
+        const step = def.onset ? startOnset(run, def, stage, now, ctx) : enterStage(run, def, stage, now, ctx, { failed: true });
         return { ...step, extras, ended: false, degree: counted };
     }
     if (kind === "re-exposure") {
         if (def.reExposure === "none" || def.reExposure === "table") return { run, effects: null, extras: [], ended: false, noSave: true };
+        // A re-exposure's save is the initial save against a new exposure (Player Core p.431): that exposure's own modifiers
+        // (`ctx.mods`, the claim's) count as they do for an initial save: Blowgun Poisoner's degree, Pernicious Poison's and
+        // Combustible Poison's damage.
+        const mods = ctx.mods ?? run.mods;
+        const counted = initialDegree(degree, mods);
+        const extras = initialExtras(counted, run.source?.level ?? def.level ?? 0, mods);
         let next = run;
         if (def.reExposure === "reset-max" && run.phase === "active") {
             const seconds = maxSeconds(def, run.mods);
             next = { ...run, maxEndsAt: Number.isFinite(seconds) ? now + seconds : null };
         }
-        if (kindOf(def) !== "poison" || degree >= DEGREE.success) return { run: next, effects: null, extras: [], ended: false };
-        const stage = Math.min(max, next.stage + (degree === DEGREE.critFail ? 2 : 1));
-        if (next.phase === "onset") return { run: { ...next, stage }, effects: null, extras: [], ended: false };   // the onset's length stands
-        return { ...enterStage(next, def, stage, now, ctx, { keepMax: true }), extras: [], ended: false };
+        if (kindOf(def) !== "poison" || counted >= DEGREE.success) return { run: next, effects: null, extras, ended: false, degree: counted };
+        const stage = Math.min(max, next.stage + (counted === DEGREE.critFail ? 2 : 1));
+        if (next.phase === "onset") return { run: { ...next, stage }, effects: null, extras, ended: false, degree: counted };   // the onset's length stands
+        return { ...enterStage(next, def, stage, now, ctx, { keepMax: true, failed: true }), extras, ended: false, degree: counted };
     }
     // A stage save at the end of an interval.
     let { stage, streak = 0 } = run;
@@ -347,7 +368,7 @@ export function applyDegree(run, def, degree, kind, now, ctx = {}) {
     if (stage < 1) return { run: ended({ ...run, streak }, "recovered", now), effects: null, extras: [], ended: true };
     // Past the highest stage, or a virulent success that changed nothing: that stage's effects repeat and its interval
     // restarts (Player Core p.430; the virulent case is an interpretation, OQ-39).
-    return { ...enterStage({ ...run, streak }, def, Math.min(stage, max), now, ctx, { keepMax: true }), extras: [], ended: false };
+    return { ...enterStage({ ...run, streak }, def, Math.min(stage, max), now, ctx, { keepMax: true, failed: degree <= DEGREE.fail }), extras: [], ended: false };
 }
 
 /**
@@ -371,7 +392,7 @@ export function advance(run, def, now, ctx = {}) {
             return { run: current, steps, save: null };
         }
         // The onset ends: the stage it waited for takes effect at that moment.
-        const step = enterStage(current, def, Math.max(1, current.stage), event.at, { ...ctx, anchor: current.anchor ?? ctx.anchor ?? null });
+        const step = enterStage(current, def, Math.max(1, current.stage), event.at, { ...ctx, anchor: current.anchor ?? ctx.anchor ?? null }, { failed: true });
         current = step.run;
         steps.push({ kind: "onset", at: event.at, effects: step.effects, ended: false });
     }
@@ -597,18 +618,25 @@ export function grantOnDelete(condition) {
 /**
  * The condition changes entering a stage makes (8.10.1, as pf2e's `handleStageChange`): delete the tracker's linked
  * conditions that do not expire on their own, then create or update the new stage's. `existing` are the actor's conditions
- * as `{id, slug, value, grantedBy, linked}` (`grantedBy` the tracker's id when it granted them).
+ * as `{id, slug, value, grantedBy, linked}` (`grantedBy` the tracker's id when it granted them). A `cumulative` condition
+ * (8.10.2, King's Sleep's drained) adds the stage's value to the one it has on each failed save (`failed`) and never goes
+ * down while the affliction lasts.
  *
+ * @param {{cumulative?: string[], failed?: boolean}} [rules]
  * @returns {{deletes: string[], updates: {id: string, value: number|null}[], creates: {slug, value, linked, onDelete}[]}}
  */
-export function stageConditionPlan(trackerId, conditions, existing) {
+export function stageConditionPlan(trackerId, conditions, existing, { cumulative = [], failed = false } = {}) {
     const mine = existing.filter((c) => c.grantedBy === trackerId);
-    const deletes = mine.filter((c) => c.linked !== false && !EXPIRING_CONDITIONS.includes(c.slug)).map((c) => c.id);
+    const deletes = mine.filter((c) => c.linked !== false && !EXPIRING_CONDITIONS.includes(c.slug) && !cumulative.includes(c.slug)).map((c) => c.id);
     const kept = mine.filter((c) => !deletes.includes(c.id));
     const updates = [];
     const creates = [];
     for (const data of conditions) {
         const had = kept.find((c) => c.slug === data.slug);
+        if (had && cumulative.includes(data.slug)) {
+            if (failed && Number.isFinite(data.value)) updates.push({ id: had.id, value: (had.value ?? 0) + data.value });
+            continue;
+        }
         if (had) {
             if (data.value !== null && data.value !== had.value) updates.push({ id: had.id, value: data.value });
             continue;

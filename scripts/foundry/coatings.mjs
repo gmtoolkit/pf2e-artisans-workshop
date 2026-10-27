@@ -24,7 +24,7 @@ import { canDoublePoison, coatingAfterAttack, coatingAfterDamage, deliveryOf, me
 import { hashId, idemKey } from "../logic/ids.mjs";
 import { makeClaim } from "../logic/claims.mjs";
 import { definitionOf, exposureDc, sourceUuidOf } from "./affliction-defs.mjs";
-import { afflictionsOn, clockNow, expose, exposureMods } from "./afflictions.mjs";
+import { afflictionsOn, clockNow, expose, exposureMods, isCompendiumSource, snapshotOf } from "./afflictions.mjs";
 import { runRequest } from "./batch.mjs";
 import { registerClaimKind } from "./claims.mjs";
 import { forgeReferences } from "./forge.mjs";
@@ -95,9 +95,11 @@ export async function applyPoison({ poison: poisonRef, weapon: hostRef, actor = 
     if (!dc) return refuse("no-dc", { item: poison.name });
     const creator = poison.flags?.[MODULE_ID]?.dcStamp?.creator ?? poison.flags?.[MODULE_ID]?.expiry?.creator ?? null;
     const stamp = poison.flags?.[MODULE_ID]?.expiry ?? null;
+    const source = poisonFacts(poison, def);
+    // A poison with no compendium source cannot be read again once its last dose is gone: the coating keeps its definition.
     let coating = {
-        id: newId(), source: poisonFacts(poison, def), defKey: def.key, dc, delivery, mods: exposureMods({ item: poison, creator: actorOf(creator) }),
-        ...(stamp ? { stamp } : {}), creator, keeps: !!def.keepsCoating, ...stampNow(),
+        id: newId(), source, defKey: def.key, ...(isCompendiumSource(source.uuid) ? {} : { def: snapshotOf(def) }), dc, delivery,
+        mods: exposureMods({ item: poison, creator: actorOf(creator) }), ...(stamp ? { stamp } : {}), creator, keeps: !!def.keepsCoating, ...stampNow(),
     };
     const existing = coatingOf(host);
     if (existing && double) {
@@ -112,18 +114,24 @@ export async function applyPoison({ poison: poisonRef, weapon: hostRef, actor = 
             dc: { value: Math.min(first.dc.value, dc.value), source: "double" }, parts: [first, { ...coating }],
             source: { ...coating.source, name: `${first.source.name} + ${coating.source.name}` } };
     } else if (existing && !replace) return refuse("coated", { item: host.name });
-    // Ammunition: the coating sits on one piece, split off the stack.
+    // Ammunition: the coating sits on one piece, split off the stack. The launchers that had the stack selected as their
+    // ammunition take the coated piece instead, so their next shot fires it (8.10.5); a launcher that loads its ammunition
+    // (pf2e's subitems) needs the piece loaded, which the card says.
     let target = host;
     const ops = [];
+    let loaded = [];
     if (host.type === "ammo" && (host.quantity ?? 1) > 1) {
         const piece = host.toObject();
         piece._id = newId();
         piece.system.quantity = 1;
         piece.flags = { ...(piece.flags ?? {}), [MODULE_ID]: { ...(piece.flags?.[MODULE_ID] ?? {}), coating } };
         ops.push({ op: "createItems", target: host.actor.uuid, data: [piece] }, { op: "updateItems", target: host.actor.uuid, updates: [{ _id: host.id, "system.quantity": host.quantity - 1 }] });
+        loaded = [...(host.actor.items ?? [])].filter((w) => w.type === "weapon" && w.system?.selectedAmmoId === host.id);
+        if (loaded.length) ops.push({ op: "updateItems", target: host.actor.uuid, updates: loaded.map((w) => ({ _id: w.id, "system.selectedAmmoId": piece._id })) });
         target = { id: piece._id, name: host.name };
     } else {
         ops.push({ op: "updateItems", target: host.actor.uuid, updates: [{ _id: host.id, [`flags.${MODULE_ID}.coating`]: _replace(coating) }] });
+        if (host.type === "ammo") loaded = [...(host.actor.items ?? [])].filter((w) => w.type === "weapon" && w.system?.selectedAmmoId === host.id);
     }
     // The dose, through a quantity update (8.10.3).
     const left = (poison.quantity ?? poison.system?.quantity ?? 1) - 1;
@@ -131,8 +139,9 @@ export async function applyPoison({ poison: poisonRef, weapon: hostRef, actor = 
         : [{ op: "deleteItems", target: poison.actor.uuid, ids: [poison.id] }];
     const result = await runRequest([...ops, ...poisonOps]);
     if (result.outcome !== "ok") return refuse(result.reason ?? "error", { outcome: result.outcome });
-    Hooks.callAll(`${MODULE_ID}.afflictionCoating`, Object.freeze({ actor: host.actor, host: target.name ?? host.name, coating, kind: existing && double ? "double" : "applied" }));
-    return { ok: true, coating: coating.id, host: target.id };
+    Hooks.callAll(`${MODULE_ID}.afflictionCoating`, Object.freeze({ actor: host.actor, host: target.name ?? host.name, coating, kind: existing && double ? "double" : "applied",
+        ...(host.type === "ammo" ? { loaded: loaded.map((w) => w.name) } : {}) }));
+    return { ok: true, coating: coating.id, host: target.id, ...(host.type === "ammo" ? { loaded: loaded.map((w) => w.id) } : {}) };
 }
 
 /** Roll a flat check (Sticky Poison), shown with the coating card. */
@@ -177,9 +186,32 @@ async function spendNoSave(attacker, host, coating, why) {
 const isBlowgun = (item) => (item?.system?.baseItem ?? item?.slug) === "blowgun";
 
 /**
+ * The ammunition a launcher's Strike fired: the piece its roll options name (pf2e's `item:ammo:id:<id>`, an actor item or a
+ * loaded subitem), else the launcher's ammunition now (`weapon.ammo`, or its selected piece).
+ */
+function ammoUsed(host, options = []) {
+    const id = (options ?? []).map((o) => (typeof o === "string" ? /^item:ammo:id:(.+)$/.exec(o)?.[1] : null)).find(Boolean) ?? null;
+    const loaded = (() => {
+        try {
+            return host.ammo ?? null;
+        } catch {
+            return null;
+        }
+    })();
+    if (id) return host.actor?.items?.get?.(id) ?? host.subitems?.get?.(id) ?? (loaded?.id === id ? loaded : null);
+    return loaded ?? (host.system?.selectedAmmoId ? host.actor?.items?.get?.(host.system.selectedAmmoId) ?? null : null);
+}
+
+/** The flag that holds a fired piece's coating on its launcher between the hit and its damage roll (8.10.5). */
+const AMMO_STRIKE = "ammoStrike";
+const ammoStrikeOf = (host) => host?.flags?.[MODULE_ID]?.[AMMO_STRIKE] ?? null;
+
+/**
  * A Strike's chat message (8.10.5), on the attacker's responsible client: the attack roll arms, keeps or spends the coating;
- * the hit's damage roll exposes the target and spends it. Returns what happened, or null for a message that is not about a
- * coated item this client handles.
+ * the hit's damage roll exposes the target and spends it. A launcher's Strike uses its ammunition's coating: the piece leaves
+ * with the shot (pf2e consumes it), so a hit arms the coating on the launcher for the Strike's damage roll and a miss takes it
+ * away with the piece. The attack roll also records whether the target was off-guard (its roll options, flanking included:
+ * Pinpoint Poisoner). Returns what happened, or null for a message that is not about a coated item this client handles.
  */
 export async function onStrikeMessage(message) {
     if (!afflictionsOn() || !canWrite()) return null;
@@ -188,30 +220,56 @@ export async function onStrikeMessage(message) {
     if (type !== "attack-roll" && type !== "damage-roll") return null;
     const originUuid = message.flags?.pf2e?.origin?.uuid ?? null;
     const host = originUuid ? fromUuidSync(originUuid, { strict: false }) : null;
-    const coating = coatingOf(host);
-    if (!host || !coating || forgeReferences(host).length) return null;
+    if (!host || forgeReferences(host).length) return null;
     const attacker = host.actor;
-    if (!attacker || !isResponsibleFor(attacker)) return null;
-    if (coating.delivery !== "injury") return null;
     if (type === "attack-roll") {
+        // A new attack: a fired piece's coating armed by an earlier hit whose damage was never rolled goes with that piece.
+        if (ammoStrikeOf(host) && attacker && isResponsibleFor(attacker)) await host.update({ [`flags.${MODULE_ID}.${AMMO_STRIKE}`]: _del });
+        let coating = coatingOf(host);
+        let ammo = null;
+        if (coating?.delivery !== "injury") {
+            ammo = ammoUsed(host, context.options);
+            coating = coatingOf(ammo);
+            if (!ammo || forgeReferences(ammo).length) return null;
+        }
+        if (coating?.delivery !== "injury" || !attacker || !isResponsibleFor(attacker)) return null;
         const degree = DEGREE_FROM_OUTCOME[context.outcome];
         if (degree === undefined) return null;
         const what = coatingAfterAttack(degree);
+        const armed = { message: message.id, target: context.target?.actor ?? null, crit: degree === DEGREE.critSuccess, at: stampNow().at,
+            offGuard: (context.options ?? []).includes("target:condition:off-guard") };
+        if (ammo) {
+            if (what !== "arm") return { outcome: "spent", ammo: ammo.id };
+            await host.update({ [`flags.${MODULE_ID}.${AMMO_STRIKE}`]: _replace({ ...coating, armed, ammo: ammo.id }) });
+            return { outcome: "armed", ammo: ammo.id };
+        }
         if (what === "keep") return { outcome: "kept" };
         if (what === "spend") return { outcome: "spent", ...(await spendNoSave(attacker, host, coating, "crit-fail")) };
-        await setCoating(host, { ...coating, armed: { message: message.id, target: context.target?.actor ?? null, crit: degree === DEGREE.critSuccess, at: stampNow().at } });
+        await setCoating(host, { ...coating, armed });
         return { outcome: "armed" };
     }
-    if (!coating.armed) return null;
+    const fromAmmo = !coatingOf(host)?.armed && !!ammoStrikeOf(host)?.armed;
+    const coating = fromAmmo ? ammoStrikeOf(host) : coatingOf(host);
+    if (!coating?.armed || coating.delivery !== "injury" || !attacker || !isResponsibleFor(attacker)) return null;
     const targetUuid = context.target?.actor ?? coating.armed.target ?? null;
     const target = targetUuid ? fromUuidSync(targetUuid, { strict: false }) : null;
     const types = Object.keys(message.flags?.pf2e?.damageRoll?.types ?? {});
     const blowgun = isBlowgun(host) && heldKeysOf(attacker).includes("blowgun-poisoner");
     const result = coatingAfterDamage({ types, blowgun, keepsCoating: coating.keeps });
     const disarmed = { ...coating, armed: null };
+    delete disarmed.ammo;
+    if (fromAmmo) {
+        // The piece is gone with the shot: its coating exposes on a hit with piercing or slashing damage, and is spent either way.
+        await host.update({ [`flags.${MODULE_ID}.${AMMO_STRIKE}`]: _del });
+        const exposed = result.expose && target ? await expose({ item: coating.source.uuid, targets: [target], delivery: "injury", key: message.id, deliverer: attacker,
+            crit: !!coating.armed.crit, blowgun, offGuard: coating.armed.offGuard ?? null, coating: disarmed }) : null;
+        Hooks.callAll(`${MODULE_ID}.afflictionCoating`, Object.freeze({ actor: attacker, host: host.name, coating: disarmed, kind: "spent", why: exposed ? "exposed" : "no-damage-type",
+            ...(exposed ? { target: target.name } : {}) }));
+        return { outcome: exposed ? "exposed" : "spent", exposed, kept: false };
+    }
     if (!result.expose || !target) return { outcome: "spent", ...(await spendNoSave(attacker, host, disarmed, "no-damage-type")) };
     const exposed = await expose({ item: coating.source.uuid, targets: [target], delivery: "injury", key: message.id, deliverer: attacker, crit: !!coating.armed.crit,
-        blowgun, coating: { ...disarmed, restore: { host: host.uuid } } });
+        blowgun, offGuard: coating.armed.offGuard ?? null, coating: { ...disarmed, restore: { host: host.uuid } } });
     let kept = false;
     let check = null;
     if (!result.spend) kept = true;
@@ -313,8 +371,10 @@ export async function unleash({ poison: poisonRef, actor = null, targets = [] })
     const dc = exposureDc({ def, item: poison, holder });
     if (!dc) return refuse("no-dc", { item: poison.name });
     const creator = poison.flags?.[MODULE_ID]?.dcStamp?.creator ?? poison.flags?.[MODULE_ID]?.expiry?.creator ?? null;
-    const cloud = { id: newId(), source: poisonFacts(poison, def), defKey: def.key, dc, delivery: "inhaled", mods: exposureMods({ item: poison, creator: actorOf(creator) }),
-        until: (game.time.worldTime ?? 0) + 60, by: game.user.id };
+    const source = poisonFacts(poison, def);
+    // The dose is gone before anyone breathes the cloud: a poison with no compendium source keeps its definition in the cloud.
+    const cloud = { id: newId(), source, defKey: def.key, ...(isCompendiumSource(source.uuid) ? {} : { def: snapshotOf(def) }), dc, delivery: "inhaled",
+        mods: exposureMods({ item: poison, creator: actorOf(creator) }), until: (game.time.worldTime ?? 0) + 60, by: game.user.id };
     const left = (poison.quantity ?? 1) - 1;
     if (left > 0) await poison.update({ "system.quantity": left });
     else await poison.delete();

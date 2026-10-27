@@ -47,8 +47,12 @@ import { newId, records, stampNow, write } from "./store.mjs";
 const refuse = (reason, data = {}) => ({ ok: false, reason, data });
 const actorOf = (value) => (typeof value === "string" ? fromUuidSync(value, { strict: false }) : value ?? null);
 
-/** The operation option the module's own writes to a tracker carry, so the stage guard lets them through (8.10.1). */
-export const OWN_WRITE = Object.freeze({ [MODULE_ID]: { affliction: true } });
+/**
+ * The operation options the module's own writes to a tracker carry, so the stage guard lets them through (8.10.1). A new
+ * object each time: Foundry writes `parent` and `pack` into the operation it is given (`Document#update`,
+ * `createEmbeddedDocuments`, 14.368), so a shared or frozen one would carry them over or throw.
+ */
+export const ownWrite = (extra = {}) => ({ [MODULE_ID]: { affliction: true }, ...extra });
 
 /* -------------------------------------------- */
 /*  Switches and settings (14.5)                 */
@@ -161,9 +165,8 @@ function modsHeld(actor, as) {
 
 /**
  * The modifiers an exposure carries (8.10.6): the creator's (Tenacious Toxins; the toxicologist's acid for an infused poison,
- * kept only against a poison-immune target), the deliverer's (Pinpoint Poisoner, kept only against an off-guard target or an
- * inhaled poison; Blowgun Poisoner's critical), the poison's additive (Pernicious Poison, Combustible Poison), and holding
- * one's breath.
+ * kept only against a poison-immune target), the deliverer's (Pinpoint Poisoner, kept only against an off-guard target;
+ * Blowgun Poisoner's critical), the poison's additive (Pernicious Poison, Combustible Poison), and holding one's breath.
  */
 export function exposureMods({ item = null, creator = null, deliverer = null, delivery = null, crit = false, blowgun = false, heldBreath = false } = {}) {
     const mods = [];
@@ -173,7 +176,8 @@ export function exposureMods({ item = null, creator = null, deliverer = null, de
         if (effect.mod === "toxicologist-acid" && traits.includes("infused")) mods.push({ slug: "toxicologist-acid", requires: "immune" });
     }
     for (const effect of modsHeld(deliverer, "deliverer")) {
-        if (effect.mod === "pinpoint-poisoner") mods.push({ slug: "pinpoint-poisoner", requires: delivery === "inhaled" ? null : "off-guard" });
+        // Off-guard whatever the delivery (Player Core 2): at the hit for a Strike, when the claim is applied for a cloud.
+        if (effect.mod === "pinpoint-poisoner") mods.push({ slug: "pinpoint-poisoner", requires: "off-guard" });
         if (effect.mod === "blowgun-poisoner" && blowgun && crit) mods.push({ slug: "blowgun-crit" });
     }
     const additive = item?.flags?.[MODULE_ID]?.quick?.additive ?? null;
@@ -186,11 +190,15 @@ export function exposureMods({ item = null, creator = null, deliverer = null, de
 /** Whether a creature is immune to an affliction's kind (8.10.3). */
 const immuneTo = (actor, kind) => !!kind && (actor?.attributes?.immunities ?? actor?.system?.attributes?.immunities ?? []).some((i) => (i?.type ?? i) === kind);
 
-/** The modifiers that hold for this target now (an off-guard target, persistent fire, immunity). */
-function modsForTarget(mods, target, def) {
+/**
+ * The modifiers that hold for this target (an off-guard target, persistent fire, immunity). Off-guard is the Strike's, read
+ * from its roll options at the hit (`offGuard`, flanking included: pf2e gives the target's clone an ephemeral off-guard);
+ * without a Strike (a cloud), the target's own condition when the claim is applied.
+ */
+function modsForTarget(mods, target, def, offGuard = null) {
     const out = [];
     for (const mod of mods ?? []) {
-        if (mod.requires === "off-guard" && !target?.hasCondition?.("off-guard")) continue;
+        if (mod.requires === "off-guard" && !(typeof offGuard === "boolean" ? offGuard : !!target?.hasCondition?.("off-guard"))) continue;
         if (mod.requires === "immune" && !immuneTo(target, kindOf(def))) continue;
         out.push({ slug: mod.slug });
     }
@@ -202,6 +210,18 @@ function modsForTarget(mods, target, def) {
 /* -------------------------------------------- */
 /*  Exposure (8.10.3)                            */
 /* -------------------------------------------- */
+
+/** Whether a source UUID is a compendium document's, whose description can always be read again (8.10.2). */
+export const isCompendiumSource = (uuid) => typeof uuid === "string" && uuid.startsWith("Compendium.");
+
+/** A definition as a run keeps it: its numbers, slugs and UUIDs (8.10.2, P9), without the parser's working fields. */
+export function snapshotOf(def) {
+    if (!def) return null;
+    const out = JSON.parse(JSON.stringify(def));
+    delete out.problems;
+    delete out.intro;
+    return out;
+}
 
 /** A source snapshot of the item behind an exposure. */
 function sourceFacts(item, def) {
@@ -219,19 +239,23 @@ function sourceFacts(item, def) {
  * Expose (a trap, a creature, a spell). Refused: `off`, `not-ready`, `no-item`, `no-targets`, `no-definition` (nothing
  * parses: a world definition is needed), `no-dc`.
  *
+ * A coating or cloud (`coating`) carries its own source, DC and modifiers, and its definition when it has no compendium source,
+ * so it exposes after its last dose is gone. `offGuard` is the Strike's (its roll options at the hit, Pinpoint Poisoner).
+ *
  * @param {{item: object|string, targets: object[], delivery?: string|null, dc?: number|null, key?: string|null,
- *   deliverer?: object|null, crit?: boolean, blowgun?: boolean, heldBreath?: boolean, def?: object|null, coating?: object|null}} p
+ *   deliverer?: object|null, crit?: boolean, blowgun?: boolean, heldBreath?: boolean, def?: object|null, coating?: object|null,
+ *   offGuard?: boolean|null}} p
  */
 export async function expose({ item: itemRef, targets = [], delivery = null, dc = null, key = null, deliverer = null, crit = false, blowgun = false,
-    heldBreath = false, def: given = null, coating = null } = {}) {
+    heldBreath = false, def: given = null, coating = null, offGuard = null } = {}) {
     if (!afflictionsOn()) return refuse("afflictions-off");
     if (!canWrite()) return refuse("not-ready");
     const item = typeof itemRef === "string" ? await fromUuid(itemRef).catch(() => null) : itemRef;
-    if (!item && !given) return refuse("no-item");
+    if (!item && !given && !coating?.def) return refuse("no-item");
     const victims = targets.map(actorOf).filter(Boolean);
     if (!victims.length) return refuse("no-targets");
-    const def = given ?? await definitionOf(item);
-    if (!runnable(def)) return refuse("no-definition", { item: item?.name ?? "" });
+    const def = given ?? coating?.def ?? await definitionOf(item);
+    if (!runnable(def)) return refuse("no-definition", { item: item?.name ?? coating?.source?.name ?? "" });
     const frozen = coating?.dc ?? exposureDc({ def, item, holder: deliverer ?? item?.actor ?? null, manual: dc });
     if (!frozen) return refuse("no-dc", { item: item?.name ?? "" });
     const creator = actorOf(item?.flags?.[MODULE_ID]?.dcStamp?.creator ?? item?.flags?.[MODULE_ID]?.expiry?.creator ?? coating?.creator ?? null);
@@ -239,13 +263,17 @@ export async function expose({ item: itemRef, targets = [], delivery = null, dc 
     const mods = coating ? [...(coating.mods ?? []), ...exposureMods({ deliverer, delivery, crit, blowgun, heldBreath })]
         : exposureMods({ item, creator, deliverer, delivery, crit, blowgun, heldBreath });
     const source = coating?.source ?? sourceFacts(item, def);
+    // A definition with no compendium source (a homebrew poison, a world item) cannot be read again once its item is gone:
+    // the claim, and the tracker after it, keep it (numbers and slugs only, P9).
+    const snapshot = given ?? coating?.def ?? (isCompendiumSource(source.uuid) ? null : snapshotOf(def));
     const template = forgeActive() ? await forgeTemplateFor(item, source.uuid) : null;
     const nonce = key ?? newId();
     const found = deliverer ? encounterOf(deliverer) : null;
     const now = clockNow();
     const inputs = victims.map((victim) => ({
         kind: "exposure", idem: idemKey("expose", nonce, hashId(victim.uuid)), actor: victim.uuid, parties: [deliverer?.uuid, creator?.uuid].filter(Boolean),
-        source, defKey: def.key ?? `uuid:${source.uuid}`, ...(given || coating?.def ? { def: given ?? coating.def } : {}), dc: frozen, delivery, mods,
+        source, defKey: coating?.defKey ?? def.key ?? `uuid:${source.uuid}`, ...(snapshot ? { def: snapshot } : {}), dc: frozen, delivery, mods,
+        ...(typeof offGuard === "boolean" ? { offGuard } : {}),
         combat: found ? { id: found.combat.id, round: found.combat.round, initiative: found.combatant.initiative ?? null } : null,
         run: newId(), exposedAt: now, ...(template ? { forge: { template } } : {}),
         // A coated Strike's exposure keeps the coating it spent, so a voided exposure can give it back (Sticky Poison, 8.10.5).
@@ -296,7 +324,7 @@ export async function applyExposure(claim, actor) {
         const handed = await handOff({ template: claim.forge.template, target: actor, dc: claim.dc?.value ?? null });
         return handed.ok ? resolveClaim(claim, "forge") : handed;
     }
-    const mods = modsForTarget(claim.mods, actor, def);
+    const mods = modsForTarget(claim.mods, actor, def, claim.offGuard ?? null);
     if (immuneTo(actor, kindOf(def)) && !mods.some((m) => m.slug === "toxicologist-acid")) return resolveClaim(claim, "immune");
     const active = trackersOf(actor).find((t) => runOf(t).defKey === claim.defKey) ?? null;
     const kind = exposureKind(active ? runOf(active) : null, def);
@@ -305,21 +333,38 @@ export async function applyExposure(claim, actor) {
         return resolveClaim(claim, kind);
     }
     let pending = claim.pending ?? null;
+    if (!pending && kind === "re-exposure") {
+        // Time order (8.10.8): a stage save that is pending, or already due, comes before this exposure; it waits until that
+        // save is recorded (the record sweeps the claims again).
+        const run = runOf(active);
+        const due = advance(run, await definitionOfRun(run, active), clockNow(), { combat: combatState(run.anchor), anchor: run.anchor ?? null });
+        if (run.pending || due.save || due.steps.length) {
+            if (!run.pending) scheduleProcess(0);
+            return { ok: false, outcome: "waiting" };
+        }
+    }
     if (!pending) {
-        pending = kind === "initial"
-            ? { kind: "initial", runId: claim.run, seq: 1 }
-            : { kind: "re-exposure", runId: active.id, seq: Math.max(runOf(active).seq ?? 0, latestSeq(runOf(active)) ?? 0) + 1 };
+        pending = kind === "initial" ? { kind: "initial", runId: claim.run, seq: 1 } : { kind: "re-exposure", runId: active.id, seq: nextSeq(runOf(active), active.id) };
         await write({ set: { [`claims.${claim.id}.pending`]: pending, [`claims.${claim.id}.applied`]: mods } });
     }
     await promptSave({ victim: actor, runId: pending.runId, seq: pending.seq, kind: pending.kind, claim, def });
     return { ok: false, outcome: "pending" };
 }
 
+/**
+ * The next save number of a run (8.10.8): past every recorded save, its pending save and the pending saves of open exposure
+ * claims against it, so two saves never share one (the link `<run>:<seq>` and the lock page are keyed by it).
+ */
+function nextSeq(run, runId) {
+    const reserved = openExposures().filter((c) => c.pending?.runId === runId).map((c) => c.pending.seq);
+    return Math.max(run?.seq ?? 0, latestSeq(run) ?? 0, run?.pending?.seq ?? 0, ...reserved.filter(Number.isInteger)) + 1;
+}
+
 /** Note an exposure on a run without a save (`reExposure` "none" or a curse already affecting the creature). */
 async function recordExposure(tracker, claim, degree) {
     const run = runOf(tracker);
     const exposures = { ...(run.exposures ?? {}), [claim.id]: { at: claim.exposedAt ?? clockNow(), degree } };
-    await tracker.update({ [`flags.${MODULE_ID}.affliction.run.exposures`]: _replace(exposures) }, OWN_WRITE);
+    await tracker.update({ [`flags.${MODULE_ID}.affliction.run.exposures`]: _replace(exposures) }, ownWrite());
 }
 
 /* -------------------------------------------- */
@@ -430,7 +475,8 @@ export async function rollSave(victimRef, { runId, seq }, { skipDialog, voluntar
     const statistic = victim.saves?.[pending.def.save.type] ?? null;
     if (!statistic) return refuse("no-statistic");
     const item = await saveItemFor(victim, pending.source);
-    const modifiers = pending.kind === "initial" ? initialSaveModifiers(pending.mods).map((m) => new game.pf2e.Modifier({
+    // A re-exposure's save is the initial save against a new exposure (Player Core p.431): its modifiers count too.
+    const modifiers = pending.kind === "initial" || pending.kind === "re-exposure" ? initialSaveModifiers(pending.mods).map((m) => new game.pf2e.Modifier({
         slug: m.slug, label: game.i18n.localize(MOD_LABEL[m.slug] ?? "pf2e-artisans-workshop.Affliction.Title"), modifier: m.value, type: "circumstance" })) : [];
     const roll = await statistic.roll({
         dc: { value: pending.dc?.value ?? pending.def.save.value ?? 10, label: game.i18n.localize("pf2e-artisans-workshop.Affliction.SaveDc") },
@@ -503,7 +549,7 @@ async function stageEffectSource(uuid, trackerId, seq) {
  */
 async function stageOps(victim, trackerId, effects, seq, { drop = [] } = {}) {
     const existing = conditionFacts(victim).filter((c) => !drop.includes(c.id));
-    const plan = stageConditionPlan(trackerId, effects?.conditions ?? [], existing);
+    const plan = stageConditionPlan(trackerId, effects?.conditions ?? [], existing, { cumulative: effects?.cumulative ?? [], failed: !!effects?.failed });
     const oldEffects = [...(victim.items ?? [])].filter((i) => i.flags?.[MODULE_ID]?.affliction?.stageEffect && i.flags[MODULE_ID].affliction.granted === trackerId)
         .map((i) => i.id).filter((id) => !drop.includes(id));
     const creates = [];
@@ -578,7 +624,8 @@ export async function recordResult({ victim, runId, seq, degree, messageId, isRe
     const base = run0 ?? newRun({ id: runId, source: claim.source, defKey: claim.defKey, dc: claim.dc, mods: claim.applied ?? [], by: claim.by, at: claim.at });
     const dueAt = kind === "stage" ? run0?.pending?.dueAt ?? had?.dueAt ?? clockNow() : claim?.exposedAt ?? had?.dueAt ?? clockNow();
     const origin = claim?.combat?.initiative ?? base.anchor?.initiative ?? null;
-    const result = recordSave(base, def, { seq, kind, degree, dueAt, messageId, isReroll, originalGone }, { anchor: anchorNow(victim, origin) });
+    const result = recordSave(base, def, { seq, kind, degree, dueAt, messageId, isReroll, originalGone },
+        { anchor: anchorNow(victim, origin), ...(kind === "re-exposure" && claim ? { mods: claim.applied ?? [] } : {}) });
     if (!result.ok) {
         Hooks.callAll(`${MODULE_ID}.afflictionNotice`, Object.freeze({ victim, reason: result.reason, runId, seq }));
         return result;
@@ -596,12 +643,12 @@ export async function recordResult({ victim, runId, seq, degree, messageId, isRe
     const ended = result.run.phase === "ended";
     let posted = null;
     if (ended) {
-        if (tracker) apply.push({ op: "deleteItems", target: victim.uuid, ids: [...new Set([tracker.id, ...cascadeOf(victim, tracker.id), ...superseded])], options: OWN_WRITE });
+        if (tracker) apply.push({ op: "deleteItems", target: victim.uuid, ids: [...new Set([tracker.id, ...cascadeOf(victim, tracker.id), ...superseded])], options: ownWrite() });
     } else if (backend() === "native" && run.phase === "active" && (!tracker || tracker.type === "effect")) {
         // Native backend (8.10.1): the native item is created once the first stage takes effect; pf2e applies its stage.
         const native = nativeItem({ id: tracker ? newId() : runId, def, run, victim, claim });
-        if (tracker) apply.push({ op: "deleteItems", target: victim.uuid, ids: [tracker.id, ...cascadeOf(victim, tracker.id)], options: OWN_WRITE });
-        apply.push({ op: "createItems", target: victim.uuid, data: [native], options: OWN_WRITE });
+        if (tracker) apply.push({ op: "deleteItems", target: victim.uuid, ids: [tracker.id, ...cascadeOf(victim, tracker.id)], options: ownWrite() });
+        apply.push({ op: "createItems", target: victim.uuid, data: [native], options: ownWrite() });
         posted = "native";
     } else {
         const ops = result.effects && (tracker?.type !== "affliction" || result.effects.repeat) ? await stageOps(victim, runId, result.effects, seq, { drop: superseded }) : null;
@@ -609,11 +656,11 @@ export async function recordResult({ victim, runId, seq, degree, messageId, isRe
             const data = trackerItem({ id: runId, def, run, victim, snapshot: claim?.def ?? null });
             Object.assign(data.flags.pf2e.itemGrants, Object.fromEntries(Object.entries(ops?.grants ?? {}).filter(([, v]) => v !== _del)
                 .map(([k, v]) => [k.replace("flags.pf2e.itemGrants.", ""), v])));
-            apply.push({ op: "createItems", target: victim.uuid, data: [data, ...(ops?.creates ?? [])], options: OWN_WRITE });
+            apply.push({ op: "createItems", target: victim.uuid, data: [data, ...(ops?.creates ?? [])], options: ownWrite() });
         } else {
-            apply.push({ op: "updateItems", target: victim.uuid, updates: [{ ...trackerUpdate(tracker, def, run), ...(ops?.grants ?? {}) }, ...(ops?.updates ?? [])], options: OWN_WRITE });
-            if (ops?.creates.length) apply.push({ op: "createItems", target: victim.uuid, data: ops.creates, options: OWN_WRITE });
-            if (ops?.deletes.length) apply.push({ op: "deleteItems", target: victim.uuid, ids: ops.deletes, options: OWN_WRITE });
+            apply.push({ op: "updateItems", target: victim.uuid, updates: [{ ...trackerUpdate(tracker, def, run), ...(ops?.grants ?? {}) }, ...(ops?.updates ?? [])], options: ownWrite() });
+            if (ops?.creates.length) apply.push({ op: "createItems", target: victim.uuid, data: ops.creates, options: ownWrite() });
+            if (ops?.deletes.length) apply.push({ op: "deleteItems", target: victim.uuid, ids: ops.deletes, options: ownWrite() });
         }
     }
     const outcome = await runLockFirst({ lock, apply });
@@ -631,7 +678,13 @@ export async function recordResult({ victim, runId, seq, degree, messageId, isRe
     Hooks.callAll(`${MODULE_ID}.afflictionChanged`, Object.freeze({ actor: victim, affliction: runId, from: result.run.saves[seq].fromStage,
         to: ended ? 0 : run.stage, reason, run, seq, degree: result.run.saves[seq].degree, reroll: !!result.superseded, phase: run.phase }));
     scheduleProcess(0);
+    sweepWaiting(victim);
     return { ok: true, run, ended };
+}
+
+/** An exposure of a victim that waited behind its affliction's due events (a re-exposure, 8.10.8) goes on once they are applied. */
+function sweepWaiting(victim) {
+    if (openExposures().some((c) => c.actor === victim.uuid && !c.pending)) sweepClaims().catch((error) => console.warn(`${MODULE_ID} | exposure sweep failed`, error));
 }
 
 /** The native item for a run (8.10.1, native backend): the schema, the run state, created once a stage is active. */
@@ -750,13 +803,15 @@ async function processTracker(victim, tracker, now) {
     // A pending save another client recorded meanwhile (its result replaced the run, and this client's pending landed after
     // it): it is stale, so it goes, and the next due save follows (8.10.8).
     if (run.pending && run.saves?.[run.pending.seq]) {
-        await tracker.update({ [`flags.${MODULE_ID}.affliction.run.pending`]: null }, OWN_WRITE);
+        await tracker.update({ [`flags.${MODULE_ID}.affliction.run.pending`]: null }, ownWrite());
         run = { ...run, pending: null };
     }
     if (run.pending) {
         await promptSave({ victim, runId: tracker.id, seq: run.pending.seq, kind: run.pending.kind, def, dueAt: run.pending.dueAt });
         return { due: { victim: victim.uuid, tracker: tracker.id, seq: run.pending.seq } };
     }
+    // A re-exposure whose save is pending came first (8.10.8): the clock's events wait until it is recorded.
+    if (openExposures().some((c) => c.pending?.runId === tracker.id && c.pending.kind === "re-exposure")) return { applied: [] };
     const step = advance(run, def, now, { combat: combatState(run.anchor), anchor: run.anchor ?? anchorNow(victim) });
     const applied = [];
     const current = step.run;
@@ -765,6 +820,7 @@ async function processTracker(victim, tracker, now) {
         if (current.phase === "ended") {
             await endTracker(victim, tracker, { reason: "max-duration" });
             Hooks.callAll(`${MODULE_ID}.afflictionChanged`, Object.freeze({ actor: victim, affliction: tracker.id, from: run.stage, to: 0, reason: "max-duration", run: current }));
+            sweepWaiting(victim);
             return { applied };
         }
         const entered = step.steps.findLast((s) => s.effects);
@@ -772,15 +828,16 @@ async function processTracker(victim, tracker, now) {
         if (!fresh || !sameProgress(runOf(fresh), run)) return { applied: [] };   // another client moved it meanwhile: the next pass decides
         await writeTransition(victim, fresh, def, current, entered?.effects ?? null, { reason: "onset" });
         Hooks.callAll(`${MODULE_ID}.afflictionChanged`, Object.freeze({ actor: victim, affliction: tracker.id, from: run.stage, to: current.stage, reason: "onset", run: current }));
+        if (!step.save) sweepWaiting(victim);
     }
     if (step.save) {
-        const seq = Math.max(current.seq ?? 0, latestSeq(current) ?? 0) + 1;
+        const seq = nextSeq(current, tracker.id);
         const pending = { seq, kind: "stage", dueAt: step.save.at };
         // Only the pending key is written, never the run whole: a result another client records at the same moment replaces
         // the run, and must not be overwritten by this client's older copy of it.
         const fresh = victim.items.get(tracker.id);
         if (!fresh || !sameProgress(runOf(fresh), current)) return { applied };
-        await fresh.update({ [`flags.${MODULE_ID}.affliction.run.pending`]: pending }, OWN_WRITE);
+        await fresh.update({ [`flags.${MODULE_ID}.affliction.run.pending`]: pending }, ownWrite());
         await promptSave({ victim, runId: tracker.id, seq, kind: "stage", def, dueAt: step.save.at });
         return { applied, due: { victim: victim.uuid, tracker: tracker.id, seq } };
     }
@@ -796,8 +853,8 @@ const sameProgress = (a, b) => !!a && !!b && a.phase === b.phase && a.stage === 
 async function writeTransition(victim, tracker, def, run, effects, { reason }) {
     if (backend() === "native" && run.phase === "active" && tracker.type === "effect") {
         await runRequest([
-            { op: "deleteItems", target: victim.uuid, ids: [tracker.id, ...cascadeOf(victim, tracker.id)], options: OWN_WRITE },
-            { op: "createItems", target: victim.uuid, data: [nativeItem({ id: newId(), def, run, victim, claim: null })], options: OWN_WRITE },
+            { op: "deleteItems", target: victim.uuid, ids: [tracker.id, ...cascadeOf(victim, tracker.id)], options: ownWrite() },
+            { op: "createItems", target: victim.uuid, data: [nativeItem({ id: newId(), def, run, victim, claim: null })], options: ownWrite() },
         ]);
         return;
     }
@@ -806,9 +863,9 @@ async function writeTransition(victim, tracker, def, run, effects, { reason }) {
     const native = tracker.type === "affliction";
     const ops = effects && (!native || effects.repeat) ? await stageOps(victim, tracker.id, effects, run.seq ?? 0) : null;
     await runRequest([
-        { op: "updateItems", target: victim.uuid, updates: [{ ...trackerUpdate(tracker, def, run), ...(ops?.grants ?? {}) }, ...(ops?.updates ?? [])], options: OWN_WRITE },
-        ...(ops?.creates.length ? [{ op: "createItems", target: victim.uuid, data: ops.creates, options: OWN_WRITE }] : []),
-        ...(ops?.deletes.length ? [{ op: "deleteItems", target: victim.uuid, ids: ops.deletes, options: OWN_WRITE }] : []),
+        { op: "updateItems", target: victim.uuid, updates: [{ ...trackerUpdate(tracker, def, run), ...(ops?.grants ?? {}) }, ...(ops?.updates ?? [])], options: ownWrite() },
+        ...(ops?.creates.length ? [{ op: "createItems", target: victim.uuid, data: ops.creates, options: ownWrite() }] : []),
+        ...(ops?.deletes.length ? [{ op: "deleteItems", target: victim.uuid, ids: ops.deletes, options: ownWrite() }] : []),
     ]);
     if (native && effects?.repeat && reason === "onset") await victim.items.get(tracker.id)?.createStageMessage?.();
     else if (!native && effects && reason === "onset") await postStageDamage(victim, run, effects, run.seq ?? 0);
@@ -820,7 +877,7 @@ async function writeTransition(victim, tracker, def, run, effects, { reason }) {
  */
 export async function endTracker(victim, tracker, { reason = "manual" } = {}) {
     const ids = [tracker.id, ...cascadeOf(victim, tracker.id)];
-    await victim.deleteEmbeddedDocuments("Item", ids, { ...OWN_WRITE, [MODULE_ID]: { affliction: true, reason } });
+    await victim.deleteEmbeddedDocuments("Item", ids, ownWrite({ [MODULE_ID]: { affliction: true, reason } }));
     catchUps.delete(tracker.id);
     return { ok: true };
 }
@@ -906,7 +963,7 @@ export async function undoEnd(victimRef, runId) {
     if (!victim || !snap) return refuse("nothing");
     if (!victim.isOwner) return refuse("not-owner");
     if (victim.items.get(runId)) return refuse("nothing");
-    await victim.createEmbeddedDocuments("Item", [snap.source], { keepId: true, ...OWN_WRITE });
+    await victim.createEmbeddedDocuments("Item", [snap.source], ownWrite({ keepId: true }));
     await victim.update({ [`flags.${MODULE_ID}.afflictionEnded.${runId}`]: _del });
     const tracker = victim.items.get(runId);
     if (tracker) await repair(tracker);
@@ -924,8 +981,8 @@ export async function repair(trackerRef) {
     const def = await definitionOfRun(run, tracker);
     const ops = await stageOps(victim, tracker.id, { stage: run.stage, ...stageEffects(def, run.stage, run.mods) }, run.seq ?? 0);
     await runRequest([
-        { op: "updateItems", target: victim.uuid, updates: [{ _id: tracker.id, ...ops.grants }, ...ops.updates], options: OWN_WRITE },
-        ...(ops.creates.length ? [{ op: "createItems", target: victim.uuid, data: ops.creates, options: OWN_WRITE }] : []),
+        { op: "updateItems", target: victim.uuid, updates: [{ _id: tracker.id, ...ops.grants }, ...ops.updates], options: ownWrite() },
+        ...(ops.creates.length ? [{ op: "createItems", target: victim.uuid, data: ops.creates, options: ownWrite() }] : []),
     ]);
     return { ok: true, outcome: "repaired" };
 }
@@ -1004,8 +1061,8 @@ export async function migrateToNative() {
             const run = runOf(tracker);
             const def = await definitionOfRun(run, tracker);
             await runRequest([
-                { op: "deleteItems", target: victim.uuid, ids: [tracker.id, ...cascadeOf(victim, tracker.id)], options: OWN_WRITE },
-                { op: "createItems", target: victim.uuid, data: [nativeItem({ id: newId(), def, run: { ...run, migrated: true }, victim, claim: null })], options: OWN_WRITE },
+                { op: "deleteItems", target: victim.uuid, ids: [tracker.id, ...cascadeOf(victim, tracker.id)], options: ownWrite() },
+                { op: "createItems", target: victim.uuid, data: [nativeItem({ id: newId(), def, run: { ...run, migrated: true }, victim, claim: null })], options: ownWrite() },
             ]);
             moved += 1;
         }

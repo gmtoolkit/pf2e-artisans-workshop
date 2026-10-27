@@ -150,7 +150,8 @@ All notable changes to this module are documented here. The format follows
   due as world time passes, at the right turn in an encounter, and over days logged with the Advance days wizard; a long
   time skip rolls them one after another and stops to ask. A Hero Point reroll replaces a save; a second message for the
   same save changes nothing. Saves of a player's creature wait for that player (a GM may roll for them); creatures no
-  player owns are the GM's. Poisons are applied to weapons, ammunition, items and food, keep the DC they had (an alchemist's
+  player owns are the GM's. Poisons are applied to weapons, ammunition (the coated arrow or bolt becomes the bow's
+  ammunition), items and food, keep the DC they had (an alchemist's
   Powerful Alchemy travels with an infused poison handed to an ally), go with their poison's expiry, and are spent or kept
   by the Strike as the rules say, with Sticky Poison and Double Poison. An Afflictions window lists each creature's
   afflictions and pending saves with reduce, end, undo and repair. With PF2E Affliction Forge active, template-linked

@@ -2,6 +2,36 @@
 
 Newest first.
 
+## 2026-10-27: The affliction tracker after its second review (M8a)
+
+**Decision:** six rules settled while fixing the second M8a review (DESIGN 8.10, 10.15 After the second M8a review):
+
+- The affliction clock is world time moved on by the whole days the Advance days wizard's log runs ahead of the clock's day
+  (`worldTime + max(0, manualDay − clockDay) × secondsPerDay`), not the end of the last logged day. No high-water mark is kept: a
+  midnight the world clock crosses while the log is still ahead takes a day off the affliction clock, and due times wait, as for a
+  clock set back.
+- A stage whose text qualifies its mapped parts (a choice between them, a condition on them, a duration of their own, acting "as
+  if") applies none of them; an override names the parts that do apply. "As stage N, but" replaces what it names.
+- An intro that names a stage condition with "cumulative", "can't be removed", "lasts for", "ends when" or "while the poison lasts"
+  needs an override: `cumulative`, `detach` or `intro: "table"`.
+- A re-exposure waits behind a stage save that is pending or due, and a stage save waits behind a pending re-exposure; save
+  numbers skip every reserved one. A re-exposure's save counts that exposure's own initial-save modifiers.
+- Pinpoint Poisoner needs an off-guard creature for every delivery; a Strike's off-guard is read from its attack roll's options at
+  the hit (flanking is the target clone's ephemeral condition, never an item on the target).
+- A definition with no compendium source is kept with its claim, coating, cloud and tracker; a coated piece of ammunition becomes
+  its launchers' selected ammunition, and its coating rides the launcher from the hit to the damage roll.
+
+**Why:** the clock pinned to the end of the logged day froze every round-scale affliction until world time passed it, even after
+"advance clock to match"; a stored high-water mark would also hold back exposures made after a midnight crossing, while the plain
+reading only makes running ones wait, which 8.10.7 already accepts for a clock set back, and it matches the workshop day's "a clock
+advance that lands inside logged days adds nothing". Applying a condition taken out of a conditional sentence (Curare's paralysis)
+is worse than leaving the stage to the table. The rest are the rules as written (Player Core p.431, Player Core 2) and pf2e's own
+data flow (the Strike's origin is the launcher; the fired piece is consumed after the attack roll).
+
+**Consequences:** `scripts/data/afflictions.mjs` holds 120 overrides (10 for intro rules; Curare's stage 3 and Reaper's Shadow name
+their parts); some qualified stages lose correct parts until an override names them (10.15 follow-ups); the stubs write `parent`
+and `pack` into an update's operation as Foundry does, and the module passes a fresh one (`ownWrite()`).
+
 ## 2026-10-27: The affliction tracker as built (M8a)
 
 **Decision:** six rules settled while building 8.10 (DESIGN 10.15):

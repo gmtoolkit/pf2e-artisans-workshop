@@ -8,7 +8,7 @@ import { REGISTRY } from "../scripts/data/registry.mjs";
 import { REGISTRY_IGNORE } from "../scripts/data/registry-ignore.mjs";
 import { AFFLICTION_IGNORE, AFFLICTION_OVERRIDES } from "../scripts/data/afflictions.mjs";
 import {
-    checkAfflictions, checkEntries, checkReferences, contains, loadSource, main, mentions, sluggify, unlisted, wrapperOptions,
+    afflictionOf, checkAfflictions, checkEntries, checkReferences, contains, loadSource, main, mentions, sluggify, unlisted, wrapperOptions,
 } from "../tools/validate-registry.mjs";
 import { logger, tempDir } from "./helpers.mjs";
 
@@ -260,6 +260,24 @@ test("afflictions: each candidate parses fully, has an override or is ignored; i
     assert.deepEqual(changed.changed.map((c) => c.name), ["Clean Venom"]);
 });
 
+test("afflictions: an intro that changes how a stage condition works needs an override (cumulative, detach, intro) (second M8a review)", (t) => {
+    const body = `${SAVE}${para("Stage 1", "drained 1 (1 day)")}${para("Stage 2", "drained 2 (1 day)")}`;
+    const source = loadSource(tempDir(t, {
+        "system.pf2e.json": MANIFEST,
+        "packs/pf2e/equipment/p000000000000007.json": poisonDoc("p000000000000007", "Slow Sleep", `<p>Its drained condition is cumulative with each failed save.</p>${body}`),
+        "packs/pf2e/equipment/p000000000000008.json": poisonDoc("p000000000000008", "Long Shade", `<p>The drained condition from it lasts for 24 hours.</p>${body}`),
+        "packs/pf2e/feats/level-1/aaaaaaaaaaaaaaa1.json": doc(FEAT_ID, "Talisman Dabbler Dedication"),
+    }));
+    const flagged = checkAfflictions({ source, overrides: {}, ignore: {}, reasons: {} });
+    assert.equal(flagged.problems.length, 2);
+    assert.ok(flagged.problems.every((p) => /changes how a stage condition works/.test(p.problem)));
+    const reviewed = checkAfflictions({ source, ignore: {}, reasons: {}, overrides: {
+        "slow-sleep": { uuid: uuid("equipment-srd", "p000000000000007"), cumulative: ["drained"] },
+        "long-shade": { uuid: uuid("equipment-srd", "p000000000000008"), detach: ["drained"] } } });
+    assert.deepEqual(reviewed.problems, []);
+    assert.deepEqual(reviewed.notes, [], "an override that carries an intro rule is not a stale one");
+});
+
 test("afflictions: overrides and ignored UUIDs are checked like registry entries", (t) => {
     const source = loadSource(afflictionCheckout(t));
     const out = checkAfflictions({
@@ -290,6 +308,8 @@ test("the shipped overrides are numbers, slugs and UUIDs only (P9), keyed by slu
         assert.ok(!(entry.uuid in AFFLICTION_IGNORE), key);
         for (const n of entry.prose ?? []) assert.ok(Number.isInteger(n) && n > 0, key);
         assert.ok(!entry.reExposure || ["none", "reset-max", "table"].includes(entry.reExposure), key);
+        assert.ok(!entry.intro || entry.intro === "table", key);
+        for (const slug of [...(entry.cumulative ?? []), ...(entry.detach ?? [])]) assert.match(slug, /^[a-z-]+$/, key);
     }
 });
 
@@ -319,6 +339,25 @@ test("every registry entry and ignored UUID matches the pf2e checkout", NEEDS_SO
     t.diagnostic(`completeness (report only): ${missing.length} candidate items in neither list; ` +
         `${Object.keys(REGISTRY).length} entries, ${Object.keys(REGISTRY_IGNORE).length} ignored`);
     if (source.skipped.size) t.diagnostic(`not in this checkout, so not checked: ${[...source.skipped].join(", ")}`);
+});
+
+test("the second M8a review's readings against the pf2e checkout: Curare's stage 3 and Reaper's Shadow apply no qualified condition; King's Sleep and Nethershade carry their intro rules", NEEDS_SOURCE, () => {
+    const source = loadSource(process.env.PF2E_SRC);
+    const resolved = (key) => afflictionOf(source.get(AFFLICTION_OVERRIDES[key].uuid), AFFLICTION_OVERRIDES[key]);
+    const curare = resolved("curare");
+    assert.deepEqual(curare.stages[2].conditions.map((c) => `${c.slug} ${c.value}`).sort(), ["clumsy 2", "enfeebled 2", "slowed 1"], "no paralysis at stage 3");
+    assert.deepEqual(curare.stages[2].damage, [{ formula: "4d6", damageType: "poison", category: null }]);
+    const reaper = resolved("reapers-shadow");
+    assert.deepEqual([reaper.stages[0].conditions, reaper.stages[1].conditions], [[], []], "no doomed that outlasts the poison");
+    assert.deepEqual(reaper.stages.slice(0, 2).map((s) => s.damage[0].formula), ["2d12", "3d12"]);
+    assert.deepEqual(resolved("kings-sleep").cumulative, ["drained"]);
+    assert.deepEqual(resolved("nethershade").detach, ["enfeebled"]);
+    // The choices and conditions the review listed apply nothing as they stand.
+    const parsed = (name) => afflictionOf([...source.items()].find((d) => d.name === name));
+    assert.deepEqual(parsed("Divine Plagues").stages[0].conditions, []);
+    assert.deepEqual(parsed("Antipode Oil").stages[0].damage, []);
+    assert.deepEqual(parsed("Sloughing Toxin").stages[2].damage, []);
+    assert.deepEqual(parsed("Mythotoxin").stages[2].conditions, []);
 });
 
 test("every affliction candidate in the pf2e checkout parses fully, has an override or is ignored", NEEDS_SOURCE, (t) => {

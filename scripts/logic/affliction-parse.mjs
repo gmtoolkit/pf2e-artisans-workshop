@@ -78,6 +78,29 @@ export const DEFAULT_LABELS = Object.freeze({ stage: ["Stage"], onset: ["Onset"]
 /** Words an intro uses when it changes the rule for further exposure (8.10.2: flagged for review). */
 const RE_EXPOSURE_WORDS = /\b(?:further|additional|multiple|subsequent|repeated)\s+(?:exposures?|doses?)\b|\bexposed\s+again\b/i;
 
+/**
+ * Words an intro uses when it changes how a stage condition works (8.10.2: flagged for review when the intro also names one
+ * of the stage conditions): King's Sleep's cumulative drained, Nethershade's enfeebled that lasts 24 hours, a frightened or
+ * sickened that can't be removed or reduced while the poison lasts, a disease that ends when its spell ends.
+ */
+const CONDITION_RULE_WORDS = /\bcumulative\b|\bcan(?:'|’|no)t\s+(?:be\s+)?(?:removed|reduced|ended|remove|reduce|end|wake)\b|\blasts?\s+for\b|\bends?\s+when\b|\bwhile\s+the\s+(?:poison|disease|curse|affliction)\s+lasts\b/i;
+
+/** The mark a mapped part leaves in a stage's text, so the words around it can be read (`stageHazard`). */
+const PART = "\u0001";
+
+/**
+ * Whether a stage's text makes its mapped parts unsafe to apply as they stand (8.10.2): a choice between them ("clumsy 1,
+ * enfeebled 1, or stupefied 1", "cold or fire damage"), a condition on them ("if the victim fails...", "unless", damage "for
+ * lying", "for each action", "each time", "once every"), a duration of their own ("Doomed 1 for 1 round", "Paralyzed for 2d4
+ * hours", "petrified permanently"), or a creature acting "as if" it had one. `text` has each mapped part replaced by `PART`.
+ */
+function stageHazard(text) {
+    const part = escapeRe(PART);
+    return new RegExp(`${part}[\\s,]*\\bor\\b|\\bor\\s+(?:[\\w'’-]+\\s+){0,2}${part}`, "i").test(text) ||
+        /(?<!\bas )\bif\b|\bunless\b|\bwhenever\b|\beach\s+time\b|\bfor\s+each\b|\bfor\s+lying\b|\bonce\s+every\b|\bpermanent(?:ly)?\b/i.test(text) ||
+        new RegExp(`\\bas\\s+if\\s+${part}|${part}\\s+for\\s+(?:\\d+d\\d+|\\d+)\\s+(?:rounds?|minutes?|hours?|days?)\\b`, "i").test(text);
+}
+
 const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** pf2e's `sluggify` for a condition name (`Off-Guard` to `off-guard`). */
@@ -225,7 +248,7 @@ function parseStageText(html, labelInterval) {
         const parsed = damageInstances(inner);
         if (!parsed) return ` ${whole} `;
         damage.push(...parsed);
-        return " ";
+        return ` ${PART} `;
     });
 
     // Condition and effect links.
@@ -237,12 +260,12 @@ function parseStageText(html, labelInterval) {
             const value = valueIn(label) ?? (after ? Number(after) : null);
             if (VALUED_CONDITIONS.includes(slug) && value === null) return ` ${whole} `;
             conditions.push({ slug, value: VALUED_CONDITIONS.includes(slug) ? value : null, linked: true });
-            return " ";
+            return ` ${PART} `;
         }
         const pack = /^Compendium\.pf2e\.([a-z-]+)\.Item\./.exec(uuid)?.[1];
         if (pack && EFFECT_PACKS.includes(pack)) {
             effects.push({ uuid });
-            return " ";
+            return ` ${PART} `;
         }
         return ` ${whole} `;
     });
@@ -253,7 +276,7 @@ function parseStageText(html, labelInterval) {
         const damageType = type.toLowerCase();
         damage.push({ formula: formula.replace(/\s+/g, ""), damageType,
             category: before || after || damageType === "bleed" ? "persistent" : null });
-        return " ";
+        return ` ${PART} `;
     });
 
     // Bare condition names, with a value where the condition takes one.
@@ -262,21 +285,33 @@ function parseStageText(html, labelInterval) {
         const slug = name.toLowerCase();
         if (VALUED_CONDITIONS.includes(slug) && value === undefined) return ` ${whole} `;
         conditions.push({ slug, value: VALUED_CONDITIONS.includes(slug) ? Number(value) : null, linked: true });
-        return " ";
+        return ` ${PART} `;
     });
 
-    // "as stage N", and the phrases that say a stage does nothing.
+    // "as stage N", and the phrases that say a stage does nothing. "as stage N, but ..." replaces that stage's parts with the
+    // ones this stage names ("but also" adds to them).
     let asStage = null;
-    text = text.replace(/\bas stage (\d+)\b/i, (_whole, n) => {
+    let replaces = false;
+    text = text.replace(/\bas stage (\d+)\b(\s*,?\s*but\b(?!\s+also\b))?/i, (_whole, n, but) => {
         asStage = Number(n);
+        replaces = !!but;
         return " ";
     });
     text = text.replace(/\b(?:carrier with )?no (?:ill )?effects?\b|\bno adjustment\b/gi, " ");
 
+    // Parts that a choice, a condition or a duration of their own qualifies are not applied as they stand: the stage is the
+    // table's (its paragraph is shown), unless an override names its parts.
+    const hazard = stageHazard(text);
+    if (hazard) {
+        damage.length = 0;
+        conditions.length = 0;
+        effects.length = 0;
+    }
+
     // What is left must be connectors only.
-    const leftover = text.replace(/\b(?:damage|and)\b/gi, " ").replace(/[,.;:]/g, " ").trim();
-    if (leftover) unparsed = true;
-    return { damage, conditions, effects, duration, asStage, unparsed };
+    const leftover = text.split(PART).join(" ").replace(/\b(?:damage|and)\b/gi, " ").replace(/[,.;:]/g, " ").trim();
+    if (leftover || hazard) unparsed = true;
+    return { damage, conditions, effects, duration, asStage, replaces, hazard, unparsed };
 }
 
 /** Merge conditions: one entry per slug, the highest value. */
@@ -384,7 +419,9 @@ export function parseAffliction(html, { level = 0, traits = [], save: saveHint =
         const parsed = parseStageText(entry.html, entry.interval);
         stages.push(parsed);
     }
-    // "as stage N": the copy's effects, plus what this stage adds; its own interval, or the copy's.
+    // "as stage N": the copy's effects, plus what this stage adds; its own interval, or the copy's. "as stage N, but ...":
+    // each kind of part this stage names replaces the copy's (its conditions by slug). A copy of a stage whose parts were
+    // not applied (`hazard`) applies none either.
     for (const [i, stage] of stages.entries()) {
         if (!stage.asStage) continue;
         const from = stages[stage.asStage - 1];
@@ -392,10 +429,21 @@ export function parseAffliction(html, { level = 0, traits = [], save: saveHint =
             stage.unparsed = true;
             continue;
         }
+        stage.duration ??= from.duration;
+        if (from.hazard || stage.hazard) {
+            Object.assign(stage, { damage: [], conditions: [], effects: [], hazard: true, unparsed: true });
+            continue;
+        }
+        if (stage.replaces) {
+            const own = new Set(stage.conditions.map((c) => c.slug));
+            stage.damage = stage.damage.length ? stage.damage : [...from.damage];
+            stage.conditions = [...from.conditions.filter((c) => !own.has(c.slug)), ...stage.conditions];
+            stage.effects = [...from.effects, ...stage.effects];
+            continue;
+        }
         stage.damage = [...from.damage, ...stage.damage];
         stage.conditions = mergeConditions([...from.conditions, ...stage.conditions]);
         stage.effects = [...from.effects, ...stage.effects];
-        stage.duration ??= from.duration;
     }
     const out = stages.map((s, i) => {
         const missingInterval = !s.duration;
@@ -408,13 +456,29 @@ export function parseAffliction(html, { level = 0, traits = [], save: saveHint =
     });
     const unique = [...new Set(problems)];
     const confidence = out.length === 0 ? "none" : unique.length === 0 ? "full" : "partial";
+    // An intro that names a stage condition and changes how it works (8.10.2): flagged for review.
+    const named = [...new Set(out.flatMap((s) => s.conditions.map((c) => c.slug)))]
+        .some((slug) => new RegExp(`\\b${escapeRe(slug)}`, "i").test(intro));
     return {
         v: 1, level: Number.isInteger(ownLevel) ? ownLevel : Number.isInteger(level) ? level : 0, traits: kinds,
         save: save ? { type: save.type, value: save.value, ...(save.against ? { against: save.against } : {}) } : { type: null, value: null },
         onset, duration, stages: out, confidence, problems: unique,
         voluntaryFail: kinds.includes("drug"),
-        intro: { reExposure: RE_EXPOSURE_WORDS.test(intro) },
+        intro: { reExposure: RE_EXPOSURE_WORDS.test(intro), conditionRule: named && CONDITION_RULE_WORDS.test(intro) },
     };
+}
+
+/**
+ * The DC an item prints for its own save (8.10.4 rungs 3 to 5): the check in its Saving Throw paragraph, else its first
+ * inline saving throw check; not another check's (an addiction's save, a stage's basic save), as the parser reads it.
+ * Null when it prints none.
+ */
+export function ownSaveDc(html, labels = DEFAULT_LABELS) {
+    const words = { ...DEFAULT_LABELS, ...labels };
+    const paragraphs = paragraphsOf(typeof html === "string" ? html : "");
+    const saveParagraph = paragraphs.map(labelled).find((l) => l && isLabel(l.label, words.save))?.rest ?? null;
+    const value = parseSave(paragraphs.join(" "), saveParagraph)?.value;
+    return Number.isInteger(value) ? value : null;
 }
 
 /** Whether a description is a candidate for the corpus check (8.10.2): any Stage or Stages label, an Onset or Maximum Duration paragraph. */

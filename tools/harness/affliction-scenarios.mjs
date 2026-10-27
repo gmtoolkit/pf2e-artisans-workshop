@@ -93,7 +93,7 @@ export const AFFLICTION_SCENARIOS = {
                 const granted = actor.items.filter((i) => i.flags?.[MODULE_ID]?.affliction?.granted).map((i) => i.id);
                 const marked = actor.items.filter((i) => i.flags?.world?.[MARK]).map((i) => i.id);
                 const doomed = [...new Set([...trackers, ...granted, ...marked])];
-                if (doomed.length) await actor.deleteEmbeddedDocuments("Item", doomed, afflictions.OWN_WRITE);
+                if (doomed.length) await actor.deleteEmbeddedDocuments("Item", doomed, afflictions.ownWrite());
                 const coated = actor.items.filter((i) => i.flags?.[MODULE_ID]?.coating).map((i) => ({ _id: i.id, [`flags.${MODULE_ID}.coating`]: _del }));
                 if (coated.length) await actor.updateEmbeddedDocuments("Item", coated);
                 await actor.update({ [`flags.${MODULE_ID}.afflictionEnded`]: _del });

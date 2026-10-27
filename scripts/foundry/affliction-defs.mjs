@@ -13,8 +13,8 @@
  */
 import { MODULE_ID } from "../constants.mjs";
 import { AFFLICTION_OVERRIDES } from "../data/afflictions.mjs";
-import { parseAffliction } from "../logic/affliction-parse.mjs";
-import { chooseBackend, chooseDc, potentPoisonerDc, powerfulAlchemyDc, printedSaveDcs, resolveDefinition } from "../logic/affliction.mjs";
+import { ownSaveDc, parseAffliction } from "../logic/affliction-parse.mjs";
+import { chooseBackend, chooseDc, potentPoisonerDc, powerfulAlchemyDc, resolveDefinition } from "../logic/affliction.mjs";
 import { hashId } from "../logic/ids.mjs";
 import { heldKeysOf } from "./registry.mjs";
 import { read } from "./store.mjs";
@@ -135,16 +135,18 @@ const traitOf = (item, trait) => [...(item?.system?.traits?.value ?? [])].includ
 export function dcStampFor(creator, item) {
     if (!creator || !item) return null;
     const held = heldKeysOf(creator);
-    const printed = printedSaveDcs(item.system?.description?.value ?? "");
+    // The item's own save DC (its Saving Throw paragraph's check), never another check's (an addiction's, a stage's basic save).
+    const own = ownSaveDc(item.system?.description?.value ?? "");
+    const printed = Number.isInteger(own) ? [own] : [];
     const classDc = classDcOf(creator);
     const at = game.time?.worldTime ?? 0;
     if (held.includes("powerful-alchemy")) {
         const value = powerfulAlchemyDc({ printed, classDc, infused: traitOf(item, "infused") });
-        if (value) return { value, rule: "powerful-alchemy", creator: creator.uuid, printed: Math.max(...printed), at };
+        if (value) return { value, rule: "powerful-alchemy", creator: creator.uuid, printed: own, at };
     }
     if (held.includes("potent-poisoner") && traitOf(item, "poison")) {
         const value = potentPoisonerDc({ printed, classDc });
-        if (value) return { value, rule: "potent-poisoner", creator: creator.uuid, printed: Math.max(...printed), at, legacy: true };
+        if (value) return { value, rule: "potent-poisoner", creator: creator.uuid, printed: own, at, legacy: true };
     }
     return null;
 }
@@ -157,19 +159,19 @@ export function stampedDc(item) {
 }
 
 /**
- * The inline DC as pf2e resolves it for a holder (8.10.4 rung 4): the printed save DC, upgraded to the holder's class DC when
- * the item is infused and the holder has Powerful Alchemy (pf2e's `AdjustModifier` upgrade on `inline-dc` reads the
- * holder's own modifiers, verified).
+ * The inline DC as pf2e resolves it for a holder (8.10.4 rung 4): the item's own save DC (the check of its Saving Throw
+ * paragraph, `ownSaveDc`; not an addiction's or a stage's basic save), upgraded to the holder's class DC when the item is
+ * infused and the holder has Powerful Alchemy (pf2e's `AdjustModifier` upgrade on `inline-dc` reads the holder's own
+ * modifiers, verified).
  */
 export function inlineDcFor(item, holder) {
-    const printed = printedSaveDcs(item?.system?.description?.value ?? "");
-    if (!printed.length) return null;
-    const highest = Math.max(...printed);
+    const printed = ownSaveDc(item?.system?.description?.value ?? "");
+    if (!Number.isInteger(printed)) return null;
     if (holder && traitOf(item, "infused") && heldKeysOf(holder).includes("powerful-alchemy")) {
         const classDc = classDcOf(holder);
-        if (Number.isInteger(classDc) && classDc > highest) return classDc;
+        if (Number.isInteger(classDc) && classDc > printed) return classDc;
     }
-    return highest;
+    return printed;
 }
 
 /**

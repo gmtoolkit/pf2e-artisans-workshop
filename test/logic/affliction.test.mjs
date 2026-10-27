@@ -263,16 +263,17 @@ test("recording: the first result for a seq stands; a duplicate is already; a re
     assert.deepEqual(old, { ok: false, reason: "conflict" });
 });
 
-test("the time function: logged days count as elapsed; a clock that runs past them takes over; nothing is rolled twice", () => {
+test("the time function: logged days move the clock by whole days; a clock that reaches them takes over; nothing is rolled twice", () => {
     assert.equal(afflictionNow({ worldTime: 1000, manualDay: null }), 1000);
-    assert.equal(afflictionNow({ worldTime: 1000, manualDay: 2, secondsPerDay: 86400, offset: 0 }), 3 * 86400);
+    assert.equal(afflictionNow({ worldTime: 1000, manualDay: 2, secondsPerDay: 86400, offset: 0 }), 2 * 86400 + 1000, "two days ahead, the same time of day");
     assert.equal(afflictionNow({ worldTime: 4 * 86400, manualDay: 2 }), 4 * 86400);
+    assert.equal(afflictionNow({ worldTime: 1000, manualDay: 2, offset: 86000 }), 1000 + 86400, "the day boundary falls at the offset: day 1 already");
     // A day-interval disease: two days logged make one save due at day 1 and one at day 2; after they resolve (each next
     // due time from its own due time), a clock advanced over the same span finds nothing due.
     const disease = { ...DISEASE, stages: [stage(1, [], { value: 1, unit: "days" }), stage(2, [], { value: 1, unit: "days" })],
         duration: { value: -1, unit: "unlimited", expiry: null } };
     let run = applyDegree(run0(), disease, fail, "initial", 0, { random }).run;
-    let now = afflictionNow({ worldTime: 0, manualDay: 1 });
+    let now = afflictionNow({ worldTime: 0, manualDay: 2 });
     const saves = [];
     for (let i = 0; i < 5; i++) {
         const step = advance(run, disease, now, {});
@@ -281,8 +282,40 @@ test("the time function: logged days count as elapsed; a clock that runs past th
         run = recordSave(step.run, disease, { seq: i + 1, kind: "stage", degree: fail, dueAt: step.save.at, messageId: `m${i}` }, { random }).run;
     }
     assert.deepEqual(saves, [86400, 172800]);
-    now = afflictionNow({ worldTime: 2 * 86400, manualDay: 1 });
+    now = afflictionNow({ worldTime: 2 * 86400, manualDay: 2 });
     assert.equal(advance(run, disease, now, {}).save, null, "the clock over the logged days rolls nothing twice");
+});
+
+test("after days are logged, rounds still move the clock: with the clock advanced to match, a 1-round poison saves each round and ends at its maximum (review fix)", () => {
+    // Two days logged by the wizard, then "advance clock to match" (whole days, the same time of day): 10:00 on day 2.
+    const world0 = 2 * 86400 + 10 * 3600;
+    const clock = (worldTime) => afflictionNow({ worldTime, manualDay: 2, secondsPerDay: 86400, offset: 0 });
+    assert.equal(clock(world0 - 2 * 86400), world0, "before the clock was advanced: the logged days ahead, at the same time of day");
+    assert.equal(clock(world0), world0, "after: no jump");
+    const adder = { ...POISON, duration: { value: 3, unit: "rounds", expiry: null } };
+    let run = applyDegree(run0(), adder, fail, "initial", clock(world0), { random }).run;
+    const saves = [];
+    let ended = null;
+    for (let round = 1; round <= 10 && !ended; round++) {
+        const step = advance(run, adder, clock(world0 + 6 * round), {});
+        if (step.run.phase === "ended") ended = { round, reason: step.run.endReason };
+        else if (step.save) {
+            saves.push(round);
+            run = recordSave(step.run, adder, { seq: round, kind: "stage", degree: success, dueAt: step.save.at, messageId: `m${round}` }, { random }).run;
+            if (run.phase === "ended") ended = { round, reason: run.endReason };
+        }
+    }
+    assert.deepEqual(saves, [1], "the stage save falls due after one round");
+    assert.deepEqual(ended, { round: 1, reason: "recovered" });
+    // A failed save each round instead: the run ends at its 3-round maximum.
+    run = applyDegree(run0(), adder, fail, "initial", clock(world0), { random }).run;
+    ended = null;
+    for (let round = 1; round <= 10 && !ended; round++) {
+        const step = advance(run, adder, clock(world0 + 6 * round), {});
+        if (step.run.phase === "ended") ended = { round, reason: step.run.endReason };
+        else if (step.save) run = recordSave(step.run, adder, { seq: round, kind: "stage", degree: fail, dueAt: step.save.at, messageId: `f${round}` }, { random }).run;
+    }
+    assert.deepEqual(ended, { round: 3, reason: "max-duration" });
 });
 
 test("catch-up: a long advance makes the saves due one after another, each from the state the previous left", () => {
@@ -394,4 +427,61 @@ test("the tracker's sources: the schema of AfflictionSystemSource, a badge of st
     assert.equal(sys.onset, null, "the native onset is never written");
     assert.deepEqual(sys.status, { onset: true, stage: 2, progress: 0 });
     assert.equal(sys.save.value, 18);
+});
+
+/* -------------------------------------------- */
+/*  After the second M8a review                  */
+/* -------------------------------------------- */
+
+test("a re-exposure's save is an initial save against a new exposure: its own modifiers count (Player Core p.431)", () => {
+    const active = applyDegree(run0(), POISON, fail, "initial", 0, { random }).run;
+    // Blowgun Poisoner's critical hit: a success counts as a failure, so the stage goes up.
+    const blowgun = applyDegree(active, POISON, success, "re-exposure", 3, { random, mods: [{ slug: "blowgun-crit" }] });
+    assert.equal(blowgun.degree, fail);
+    assert.equal(blowgun.run.stage, 2);
+    // Pernicious Poison: a successful save still takes the poison's level in poison damage.
+    const pernicious = applyDegree(active, POISON, success, "re-exposure", 3, { random, mods: [{ slug: "pernicious-poison" }] });
+    assert.equal(pernicious.run.stage, 1);
+    assert.deepEqual(pernicious.extras, [{ formula: "2", damageType: "poison", category: null }]);
+    // Combustible Poison: a failure adds 1d4 persistent fire.
+    const combustible = applyDegree(active, POISON, fail, "re-exposure", 3, { random, mods: [{ slug: "combustible-poison" }] });
+    assert.equal(combustible.run.stage, 2);
+    assert.deepEqual(combustible.extras, [{ formula: "1d4", damageType: "fire", category: "persistent" }]);
+    // Without the exposure's modifiers, the run's own (the first exposure's) are not borrowed.
+    assert.deepEqual(applyDegree({ ...active, mods: [{ slug: "pernicious-poison" }] }, POISON, success, "re-exposure", 3, { random, mods: [] }).extras, []);
+});
+
+test("King's Sleep: a cumulative condition adds its value on each failed save and never goes down while the affliction lasts (8.10.2)", () => {
+    const KINGS = { ...POISON, cumulative: ["drained"], duration: { value: -1, unit: "unlimited", expiry: null },
+        stages: [stage(1, [{ slug: "drained", value: 1, linked: true }]), stage(2, [{ slug: "drained", value: 1, linked: true }]),
+            stage(3, [{ slug: "drained", value: 2, linked: true }])] };
+    const first = applyDegree(run0(), KINGS, fail, "initial", 0, { random });
+    assert.equal(first.effects.failed, true);
+    assert.deepEqual(first.effects.cumulative, ["drained"]);
+    const had = (value) => [{ id: "c1", slug: "drained", value, grantedBy: "trk", linked: true }];
+    // A failed save from stage 1 to 2: drained 1 + 1.
+    const up = applyDegree(first.run, KINGS, fail, "stage", 6, { random });
+    assert.deepEqual(stageConditionPlan("trk", up.effects.conditions, had(1), up.effects), { deletes: [], updates: [{ id: "c1", value: 2 }], creates: [] });
+    // A failed save at stage 3 (the highest repeats): drained 2 more.
+    const top = applyDegree({ ...first.run, stage: 3 }, KINGS, fail, "stage", 6, { random });
+    assert.deepEqual(stageConditionPlan("trk", top.effects.conditions, had(4), top.effects).updates, [{ id: "c1", value: 6 }]);
+    // A success from stage 3 to 2: drained stays where it is.
+    const down = applyDegree({ ...first.run, stage: 3 }, KINGS, success, "stage", 6, { random });
+    assert.equal(down.effects.failed, false);
+    assert.deepEqual(stageConditionPlan("trk", down.effects.conditions, had(4), down.effects), { deletes: [], updates: [], creates: [] });
+    // Without the rule, the stage's value is set (pf2e's handleStageChange): the old reading.
+    assert.deepEqual(stageConditionPlan("trk", up.effects.conditions, had(1), {}).updates, []);
+});
+
+test("Nethershade: a detached stage condition outlasts its stage and the affliction (8.10.2)", () => {
+    const NETHER = { ...POISON, detach: ["enfeebled"], stages: [stage(1), stage(2, [{ slug: "enfeebled", value: 1, linked: true }]),
+        stage(3, [{ slug: "enfeebled", value: 2, linked: true }])] };
+    const at2 = enterStage({ ...run0(), phase: "active", stage: 1 }, NETHER, 2, 0, { random });
+    assert.deepEqual(at2.effects.conditions, [{ slug: "enfeebled", value: 1, linked: false }]);
+    assert.equal(grantOnDelete(at2.effects.conditions[0]), "detach");
+    const back = enterStage({ ...run0(), phase: "active", stage: 2 }, NETHER, 1, 6, { random });
+    assert.deepEqual(stageConditionPlan("trk", back.effects.conditions, [{ id: "e1", slug: "enfeebled", value: 1, grantedBy: "trk", linked: false }]).deletes, [],
+        "not removed when the stage changes");
+    const merged = applyOverride({ ...POISON, problems: [] }, { cumulative: ["drained"], detach: ["enfeebled"], intro: "table" });
+    assert.deepEqual([merged.cumulative, merged.detach, merged.intro.rule], [["drained"], ["enfeebled"], "table"]);
 });

@@ -5,7 +5,9 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { durationSeconds, flattenInlineRolls, isCandidate, parseAffliction, parseDuration } from "../../scripts/logic/affliction-parse.mjs";
+import { AFFLICTION_OVERRIDES } from "../../scripts/data/afflictions.mjs";
+import { durationSeconds, flattenInlineRolls, isCandidate, ownSaveDc, parseAffliction, parseDuration } from "../../scripts/logic/affliction-parse.mjs";
+import { applyOverride } from "../../scripts/logic/affliction.mjs";
 
 const p = (label, rest) => `<p><strong>${label}</strong> ${rest}</p>`;
 const cond = (name, value = null) => `@UUID[Compendium.pf2e.conditionitems.Item.${name}]${value === null ? "" : `{${name} ${value}}`}`;
@@ -152,4 +154,71 @@ test("spells and creature abilities: the spell's own save, a named level, a blan
     assert.deepEqual(ability.stages[0].conditions, []);
     const plain = parseAffliction([p("Saving Throw", "DC 32 Fortitude"), p("Stage 1", "drained 1 (1 day)")].join(""), { traits: ["disease"] });
     assert.deepEqual(plain.save, { type: "fortitude", value: 32 });
+});
+
+/* -------------------------------------------- */
+/*  After the second M8a review                  */
+/* -------------------------------------------- */
+
+const stageOf = (text, extra = "") => parseAffliction([p("Saving Throw", "@Check[fortitude|dc:20]"), p("Maximum Duration", "6 rounds"), extra,
+    p("Stage 1", `@Damage[1d6[poison]] damage (1 round)`), p("Stage 2", text)].join(""), { traits: ["poison"] }).stages[1];
+
+test("a stage whose parts a choice, a condition or a duration of their own qualifies applies none of them (8.10.2)", () => {
+    const none = (text, why) => {
+        const s = stageOf(text);
+        assert.equal(s.unparsed, true, why);
+        assert.deepEqual([s.damage, s.conditions, s.effects], [[], [], []], why);
+    };
+    none(`${cond("Clumsy", 1)}, ${cond("Enfeebled", 1)}, or ${cond("Stupefied", 1)} (1 round)`, "a choice of conditions");
+    none("2d6 cold or fire damage (1 round)", "a choice of damage types");
+    none(`@Damage[1d6[poison]] or @Damage[1d6[vitality]] damage (1 round)`, "a choice of damage");
+    none(`@Damage[4d6[poison]] damage and clumsy 2 (1 round). If the target fails its save at this stage, it is ${cond("Paralyzed")}.`, "a condition on a save");
+    none(`stupefied 1 and @Damage[3d6[mental]] damage for lying (1 minute)`, "damage for an act");
+    none(`@Damage[2d12[void]] damage and ${cond("Doomed", 1)} for 1 round (1 round)`, "a condition with a duration of its own");
+    none("paralyzed for [[/br 2d4 #hours]]{2d4 hours}", "a dice duration of its own");
+    none("@Damage[4d6[mental]] damage and attacks as if confused (1 round)", "acting as if it had a condition");
+    // A plain stage still applies.
+    assert.deepEqual(stageOf(`@Damage[2d6[poison]] damage and ${cond("Enfeebled", 1)} (1 round)`).conditions, [{ slug: "enfeebled", value: 1, linked: true }]);
+});
+
+test("\"as stage N, but\" replaces the parts it names; \"but also\" adds; a copy of a stage that applies nothing applies nothing (8.10.2)", () => {
+    const html = (s2, s3) => [p("Saving Throw", "@Check[fortitude|dc:20]"), p("Stage 1", `@Damage[1d6[poison]] damage and ${cond("Sickened", 1)} (1 round)`),
+        p("Stage 2", s2), p("Stage 3", s3)].join("");
+    const but = parseAffliction(html("as stage 1, but @Damage[2d6[poison]] damage (1 round)", "as stage 1, but also clumsy 1 (1 round)"), { traits: ["poison"] });
+    assert.deepEqual(but.stages[1].damage, [{ formula: "2d6", damageType: "poison", category: null }], "the damage replaced, not added");
+    assert.deepEqual(but.stages[1].conditions, [{ slug: "sickened", value: 1, linked: true }]);
+    assert.deepEqual(but.stages[2].conditions.map((c) => c.slug).sort(), ["clumsy", "sickened"], "but also adds");
+    assert.deepEqual(but.stages[2].damage, [{ formula: "1d6", damageType: "poison", category: null }]);
+    const copied = parseAffliction(html(`@Damage[1d6[poison]] damage for each action it takes (1 round)`, "as stage 2, but @Damage[2d6[poison]] damage (1 hour)"),
+        { traits: ["poison"] });
+    assert.deepEqual([copied.stages[2].damage, copied.stages[2].unparsed], [[], true]);
+});
+
+test("an intro that changes how a stage condition works is flagged; the save DC is the Saving Throw paragraph's, not another check's (8.10.2, 8.10.4)", () => {
+    const body = [p("Saving Throw", "@Check[fortitude|dc:24]"), p("Stage 1", "drained 1 (1 day)"), p("Stage 2", "drained 2 (1 day)")].join("");
+    const flagged = parseAffliction(`<p>The drained condition from this poison is cumulative with each failed save.</p>${body}`, { traits: ["poison"] });
+    assert.equal(flagged.confidence, "full");
+    assert.equal(flagged.intro.conditionRule, true);
+    assert.equal(parseAffliction(`<p>A sleepy poison that leaves you drained.</p>${body}`, { traits: ["poison"] }).intro.conditionRule, false);
+    assert.equal(parseAffliction(`<p>Its frightened condition can't be removed while the poison lasts.</p>${body}`, { traits: ["poison"] }).intro.conditionRule, false,
+        "a condition the stages do not name");
+    // An addiction's save printed before the affliction's own (28), and a stage's basic save after it (30).
+    const two = `<p>Addiction @Check[fortitude|dc:28]</p>${body}${p("Stage 3", "@Damage[2d6[acid]] damage (@Check[fortitude|dc:30|basic] save) (1 day)")}`;
+    assert.equal(ownSaveDc(two), 24);
+    assert.equal(ownSaveDc("<p>@Check[reflex|dc:19]</p><p>@Check[fortitude|dc:23]</p>"), 19, "no Saving Throw paragraph: the first check");
+    assert.equal(ownSaveDc("<p>No check here.</p>"), null);
+});
+
+test("Curare's shape: an override's explicit stage parts replace a stage the parser leaves to the table, and no paralysis comes with it", () => {
+    const html = [p("Saving Throw", "@Check[fortitude|dc:25]"), p("Maximum Duration", "6 rounds"), p("Stage 1", "@Damage[2d6[poison]] damage and clumsy 1 (1 round)"),
+        p("Stage 2", "@Damage[3d6[poison]] damage and clumsy 2 (1 minute)"),
+        p("Stage 3", `@Damage[4d6[poison]] damage, clumsy 2 and slowed 1 (1 round). If the target fails its save at stage 3, it ends and the target is ${cond("Paralyzed")}.`)].join("");
+    const parsed = parseAffliction(html, { traits: ["poison", "injury", "incapacitation"] });
+    assert.deepEqual(parsed.stages[2].conditions, [], "the parse leaves stage 3 to the table");
+    const shipped = AFFLICTION_OVERRIDES.curare;
+    assert.ok(shipped.prose.includes(3));
+    assert.ok(!shipped.stages[3].conditions.some((c) => c.slug === "paralyzed"), "the shipped override names no paralysis");
+    const def = applyOverride(parsed, { prose: [3], stages: { 3: { duration: { value: 1, unit: "rounds" }, conditions: [{ slug: "slowed", value: 1, linked: true }] } } });
+    assert.deepEqual(def.stages[2].conditions, [{ slug: "slowed", value: 1, linked: true }]);
+    assert.equal(def.stages[2].unparsed, true, "still shown to the table");
 });

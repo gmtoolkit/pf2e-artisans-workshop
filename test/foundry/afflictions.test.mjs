@@ -194,7 +194,7 @@ test("stage saves fall due as time passes; a failure enters the next stage, gran
     assert.ok(condition(hero, "sickened"), "an expiring condition is not removed at the stage change");
     assert.equal(world.damageMessages.at(-1).formula, "{(2d6)[poison]}");
     // The maximum duration: pushed past the next save so it is what falls due.
-    await hero.items.get(pending.runId).update({ [`flags.${MOD}.affliction.run.nextDueAt`]: 5000 }, afflictions.OWN_WRITE);
+    await hero.items.get(pending.runId).update({ [`flags.${MOD}.affliction.run.nextDueAt`]: 5000 }, afflictions.ownWrite());
     const changes = hooked("afflictionChanged");
     game.time.worldTime = 1036;
     await afflictions.processAfflictions();
@@ -213,7 +213,7 @@ test("days logged by the wizard move the affliction clock: a day-interval diseas
     await afflictions.processAfflictions();
     assert.equal(afflictions.runOf(hero.items.get(pending.runId)).pending, null, "a day has not passed");
     await docs.ledger.update({ [`flags.${MOD}.meta.manual.run1`]: { id: "run1", v: 1, fromDay: 0, toDay: 1 } });
-    assert.equal(afflictions.clockNow(), 2 * 86400, "the end of the last logged day");
+    assert.equal(afflictions.clockNow(), 1000 + 86400, "a day ahead of world time: the logged day, at the world's time of day");
     await afflictions.processAfflictions();
     assert.equal(afflictions.runOf(hero.items.get(pending.runId)).pending.dueAt, 1000 + 86400, "due from the stage's own start");
 });
@@ -298,7 +298,7 @@ test("the stage guard: an effects-panel click becomes a recorded manual adjust w
     assert.equal(afflictions.runOf(hero.items.get(pending.runId)).stage, 1);
     assert.equal(condition(hero, "slowed"), null);
     // A module write is let through.
-    assert.ok(await clientUpdate(hero.items.get(pending.runId), expand({ "system.badge.value": 1 }), afflictions.OWN_WRITE));
+    assert.ok(await clientUpdate(hero.items.get(pending.runId), expand({ "system.badge.value": 1 }), afflictions.ownWrite()));
 });
 
 test("a deletion the module did not make (a right-click at stage 1) is allowed and recorded as a manual end, which can be undone (8.10.1)", async () => {
@@ -498,9 +498,177 @@ test("a pending save another client already recorded is cleared, and the next du
     await afflictions.processAfflictions();
     await rollAndRecord(hero, "failure");
     // This client's late pending for the save just recorded lands after the result.
-    await hero.items.get(pending.runId).update({ [`flags.${MOD}.affliction.run.pending`]: { seq: 2, kind: "stage", dueAt: 1006 } }, afflictions.OWN_WRITE);
+    await hero.items.get(pending.runId).update({ [`flags.${MOD}.affliction.run.pending`]: { seq: 2, kind: "stage", dueAt: 1006 } }, afflictions.ownWrite());
     game.time.worldTime = 1012;
     afflictions.resetAfflictions();
     await afflictions.processAfflictions();
     assert.deepEqual(afflictions.runOf(hero.items.get(pending.runId)).pending, { seq: 3, kind: "stage", dueAt: 1012 });
+});
+
+/* -------------------------------------------- */
+/*  After the second M8a review                  */
+/* -------------------------------------------- */
+
+test("logged days move the clock by whole days, so rounds still count: before and after 'advance clock to match' (8.10.7)", async () => {
+    await docs.ledger.update({ [`flags.${MOD}.meta.manual.run1`]: { id: "run1", v: 1, fromDay: 0, toDay: 1 } });
+    // The log runs a day ahead of the clock: an encounter that day still moves the affliction clock round by round.
+    await exposeTo([hero]);
+    const first = await rollAndRecord(hero, "failure");
+    assert.deepEqual(afflictions.runOf(hero.items.get(first.pending.runId)).nextDueAt, 1000 + 86400 + 6);
+    game.time.worldTime += 6;
+    await afflictions.processAfflictions();
+    assert.equal(afflictions.runOf(hero.items.get(first.pending.runId)).pending?.dueAt, 1000 + 86400 + 6, "due a round later");
+    await afflictions.adjust(hero.items.get(first.pending.runId), { end: true });
+    // The GM advances the clock to match (whole days, the same time of day): no jump, and a new exposure runs on world time.
+    game.time.worldTime = 1000 + 86400 + 6;
+    assert.equal(afflictions.clockNow(), game.time.worldTime);
+    await exposeTo([hero], { key: "msg00000010" });
+    const second = await rollAndRecord(hero, "failure");
+    const run = afflictions.runOf(hero.items.get(second.pending.runId));
+    assert.deepEqual([run.enteredAt, run.nextDueAt, run.maxEndsAt], [87406, 87412, 87442]);
+    game.time.worldTime += 6;
+    await afflictions.processAfflictions();
+    assert.deepEqual(afflictions.runOf(hero.items.get(second.pending.runId)).pending, { seq: 2, kind: "stage", dueAt: 87412 });
+});
+
+test("a re-exposure while a stage save is pending waits for it, then takes its own save number (8.10.8)", async () => {
+    await exposeTo([hero]);
+    const { pending } = await rollAndRecord(hero, "failure");
+    game.time.worldTime = 1006;
+    await afflictions.processAfflictions();
+    assert.deepEqual(afflictions.runOf(hero.items.get(pending.runId)).pending, { seq: 2, kind: "stage", dueAt: 1006 });
+    game.time.worldTime = 1008;
+    await exposeTo([hero], { key: "msg00000002" });
+    const second = claimsOf().find((c) => !c.resolved);
+    assert.equal(second.pending, undefined, "the earlier stage save comes first");
+    world.outcomes.push("failure");
+    await afflictions.rollSave(hero, { runId: pending.runId, seq: 2 }, { skipDialog: true });
+    await afflictions.onAfflictionMessage(world.lastMessage);
+    await settle();
+    await claims.sweepClaims();
+    let run = afflictions.runOf(hero.items.get(pending.runId));
+    assert.deepEqual([run.saves[2].kind, run.stage], ["stage", 2], "the card rolled was the stage save, recorded as one");
+    assert.deepEqual(claimsOf().find((c) => c.id === second.id).pending, { kind: "re-exposure", runId: pending.runId, seq: 3 });
+    world.outcomes.push("failure");
+    await afflictions.rollSave(hero, { runId: pending.runId, seq: 3 }, { skipDialog: true });
+    await afflictions.onAfflictionMessage(world.lastMessage);
+    run = afflictions.runOf(hero.items.get(pending.runId));
+    assert.deepEqual([run.saves[3].kind, run.stage, run.nextDueAt], ["re-exposure", 3, 1014]);
+    assert.ok(claimsOf().find((c) => c.id === second.id).resolved);
+});
+
+test("Pinpoint Poisoner: a flanked target (off-guard only in the Strike's roll options) takes −2; a creature in a cloud that is not off-guard does not (8.10.6)", async () => {
+    const { weapon } = await coat({ feats: ["pinpoint-poisoner"] });
+    await coatings.onStrikeMessage(strikeMessage(weapon, "attack-roll", { context: { outcome: "success", options: ["target:condition:off-guard", "self:flanking"] } }));
+    await coatings.onStrikeMessage(strikeMessage(weapon, "damage-roll", { damageRoll: { types: { piercing: { base: 4 } } } }));
+    assert.equal(claimsOf()[0].offGuard, true, "recorded at the hit");
+    assert.equal(ogre.hasCondition("off-guard"), false, "pf2e's flanking off-guard is the clone's, not an item on the target");
+    world.currentUser = "gm00000000000000";
+    await claims.sweepClaims();
+    assert.equal(world.saveRolls.at(-1).actor, ogre.id);
+    assert.deepEqual(world.saveRolls.at(-1).params.modifiers.map((m) => [m.slug, m.modifier]), [["pinpoint-poisoner", -2]]);
+    // An inhaled poison: the feat still needs an off-guard creature.
+    const cloud = compendiumPoison({ id: "cloudCompendium1", name: "Test Cloud", traits: ["alchemical", "consumable", "inhaled", "poison"] });
+    const dose = hero.addItem({ type: "consumable", name: "Test Cloud", system: { quantity: 1, level: { value: 2 }, traits: { value: ["alchemical", "consumable", "inhaled", "poison"] },
+        description: cloud.system.description }, _stats: { compendiumSource: cloud.uuid } });
+    const unleashed = await coatings.unleash({ poison: dose, actor: hero, targets: [ogre] });
+    assert.equal(unleashed.ok, true, JSON.stringify(unleashed));
+    await settle();
+    await claims.sweepClaims();
+    const roll = world.saveRolls.at(-1);
+    assert.equal(roll.params.item.name, "Test Cloud");
+    assert.deepEqual(roll.params.modifiers, [], "not off-guard: no −2");
+});
+
+test("the DC is the item's own save, not an addiction's printed before it; Powerful Alchemy's stamp compares against it too (8.10.4)", () => {
+    const html = `<p>Addiction @Check[fortitude|dc:28]</p><p><strong>Saving Throw</strong> @Check[fortitude|dc:24]</p><p><strong>Stage 1</strong> drained 1 (1 hour)</p>`;
+    const item = { system: { description: { value: html }, traits: { value: ["infused", "poison"] } } };
+    assert.deepEqual(defs.exposureDc({ def: { save: { type: "fortitude", value: 24 }, origin: "parse" }, item, holder: hero }), { value: 24, source: "inline" });
+    const alchemist = addDocument("Actor", { name: "Alch", type: "character", items: [{ type: "feat", name: "Powerful Alchemy", system: { slug: "powerful-alchemy" },
+        _stats: { compendiumSource: REGISTRY["powerful-alchemy"].uuid } }] });
+    alchemist.classDCs = { alchemist: { dc: { value: 26 } } };
+    const stamp = defs.dcStampFor(alchemist, item);
+    assert.deepEqual([stamp?.value, stamp?.printed], [26, 24], "26 beats the poison's own 24");
+    assert.equal(defs.inlineDcFor(item, alchemist), 26);
+});
+
+test("a re-exposure's save gets the initial save's modifiers: holding one's breath (8.10.6)", async () => {
+    await exposeTo([hero]);
+    const { pending } = await rollAndRecord(hero, "failure");
+    await exposeTo([hero], { key: "msg00000002", delivery: "inhaled", heldBreath: true });
+    const second = claimsOf().find((c) => !c.resolved);
+    assert.equal(second.pending.kind, "re-exposure");
+    world.outcomes.push("success");
+    await afflictions.rollSave(hero, { runId: pending.runId, seq: second.pending.seq }, { skipDialog: true });
+    assert.deepEqual(world.saveRolls.at(-1).params.modifiers.map((m) => [m.slug, m.modifier]), [["held-breath", 2]]);
+});
+
+test("a homebrew poison (no compendium source) keeps running once its dose is gone, and its coating still exposes (8.10.2)", async () => {
+    const own = poison.toObject();
+    const homebrew = hero.addItem({ ...own, name: "Homebrew Toxin", system: { ...own.system, quantity: 1 } });
+    const result = await afflictions.expose({ item: homebrew, targets: [hero], delivery: "injury", key: "msg0000000hb1" });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    await settle();
+    await claims.sweepClaims();
+    const { pending } = await rollAndRecord(hero, "failure");
+    // The dose is used up and the client reloads (no parse cache): the tracker's own copy of the definition runs it.
+    hero.items.delete(homebrew.id);
+    world.uuids.delete(homebrew.uuid);
+    defs.resetDefinitions();
+    afflictions.resetAfflictions();
+    game.time.worldTime = 1006;
+    await afflictions.processAfflictions();
+    assert.deepEqual(afflictions.runOf(hero.items.get(pending.runId)).pending, { seq: 2, kind: "stage", dueAt: 1006 });
+    // A weapon coated with the last homebrew dose: the Strike still exposes.
+    const weapon = hero.addItem({ type: "weapon", name: "Dagger", system: { slug: "dagger" } });
+    const last = hero.addItem({ ...own, name: "Homebrew Toxin", system: { ...own.system, quantity: 1 } });
+    assert.equal((await coatings.applyPoison({ poison: last, weapon, actor: hero })).ok, true);
+    assert.equal(hero.items.get(last.id), undefined, "the last dose is spent");
+    world.uuids.delete(last.uuid);
+    defs.resetDefinitions();
+    await coatings.onStrikeMessage(strikeMessage(hero.items.get(weapon.id), "attack-roll", { context: { outcome: "success" } }));
+    const hit = await coatings.onStrikeMessage(strikeMessage(hero.items.get(weapon.id), "damage-roll", { damageRoll: { types: { piercing: { base: 4 } } } }));
+    assert.equal(hit.exposed?.ok, true, JSON.stringify(hit.exposed));
+    assert.equal(claimsOf().find((c) => c.actor === ogre.uuid).def.stages.length, 3, "the claim carries the definition");
+});
+
+test("a coated piece of ammunition rides its launcher's Strike: selected when coated, armed at the hit, exposing at the damage roll (8.10.5)", async () => {
+    const arrows = hero.addItem({ type: "ammo", name: "Arrows", system: { quantity: 10, slug: "arrows" } });
+    const bow = hero.addItem({ type: "weapon", name: "Shortbow", system: { slug: "shortbow", selectedAmmoId: arrows.id } });
+    const dose = hero.addItem({ type: "consumable", name: "Test Toxin", system: { quantity: 1, slug: "test-toxin", level: { value: 2 },
+        traits: { value: ["alchemical", "consumable", "injury", "poison"] }, description: poison.system.description }, _stats: { compendiumSource: poison.uuid } });
+    const applied = await coatings.applyPoison({ poison: dose, weapon: arrows, actor: hero });
+    assert.equal(applied.ok, true, JSON.stringify(applied));
+    const piece = hero.items.get(applied.host);
+    assert.deepEqual([piece.system.quantity, hero.items.get(arrows.id).system.quantity], [1, 9]);
+    assert.equal(hero.items.get(bow.id).system.selectedAmmoId, piece.id, "the bow now fires the coated piece");
+    const armed = await coatings.onStrikeMessage(strikeMessage(hero.items.get(bow.id), "attack-roll", { context: { outcome: "success", options: [`item:ammo:id:${piece.id}`] } }));
+    assert.equal(armed?.outcome, "armed");
+    hero.items.delete(piece.id);   // pf2e consumes the fired piece after the attack roll
+    const hit = await coatings.onStrikeMessage(strikeMessage(hero.items.get(bow.id), "damage-roll", { damageRoll: { types: { piercing: { base: 4 } } } }));
+    assert.equal(hit?.outcome, "exposed");
+    assert.equal(claimsOf()[0].actor, ogre.uuid);
+    assert.equal(hero.items.get(bow.id).flags[MOD]?.ammoStrike, undefined, "nothing stays armed on the bow");
+    // A hit whose damage is never rolled, then a shot with an uncoated arrow: the earlier piece's coating does not ride it.
+    const next = await coatings.applyPoison({ poison: hero.addItem({ ...dose.toObject(), _id: undefined }), weapon: hero.items.get(arrows.id), actor: hero });
+    await coatings.onStrikeMessage(strikeMessage(hero.items.get(bow.id), "attack-roll", { context: { outcome: "success", options: [`item:ammo:id:${next.host}`] } }));
+    hero.items.delete(next.host);
+    await coatings.onStrikeMessage(strikeMessage(hero.items.get(bow.id), "attack-roll", { context: { outcome: "success", options: [`item:ammo:id:${arrows.id}`] } }));
+    assert.equal(hero.items.get(bow.id).flags[MOD]?.ammoStrike, undefined, "a new attack clears it");
+    assert.equal(await coatings.onStrikeMessage(strikeMessage(hero.items.get(bow.id), "damage-roll", { damageRoll: { types: { piercing: { base: 4 } } } })), null);
+    assert.equal(claimsOf().length, 1);
+});
+
+test("a Double Poison exposure is keyed as the double, not as its second poison (8.10.5, 8.10.6)", async () => {
+    const second = compendiumPoison({ id: "toxinCompendium2", name: "Second Toxin", traits: ["alchemical", "consumable", "injury", "infused", "poison"] });
+    hero.addItem({ type: "feat", name: "Double Poison", system: { slug: "double-poison" }, _stats: { compendiumSource: REGISTRY["double-poison"].uuid } });
+    const weapon = hero.addItem({ type: "weapon", name: "Dagger", system: { slug: "dagger" } });
+    const doseOf = (doc) => hero.addItem({ type: "consumable", name: doc.name, system: { quantity: 1, level: { value: 2 },
+        traits: { value: ["alchemical", "consumable", "injury", "infused", "poison"] }, description: doc.system.description }, _stats: { compendiumSource: doc.uuid } });
+    assert.equal((await coatings.applyPoison({ poison: doseOf(poison), weapon, actor: hero })).ok, true);
+    const doubled = await coatings.applyPoison({ poison: doseOf(second), weapon, actor: hero, double: true });
+    assert.equal(doubled.ok, true, JSON.stringify(doubled));
+    await coatings.onStrikeMessage(strikeMessage(hero.items.get(weapon.id), "attack-roll", { context: { outcome: "success" } }));
+    await coatings.onStrikeMessage(strikeMessage(hero.items.get(weapon.id), "damage-roll", { damageRoll: { types: { piercing: { base: 4 } } } }));
+    assert.equal(claimsOf()[0].defKey, `double:${poison.uuid}:${second.uuid}`);
 });

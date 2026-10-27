@@ -3436,7 +3436,10 @@ see OQ-47):
   consumables (wands, some elixirs and snares) have no stages and are not afflictions.
 - The parser runs at runtime, on the client that needs a definition, over the description of the item's
   compendium source (`sourceId`), falling back to the item's own description. Results are cached in
-  memory per source UUID and pf2e version. No text is stored.
+  memory per source UUID and pf2e version. No text is stored. A definition whose source is not a
+  compendium document (a homebrew poison made on a sheet, a world item) cannot be read again once its
+  item is gone, so the exposure claim, the coating or cloud and the tracker keep it (numbers, slugs and
+  UUIDs only, P9), and a coating or cloud exposes after its last dose is spent (second M8a review).
 
   | Part | Read from |
   |---|---|
@@ -3455,7 +3458,14 @@ see OQ-47):
   `confidence: "full" | "partial" | "none"`, and `unparsed: true` on stages whose text the grammar
   could not map. A partial definition still runs: timing, saves and stage changes are automated, and
   the unparsed part of the current stage is shown by rendering that stage's paragraph from the source
-  item at display time, for the table to apply by hand.
+  item at display time, for the table to apply by hand. A stage whose text qualifies its mapped parts
+  applies none of them: a choice between them ("clumsy 1, enfeebled 1, or stupefied 1", "cold or fire
+  damage"), a condition on them ("if", "unless", damage "for lying", "for each action", "each time",
+  "once every"), a duration of their own ("doomed 1 for 1 round", "paralyzed for 2d4 hours",
+  "permanently"), or acting "as if" under one; an override may name the parts that do apply (Curare's
+  stage 3, Reaper's Shadow's damage). "As stage N, but ..." replaces the parts of stage N that it names
+  ("but also" adds to them), and a copy of a stage that applies nothing applies nothing (second M8a
+  review).
 - **Overrides.** `scripts/data/afflictions.mjs`, keyed by slug with the source UUID alongside (as the
   registry, 6.11), holds structured definitions for items that do not parse or parse wrongly: stages
   with damage formulas, condition slugs and values, intervals; onset; maximum duration; save type; and
@@ -3466,8 +3476,14 @@ see OQ-47):
   in the system packs, and fails on any that neither parses fully, nor has an override, nor is on the
   ignore list (6.11, 15.2). Because an intro can change the general rules while the stages still parse
   fully, CI also flags for human review every candidate whose intro mentions further, additional or
-  multiple exposure, until it has an override or an ignore-list entry saying it changes nothing. A pf2e
-  release that changes a parse result opens a churn issue (3.3).
+  multiple exposure, until it has an override or an ignore-list entry saying it changes nothing, and
+  likewise every candidate whose intro names one of its stage conditions with "cumulative", "can't be
+  removed" (reduced, ended), "lasts for", "ends when" or "while the poison lasts". The override flags
+  for those: `cumulative` (the value adds the stage's on each failed save and never goes down while the
+  affliction lasts: King's Sleep's drained), `detach` (the condition outlasts its stage and the
+  affliction, its own duration the table's: Nethershade's enfeebled) and `intro: "table"` (reviewed: the
+  intro's rule is the table's to apply: Fearweed, Daylight Vapor, Arsenic). A pf2e release that changes
+  a parse result opens a churn issue (3.3).
 - **World definitions.** When nothing parses (a translated description, OQ-46, or homebrew), Expose
   opens a small form: stages, intervals, save, onset, maximum duration, and each stage's conditions and
   damage. Any member can fill it in; it is stored as `afflictionDefs.<hash of source UUID>` in the
@@ -3525,7 +3541,9 @@ The first match wins:
    - legacy Potent Poisoner, for a poison crafted by any means (downtime included), adds up to 4, at
      most the class DC, badged;
 4. the inline `@Check` DC as pf2e resolves it for the item's current holder, which already includes
-   Powerful Alchemy when the holder is the creator;
+   Powerful Alchemy when the holder is the creator: the check of the item's own Saving Throw paragraph
+   (else its first saving throw check), never another check's, such as an addiction's save printed
+   before it or a stage's basic save; the stamps in rung 3 compare against the same DC;
 5. the parsed printed DC.
 
 - **Why the stamp.** pf2e computes Powerful Alchemy's upgrade from the holder's modifiers (7.1), so an
@@ -3580,7 +3598,13 @@ The first match wins:
      resistance and a critical failure as examples). For step 3 the check is rolled by the attacker's
      responsible client when the void is recorded, and the coating is restored if it was already spent.
 - **Ammunition.** A coating sits on one piece: coating a stack first splits one piece off, and the
-  coating is spent or kept with that piece.
+  coating is spent or kept with that piece. The launchers that had the stack selected as their
+  ammunition (pf2e's `selectedAmmoId`) select the coated piece instead; a launcher that loads its
+  ammunition (pf2e's subitems) needs it loaded, which the coating card says. A launcher's Strike uses
+  the coating of the piece it fired (its `item:ammo:id` roll option, else `weapon.ammo`): the piece
+  leaves with the shot (pf2e consumes it after the attack roll), so a hit arms its coating on the
+  launcher (`flags.MOD.ammoStrike`) for that Strike's damage roll, which exposes or spends it, and a
+  miss takes it away with the piece; Sticky Poison has nothing to keep it on.
 - **Not afflictions, so not tracked:** Poison Weapon's simple poisons (damage with no save), a
   toxicologist's versatile vial used as an injury poison (extra damage), Poisoner's Twist.
 - **Poison Coat** (Poisoner): the poison suffused into clothing is a coating on the worn clothing item;
@@ -3662,6 +3686,10 @@ function enterStage(run, def, stage, now, mods, { keepMax = false } = {}) {
   actor.
 - **Re-exposure without a save.** With `reExposure: "none"` (Lethargy Poison, Stupor Poison), a new
   exposure from the same source records the exposure, rolls no save and changes nothing.
+- **A re-exposure's save** is the initial save against a new exposure (Player Core p.431): that
+  exposure's own modifiers apply as for an initial save (Pinpoint Poisoner, holding one's breath,
+  Combustible Poison's −1, Blowgun Poisoner's degree, Pernicious Poison's and Combustible Poison's
+  damage), not the first exposure's (second M8a review).
 - **Same affliction twice.** An exposure whose source matches an active affliction on the target (the
   same source UUID, or the same world definition) is a re-exposure, not a second item. Different
   afflictions coexist, each on its own item; a Double Poison is one affliction.
@@ -3704,9 +3732,14 @@ function enterStage(run, def, stage, now, mods, { keepMax = false } = {}) {
 - **Initial saves** are rolled at once on exposure, in or out of combat (GM Core p.248).
 - **Days logged without the clock.** The tracker's clock is world seconds (`onsetEndsAt`, `maxEndsAt`,
   `nextDueAt`), so logged days need a mapping, the same max rule as the workshop day (4.8). Every due
-  check, and every time the run records, uses `afflictionNow = max(worldTime, (manualDay + 1) ×
-  secondsPerDay − offset)` (the second term only once days have been logged): the logged days count as
-  fully elapsed, and a clock that runs past them takes over. When either term moves
+  check, and every time the run records, uses `afflictionNow = worldTime + max(0, manualDay − clockDay) ×
+  secondsPerDay` (the second term only once days have been logged): while the log runs ahead of the
+  clock's day, the clock reads the workshop day at the world's time of day, so rounds, minutes and hours
+  still move it; once the clock's day reaches the log ("advance clock to match" moves world time by whole
+  days and keeps the time of day) it is world time, with no jump. A midnight the world clock crosses while
+  the log is still ahead lands inside the logged days and adds nothing, as for the workshop day: the
+  clock reads a day less and, as for a clock set back (below), due times wait. No high-water mark is
+  kept: it would hold new exposures back as well as running ones (second M8a review). When either term moves
   (`updateWorldTime`, or a new `meta.manual` record), the victim's responsible client processes what
   fell due up to `afflictionNow`, as in catch-up above, whether or not the actor is a PC in downtime,
   for NPCs too (with a GM, 8.10.8). For a PC in downtime the saves due on logged days appear in its day
@@ -3733,7 +3766,10 @@ creature with a player owner is rolled like a PC, by that owner (the user 5.6 el
 | An actor with no player owner, no GM connected | nobody: the save waits until a GM connects | | |
 
 - **Pending.** `run.pending = {seq, kind, dueAt}`. The stage stays where it is, and later due events
-  wait behind the pending save, so their order is kept. A pending initial save has no tracker item yet
+  wait behind the pending save, so their order is kept: a re-exposure that arrives while a stage save is
+  pending or already due waits until that save is recorded, and a stage save that falls due while a
+  re-exposure's save is pending waits for it; each save takes a number past every recorded and reserved
+  one (second M8a review). A pending initial save has no tracker item yet
   (the item is created only after a failed initial save, 8.10.3): the unresolved exposure claim (5.5)
   is that pending save, and the header count, the Afflictions drawer and the cards read the claims as
   well as `run.pending`. The `ready` sweep and the user-connected hook (5.5) resolve pending saves and
@@ -3867,7 +3903,8 @@ README, its `docs/API.md` and `docs/DATA_CONTRACT.md`, and its source; none of i
 As built in M8a (10.15): 8.10.1-8.10.11 are built as written except where 10.15 says otherwise: the Afflictions "drawer" is a
 window of its own (`AfflictionsApp`); the parser also reads a spell's save from its defense and an affliction's own Level
 paragraph; overrides may mark stages whose remaining text is for the table (`prose`), and `reExposure` also takes `reset-max`
-(Toiler's Gruel) and `table` (Grolna); saves on logged days are ordinary due-save prompts, not listed in the day resolver; the
+(Toiler's Gruel) and `table` (Grolna); saves on logged days are ordinary due-save prompts, not listed in the day resolver; a save
+rolled elsewhere (8.10.8: pf2e's own inline check link, another module's button) is neither recorded nor answered with a notice; the
 native backend is written behind feature detection and has not run.
 
 ---
@@ -5664,7 +5701,8 @@ in the dev world).
   target); a dice interval or onset is rolled once, when it starts (`rollDuration`).
 - **The modifiers** (8.10.6) are registry `afflictionModifier {mod, as}` effects (6.11, the new kind): Tenacious Toxins and the
   toxicologist's acid (kept only against a poison-immune target) as the creator; Pinpoint Poisoner (kept only against an
-  off-guard target, or an inhaled poison), Blowgun Poisoner (a critical hit makes the initial save one degree worse; a blowgun
+  off-guard target, for a Strike read from its attack roll's options at the hit, so flanking counts, and for a cloud from the
+  creature's condition when the claim is applied; second M8a review), Blowgun Poisoner (a critical hit makes the initial save one degree worse; a blowgun
   exposes without piercing or slashing damage), Sticky Poison and Double Poison as the deliverer; Pernicious Poison and Combustible
   Poison carried as the poison's Quick Alchemy additive; Acquired Tolerance as the victim (pf2e's own reroll menu, recorded as a
   reroll); legacy Potent Poisoner as the creator (its DC stamp). Seven feats left the ignore list for the registry (284 entries,
@@ -5676,11 +5714,13 @@ in the dev world).
   its mapped parts and connectors; a definition is `full` only when the save, onset, maximum duration and every stage with an
   interval read cleanly.
 - **Coverage** (the corpus check, every Item pack of pf2e at `pf2e-8.6.1` and at the dev head `be4ab21b`, the same both ways):
-  201 candidates; 86 read fully, 110 have an
-  override, 5 are ignored, none fails. The poisons (the poison trait): 149, of which 76 read fully and 73 have an override; of the
-  equipment pack's 139 poison items, 68 read fully and 71 have an override. Of the 110 overrides, 29 carry data (a missing
-  interval, a maximum duration "(but see stage 3)", a save the text gives no type or DC for, a kind the traits leave out,
-  `reExposure` for Lethargy Poison, Stupor Poison, Toiler's Gruel and Grolna, `keepsCoating` for Forgetful Ink) and 81 mark stages
+  201 candidates; 76 read fully, 120 have an
+  override, 5 are ignored, none fails (after the second review; before it 86 and 110). The poisons (the poison trait): 149, of which
+  69 read fully and 80 have an override; of the equipment pack's 139 poison items, 61 read fully and 78 have an override. Of the
+  120 overrides, 40 carry data (a missing interval, a maximum duration "(but see stage 3)", a save the text gives no type or DC for,
+  a kind the traits leave out, `reExposure` for Lethargy Poison, Stupor Poison, Toiler's Gruel and Grolna, `keepsCoating` for
+  Forgetful Ink, the parts of Curare's stage 3 and Reaper's Shadow's damage, and an intro's rule for ten items: `cumulative` for
+  King's Sleep, `detach` for Nethershade, `intro: "table"` for eight) and 80 mark stages
   whose remaining text is for the table (`prose`: item bonuses, choices, death, "can't recover"). An interval an item leaves out is
   one round where its maximum duration is in rounds (one day for Mosquito Blight's stage 4): an interpretation. The ignore list
   holds Shrinking Potion (an onset, not an affliction) and the four boon items whose stages have no save (Elder Seed, Heartblood
@@ -5788,6 +5828,38 @@ in the dev world).
   - The corpus check ran only over the packs of the sparse checkout used during development; over every Item pack it found 26
     spells and creature abilities that did not read (a spell's save is its defense; creature abilities leave `dc:` blank): the
     grammar reads those, and the rest have overrides.
+- **After the second M8a review** (one pass; every high and medium finding fixed, each with a test that fails on the code before
+  it, shown by running the new tests against the earlier commit with that one fix missing: `test/logic/affliction.test.mjs`,
+  `affliction-parse.test.mjs`, `test/validate-registry.test.mjs` and `test/foundry/afflictions.test.mjs`, each under "After the
+  second M8a review"):
+  - The module's own tracker writes passed one frozen operation object to `Document#update`, which writes `parent` and `pack`
+    into it (14.368): in Foundry no stage save ever fell due and a re-exposure that rolls no save never resolved its claim.
+    `ownWrite()` gives a fresh one each time; the stubs now write into the operation as Foundry does, so the stage-save tests
+    fail on the frozen object.
+  - Logged days pinned the clock to the end of the last logged day, so round, minute and hour afflictions froze until world time
+    passed it, even after "advance clock to match": the clock is world time moved on by the whole days the log runs ahead
+    (8.10.7), with no stored high-water mark (DECISIONS 2026-10-27).
+  - Stage text the grammar mapped out of a choice, a conditional clause or a short duration of its own was applied as it stood
+    (Curare's paralysis on entering stage 3, all three of Divine Plagues' conditions, Reaper's Shadow's doomed outliving the
+    poison, Sloughing Toxin's damage added twice): such a stage applies none of its parts; Curare's and Reaper's Shadow's
+    overrides name the parts that do; "as stage N, but" replaces (8.10.2).
+  - Intros that change a stage condition went unreviewed (King's Sleep's cumulative drained was set, not added, and lowered on a
+    success; Nethershade's enfeebled went at the next stage): the corpus check flags them; the overrides `cumulative`, `detach`
+    and `intro: "table"` cover the ten pf2e-8.6.1 items it found (8.10.2).
+  - A re-exposure during a pending stage save took the stage save's number, so one roll was recorded as the other and the stage
+    save was lost: the re-exposure waits behind a pending or due stage save, and save numbers skip reserved ones (8.10.8).
+  - Pinpoint Poisoner applied to every creature in a cloud and never to a flanked target: off-guard is required for every
+    delivery, read for a Strike from its attack roll's options at the hit (8.10.6).
+  - The inline and stamp DCs took the highest save check in the whole description (an addiction's DC, a stage's basic save):
+    they use the item's own Saving Throw check (`ownSaveDc`, 8.10.4).
+  - A re-exposure's save lost the initial save's modifiers (Pinpoint Poisoner, held breath, Combustible Poison, Blowgun Poisoner's
+    degree, Pernicious Poison): it counts that exposure's own (8.10.6).
+  - A homebrew poison's definition was re-read from its item, so its tracker stopped once the dose was gone and its coating or
+    cloud could not expose: the claim, coating, cloud and tracker keep it (8.10.2).
+  - A coated piece of ammunition was never used by a Strike (pf2e's origin is the launcher): the launchers that had the stack
+    selected take the coated piece, and a launcher's Strike arms and spends the coating of the piece it fired (8.10.5).
+  - In passing (a low finding, in the same lines): a Double Poison exposure is keyed as the double (`coating.defKey`), not as its
+    second poison.
 
 #### Follow-ups (M8a, low)
 
@@ -5799,7 +5871,6 @@ in the dev world).
   re-posted damage card is not marked (OQ-44); none of it has run (no pf2e build has the type).
 - The world-definition form has six stage rows and reads English words only (OQ-46).
 - A spell's or creature ability's DC (`against`) is typed on a manual Expose; nothing reads the caster's or creature's DC.
-- Pinpoint Poisoner checks the target's off-guard condition when the claim is applied, not at the hit.
 - Blowgun Poisoner's critical makes the initial save one degree worse by the module, not as pf2e's misfortune.
 - Effects-panel clicks during an onset change the target stage (effect backend) rather than end the onset.
 - A stage's linked effect items are deleted and created again when the stage repeats.
@@ -5814,6 +5885,38 @@ in the dev world).
 - Affliction Forge's controller and template matching is read from its documentation, not run (OQ-41).
 - The Bandolier's "Apply poison" is gone with the Bandolier while Duct Tape is active; the item card and the API remain (8.10.9
   says so).
+- From the second M8a review:
+  - Overrides with prose stages still lack an interval where the text has one the grammar does not read: Mythotoxin stage 3 ("1
+    round; doomed condition value has normal duration"), Succubus Kiss stage 1 (an interval mid-sentence) and Midnight Milk
+    (Pure) stage 1 (none, and no maximum duration), so the run waits at that stage; the corpus check could flag a non-final stage
+    with no interval in an override that gives none.
+  - A failed attack keeps an earlier hit's `armed` state on the coating, so a damage roll after a miss (a hit whose damage was
+    never rolled, then a missed Strike's Damage button) can expose: clear `armed` on a failure, or match the damage roll to the
+    attack it armed.
+  - Tenacious Toxins reads its creator from a DC or expiry stamp only; a downtime-crafted poison has neither, so its creator's feat
+    never extends its maximum duration (no crafted-by stamp on module-crafted poisons yet, 8.10.6).
+  - Sticky Poison's hold always runs to the attacker's turn in the next round, a round too long when a reaction hit before the
+    attacker's own turn this round.
+  - A save rolled elsewhere (8.10.8: pf2e's inline check link, another module's button) is not recorded as the pending initial
+    save when that is unambiguous, and nothing says it was ignored.
+  - Affliction Forge's "waiting for a GM" prompt carries no run and save, so only one such card is ever posted and the hook fires
+    on every claims change; a refused hand-off leaves its claim open with no fallback, blocking later exposures of that definition
+    on that target.
+  - An exposure claim whose target is gone (a deleted unlinked token) stays open and listed; the elected client should resolve it
+    (`no-target`, 8.10.10).
+  - Coatings are voided only while party-wide expiry is on and only on world actors: a coating from a Quick Alchemy poison (a turn
+    stamp) is not voided with expiry off, nor one on an unlinked token's weapon.
+  - NPC saves post in the default message mode, not secretly when pf2e's metagame settings hide NPC results (8.10.8).
+  - Intro rules marked `intro: "table"` (Fearweed's frightened and Daylight Vapor's sickened that can't be removed, Arsenic, Taster's
+    Folly, Sweet Hag's Eye, Slumber Wine, Blister Bomb, Mycological Malady) are not enforced, and the window does not show the
+    intro; King's Sleep's drained still drops with pf2e's rest; Nethershade's detached enfeebled is the table's to remove after 24
+    hours.
+  - A stage that applies none of its parts (a qualified stage) loses the parts that were right too (Blinding Bottle's damage,
+    Blaze's stupefied) until an override names them.
+  - A coated piece loaded into a launcher's subitems may stack with uncoated ammunition (pf2e's `attach` stacks by
+    `isStackableWith`, which ignores flags); a fired piece pf2e keeps at quantity 0 keeps its coating flag.
+  - An exposure claim that waits (behind an earlier claim of the same definition, or now behind a pending stage save) is listed by
+    `pendingOf` as a pending initial save whose Roll does nothing until the claim is applied.
 
 ---
 

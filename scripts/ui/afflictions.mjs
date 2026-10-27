@@ -367,9 +367,14 @@ export async function postStageCard({ actor, from, to, reason, run }) {
 }
 
 /** The coating card (10.5): applied, spent or kept, with Sticky Poison's flat check. */
-export async function postCoatingCard({ actor, host, coating, kind, check = null, target = null }) {
+export async function postCoatingCard({ actor, host, coating, kind, check = null, target = null, loaded = null }) {
     const name = coating?.source?.name ?? "";
     const lines = [];
+    // A coated piece of ammunition (8.10.5): the launchers that now fire it, or a reminder to load it.
+    if (Array.isArray(loaded)) {
+        lines.push(loaded.length ? { icon: "fa-solid fa-crosshairs", text: fmt("pf2e-artisans-workshop.Affliction.Coating.Loaded", { weapons: loaded.join(", ") }) }
+            : { icon: "fa-solid fa-crosshairs", text: loc("pf2e-artisans-workshop.Affliction.Coating.Load") });
+    }
     if (check) lines.push({ icon: "fa-solid fa-dice-d20", text: fmt("pf2e-artisans-workshop.Affliction.Coating.Check", { total: String(check.total), dc: String(check.dc) }) });
     if (target) lines.push({ icon: "fa-solid fa-bullseye", text: fmt("pf2e-artisans-workshop.Affliction.Coating.Target", { target }) });
     if (kind === "applied" && Number.isInteger(coating?.dc?.value) && showDcs()) lines.push({ icon: "fa-solid fa-bullseye", text: fmt("pf2e-artisans-workshop.Affliction.DcLine", { dc: String(coating.dc.value), save: "" }) });

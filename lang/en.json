@@ -1349,6 +1349,8 @@
   "pf2e-artisans-workshop.Affliction.Coating.Double": "{actor} coated {host} with a second poison: {name}.",
   "pf2e-artisans-workshop.Affliction.Coating.Heading": "Poison coating",
   "pf2e-artisans-workshop.Affliction.Coating.Kept": "The coating of {name} on {host} stays.",
+  "pf2e-artisans-workshop.Affliction.Coating.Load": "Load the coated piece before the Strike: no weapon has it selected yet.",
+  "pf2e-artisans-workshop.Affliction.Coating.Loaded": "Selected as the ammunition of: {weapons}.",
   "pf2e-artisans-workshop.Affliction.Coating.Spent": "The coating of {name} on {host} is spent.",
   "pf2e-artisans-workshop.Affliction.Coating.Target": "Target: {target}",
   "pf2e-artisans-workshop.Affliction.Continue": "Continue rolling",

@@ -95,6 +95,7 @@ export function asCreature(actor, { level = 5, immunities = [] } = {}) {
     Object.defineProperty(actor, "itemTypes", { configurable: true, get: () => ({ condition: actor.items.filter((i) => i.type === "condition"),
         treasure: actor.items.filter((i) => i.type === "treasure"), feat: actor.items.filter((i) => i.type === "feat") }) });
     actor.deleteEmbeddedDocuments = async (_name, ids, options = {}) => {
+        options.parent = actor;   // as 14.368's `deleteEmbeddedDocuments`
         const out = [];
         for (const id of ids) {
             const item = actor.items.get(id);

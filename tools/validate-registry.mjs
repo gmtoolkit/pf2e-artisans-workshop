@@ -293,7 +293,8 @@ export function afflictionOf(doc, override = null) {
 /**
  * The affliction corpus check (8.10.2, 15.2): the parser over every candidate item of every Item pack in the checkout (any
  * Stage or Stages label, or an Onset or Maximum Duration paragraph). Each must parse fully, have an override, or be on the
- * affliction ignore list; an intro that mentions further, additional or multiple exposure needs an entry too, as does a
+ * affliction ignore list; an intro that mentions further, additional or multiple exposure needs an entry too, as does one
+ * that names a stage condition and changes how it works (cumulative, can't be removed, lasts for, ends when), and a
  * candidate with no affliction kind (poison, disease or curse) among its traits. Overrides and ignored UUIDs are checked
  * like registry entries (they resolve, the slug matches, not both). `baseline` (`{uuid: digest}`, from an earlier run's
  * `--json`) reports every candidate whose parse changed between two pf2e tags, for the churn watch (3.3).
@@ -351,13 +352,18 @@ export function checkAfflictions({ source, overrides = AFFLICTION_OVERRIDES, ign
         };
         if (override) {
             count("overridden");
-            if (parsed.confidence === "full" && !override.traits && !override.reExposure && !override.keepsCoating && !override.save) {
+            if (parsed.confidence === "full" && !override.traits && !override.reExposure && !override.keepsCoating && !override.save &&
+                !override.cumulative && !override.detach && !override.intro) {
                 notes.push({ key, note: "parses fully now: check whether its override is still needed" });
             }
             continue;
         }
         if (parsed.confidence !== "full") report(`does not parse fully (${parsed.problems.join(", ")}): add an override or an ignore-list entry`);
         else if (parsed.intro.reExposure) report("its intro changes what further exposure does: review it and add an override or an ignore-list entry");
+        else if (parsed.intro.conditionRule) {
+            report("its intro changes how a stage condition works (cumulative, can't be removed, lasts for, ends when): review it and add an override " +
+                "(cumulative, detach or intro) or an ignore-list entry");
+        }
         else if (!kindOf(parsed)) report("no affliction kind (poison, disease, curse) in its traits: add an override or an ignore-list entry");
         else count("full");
     }

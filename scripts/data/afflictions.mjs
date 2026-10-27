@@ -14,7 +14,14 @@
  * - `reExposure`: the item's own rule for another exposure: `none` (no new save, Lethargy Poison and Stupor Poison),
  *   `reset-max` (the maximum duration starts again; the poison rule applies too), `table` (no save is rolled, the card
  *   says the item's own text decides);
- * - `keepsCoating`: the item stays potent across victims (Forgetful Ink), so a coating of it is not spent.
+ * - `keepsCoating`: the item stays potent across victims (Forgetful Ink), so a coating of it is not spent;
+ * - rules an intro sets for a stage condition (the corpus check flags an intro that names one with "cumulative", "can't be
+ *   removed", "lasts for" or "ends when"): `cumulative [slug...]` (the value adds up with each failed save and never goes
+ *   down while the affliction lasts), `detach [slug...]` (the condition outlasts its stage and the affliction; its own
+ *   duration is the table's), `intro: "table"` (reviewed: the intro's rule is the table's to apply).
+ *
+ * The parser applies none of a stage's parts when its text qualifies them (a choice between them, a condition on them, a
+ * duration of their own); such a stage is the table's, and an override may name the parts that do apply.
  *
  * `tools/validate-registry.mjs` runs the parser over every candidate in a pf2e checkout and fails on one that neither parses
  * fully, nor has an override, nor is on the ignore list; an intro that mentions further, additional or multiple exposure
@@ -56,8 +63,10 @@ export const AFFLICTION_OVERRIDES = deepFreeze({
     "clown-monarch": { uuid: "Compendium.pf2e.equipment-srd.Item.Tccy21bO1sDb6hQM", prose: [1, 2, 3] },
     "clubhead-poison": { uuid: "Compendium.pf2e.equipment-srd.Item.Tqtcy25OCiNlWqF6", prose: [1, 2, 3] },
     "creeping-death": { uuid: "Compendium.pf2e.equipment-srd.Item.lExsX8c5VUxiu05y", prose: [4] },
+    // Stage 3's paralysis comes only from a failed save at stage 3, which ends the poison: the table's (prose).
     "curare": { uuid: "Compendium.pf2e.equipment-srd.Item.VvN9EjaBLwYg13z3", duration: { value: 6, unit: "rounds" }, prose: [3],
-        stages: { 3: { duration: ROUND } } },
+        stages: { 3: { duration: ROUND, damage: [{ formula: "4d6", damageType: "poison", category: null }],
+            conditions: [{ slug: "clumsy", value: 2, linked: true }, { slug: "enfeebled", value: 2, linked: true }, { slug: "slowed", value: 1, linked: true }] } } },
     "cytillesh": { uuid: "Compendium.pf2e.equipment-srd.Item.rjUJEY424jyG9dGn", prose: [2] },
     "dancing-lamentation": { uuid: "Compendium.pf2e.equipment-srd.Item.WMdHOfjjBtJAEvqU", prose: [1, 2, 3] },
     "darkening-poison": { uuid: "Compendium.pf2e.equipment-srd.Item.zXcCVIzDCq3P1pqT", traits: ["poison"], prose: [2, 3] },
@@ -102,7 +111,9 @@ export const AFFLICTION_OVERRIDES = deepFreeze({
     "pummel-growth-toxin": { uuid: "Compendium.pf2e.equipment-srd.Item.m1XubXwbBy3JzMkY", prose: [1] },
     "puppetmaster-extract": { uuid: "Compendium.pf2e.equipment-srd.Item.3Byr7YKaNlZl474Y", prose: [3, 4] },
     "qat": { uuid: "Compendium.pf2e.equipment-srd.Item.JPGOrHeYxjdnUogT", prose: [1] },
-    "reapers-shadow": { uuid: "Compendium.pf2e.equipment-srd.Item.ehd8FIXgo4S24TKV", prose: [1, 2] },
+    // Stages 1 and 2's doomed lasts 1 round of its own: the table's (prose); their damage applies.
+    "reapers-shadow": { uuid: "Compendium.pf2e.equipment-srd.Item.ehd8FIXgo4S24TKV", prose: [1, 2],
+        stages: { 1: { damage: [{ formula: "2d12", damageType: "void", category: null }] }, 2: { damage: [{ formula: "3d12", damageType: "void", category: null }] } } },
     "refined-pesh": { uuid: "Compendium.pf2e.equipment-srd.Item.Vy3z2cIQ8uJRUMYw", prose: [1, 2] },
     "scarlet-mist": { uuid: "Compendium.pf2e.equipment-srd.Item.mQSV1gq64kKeAfuN", prose: [1, 2, 3] },
     "scour": { uuid: "Compendium.pf2e.equipment-srd.Item.8BDBsf55gP0UW07Y", prose: [1] },
@@ -126,12 +137,22 @@ export const AFFLICTION_OVERRIDES = deepFreeze({
     "warpwobble-poison": { uuid: "Compendium.pf2e.equipment-srd.Item.xcwPOFTAjQpmiFsN", prose: [1, 2, 3] },
     "yellow-musk-poison": { uuid: "Compendium.pf2e.equipment-srd.Item.bJVk50mhaODgsOUe", prose: [1, 2] },
     "zerk": { uuid: "Compendium.pf2e.equipment-srd.Item.eKpL2j1JA92wndO6", prose: [1] },
+    // Intros that change how a stage condition works (reviewed against pf2e-8.6.1).
+    "kings-sleep": { uuid: "Compendium.pf2e.equipment-srd.Item.RkI3jKKrCozvEvfr", cumulative: ["drained"] },
+    "nethershade": { uuid: "Compendium.pf2e.equipment-srd.Item.Wjkw0lEUOhypYvzo", detach: ["enfeebled"] },
+    "arsenic": { uuid: "Compendium.pf2e.equipment-srd.Item.OIirLySQDLZgT15S", intro: "table" },
+    "daylight-vapor": { uuid: "Compendium.pf2e.equipment-srd.Item.6vyr3drpizIrd5PS", intro: "table" },
+    "fearweed": { uuid: "Compendium.pf2e.equipment-srd.Item.RH1fNsslZ1wdeqy2", intro: "table" },
+    "slumber-wine": { uuid: "Compendium.pf2e.equipment-srd.Item.z7eOUqVwyht6tj11", intro: "table" },
+    "sweet-hags-eye": { uuid: "Compendium.pf2e.equipment-srd.Item.HNzFnmRfpt2oz5qQ", intro: "table" },
+    "tasters-folly": { uuid: "Compendium.pf2e.equipment-srd.Item.pvsJXFfbwGWhoG5N", intro: "table" },
     // Spells (their save is the spell's defense, against the caster's spell DC) and creature abilities (their DC is the
     // creature's): started with Expose (8.10.3, 1.2).
     "abyssal-plague": { uuid: "Compendium.pf2e.spells-srd.Item.vJuaxTd6q11OjGqA", prose: [2] },
     "advanced-scurvy": { uuid: "Compendium.pf2e.spells-srd.Item.XEhzFKNTSARsofav", prose: [1, 2, 3] },
     "blightburn-blast": { uuid: "Compendium.pf2e.spells-srd.Item.EgkypvUZIZkx1UlQ", prose: [5] },
     "blinding-bottle": { uuid: "Compendium.pf2e.spells-srd.Item.3ygqSJYWZM1UV76Z", prose: [1, 2, 3, 4] },
+    "blister-bomb": { uuid: "Compendium.pf2e.spells-srd.Item.3qx1axryNbl97ker", intro: "table" },
     "blood-chestnuts": { uuid: "Compendium.pf2e.spells-srd.Item.HTzrWoYokIEqxD9t", prose: [3] },
     "bone-moths-kiss": { uuid: "Compendium.pf2e.spells-srd.Item.MavAJJo6jhQfdBXW", prose: [3] },
     "curse-of-death": { uuid: "Compendium.pf2e.spells-srd.Item.nQS4vPm5zprqkzFZ", prose: [1, 2, 3, 4] },
@@ -142,6 +163,7 @@ export const AFFLICTION_OVERRIDES = deepFreeze({
     "imp-sting": { uuid: "Compendium.pf2e.spells-srd.Item.oryfsRK27jAUnziw", stages: { 1: { duration: ROUND } } },
     "internal-insurrection": { uuid: "Compendium.pf2e.spells-srd.Item.RbORUmnwlB8b3mNf", prose: [5] },
     "mosquito-blight": { uuid: "Compendium.pf2e.spells-srd.Item.dNpIc5k1aCI3bHIg", prose: [5], stages: { 4: { duration: DAY } } },
+    "mycological-malady": { uuid: "Compendium.pf2e.spells-srd.Item.V4jrHiaMh4XuANOP", intro: "table" },
     "perfection-of-essence": { uuid: "Compendium.pf2e.spells-srd.Item.kExRMPVI07iIFCaa", prose: [1, 2, 4] },
     "plague-shot": { uuid: "Compendium.pf2e.spells-srd.Item.NjN6md0KpdelWpu7", prose: [4, 5] },
     "terminate-bloodline": { uuid: "Compendium.pf2e.spells-srd.Item.yUM5OYeMY8971b2S", save: { type: "fortitude", value: null, against: "spell" }, prose: [5] },
