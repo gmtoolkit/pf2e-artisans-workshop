@@ -20,21 +20,32 @@ export function orderLink(orderId, attempt) {
     return `${LINK_PREFIX}:order:${orderId}:${requireInteger(attempt, "attempt")}`;
 }
 
-/** The link option of an Earn Income job's check: `<MOD>:job:<jobId>`. */
-export function jobLink(jobId) {
-    return `${LINK_PREFIX}:job:${jobId}`;
+/**
+ * The link option of an Earn Income job's check: `<MOD>:job:<jobId>:<round>` (M6). `round` counts the job's rolls: a
+ * resumed job rolled again after a level or rank change (6.10) is a new round, so a reroll of the earlier round's message
+ * is refused as stale, as an order's earlier attempt is.
+ */
+export function jobLink(jobId, round = 1) {
+    return `${LINK_PREFIX}:job:${jobId}:${requireInteger(round, "round")}`;
+}
+
+/** The link option of a Communal Crafting helper's check (6.7, M6): `<MOD>:help:<orderId>:<actorId>`. */
+export function helpLink(orderId, actorId) {
+    return `${LINK_PREFIX}:help:${orderId}:${actorId}`;
 }
 
 /**
- * The order or job a check's roll options link to, or null: `{kind: "order", id, attempt}` or `{kind: "job", id}`.
- * The first link wins; a roll carries one.
+ * The order, job or helper a check's roll options link to, or null: `{kind: "order", id, attempt}`, `{kind: "job", id,
+ * round}` (round 1 for a link written before M6, which had none) or `{kind: "help", id, actor}`. The first link wins; a
+ * roll carries one.
  */
 export function parseLink(options = []) {
     for (const option of options) {
         if (typeof option !== "string" || !option.startsWith(`${LINK_PREFIX}:`)) continue;
-        const [kind, id, attempt] = option.slice(LINK_PREFIX.length + 1).split(":");
-        if (kind === "order" && id && /^\d+$/.test(attempt ?? "")) return { kind, id, attempt: Number(attempt) };
-        if (kind === "job" && id) return { kind, id };
+        const [kind, id, third] = option.slice(LINK_PREFIX.length + 1).split(":");
+        if (kind === "order" && id && /^\d+$/.test(third ?? "")) return { kind, id, attempt: Number(third) };
+        if (kind === "job" && id && (third === undefined || /^\d+$/.test(third))) return { kind, id, round: third === undefined ? 1 : Number(third) };
+        if (kind === "help" && id && third) return { kind, id, actor: third };
     }
     return null;
 }
@@ -76,8 +87,8 @@ export function craftRollPlan({ item, held, ranks = {}, order }, rules = DEFAULT
 }
 
 /** What an Earn Income check is rolled with (6.10): `action:earn-income`, so the items' and feats' rules fire, and the link. */
-export function earnIncomeRollPlan(jobId) {
-    return { options: ["action:earn-income", jobLink(jobId)] };
+export function earnIncomeRollPlan(jobId, round = 1) {
+    return { options: ["action:earn-income", jobLink(jobId, round)] };
 }
 
 /**
@@ -142,25 +153,29 @@ export function craftDegree(held, rollOptionList, degree, rules = DEFAULT_RULES)
  * A new Earn Income job record (4.9). `dc` comes from `earnIncomeDC` and `settlement` is the profile id it was taken
  * in (null when no profile is set, OQ-17).
  */
-export function makeJob({ id, actor, skill, taskLevel, dc, settlement = null, startDay = null, party = null }, stamp) {
+export function makeJob({ id, actor, skill, taskLevel, dc, settlement = null, startDay = null, party = null, unconfirmed = false }, stamp) {
     requireInteger(taskLevel, "taskLevel");
     requireInteger(dc, "dc");
-    return { id, v: 1, party, actor, skill, taskLevel, settlement, dc, startDay, lengthDays: null, check: null, perDayCp: 0, status: "open", ...stamp };
+    return { id, v: 1, party, actor, skill, taskLevel, settlement, unconfirmed, dc, startDay, lengthDays: null, round: 1, check: null, perDayCp: 0,
+        status: "open", log: {}, ...stamp };
 }
 
 /**
  * The job fields a recorded Earn Income check writes (6.10): the check, the pay per day, and the status after the
- * roll (fired on a critical failure). Refused: a job that has ended (`state`); a second roll that is not a reroll
- * (`rolled`: re-rolling a resumed job after a level or rank change is M6); a reroll once a wage has been paid at
- * the earlier rate (`paid`: the earner undoes those wages first, as for a settled Craft check).
+ * roll (fired on a critical failure). Refused: a job that has ended (`state`); a roll for another round than the job's
+ * (`stale-round`, M6: a reroll of the message rolled before the job was rolled again, `rerollJob`); a second roll that is
+ * not a reroll (`rolled`); a reroll once a wage has been paid or claimed at the earlier rate (`paid`: the earner undoes
+ * those wages first, as for a settled Craft check).
  *
  * @param {object} job
  * @param {{degree, unadjusted, total, rerolled, fortune, messageId}} check
  * @param {{level: number, rank: number, experiencedProfessional?: boolean}} earner  at the roll
- * @param {number} paidDays  days the job has paid (`daysPaid`)
+ * @param {number} paidDays  days the job has paid or been promised by a wage claim (`wageDaysOf`)
+ * @param {number} [round]   the round the roll's link names
  */
-export function jobCheckPatch(job, check, earner, paidDays = 0) {
+export function jobCheckPatch(job, check, earner, paidDays = 0, round = 1) {
     if (job.status === "ended") return { ok: false, reason: "state", data: { status: job.status } };
+    if (round !== (job.round ?? 1)) return { ok: false, reason: "stale-round", data: { round, current: job.round ?? 1 } };
     if (job.check && !check.rerolled) return { ok: false, reason: "rolled" };
     if (job.check && paidDays > 0) return { ok: false, reason: "paid", data: { days: paidDays } };
     requireInteger(earner.level, "earner.level");

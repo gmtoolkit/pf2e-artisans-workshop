@@ -1,0 +1,98 @@
+<div class="wizard">
+    <ol class="wizard-steps" aria-label="{{localize 'pf2e-artisans-workshop.Wizard.Steps'}}">
+        {{#each stepper}}<li class="{{#if current}}current{{/if}}{{#if done}} done{{/if}}" {{#if current}}aria-current="step"{{/if}}><span class="n">{{n}}</span> {{label}}</li>{{/each}}
+    </ol>
+    <div class="wizard-body">
+        {{#if (eq step "span")}}
+        {{#if span.notice}}<p class="notice">{{span.notice}}</p>{{/if}}
+        <p class="hint">{{localize "pf2e-artisans-workshop.Wizard.SpanHint"}}</p>
+        <fieldset class="wizard-span">
+            <legend>{{localize "pf2e-artisans-workshop.Wizard.Step.Span"}}</legend>
+            <label><input type="radio" name="kind" value="days" {{#if (eq span.kind "days")}}checked{{/if}}> {{localize "pf2e-artisans-workshop.Wizard.Days"}}
+                <input type="number" name="count" min="1" max="365" step="1" value="{{span.count}}" aria-label="{{localize 'pf2e-artisans-workshop.Wizard.Count'}}" {{#if (eq span.kind "since")}}disabled{{/if}}></label>
+            <label><input type="radio" name="kind" value="since" {{#if (eq span.kind "since")}}checked{{/if}}> {{localize "pf2e-artisans-workshop.Wizard.Since"}}</label>
+        </fieldset>
+        <p class="wizard-day wizard-span-day" aria-live="polite">{{span.from}} {{span.to}}</p>
+        {{#if span.ahead}}<p class="hint">{{span.ahead}}</p>{{/if}}
+        {{#if isGM}}<label class="wizard-clock"><input type="checkbox" name="advanceClock" {{#if span.advanceClock}}checked{{/if}}> {{localize "pf2e-artisans-workshop.Wizard.AdvanceClock"}}</label>{{/if}}
+        {{/if}}
+
+        {{#if empty}}<p class="empty">{{localize "pf2e-artisans-workshop.Wizard.Nobody"}}</p>{{/if}}
+
+        {{#if who}}
+        <p class="hint">{{localize "pf2e-artisans-workshop.Wizard.WhoHint"}}</p>
+        <ul class="wizard-pcs">
+            {{#each who}}
+            <li class="wizard-pc{{#if skipped}} skipped{{/if}}">
+                {{#if img}}<img src="{{img}}" alt="">{{/if}}
+                <div class="pc-main">
+                    <strong>{{name}}</strong> <span class="span">{{span}}</span>
+                    <label><span class="label">{{localize "pf2e-artisans-workshop.Downtime.Activity"}}</span>
+                        <select name="assign" data-actor="{{id}}">{{#each options}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    {{#if choose}}<p class="hint">{{choose}}</p>{{/if}}
+                    {{#if locked}}<p class="pc-locked"><i class="fa-solid fa-lock" inert></i> {{locked}}</p>{{/if}}
+                    {{#if willWrite}}<p class="will">{{localize "pf2e-artisans-workshop.Wizard.Will" span=willWrite}}</p>{{/if}}
+                    {{#if stop}}<p class="stop"><i class="fa-solid fa-hourglass-half" inert></i> {{stop}}</p>{{/if}}
+                </div>
+            </li>
+            {{/each}}
+        </ul>
+        {{/if}}
+
+        {{#if checks}}
+        {{#if checks.none}}<p class="empty">{{localize "pf2e-artisans-workshop.Wizard.NoChecks"}}</p>{{/if}}
+        {{#if checks.due.length}}
+        <h4>{{localize "pf2e-artisans-workshop.Wizard.DueNow"}}</h4>
+        <ul class="wizard-checks">
+            {{#each checks.due}}
+            <li><span>{{text}}</span>
+                {{#if canRoll}}<button type="button" class="small primary" data-action="roll" data-kind="{{kind}}" data-ref="{{ref}}" data-actor="{{actor}}"><i class="fa-solid fa-dice-d20" inert></i>{{localize "pf2e-artisans-workshop.Wizard.Roll"}}</button>
+                {{else}}<span class="pending">{{localize "pf2e-artisans-workshop.Wizard.Pending"}}</span>{{/if}}</li>
+            {{/each}}
+        </ul>
+        {{/if}}
+        {{#if checks.later.length}}
+        <h4>{{localize "pf2e-artisans-workshop.Wizard.DueLater"}}</h4>
+        <ul class="wizard-checks">{{#each checks.later}}<li>{{this}}</li>{{/each}}</ul>
+        {{/if}}
+        {{/if}}
+
+        {{#if review}}
+        <p class="hint">{{localize "pf2e-artisans-workshop.Wizard.ReviewHint"}}</p>
+        {{#each review}}
+        <section class="wizard-review">
+            <h4>{{name}} {{#if span}}<span class="span">{{span}}</span>{{/if}}</h4>
+            {{#if skipped}}<p class="empty">{{skipped}}</p>{{else if nothing}}<p class="empty">{{localize "pf2e-artisans-workshop.Wizard.Nothing"}}</p>{{/if}}
+            {{#if lines.length}}<ul>{{#each lines}}<li>{{this}}</li>{{/each}}</ul>{{/if}}
+            {{#if wages.length}}<ul class="wages">{{#each wages}}<li><i class="fa-solid fa-coins" inert></i> {{this}}</li>{{/each}}</ul>{{/if}}
+            {{#if stop}}<p class="stop"><i class="fa-solid fa-hourglass-half" inert></i> {{stop}}</p>{{/if}}
+        </section>
+        {{/each}}
+        {{/if}}
+
+        {{#if done}}
+        {{#if done.refused}}<p class="empty">{{localize "pf2e-artisans-workshop.Wizard.Refused"}}</p>{{/if}}
+        {{#if done.toDay}}<p class="wizard-day">{{done.toDay}}{{#if done.clock}} {{done.clock}}{{/if}}</p>{{/if}}
+        {{#each done.pcs}}
+        <section class="wizard-review">
+            <h4>{{name}} {{#if span}}<span class="span">{{span}}</span>{{/if}}</h4>
+            {{#if refused}}<p class="stop">{{refused}}</p>{{/if}}
+            {{#if skipped}}<p class="empty">{{skipped}}</p>{{/if}}
+            {{#if lines.length}}<ul>{{#each lines}}<li>{{this}}</li>{{/each}}</ul>{{/if}}
+            {{#if stop}}<p class="stop"><i class="fa-solid fa-hourglass-half" inert></i> {{stop}}</p>{{/if}}
+        </section>
+        {{/each}}
+        {{/if}}
+    </div>
+    <footer class="wizard-buttons">
+        {{#unless first}}{{#unless isDone}}<button type="button" data-action="back"><i class="fa-solid fa-arrow-left" inert></i>{{localize "pf2e-artisans-workshop.Wizard.Back"}}</button>{{/unless}}{{/unless}}
+        {{#if isDone}}
+        {{#if done.rest}}<button type="button" data-action="again"><i class="fa-solid fa-rotate-right" inert></i>{{localize "pf2e-artisans-workshop.Wizard.Again"}}</button>{{/if}}
+        <button type="button" class="primary" data-action="finish"><i class="fa-solid fa-check" inert></i>{{localize "pf2e-artisans-workshop.Wizard.Close"}}</button>
+        {{else if lastBeforeDone}}
+        <button type="button" class="primary" data-action="commit" {{#unless ready}}disabled{{/unless}}{{#if busy}} disabled{{/if}}><i class="fa-solid fa-check-double" inert></i>{{localize "pf2e-artisans-workshop.Wizard.Commit"}}</button>
+        {{else}}
+        <button type="button" class="primary" data-action="next" {{#if blocked}}disabled{{/if}}><i class="fa-solid fa-arrow-right" inert></i>{{localize "pf2e-artisans-workshop.Wizard.Next"}}</button>
+        {{/if}}
+    </footer>
+</div>

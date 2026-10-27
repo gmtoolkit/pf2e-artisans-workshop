@@ -2364,3 +2364,251 @@ Object.assign(BEHAVIOURS, {
     "m5-ui": m5Ui,
     "m5-shots": m5Shots,
 });
+
+/* -------------------------------------------- */
+/*  M6: downtime                                 */
+/* -------------------------------------------- */
+
+/** Communal Crafting (Player Core p.253), from pf2e's feats pack: the M6 plans give it to the crafter. */
+const COMMUNAL_CRAFTING = "Compendium.pf2e.feats-srd.Item.lUXVmSFJbaPos5pY";
+/** The prompt's keys (9.1); the page log records a notification's key and its format data. */
+const PROMPT_KEYS = ["pf2e-artisans-workshop.Downtime.Prompt", "pf2e-artisans-workshop.Downtime.PromptOne"];
+
+/** The downtime prompts each client showed since the last look, by client: `[{actor, count}]`. */
+async function promptsBy(h) {
+    const pages = await takeNotes(h);
+    return Object.fromEntries(Object.entries(pages).map(([client, page]) => [client,
+        page.notes.filter((n) => PROMPT_KEYS.includes(n.message)).map((n) => ({ actor: n.format?.actor ?? null, count: Number(n.format?.count ?? 0) }))]));
+}
+
+/** Every M6 plan starts here: the world reset (the clock is only ever moved forward), no settlement profiles, M5's items back. */
+async function m6Reset(h, w, { lab = false } = {}) {
+    await m5Reset(h, w, { lab });
+    await h.step("gm", "m6", "reset");
+}
+
+/**
+ * Clock accrual (9.1): Player One's alchemist goes into downtime; the GM moves the clock a day: one pending day, and one
+ * prompt, on Player One's client only (not Player Two's, not the GM's). An hour more prompts nothing; resolving the day
+ * leaves nothing pending. With Player One away the GM's client is the fallback and is prompted; at Player One's login
+ * their client prompts for the days that accrued while they were away.
+ */
+async function m6Clock(h, w) {
+    await m6Reset(h, w);
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const into = await h.step("p1", "m6", "downtime", { on: true });
+    await h.step("p1", "m6", "activity", { activity: "subsist" });
+    h.check("Player One's alchemist is in downtime from today, nothing pending yet", into.result?.ok === true && into.pc.inDowntime && into.pc.pending === 0, into);
+    await promptsBy(h);
+    await h.step("gm", "m6", "clock", { days: 1, ms: 3000 });
+    const first = await promptsBy(h);
+    h.check("one day later: one prompt, on Player One's client only", first.p1?.length === 1 && first.p1[0].actor === w.pcs.p1.name && first.p1[0].count === 1 &&
+        !first.p2?.length && !first.gm?.length, first);
+    const seen = await h.step("p2", "m6", "status", { actor: w.pcs.p1.uuid });
+    h.check("every member sees the one pending day", seen.pending === 1, seen);
+    await h.step("gm", "m6", "clock", { seconds: 3600, ms: 3000 });
+    const hour = await promptsBy(h);
+    h.check("an hour more, the same day: no second prompt", Object.values(hour).every((list) => !list.length), hour);
+    const resolved = await h.step("p1", "m6", "resolve", {});
+    h.check("resolving the day writes one record and leaves nothing pending", resolved.result.records.length === 1 && resolved.pc.pending === 0, resolved);
+    await h.only(["gm", "p2"]);
+    await promptsBy(h);
+    await h.step("gm", "m6", "clock", { days: 1, ms: 3000 });
+    const away = await promptsBy(h);
+    h.check("with Player One away, the GM's client is the one prompted", away.gm?.length === 1 && !away.p2?.length, away);
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    await h.step("p1", "m6", "status", { ms: 4000 });
+    const back = await promptsBy(h);
+    h.check("at Player One's login their client prompts for the day that accrued", back.p1?.length === 1 && back.p1[0].count === 1 && !back.gm?.length, back);
+    const tab = await h.step("p1", "m6", "tab", {});
+    h.check("the Downtime tab shows the pending day and its badge", tab.rows.some((r) => r.pending) && tab.badge === "1", tab);
+    await checkStatuses(h);
+    return { into, first, hour, resolved, away, back, tab };
+}
+
+/** Both PCs in downtime: Player One subsisting, Player Two on an Earn Income job at task level 1 (rolled). Returns the job. */
+async function m6TwoInDowntime(h) {
+    await h.step("p1", "m6", "downtime", { on: true });
+    await h.step("p1", "m6", "activity", { activity: "subsist" });
+    const job = await h.step("p2", "m6", "job", { skill: "crafting", taskLevel: 1 });
+    h.check("Player Two takes a job and rolls it", job.started?.ok === true && !!job.brief?.job?.check, job);
+    await h.step("p2", "m6", "downtime", { on: true });
+    return job;
+}
+
+/**
+ * The wizard with a GM (9.2), driven step by step in its window: two days, with the world clock moved to match. Step 1
+ * offers the clock; step 2 lists both PCs and what their days go to; step 3 has no checks due (the job is rolled); step 4
+ * reviews the days and Player Two's wages as claims (the GM is not Player Two's client); commit writes both PCs' days,
+ * the logged-day mark, and moves the clock, so nobody is prompted for days already resolved. Run again, "since last
+ * resolved" writes nothing.
+ */
+async function m6WizardGm(h, w) {
+    await m6Reset(h, w);
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const job = await m6TwoInDowntime(h);
+    const before = await h.step("gm", "m6", "today");
+    await promptsBy(h);
+    const run = await h.step("gm", "m6", "wizard", { script: [
+        { field: "count", value: 2 }, { field: "advanceClock", value: true }, { click: "next" }, { click: "next" }, { click: "next" }, { click: "commit", ms: 4000 },
+    ] });
+    const steps = run.seen.map((s) => s.step);
+    h.check("the wizard went span, who, checks, review, done", JSON.stringify(steps) === JSON.stringify(["span", "span", "span", "who", "checks", "review", "done"]), steps);
+    h.check("a GM is offered the clock", run.seen[0].clockOption === true, run.seen[0]);
+    h.check("both PCs are listed with their days", run.seen[3].text.includes(w.pcs.p1.name) && run.seen[3].text.includes(w.pcs.p2.name), run.seen[3].text);
+    const done = run.result;
+    h.check("commit: both PCs resolved two days, the clock moved to the last day", done?.ok && done.clock === before.day + 2 &&
+        done.results.every((r) => r.records.length === 2), done);
+    h.check("Player Two's wages were claims, not minted by the GM", done.results.find((r) => r.actor === w.pcs.p2.name)?.wages.every((x) => x.outcome === "claimed"), done);
+    const wages = await h.step("p2", "m6", "jobState", { job: job.started.job, ms: 5000 });
+    h.check("Player Two's client collects both days' wages, once each", wages.wages.length === 2 && wages.claims.every((c) => c.resolved), wages);
+    const after = await h.step("gm", "m6", "today");
+    h.check("server time: the clock's day is the logged day, nothing logged ahead", after.clockDay === before.day + 2 && after.ahead === 0, after);
+    const prompts = await promptsBy(h);
+    h.check("nobody was prompted for the days the wizard resolved", Object.values(prompts).every((list) => !list.length), prompts);
+    const again = await h.step("gm", "m6", "advance", { since: true });
+    h.check("run again since last resolved: nothing written", again.ok && again.results.every((r) => !r.records.length), again);
+    checkReconciles(h, await serverView(h, "gm", w));
+    await checkStatuses(h);
+    return { run, wages, after, again };
+}
+
+/**
+ * The wizard with players only (9.2, P2): Player One runs it for three days. No clock option; the days are logged ahead
+ * of the calendar; Player Two's wages are claims Player Two's client collects. Then a GM logs in: the Downtime tab says
+ * three days are logged ahead and offers "Move the calendar to match"; the clock moves into the logged days and nothing
+ * accrues or is prompted again.
+ */
+async function m6WizardPlayers(h, w) {
+    await m6Reset(h, w);
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const job = await m6TwoInDowntime(h);
+    await h.only(["p1", "p2"]);
+    await h.settle("ready");
+    const before = await h.step("p1", "m6", "today");
+    const run = await h.step("p1", "m6", "wizard", { script: [
+        { field: "count", value: 3 }, { click: "next" }, { click: "next" }, { click: "next" }, { click: "commit", ms: 4000 },
+    ] });
+    h.check("a player is not offered the clock", run.seen[0].clockOption === false, run.seen[0]);
+    h.check("commit: three days each, no clock moved", run.result?.ok && run.result.clock === null && run.result.results.every((r) => r.records.length === 3), run.result);
+    const after = await h.step("p2", "m6", "today");
+    h.check("the workshop day moved three days ahead of the calendar", after.day === before.day + 3 && after.ahead === 3 && after.clockDay === before.clockDay, after);
+    const wages = await h.step("p2", "m6", "jobState", { job: job.started.job, ms: 5000 });
+    h.check("Player Two's client collected three wages with no GM online", wages.wages.length === 3 && wages.claims.every((c) => c.resolved), wages);
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    await promptsBy(h);
+    const tab = await h.step("gm", "m6", "tab", { click: "[data-op='match']", ms: 3000 });
+    h.check("the GM's Downtime tab says three days ahead and offers to move the calendar", !!tab.ahead && tab.match === true, tab);
+    h.check("moving the calendar lands inside the logged days", tab.after?.clockDay === before.clockDay + 3 && tab.after.ahead === 0 && tab.after.day === after.day, tab.after);
+    const prompts = await promptsBy(h);
+    h.check("no day accrued twice: nobody is prompted", Object.values(prompts).every((list) => !list.length), prompts);
+    checkReconciles(h, await serverView(h, "gm", w));
+    await checkStatuses(h);
+    return { run, after, wages, tab };
+}
+
+/**
+ * Communal Crafting (6.7): the GM gives Player One's alchemist the feat; Player One crafts an Elixir of Life (Minor) to
+ * `finishing`; Player Two's fighter crafter joins with Crafting and rolls against the item's DC; two work days carry the
+ * helper's share at (level - 1) and their rank; Player Two leaves and forfeits it (the default); rejoining is refused.
+ */
+async function m6Communal(h, w) {
+    await m6Reset(h, w, { lab: true });
+    await h.step("gm", "m5", "give", { actor: w.pcs.p1.uuid, uuid: COMMUNAL_CRAFTING });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const craft = await h.step("p1", "m6", "craft", { uuid: ELIXIR, pledge: 300 });
+    const finishing = craft.brief?.status === "finishing";
+    h.check("Player One's order reaches finishing (or its check failed, which the plan accepts)", finishing || craft.brief?.status === "failed", craft);
+    if (!finishing) return { craft };
+    await h.step("p1", "m6", "status", { ms: 2000 });   // Player One's roster snapshot, with the feat, reaches Player Two
+    const joined = await h.step("p2", "m6", "join", { order: craft.order, skill: "crafting" });
+    const helper = joined.brief?.helpers?.[w.pcs.p2.id];
+    h.check("Player Two joins, accepted (the crafter has the feat), locked to the order, the check recorded", joined.joined?.ok && helper?.accepted !== false &&
+        Number.isInteger(helper?.degree) && joined.pc.activity?.kind === "help", joined);
+    const worked = await h.step("p1", "m6", "work", { order: craft.order, count: 2 });
+    const shares = worked.brief.extra.map((d) => d.helpers?.[w.pcs.p2.id] ?? 0);
+    h.check("two work days, each with Player Two's share beside Player One's", worked.brief.extra.length >= 2 && shares.slice(-2).every((cp) => cp >= 0), worked.brief);
+    const reductionBefore = worked.brief.reductionCp;
+    const left = await h.step("p2", "m6", "leave", { order: craft.order });
+    h.check("Player Two leaves: their help is forfeited by default, their activity cleared", left.result?.ok && left.result.forfeits === true &&
+        left.pc.activity === null && left.brief.reductionCp === reductionBefore - shares.slice(-2).reduce((a, b) => a + b, 0), { left, reductionBefore, shares });
+    const again = await h.step("p2", "m6", "join", { order: craft.order, skill: "crafting", roll: false });
+    h.check("a helper who left does not come back", again.joined?.reason === "left", again.joined);
+    checkReconciles(h, await serverView(h, "gm", w));
+    await checkStatuses(h);
+    return { craft, joined, worked, left };
+}
+
+/**
+ * Earn Income paid once per day (6.10, 5.4): Player Two on two devices takes a job and rolls it; the GM moves the clock two
+ * days; both devices resolve at the same moment: one lands, the other is refused and finds nothing left; the GM's wizard
+ * then resolves a third day (a claim both devices race to collect); repeated advances and resolutions write nothing.
+ * Three wage rows, one a day; the purse grew by three days' pay.
+ */
+async function m6Income(h, w) {
+    await m6Reset(h, w);
+    await h.only(["gm", "p2", "p2@2"]);
+    await h.settle("ready");
+    const job = await h.step("p2", "m6", "job", { skill: "crafting", taskLevel: 1 });
+    const id = job.started?.job;
+    h.check("the job is rolled with its pay per day", !!job.brief?.job?.check && job.brief.job.perDayCp >= 0, job);
+    await h.step("p2", "m6", "downtime", { on: true });
+    const start = job.brief.purse;
+    await h.step("gm", "m6", "clock", { days: 2 });
+    const both = await h.together([["p2", "m6", "resolve", {}], ["p2@2", "m6", "resolve", {}]]);
+    const landed = both.filter((r) => r.result.ok && r.result.records.length === 2);
+    h.check("two devices at once: one resolution lands, the other is refused or finds nothing", landed.length === 1 &&
+        both.some((r) => r.result.reason === "taken" || r.result.reason === "no-days"), both.map((r) => r.result));
+    await h.step("gm", "m6", "advance", { days: 1 });
+    const repeat = await h.together([["gm", "m6", "advance", { since: true }], ["p2", "m6", "resolve", {}], ["p2@2", "m6", "resolve", {}]]);
+    h.check("repeated advances and resolutions write nothing more", repeat[0].results.every((r) => !r.records.length) &&
+        repeat.slice(1).every((r) => !r.result.records.length), repeat);
+    const state = await h.step("p2", "m6", "jobState", { job: id, ms: 6000 });
+    const perDay = job.brief.job.perDayCp;
+    h.check("three wage rows, one a day, all applied", JSON.stringify(state.wages.map((x) => x.day)) === JSON.stringify([...new Set(state.wages.map((x) => x.day))]) &&
+        state.wages.length === (perDay > 0 ? 3 : 0) && state.wages.every((x) => x.state === "applied"), state);
+    h.check("the purse grew by three days' pay", state.purse - start === 3 * perDay, { start, end: state.purse, perDay });
+    checkReconciles(h, await serverView(h, "gm", w));
+    await checkStatuses(h);
+    return { job, both, repeat, state };
+}
+
+/**
+ * A settlement profile capping task levels (6.10, 14.2): the GM keeps a village whose highest task level is 1, with
+ * Crafting up to 2; Player One, alone, puts the party in it (no GM needed) and is told who set it; a job above the cap
+ * is refused with the cap, one at it starts confirmed; with no settlement any level starts, marked unconfirmed.
+ */
+async function m6Settlement(h, w) {
+    await m6Reset(h, w);
+    await h.only(["gm"]);
+    const profile = await h.step("gm", "m6", "profile", { name: "Harbour village", size: "village", level: 1, caps: { crafting: 2 } });
+    h.check("the GM saves the settlement", profile.ok === true, profile);
+    await h.only(["p1"]);
+    await h.settle("ready");
+    const set = await h.step("p1", "m6", "settle", { profile: profile.id });
+    h.check("Player One, with no GM online, puts the party there", set.result?.ok && set.current?.name === "Harbour village" && set.record?.by === w.users.p1, set);
+    const over = await h.step("p1", "m6", "job", { skill: "crafting", taskLevel: 3, roll: false });
+    h.check("a job above the cap is refused with the cap", over.started?.reason === "task-level-cap" && over.started.data?.max === 2, over.started);
+    const capped = await h.step("p1", "m6", "job", { skill: "crafting", taskLevel: 2, roll: false });
+    h.check("a job at the cap starts, confirmed", capped.started?.ok && capped.started.unconfirmed === false && capped.brief.job.settlement === profile.id, capped);
+    await h.step("p1", "m6", "settle", { profile: null });
+    const free = await h.step("p1", "m6", "job", { skill: "crafting", taskLevel: 9, roll: false });
+    h.check("with no settlement any level starts, marked unconfirmed (OQ-17)", free.started?.ok && free.started.unconfirmed === true, free.started);
+    await checkStatuses(h);
+    return { profile, set, over, capped, free };
+}
+
+Object.assign(BEHAVIOURS, {
+    "m6-clock": m6Clock,
+    "m6-wizard-gm": m6WizardGm,
+    "m6-wizard-players": m6WizardPlayers,
+    "m6-communal": m6Communal,
+    "m6-income": m6Income,
+    "m6-settlement": m6Settlement,
+});

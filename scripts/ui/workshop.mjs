@@ -11,6 +11,10 @@
  * - Funds: fund accounting (M4.1): the strongbox as the unallocated party fund plus what is earmarked per order by
  *   source, and what each order spent; each member's balance, the ledger with authors and reversal; for a GM,
  *   reconciliation and adjustments. Every amount is typed as pp, gp, sp and cp (`prompts.mjs`).
+ * - Downtime (M6, `downtime.mjs`): the workshop day, each PC's downtime status, activity and pending days, the day resolver
+ *   and the Advance days wizard (`advance.mjs`), the current settlement and (for a GM) the settlement profiles, and Earn
+ *   Income jobs; the tab's button carries a badge while the user's characters have days to resolve (9.1). An order's
+ *   detail lists its Communal Crafting helpers (6.7).
  * - Status bar: an `aria-live` region for queue events, and the banner when the shared documents are not usable.
  *
  * Detached-window safe: listeners are delegated from the window's own element, elements are tested with
@@ -39,13 +43,15 @@ import { canWrite, shared, status } from "../foundry/state.mjs";
 import { read, records } from "../foundry/store.mjs";
 import { orderContext } from "./context.mjs";
 import { focusState, restoreFocus } from "./focus.mjs";
-import { money, nameOf, report, sourceName, userName, when } from "./format.mjs";
+import { money, nameOf, number, report, sourceName, userName, when } from "./format.mjs";
 import { EVENT, ROW_KIND, STATUS } from "./labels.mjs";
 import { askMoney, confirm } from "./prompts.mjs";
 import { openRequestForm } from "./request.mjs";
 import { detailExtras, kindText, onCustodyOp, onPledgeOp, onServiceOp, servicesView, targetText } from "./extras.mjs";
 import { formulasContext, formulasOn, onFormulaChange, onFormulaDrop, onFormulaOp, onFormulaSearch } from "./formulas.mjs";
 import { allServices } from "../foundry/services.mjs";
+import { dayWatcher, downtimeOn, today, worldDate } from "../foundry/downtime.mjs";
+import { downtimeContext, helpersContext, onDowntimeChange, onDowntimeInput, onDowntimeOp, onHelperOp, pendingBadge } from "./downtime.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -114,6 +120,9 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             pledgeOp: WorkshopApp.#onPledgeOp,
             custody: WorkshopApp.#onCustody,
             service: WorkshopApp.#onService,
+            // M6: the Downtime tab, and the helpers of an order (Communal Crafting).
+            downtime: WorkshopApp.#onDowntime,
+            helper: WorkshopApp.#onHelper,
         },
     };
 
@@ -123,6 +132,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         queue: { template: T("queue"), scrollable: [".queue-main", ".order-detail"], templates: PARTIALS },
         funds: { template: T("funds"), scrollable: [""] },
         formulas: { template: T("formulas"), scrollable: [".codex-main", ".codex-learn"] },
+        downtime: { template: T("downtime"), scrollable: [""] },
         status: { template: T("status") },
     };
 
@@ -132,6 +142,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
                 { id: "queue", icon: "fa-solid fa-list-check", label: "pf2e-artisans-workshop.Window.Tab.Queue" },
                 { id: "funds", icon: "fa-solid fa-coins", label: "pf2e-artisans-workshop.Window.Tab.Funds" },
                 { id: "formulas", icon: "fa-solid fa-book-open", label: "pf2e-artisans-workshop.Window.Tab.Formulas" },
+                { id: "downtime", icon: "fa-solid fa-calendar-days", label: "pf2e-artisans-workshop.Window.Tab.Downtime" },
             ],
             initial: "queue",
         },
@@ -155,9 +166,23 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         if (WorkshopApp.TABS.primary.tabs.some((tab) => tab.id === last)) this.tabGroups.primary = last;
     }
 
+    /** The Downtime tab's badge as last rendered: the nav renders again only when it changes (9.1). */
+    lastBadge = 0;
+
     /** Re-render after store changes stop for a moment (10.1). */
     refresh = foundry.utils.debounce(() => {
-        if (this.rendered) this.render({ parts: ["header", "queue", "funds", "formulas", "status"] });
+        if (!this.rendered) return;
+        const parts = ["header", "queue", "funds", "formulas", "downtime", "status"];
+        if (pendingBadge() !== this.lastBadge) parts.push("nav");
+        this.render({ parts });
+    }, 150);
+
+    /** Re-render what a new day changes (9.1): the day in the header, the Downtime tab, and the badge if its count moved. */
+    refreshDay = foundry.utils.debounce(() => {
+        if (!this.rendered) return;
+        const parts = ["header", "downtime"];
+        if (pendingBadge() !== this.lastBadge) parts.push("nav");
+        this.render({ parts });
     }, 150);
 
     /** Announce an event in the status bar's live region (10.2) without moving focus. */
@@ -183,7 +208,10 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const strongbox = shared().strongbox;
         const acting = this.actingActor();
         const shelf = orders.actingChoices().flatMap((actor) => shelfItemsFor(actor.uuid));
+        // The workshop day and the world date (10.2, M6).
+        const day = current === "ready" && downtimeOn() ? today() : null;
         return Object.assign(context, {
+            dayText: day ? game.i18n.format("pf2e-artisans-workshop.Window.Day", { day: number(day.day) }) : null, worldDate: day ? worldDate() : null,
             isGM: game.user.isGM,
             ready: current === "ready",
             readable: ["ready", "newer", "migrating", "stale"].includes(current),
@@ -202,6 +230,12 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         part.tab = context.tabs?.[partId] ?? null;
         if (partId === "queue" && context.readable) Object.assign(part, await this.#queueContext());
         if (partId === "funds" && context.readable) Object.assign(part, this.#fundsContext());
+        if (partId === "downtime" && context.readable) Object.assign(part, downtimeContext(this));
+        if (partId === "nav") {
+            this.lastBadge = context.readable ? pendingBadge() : 0;
+            part.badges = { downtime: this.lastBadge || null };
+            part.badgeLabels = { downtime: this.lastBadge ? game.i18n.format("pf2e-artisans-workshop.Downtime.Badge", { n: number(this.lastBadge) }) : null };
+        }
         // The Codex scans the equipment catalogue, so it is built only while its tab is shown (changeTab renders it then).
         if (partId === "formulas" && context.readable) {
             Object.assign(part, !formulasOn() ? { formulasOff: true } : this.tabGroups.primary === "formulas" ? await formulasContext(this) : { formulasPending: true });
@@ -258,6 +292,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         return {
             ...view,
             extras: await detailExtras(order),
+            helpers: helpersContext(order),
             history: logEntries(order).reverse().map((entry) => ({
                 event: entry.event, by: userName(entry.by), when: when(entry.at), eventLabel: EVENT[entry.event] ?? EVENT.other,
             })),
@@ -424,11 +459,16 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     /*  Listeners                                    */
     /* -------------------------------------------- */
 
-    #onChange(event) {
+    async #onChange(event) {
         const target = event.target;
         if (onFormulaChange(this, target)) {
             this.render({ parts: ["formulas"] });
             return;
+        }
+        if (target.closest?.(".workshop-downtime")) {
+            const again = await onDowntimeChange(this, target);
+            if (again) this.render({ parts: ["downtime"] });
+            if (again !== null) return;
         }
         if (target.name === "acting") {
             this.acting = target.value;
@@ -447,6 +487,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     #formulaSearchDebounce = foundry.utils.debounce(() => this.render({ parts: ["formulas"] }), 250);
 
     #onInput(event) {
+        if (event.target.closest?.(".workshop-downtime") && onDowntimeInput(this, event.target)) return;
         if (event.target.dataset?.codex === "search") {
             onFormulaSearch(this, event.target.value);
             this.#formulaSearchDebounce();
@@ -773,6 +814,29 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             if (target.isConnected) target.disabled = false;
         }
     }
+
+    /** A Downtime tab button (M6). */
+    static async #onDowntime(_event, target) {
+        target.disabled = true;
+        try {
+            const result = await onDowntimeOp(this, target);
+            if (result?.ok) this.announce(game.i18n.localize("pf2e-artisans-workshop.Event.Downtime"));
+        } finally {
+            if (target.isConnected) target.disabled = false;
+        }
+        return this.render({ parts: ["downtime"] });
+    }
+
+    /** A helpers button on an order's detail (M6, 6.7). */
+    static async #onHelper(_event, target) {
+        target.disabled = true;
+        try {
+            const result = await onHelperOp(this, target);
+            if (result?.ok) this.announce(game.i18n.localize("pf2e-artisans-workshop.Event.Helper"));
+        } finally {
+            if (target.isConnected) target.disabled = false;
+        }
+    }
 }
 
 /* -------------------------------------------- */
@@ -803,6 +867,12 @@ export function registerWindowHooks() {
         });
     }
     Hooks.on("pf2e-artisans-workshop.status", touch);
+    // M6: the clock reaching a new day changes the workshop day and pending days (9.1). It moves far more often (every
+    // combat round, a calendar module's running clock), so other moves render nothing.
+    const dayMoved = dayWatcher();
+    Hooks.on("updateWorldTime", () => {
+        if (dayMoved()) WorkshopApp.instance?.refreshDay();
+    });
     Hooks.on("pf2e-artisans-workshop.announce", (text) => WorkshopApp.instance?.announce(text));
     Hooks.once("setup", () => foundry.applications.handlebars.loadTemplates([...PARTIALS]));
 }

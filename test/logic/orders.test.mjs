@@ -5,7 +5,7 @@ import { DEGREE } from "../../scripts/logic/core.mjs";
 import { rulesWith } from "../../scripts/logic/defaults.mjs";
 import { hashId } from "../../scripts/logic/ids.mjs";
 import {
-    acceptOrder, closedAs, closedRepair, lateForAttempt, lastEntry, leftAfterSpend, logEntries, logLockId, makeOrder, nextWorkDay,
+    acceptOrder, closedAs, closedRepair, lateForAttempt, lastEntry, leftAfterSpend, logEntries, logLockId, makeOrder,
     orderActions, refundClaims, releaseOrder, reversalKeepsCommitted, settlementRecord, settlementRepair, transitionChange, undoPlan,
     withdrawableCp, workDayRecord,
 } from "../../scripts/logic/orders.mjs";
@@ -126,10 +126,7 @@ test("the settlement record is what a late reroll is measured against, and its r
     assert.equal(lateForAttempt(order({ attempt: 1, status: "rolled" }), 1, true), true, "settlement rows count too");
 });
 
-test("work days: the clock's day or the day after the last record; setup days move the order to its check", () => {
-    assert.equal(nextWorkDay(10, []), 10);
-    assert.equal(nextWorkDay(10, [{ day: 12 }, { day: 11 }]), 13);
-    assert.equal(nextWorkDay(20, [{ day: 12, toDay: 14 }]), 20);
+test("work days: setup days move the order to its check; extra days take the crafter's rate off", () => {
     const o = order({ status: "setup", attempt: 1, setup: { days: 2, hours: 0 }, crafter: "C" });
     const crafter = { actorId: "c1", level: 5, rank: 2 };
     const first = workDayRecord(o, 3, crafter, [], stamp);

@@ -8,6 +8,13 @@
         <span class="label">{{localize "pf2e-artisans-workshop.Window.NoParty"}}</span>
         {{/if}}
     </div>
+    {{#if dayText}}
+    <div class="workshop-day">
+        <i class="fa-solid fa-calendar-day" inert></i>
+        <span>{{dayText}}</span>
+        {{#if worldDate}}<span class="date">{{worldDate}}</span>{{/if}}
+    </div>
+    {{/if}}
     {{#if strongboxText}}
     <div class="workshop-strongbox" data-tooltip="{{localize 'pf2e-artisans-workshop.Window.StrongboxHint'}}">
         <i class="fa-solid fa-sack-dollar" inert></i>

@@ -699,12 +699,47 @@ rows.<id> = {
   order in `rolled` is settled first, as the order's next day settles it (4.2.3), and the day then counts as an extra
   day. The record is deterministic, so a day written twice is one record.
 
+- **As built in M6** (`scripts/logic/downtime.mjs`, `scripts/foundry/downtime.mjs`; 10.12):
+  - *The workshop day* is `today()`: `clockDay = floor((worldTime + offset) / secondsPerDay)` and the highest `toDay` of
+    `meta.manual`. The offset is pf2e's World Clock's (seconds since midnight UTC of `worldCreatedOn`) unless a calendar
+    module is active (Calendaria, Simple Calendar, Simple Calendar Reborn, Seasons & Stars, Simple Timekeeping), then the
+    calendar's own time of day at world time 0 (`timeToComponents(0)`); any client that may write freezes it in
+    `meta.dayOffset` when its status turns ready. The elected client (5.6) keeps `meta.clockHigh`, the highest clock day
+    seen, so the Downtime tab can say the clock was set back (nothing is undone).
+  - *Days.* The workshop day is the latest day that has happened. A PC that goes into downtime on day D
+    (`pcs.<id>.since = D`, written by its owner) has days D+1 onwards; a day is pending from when the workshop day reaches
+    it until a day record covers it (`pendingDays`: from `max(since, resolvedThrough) + 1` to the workshop day). So a
+    clock advanced one day, or the wizard advancing one day, gives each PC in downtime one pending day. A PC not in
+    downtime has no pending days; its next day (an order's "Work a day") is the day after today or after its last record.
+  - *Status* records are `{id, v, inDowntime, since, activity, lockedBy, by, at}` (`standingRoutine` and `prepCycle` are
+    M7's). Taking a PC out of downtime with days pending is refused (`days-pending`) unless the owner counts them as not
+    downtime: one record covering the span, `result: "not-downtime"`, `activity: null`. A Communal Crafting helper stays
+    in downtime until they leave the order (`helping`, 6.7).
+  - *Day records* are written by `planDays`, one per PC and day, keyed `<actorId>-<day>`: a craft day is the order's setup
+    or extra day (`workDayRecord`, as M4; never a day of an order in `rolled`, which stops at `settle`, and no setup day
+    past the setup's count, which stops at `check`), a help day `{order, result: "help"}`, an earn day `{job, wageCp, rows: [wage
+    row id]}`, any other activity just the day. A PC's days are written in one request behind the lock page
+    `days:<actorId>:<first day>` (hashed), so of two resolutions planned from the same copy (two devices, the owner and a
+    wizard runner) only the first lands and the other is refused (`taken`); the M4 follow-up "one user on two devices
+    working two orders in the same instant writes the same day key twice" is closed by it.
+- **When days accrue** (9.1, As built in M6): `updateWorldTime` when the clock's day changed (not every combat round or
+  tick of a running clock, review fix) and ledger changes to `pcs`, `days` or `meta.manual` schedule a check (one second
+  after the first of them, so a clock advance and the wizard's writes settle; a check already due is not put off again); each member PC with pending
+  days whose responsible client this is (5.6) gets one notification per workshop day on that client
+  (`Downtime.Prompt`), and the Downtime tab's button a badge (the user's own characters with pending days). An owner who
+  was offline is told when their client's status turns ready.
+
 ### 4.9 Earn Income jobs
 
 `jobs.<id> = {actor, skill, taskLevel, settlement, dc, startDay, lengthDays?, check: {degree, unadjusted,
 messageId, level, rank}, perDayCp, status: "open" | "ended" | "fired"}`. Days paid are derived from the
 job's `wage` rows, never stored as a counter. `settlement` is the settlement profile the job was taken
 in. Rules in 6.10.
+
+As built in M6 (`scripts/logic/jobs.mjs`, `scripts/foundry/jobs.mjs`): a job also carries `round` (its check's round, 1
+at start: rolling again after a level or rank change opens round 2, 6.10), `unconfirmed` (taken with no settlement set,
+OQ-17), `shortened` and `log` (`{seq, event, prev, by, at}`, as an order's: start, reroll, end, undo, each behind the lock
+page of its slot `job-log:<id>:<seq>`). `startDay` is the earner's next open day. `lengthDays` stays null (not used).
 
 ### 4.10 Roster snapshots
 
@@ -1642,7 +1677,9 @@ function finish(order, days, ctx) {                 // allowed at any point in `
     charge a swapped order twice. A stored degree outside 0-3 throws. The alchemical hazard is a notice code.
   - An extra-day record written while the check is recorded but not settled carries the amounts at the
     recorded degree; a reroll before settlement does not rewrite it. Settlement normally comes first,
-    because it happens when the order's next day is resolved.
+    because it happens when the order's next day is resolved. M6 makes that always so: the day planner never
+    writes a day of an order in `rolled` (it stops at `settle`), and the resolver of the crafter's owner settles
+    the order before planning its days (9.2, As built in M6).
   - Day records count once per actor, day and kind, on top of their keying, and each order record is one
     day (`toDay` belongs to the empty spans of 4.8).
   - `crafterRate(check, crafterToday, rateLevel, rules)` takes the registry `rateLevel` as a value.
@@ -1908,6 +1945,30 @@ function helperRate(h, s) {
     the entry. Should one be deleted anyway, the cost reduction treats the helper as one who left (their
     past days forfeited while leaving is retroactive), rather than counting days nobody can account for.
 
+- **As built in M6** (`scripts/logic/communal.mjs`, `scripts/foundry/communal.mjs`, the helpers section of an order's
+  detail, 10.12):
+  - *Joining* (`joinOrder`, the helper's owner): an order with a crafter and not over (`accepted` to `paused`); the
+    eligibility of `helperEligibility` with the crafter's feats from their roster snapshot (4.10) when this user cannot
+    read the crafter; skills offered are the relevant ones the helper is trained in. The entry `helpers.<actorId>` =
+    `{actor, skill, rank, level, degree, check, joinedDay, leftDay, accepted}`; `joinedDay` is the first day neither the
+    helper nor the crafter has resolved, so a helper's share never lands on a day the crafter already wrote. The
+    helper's activity becomes `help:<orderId>` and `lockedBy` the order. A helper who left cannot join again (their
+    entry, and what they forfeited, stay).
+  - *Acceptance*: when only the helper has the feat (and `countHelpersWithoutFeat` is off) the entry is `accepted:
+    false` until the crafter's owner accepts (`acceptHelper`); an unaccepted helper is not present (`helperPresent`), so
+    adds nothing.
+  - *The helper check* (`rollHelper`, `scripts/foundry/rolls.mjs`): the helper's skill against the order's frozen DC,
+    traits `downtime`, linked `<MOD>:help:<orderId>:<actorId>`; recorded by its author's client on the entry
+    (`degree`, and `level` and `rank` at the roll); a reroll replaces it, a second roll is refused. It can be rolled from
+    the start on (the DC is frozen then).
+  - *Leaving* (`leaveOrder`): `leftDay` is the first day neither the helper nor the crafter has resolved; the helper's
+    activity and lock are cleared. Locked helpers cannot spend days elsewhere (`planDays` stops `locked`); a helper day is
+    a record of its own with no effect, since the share is in the crafter's extra-day record.
+  - *Helpers are in downtime while they help* (review fix): helping is how they spend it, and their share is in the
+    crafter's days whatever their own say. Joining puts a helper who is not in downtime into it (from the day after
+    today, as "Start downtime" does); ending downtime is refused as `helping` until they leave the order; and their days
+    cannot be counted as "not downtime" (`planDays` stops `locked` for that too).
+
 ### 6.8 Formula acquisition jobs
 
 | Route | Cost | Time | Check | Gates | On success |
@@ -2061,6 +2122,27 @@ pledge a casting "offered" (10.11, As built in M5 on M4.1).
   - `payWage(jobId, day)` posts `wage:<jobId>:<day>:<seq>`: the earner's responsible client mints it, any other
     client files a wage claim with the same key, and a day already paid is `already`. Jobs are created by M6's form;
     the harness writes them with `makeJob`.
+
+- **As built in M6** (`scripts/logic/jobs.mjs`, `scripts/foundry/jobs.mjs`, the Downtime tab, 10.12):
+  - *Settlements.* The world setting `settlements` holds the GM's profiles `{id, name, size, level, caps, notes}`
+    (`makeProfile`; edited in the Downtime tab, hidden from the settings window); `meta.settlement = {profileId, by, at}`
+    is the party's current one, which any member sets (`setSettlement`).
+  - *Starting a job* (`startJob`, the earner's owner): a skill the earner is trained in (`untrained` otherwise), a task
+    level within the current profile's cap for the skill (`task-level-cap`, with the cap), any level with no settlement
+    (`unconfirmed`); the DC is `earnIncomeDC` frozen; the earner's activity becomes the job.
+  - *Rolling* is the M3 roll (`rollJob`), linked `<MOD>:job:<id>:<round>`; a link without a round reads as round 1.
+    *Rolling again* (`rerollJob`) after a level or rank change opens a new round with no check; a reroll of an earlier
+    round's message is refused as `stale-round` (the 6.12 follow-up). The `paid` guard counts open wage claims as paid
+    days too (`wageDaysOf`, the other 6.12 follow-up). *Ending* sets `ended` and clears the activity; it is refused as
+    `job-days-pending` (with the count) while the earner's days go to the job and some are still to resolve, since an
+    ended job pays no day: they are resolved, and paid, first (review fix). *Undo* takes back the last of start (only
+    while no day was spent and nothing paid: the job is removed), reroll (only while the new round's check is not
+    rolled, so the earner never keeps the better of two rolls; `job-moved-on` otherwise, review fix) and end.
+  - *Pay.* Each earn day's record carries its wage (`wageCp`, the job's pay per day then; nothing on the day of a firing
+    roll, and no day after it); after the records land, `payWage(job, day, {cp})` mints it (the earner's responsible
+    client) or files a wage claim (anyone else). A day record whose wage never landed is paid by the earner's
+    responsible client at the sweep (`sweepWages`, a sweep step), once, since the wage is keyed by job and day. Cost of
+    living is not built (`rules.costOfLiving` stays off).
 
 ### 6.11 Rules registry
 
@@ -2371,11 +2453,11 @@ Hooks.on("createChatMessage", (message) => {
   - The Earn Income `paid` guard counts wage rows, not open wage claims: a reroll recorded after another client filed
     a wage claim but before the earner's client applied it changes `perDayCp`, and the claim pays that day at the old
     rate (its `cp` was fixed when filed) while later days pay the new one. Count unresolved wage claims for the job
-    as paid days, with M6's day resolution.
+    as paid days, with M6's day resolution. (Fixed in M6: `wageDaysOf`, 6.10 As built in M6.)
   - A job's link carries no roll number (`<MOD>:job:<id>`), unlike an order's attempt. Once M6 allows a fresh roll
     on a resumed job after a level or rank change, a reroll of the message rolled before the pause would match the
     job and replace the new check until a wage is paid. Before M6: link `<MOD>:job:<id>:<n>` with a roll counter on
-    the job, and refuse a stale link as orders refuse `stale-attempt`.
+    the job, and refuse a stale link as orders refuse `stale-attempt`. (Fixed in M6: `<MOD>:job:<id>:<round>`, 6.10 As built in M6.)
   - A product that is a weapon (a bomb) brings its weapon options into the Craft check (`item:type:weapon`,
     `item:ranged`, `item:thrown`, `item:damage:*`; seen live on an imported level-1 bomber crafting a lesser
     alchemist's fire, which was otherwise right: DC 15, Int +4 and Trained +3, every planned option present, no
@@ -3780,6 +3862,40 @@ keyed by actor and day, every resolver writes the same content for a day, and th
 the maximum, never a sum. Running "advance 3 days" a second time is a new span (days 4-6), which the
 wizard shows before commit.
 
+As built in M6 (`scripts/ui/advance.mjs`, `scripts/foundry/downtime.mjs`; 10.12):
+
+- **The day resolver** (9.1) is the wizard's window for one PC (`mode: "resolve"`, titled "Resolve days for X"), opened
+  from the PC's row in the Downtime tab: its pending days with one activity (its current one by default; "not downtime"
+  too; a PC with none is asked to choose one before Next, since leaving the days is what closing the window does), the
+  checks due, the review and the commit (`resolveDays`). An order's "Work a day" is `resolveDays` for one day of the crafter's with that
+  order as the activity (no card).
+- **The wizard** (9.2) has five steps: *how many days* (a number, or only the days already passed; the resulting day;
+  for a GM, "also move the world calendar"); *who does what* (every PC in downtime with days in the span, one activity
+  each for the whole span, "leave for the owner" and "not downtime" among the choices, a preview of what it writes and
+  where it stops; review and done say which PCs' days were left); *checks due* (Craft, Earn Income and helper checks due now, with Roll for this user's characters and
+  "waiting for its player" for the others; checks that come due inside the span); *review* (per PC, the days in words
+  and each wage, "paid into X's purse" or "collected by their player's client"); *done* (what was written, where each
+  PC stopped, and "Resolve the rest", which resolves through the day the first commit reached and never advances
+  again). Daily preparations (step 4), affliction saves and the variants' checks are M7, M8a and M9a.
+- **The span is fixed** when the user leaves the first step (review fix): the later steps show it and the commit writes
+  it (`advanceDays({through, base})`, `resolveDays({through})`), whatever the clock does meanwhile. If the workshop day
+  moved before the commit (another user's run, the clock), `advanceDays` writes nothing and refuses as `moved`; the
+  wizard goes back to its first step and says the day it is now, so two people advancing one day at once advance one.
+- **The commit** (`advanceDays`) plans and writes each PC's days in turn (`writePlan`, behind the PC's day lock), then
+  writes `meta.manual.<runId> = {id, v, fromDay, toDay, by, at}` when the span advances, then, for a GM who asked, moves
+  the clock so its day is the span's last (`game.time.advance`). Records go first so nobody is prompted for days the
+  wizard resolved. A PC with no activity, or "leave for the owner", is skipped and its days stay pending for its owner.
+  The planner stops at the first day an activity cannot go on (a check due, an order that takes no days, a job that
+  ended, a helper's lock); those days stay pending. An order in `rolled` is settled first when the runner owns its
+  crafter (the preview shows the days as that settlement leaves them); for anyone else the planner stops at `settle`
+  and the days wait for the crafter's player, so no day is written at a degree a reroll could still replace (review
+  fix). The runner writes day records only; an order whose setup the runner's records completed is moved to `check` by
+  its crafter's responsible client (`setupRepair`, on day records' changes, and the sweep's "orders" step for a client
+  that was not responsible then); until it is, the planner stops at `check` rather than write a setup day past the
+  count (review fix). `downtimeDayStart` and `downtimeDayEnd` (12.3) fire for each day of the span, on the client that
+  writes. One day card (10.5) sums it up. "Move the calendar to match" (a GM, the Downtime tab) advances the clock by
+  the days logged ahead.
+
 ---
 
 ## 10. User interface
@@ -4157,6 +4273,7 @@ tests for the Foundry and window parts (`test/foundry/funds.test.mjs`, `ui.test.
 - No context menu (10.3): secondary actions are in the detail drawer. The slide-over and narrow detail do not trap focus.
 - The window's size is not remembered per client (`ui.windowSize`), and the Parchment client setting is not built.
 - The party selector and the workshop day and world date in the header (10.2) wait for M6's day and multi-party use.
+  (M6 shows the workshop day and pf2e's World Clock date; the party selector still waits for multi-party use.)
 - The Party-stash strongbox (4.7, `strongbox: party`) is not built.
 - A product's Price is the compendium item's, not the prepared item at the recipient's size (6.2.2).
 - Fixed after the M4 review: a cancel and a finish planned from the same copy both landed (the item delivered and the
@@ -4168,7 +4285,7 @@ tests for the Foundry and window parts (`test/foundry/funds.test.mjs`, `ui.test.
   order's return slot now (4.6), so the later of two planned from the same copy is refused ("taken") and tried again.
   Allowing pledges in `rolled` (4.2.2 does) would still give a way out of `rolled` for any other cause.
 - One user on two devices working two orders in the same instant writes the same day key twice, and one of the two days
-  is lost.
+  is lost. (Fixed in M6: a PC's days are written behind the lock `days:<actorId>:<first day>`, 4.8 As built in M6.)
 - A transition's request that stops between its log slot's page and its ledger update (the server stops at an error
   after its dry run passed) leaves the slot taken with no entry, and every later transition of that order is refused
   until the page goes; not seen, and there is no tool to release it yet (M11's data tools).
@@ -4596,6 +4713,184 @@ Left by the fixes (low):
 - A blank runestone is never a transfer source: etching a rune onto a runestone (which would record the rune it holds)
   is not built, and a stack of rune items must be split before a transfer from one.
 
+### 10.12 As built in M6
+
+M6 builds downtime: per-PC status, clock accrual and its prompt, the day resolver, the Advance days wizard, Communal
+Crafting helpers, Earn Income jobs and settlement profiles (pure parts in `scripts/logic/downtime.mjs`, `jobs.mjs` and
+additions to `communal.mjs`, `orders.mjs`, `rolls.mjs`; Foundry parts in `scripts/foundry/downtime.mjs`, `jobs.mjs`,
+`communal.mjs` and additions to `orders.mjs`, `rolls.mjs`, `sync.mjs`, `settings.mjs`, `api.mjs`; the window in
+`scripts/ui/downtime.mjs`, `advance.mjs`, `days.mjs`, `templates/workshop/downtime.hbs`, `templates/advance/wizard.hbs`,
+`templates/chat/days.hbs`). The rules are in 4.8, 4.9, 6.7, 6.10 and 9 (As built in M6). Unit tests cover the pure parts
+(`test/logic/downtime.test.mjs`, `jobs.test.mjs`), stub tests the Foundry and window parts (`test/foundry/downtime.test.mjs`,
+`ui-m6.test.mjs`); the live plans are written and not yet run.
+
+- **The Downtime tab** (10.1): the workshop day with pf2e's World Clock date (`dateAsString`; none while a calendar
+  module shows the date, review fix), the days logged ahead of the calendar
+  (with "Move the calendar to match" for a GM) and a calendar set back; one row per character (a player's own, every
+  member for a GM): in downtime or not ("Start downtime" / "End downtime", the owner's), since when, the activity its
+  days go to (the owner chooses among the orders it crafts that take days, the orders it helps with, its open Earn Income
+  jobs, subsisting, retraining or something else; locked while it helps), the days to resolve, the last day resolved and
+  the next, and "Resolve days" (with "no activity chosen yet" beside it when that is so); "Advance days" for any member
+  with a character. The settlement section: where the party
+  is (any member chooses), its cap and exceptions, who set it; for a GM, the settlement profiles (name, size, highest
+  task level, exceptions by skill, notes), added, edited and deleted in place. Earn Income jobs (own for a player, all
+  for a GM): skill and task level, status (icon and word), "no settlement set", the settlement, the DC (when pf2e shows
+  DCs), the check, pay per day, days paid and the total, "may be cut short", a kept-out reroll; Roll, Roll again, End,
+  Undo; and "Take an Earn Income job" (character, a trained skill, task level, the cap, DC and pay per degree). Text and
+  number fields keep what is typed across live updates (review fix). `features.downtime` and `features.income` (14.1)
+  turn the tab and the jobs off.
+- **The header and the tab button** (10.2): "Day N" and the World Clock's date; the Downtime button carries a badge with
+  the number of the user's characters with days to resolve (described to screen readers by `aria-description`), and the
+  nav renders again only when that number changes. The clock moving renders the header and the Downtime tab only when
+  its day changes (review fix): combat rounds and a calendar module's running clock move it far more often.
+- **The wizard and the resolver** (9.1, 9.2 As built in M6): one window (`AdvanceDaysApp`, a child of the Workshop so a
+  detached Workshop opens it in its own browser window; one at a time, the old one closed before the new one renders,
+  review fix), step by step with a numbered stepper (`aria-current="step"`), Roll buttons for the checks due, and a
+  summary of what was written. Focus stays on the control that had it across live updates (the Workshop's `focus.mjs`,
+  which tells per-character controls apart by `data-actor`, and jobs, settlements and skills by theirs), moves to the
+  new step's first control when the step changes, and live updates wait while a field has focus; typing the number of
+  days updates the day it leads to in place, and Enter goes on (review fix).
+- **Helpers on an order's detail** (6.7 As built in M6): each helper with their skill and rank (when pf2e's party stats
+  show), their check, what they take off a day, since when and until when (and whether they forfeited), "waiting for the
+  crafter to accept"; Roll helper check, Stop helping (confirmed, saying whether they lose what they gave), Accept
+  helper; and "Help with this order" (a character of the user's and a skill, with why a choice cannot help). The rule
+  and the DC in a hint.
+- **The day card** (10.5): "Downtime days": per PC, the span ("3 days (days 4 to 6)") and one line per activity ("2 setup
+  days on X", "3 days of work on X: up to Y off what is left to pay", "2 days of Earn Income ...: Z earned", "1 day not
+  in downtime"), and where its days stopped with what to do. Every count has a key for one.
+- **Refusals** in plain words: `days-pending`, `no-activity`, `no-days`, `paid-off`, `helper-locked`, `not-eligible`
+  (with the reasons), `not-helping`, `left`, `crafter`, `untrained`, `task-level-range`, `task-level-cap` (with the cap),
+  `no-profile`, `bad-profile`, `not-gm`, `same`, `no-job`, `stale-round`, `unrolled`; and from the review fixes
+  `helping`, `job-days-pending` (with the count), `job-moved-on`, `moved` (with the day). The day stops add `settle`.
+- **API** (11.2): `downtime.{today, status, pending, setDowntime, setActivity, resolve, advance, advanceClockToMatch,
+  setSettlement, settlement, profiles}`, `income.{list, start, roll, reroll, end, undo}`, `communal.{join, leave, roll,
+  accept}`; an activity is `{kind, ref}` or its key (`"craft:<orderId>"`, `"earn:<jobId>"`, `"subsist"`), and the wizard's
+  assignments may say `"skip"` or `"not-downtime"`.
+- **Hooks** (12.3): `downtimeDayStart` `{day, mode: "wizard" | "resolver" | "work", actors, assignments}` and
+  `downtimeDayEnd` `{day, results: {[actorId]: {activity, rows, notes}}}`, once per resolved day on the writing client.
+  `mode` "clock" is not used: the clock never writes; its days are resolved by the resolver.
+- **Settings** (14.1, 14.2): `features.downtime` (W, on), `features.income` (W, on), `settlements` (W, hidden; the
+  profiles). `rules.costOfLiving` stays registered and is not read yet.
+- **Sync**: the sweep gains a "wages" step (`sweepWages`) and an "orders" step (`sweepOrderRepairs`: the order repairs
+  of the crafters this client is responsible for, review fix); a ledger change to `meta` re-checks the shared documents only
+  when it touches `meta.migration` (M6 keeps the logged days, the settlement, the day offset and the clock's high-water
+  mark in `meta`).
+- **Live plans** (15.3; `tools/harness/downtime-scenarios.mjs`, scenario `m6`; `live-plans.mjs`), to run later:
+  - `m6-clock` (GM, P1, P2): P1's alchemist in downtime; the GM moves the clock a day: one pending day and one prompt on
+    P1's client only; an hour more prompts nothing; resolving leaves nothing pending; with P1 away the GM's client is
+    prompted; at P1's login P1's client prompts for the day that accrued; the tab shows the pending day and the badge.
+  - `m6-wizard-gm` (GM, P1, P2): both PCs in downtime (P1 subsisting, P2 on a rolled Earn Income job); the GM drives the
+    window (two days, "also move the world calendar", next, next, next, commit): the steps in order, the clock offered,
+    both PCs listed; both resolved two days; P2's wages are claims P2's client collects once each; the clock's day is
+    the logged day; nobody prompted; "since last resolved" again writes nothing; reconciliation balances.
+  - `m6-wizard-players` (P1, P2, no GM): P1 drives the window for three days: no clock offered; three days each, logged
+    ahead of the calendar; P2's three wages collected with no GM; then the GM logs in, the tab says three days ahead and
+    "Move the calendar to match" lands the clock inside the logged days with no new prompt.
+  - `m6-communal` (GM, P1, P2): the GM gives P1's alchemist Communal Crafting; P1 crafts an Elixir of Life (Minor) to
+    finishing; P2's fighter crafter joins with Crafting (accepted, locked, check recorded); two work days carry P2's
+    share; P2 leaves and forfeits it (the reduction drops by exactly the share); rejoining is refused.
+  - `m6-income` (GM, P2 on two devices): a rolled job; the clock moves two days; both devices resolve at once: one lands,
+    the other is refused or finds nothing; the GM's wizard adds a day (a claim both devices race to collect); repeated
+    advances and resolutions write nothing; three wage rows, one a day; the purse grew by three days' pay.
+  - `m6-settlement` (GM, then P1 alone): the GM keeps a village (highest task level 1, Crafting up to 2); P1 with no GM
+    online puts the party there (set by P1); a job at 3 is refused with the cap 2, one at 2 starts confirmed; with no
+    settlement a job at 9 starts, unconfirmed.
+- **After the M6 review** (one pass, fixed with a test each where a test can show it):
+  - "Resolve the rest" after a wizard commit advanced the span again (a second N days); it now resolves through the day
+    the first commit reached.
+  - Opening the wizard while one was open could render a second window under the same id before the first closed; the
+    old one is now closed first.
+  - A helper leaving while the crafter had already resolved days ahead got a `leftDay` inside those days; it is now the
+    first day neither has resolved.
+  - Text and number fields of the Downtime tab (a settlement's name and notes, levels, a job's task level) lost what was
+    being typed when a live update rendered the tab; they are kept in the tab's state as they are typed.
+  - The job form lowered a task level typed above the settlement's cap to the cap without saying so; it now keeps what
+    was typed and Start refuses it with the cap.
+  - Undoing a job's start left the earner's activity naming the removed job; it is cleared.
+- **After the second M6 review** (one pass, medium findings fixed, each with a test that fails without it):
+  - A runner who did not own the crafter wrote extra days of an order in `rolled` at the recorded degree, which a reroll
+    before settlement could then make wrong (a crit's 200 cp a day kept after a reroll to a success), and wrote them for a
+    recorded failure, and past the paid-off day. The planner now stops at `settle` for everyone but the crafter's owner,
+    whose resolver settles first; the owner's preview shows the days as that settlement leaves them.
+  - A setup a runner's records completed stayed in `setup` while the crafter's client was away, and each later run wrote
+    one more setup day. The planner stops at `check` once the records complete the setup, and the sweep repairs the order
+    at the crafter's player's next login.
+  - Undoing a job's roll-again after the new round's check was rolled brought the earlier check back: the better of two
+    rolls. It is refused (`job-moved-on`) once the new check is rolled.
+  - A helper's share counted while the helper was out of downtime or had the same days counted as "not downtime". Joining
+    puts the helper in downtime, ending it waits for leaving (`helping`), and "not downtime" stops `locked`.
+  - Ending a job made the earner's unresolved past days pay nothing. End waits until they are resolved
+    (`job-days-pending`).
+  - The wizard committed a span recomputed at commit time: two players advancing a day at once advanced two, and a clock
+    move during review wrote more than the review showed. The span is fixed when leaving the first step, and a commit
+    after the day moved writes nothing and goes back to it (`moved`). The wizard also renders again when the clock's day
+    changes.
+  - Focus after a live update went to the first character's select or button in the Downtime tab and the wizard; the
+    wizard lost focus on every step and update, and typing a number of days and clicking Next could lose the click.
+  - The resolver for a PC with no activity defaulted to "leave these days" and wrote nothing without saying why; it now
+    asks for an activity, is titled with the PC's name, and the wizard's review and done steps name the PCs it leaves.
+  - The World Clock's date never showed (`worldClock.date` does not exist; `dateAsString` does).
+  - Every world-time change rendered every Workshop part and put off the day prompt, which a running clock could starve.
+
+#### Follow-ups (M6, low)
+
+- One activity per PC for the whole span in the wizard and the resolver (9.2 says per day); a change of activity inside
+  a span takes two runs. Conflicts are shown as a stop (a helper's lock), not outlined per day.
+- Daily preparations (the wizard's step 4, 7.2), cost of living (`rules.costOfLiving`), extension activities (`ext`,
+  M10) and the variants' checks (6.16) are not in the resolver yet; the `formula` and `prep-only` activities are not
+  offered.
+- The day offset is frozen at the first ready of a client that may write; in a brand-new world that can come before pf2e
+  sets `worldCreatedOn` (when the GM's World Clock first opens), freezing the core calendar's offset instead.
+- `meta.clockHigh` is written by the elected client when it sees a higher clock day; a clock set back before any client
+  saw the higher day shows no warning.
+- A helper joining while the crafter's resolution of the same day is in flight misses that day's share (the crafter's
+  record was planned before the join).
+- After leaving, a helper's own unresolved days before `leftDay` cannot be resolved as help (the activity list offers help
+  only on orders they still help with); they go to another activity, with no money effect.
+- A helper's reroll after extra days were written does not change those days' recorded shares (the crafter's rate no
+  longer has this problem: days wait for the settlement, review fix). The fuller fix stores each day's level, rank and
+  degree and derives the amounts from the settled check and the helper's entry.
+- (Closed by the second review's fixes: undoing a job's roll-again is refused once the new check is rolled, so no wage
+  is ever paid at a rate an undo then drops.)
+- A long span writes one record per PC per day in one request (a year is 365 records per PC), and the day lock pages
+  (`days:<actorId>:<day>`) are never pruned: group long spans, and prune the pages with archived day records (5.3.3).
+- The wizard's live updates wait while a field has focus (review fix); the Downtime tab still renders on every store
+  change, even while hidden, and closes a select menu someone has open on it while another user writes.
+- The settlement exceptions offer pf2e's skills and the Lores on members' roster snapshots only; a GM's DC adjustment per
+  settlement (6.10 "plus GM adjustments") and a job's planned length (`lengthDays`) are not offered, and a failed check's
+  "may be cut short" is a note only.
+- The Earn Income chat card (10.5) is not built: pf2e's check card and the day card stand in. The resolver shows per
+  activity sums; the order detail's day-by-day lines (`workDaysView`) are still the detail's only (M4.1 follow-up).
+- On two devices of the same owner both prompt for the same pending days (5.6 accepts a duplicate prompt on a second
+  device).
+- From the second review (low, logged, not fixed):
+  - Leaving has no order-state guard in the API (`leaveOrder`): leaving a complete or cancelled order sets `leftDay` and
+    forfeits the share after the fact. The UI offers Leave only on open orders. Refuse `state` on a closed order.
+  - The world setting `rules.costOfLiving` is shown to the GM with a hint that suggests it works, and nothing reads it.
+    Hide it (`config: false`) until cost of living is built, or say in the hint that it is not active yet.
+  - A helper waiting for the crafter's acceptance is locked, and their days are recorded as help while adding nothing.
+    Stop with "waiting for the crafter" while `accepted` is false.
+  - `resolveDays({count})` is not capped at the workshop day: the API's `downtime.resolve` for a PC in downtime can write
+    (and pay) days ahead of today without moving the day. Cap `to` at today for a PC in downtime.
+  - Days resolved late use the crafter's level and rank on the day they are resolved, not on the day itself (6.2.3 says
+    "on that day"); with `recomputeRateOnLevelUp` on, a level-up before resolving raises earlier days' rate. Say "rate at
+    today's level" in the review, or keep level history.
+  - The badge on a GM's client leaves out player-owned PCs while the GM is their responsible client and gets their
+    prompt. Count a PC when this client is responsible for it, as the prompt does.
+  - The GM's "Settlements (GM)" disclosure closes on every live render while no draft is open (no `data-sync`).
+  - Screen readers: the per-PC "N days to resolve" and "calendar was set back" are `role="status"` regions made again on
+    every render; each PC's activity select is labelled only "Spending days on" with no name; the Start/End downtime
+    button has `aria-pressed` and a label that changes. Announce once through `announce()`, name the PC in an
+    `aria-label`, drop `aria-pressed`.
+  - Saving or deleting a settlement profile does not render other clients' open Workshop windows (no `onChange` on the
+    `settlements`, `features.downtime` and `features.income` settings).
+  - `Job.Conflict` tells the player to "undo the paid days first", which no UI or API can do (wage rows are not
+    reversible, and the sweep would mint them again). Reword it.
+  - `meta.dayOffset` is frozen by every client that turns ready first, not one elected client (N identical writes). Gate
+    it on `isElected()`; the follow-up above on freezing before `worldCreatedOn` still stands.
+  - Plain words: `Wizard.WageClaim` says "collected by their player's client"; `Downtime.Rule` tells every player to move
+    the calendar, which only a GM can; "Next day: N." shows for characters not in downtime with no explanation.
+
 ---
 
 ## 11. Macros and public API
@@ -4656,6 +4951,10 @@ Published at `game.modules.get("pf2e-artisans-workshop").api` in `ready`; the
 | `income` | `start(opts)`, `roll(jobId)`, `end(jobId)` |
 | `rules` | pure functions: `levelDC`, `craftDC`, `incomePerDay`, `formulaPrice`, `planCraft`, `batchMax`, `familyKey`, `gates`, `helperRate`, `complexSetup`, `rushedFinishDC`, `deconstructCredit`, `gardenSeedCost`, `questCost`, `afflictionStep` (the `applyDegree` of 8.10.6) |
 | `ext` | read-only lists of registered extension objects; `store(moduleId)` for namespaced data (12.4) |
+
+As built in M6: `downtime` as listed plus `status(actor)` with its pending days, `setDowntime(on, {actor, notDowntime})`,
+`advanceClockToMatch()`, `settlement()` and `profiles()`; `income.{list, start, roll, reroll, end, undo}`; and a
+`communal` namespace, `{join, leave, roll, accept}` (10.12).
 
 ### 11.3 Stability promise
 
@@ -4757,6 +5056,9 @@ client that performed the write, after it resolved. Payloads are frozen snapshot
 
 `orderStatusChanged`, `preparationCompleted` and `afflictionChanged` go beyond the hooks named in the
 decision log; they are proposed because extension modules will need them.
+
+As built in M6: `downtimeDayStart` and `downtimeDayEnd` fire once per resolved day on the client that writes it, with
+`mode` "wizard", "resolver" or "work" (an order's "Work a day"); the clock writes nothing, so "clock" is not used (10.12).
 
 ### 12.4 Extension data and versioning
 
@@ -4907,7 +5209,8 @@ every rule of `DEFAULT_RULES` as `rules.<key>` (`rules.communal.<key>`; `rules.c
 it has one value) and `variants.complexCrafting`, with their defaults read from `DEFAULT_RULES`, and the
 GM-only purge menu (5.9). As built in M4: `chat.visibility` (W), `notify.level` (U) and `ui.lastTab` (U, hidden);
 `features.queue`, `features.funds`, `ui.windowSize` and `ui.parchment` are not registered yet. The other settings of 14.1 and 14.3-14.5 are registered by the milestones that
-read them, with the defaults listed here; `strongbox: party` comes with the Funds tab (M4, 4.7).
+read them, with the defaults listed here; `strongbox: party` comes with the Funds tab (M4, 4.7). As built in M6: `features.downtime`, `features.income` and the hidden
+`settlements` (the GM's profiles, edited in the Downtime tab); `rules.costOfLiving` is not read yet (10.12).
 
 ### 14.4 Treasure Vault (Remastered) variants
 
@@ -5190,6 +5493,9 @@ churn watch come with M8a and the release workflow.
   on M4.1: `m5-fund`, and the `acquire`, `fulfil`,
   `buyCasting` and `service` steps take `paidFrom`; the server view adds each row's `alloc` and `order`, and the
   unallocated and earmarked totals.
+- As built in M6: scenario `m6` (`tools/harness/downtime-scenarios.mjs`) and the behaviours `m6-clock`, `m6-wizard-gm`,
+  `m6-wizard-players`, `m6-communal`, `m6-income` and `m6-settlement`, described in 10.12; not run yet. They move the world
+  clock forward only; the prompts are read from the pages' notification log by their keys.
 - As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
   counts the rows that are new since `purseBefore` by id, not by a server-time cut-off (two devices' estimates of
   the server's time differ by milliseconds, and one real row was left out); the `claim` step reports its own rows
@@ -5382,7 +5688,7 @@ draft; the letters keep the existing milestone numbers stable.
 | M3 | Registry and roll wrapper | registry tiers 1-2, validation script, roll wrapper with reroll recording, Earn Income roll | M1, M2 |
 | M4 | Queue and Funds | Workshop shell, Queue and Funds tabs, order lifecycle, escrow and refunds, pickup shelf, chat cards, request drag and drop; built, with the 5.11 and 6.12 follow-ups (10.10) | M2, M3 |
 | M5 | Formulas | codex, families, provenance, acquisition jobs, picks owed, casting pledges, precious materials, service orders, rune etching, upgrades and transfers; built, live plans run (10.11, M5 live pass) | M4 |
-| M6 | Downtime | per-PC status, clock accrual and prompts, day resolver, Advance days wizard, Communal Crafting helpers, Earn Income jobs, settlement profiles | M4 |
+| M6 | Downtime | per-PC status, clock accrual and prompts, day resolver, Advance days wizard, Communal Crafting helpers, Earn Income jobs, settlement profiles; built, live plans not yet run (10.12) | M4 |
 | M7 | Morning | daily sources panel, loadouts, standing orders, Talisman Dabbler and Esoterica lists, the Dabbler DC stamp, affix records, party-wide expiry, rest ordering, pf2e-dailies custom daily | M5 |
 | M8 | Combat | Bandolier, HUD palette, Quick Alchemy panel, quick vials, Quick Bomber, Healing Bomb, additives, vial gathering, turn expiry, Duct Tape step-aside, Use best consumable | M7 |
 | M8a | Afflictions | 8.10: the affliction rules engine with tests; the parser, `scripts/data/afflictions.mjs` overrides and the corpus check in the validation script; backend detection, the effect backend and the native backend with its constraints and migration; grant flags and the stage guard; exposure and coating-spend claims; coatings and Strike handling; saves (with the source item, for incapacitation), recording and pending state; turn and world-time timing, catch-up and the affliction time function for logged days; the DC stamp at creation; Afflictions drawer and cards; Affliction Forge coexistence and the GM-routed hand-off; harness scenario 12 | M3 (validation script, roll recording), M6 (day resolver for logged days), M7 (creation stamps, infused expiry), M8 (Bandolier entry point) |

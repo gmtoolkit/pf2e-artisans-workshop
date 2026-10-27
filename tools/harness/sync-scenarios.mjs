@@ -16,6 +16,8 @@
  *   m3   the roll wrapper and the Earn Income roll (M3, `roll-scenarios.mjs`)
  *   m4   the order lifecycle, the Queue and Funds tabs, their races and screenshots (M4, `order-scenarios.mjs`)
  *   m5   formulas, formula jobs, runes, materials, pledges, services and the Formulas tab (M5, `formula-scenarios.mjs`)
+ *   m6   downtime: the clock and its prompt, the day resolver and the wizard, helpers, Earn Income, settlements (M6,
+ *        `downtime-scenarios.mjs`)
  *
  * They run in a dev world (`game.settings.set("pf2e-artisans-workshop", "dev", true)`), in each user's own
  * browser profile, from the console or from Playwright through `page.evaluate`:
@@ -47,6 +49,7 @@ import { locateShared } from "../../scripts/foundry/shared-docs.mjs";
 import { status, shared } from "../../scripts/foundry/state.mjs";
 import { newId, read, records, stampNow } from "../../scripts/foundry/store.mjs";
 import { refresh } from "../../scripts/foundry/sync.mjs";
+import { DOWNTIME_SCENARIOS } from "./downtime-scenarios.mjs";
 import { FORMULA_SCENARIOS } from "./formula-scenarios.mjs";
 import { ORDER_SCENARIOS } from "./order-scenarios.mjs";
 import { ROLL_SCENARIOS } from "./roll-scenarios.mjs";
@@ -331,6 +334,7 @@ const SCENARIOS = {
     ...ROLL_SCENARIOS,
     ...ORDER_SCENARIOS,
     ...FORMULA_SCENARIOS,
+    ...DOWNTIME_SCENARIOS,
 };
 
 /** Every scenario, its steps and what each does. */

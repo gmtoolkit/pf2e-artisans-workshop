@@ -1,9 +1,9 @@
 /**
  * The order lifecycle around M1's Craft steps (DESIGN.md 4.2.2, 4.2.3, 6.2.4, 6.12): filing a request, accepting and
  * releasing it, the transition log that undo reads, what a contributor may take back, the refunds a cancel or a
- * finish owes, the settlement record that guards a settled check against a late reroll, and the day records the M4
- * "work a day" action writes. Pure: plain data in, key-path changes and refusals out. The Foundry side
- * (`scripts/foundry/orders.mjs`) writes them.
+ * finish owes, the settlement record that guards a settled check against a late reroll, and a crafter's day record on
+ * an order, which M6's day planner (`scripts/logic/downtime.mjs`) writes for every craft day. Pure: plain data in,
+ * key-path changes and refusals out. The Foundry side (`scripts/foundry/orders.mjs`) writes them.
  *
  * Transition log. Every transition of an order writes `orders.<id>.log.<seq>` = `{seq, event, from, to, prev, rows,
  * by, at}`: `prev` holds the order's fields as they were before (the ones the transition changed), `rows` the ids of
@@ -135,6 +135,17 @@ export function closedAs(order) {
 export function closedRepair(order) {
     const closed = closedAs(order);
     return closed && order.status !== closed ? { status: closed } : null;
+}
+
+/**
+ * The repair of an order whose day records completed its setup without moving its status (M6): setup days written by a
+ * wizard runner who does not own the crafter (9.2, 4.2.4: the runner writes day records only). Moving it to `check` is the
+ * derived transition of 4.2.3, the crafter's responsible client's to write. Null when nothing needs repairing.
+ * Deterministic, so two clients repairing the same order write the same.
+ */
+export function setupRepair(order, days) {
+    if (order.status !== "setup" || !order.setup || closedAs(order)) return null;
+    return setupComplete(order, days) ? { status: "check" } : null;
 }
 
 /**
@@ -304,21 +315,8 @@ export function lateForAttempt(order, attempt, settledRows) {
 }
 
 /* -------------------------------------------- */
-/*  Work days (M4's stand-in for the day resolver) */
+/*  Work days (the day resolver's craft days, M6) */
 /* -------------------------------------------- */
-
-/**
- * The day an actor's next work day falls on: the clock's day, or the day after the last one the actor has a record
- * for, whichever is later (4.8: days only ever count forward; logging days ahead of the clock is how a table without a
- * GM moves on).
- * @param {number} clockDay  `floor(worldTime / secondsPerDay)`
- * @param {object[]} days    the actor's day records
- */
-export function nextWorkDay(clockDay, days) {
-    requireInteger(clockDay, "clockDay");
-    const last = days.reduce((max, d) => Math.max(max, d.toDay ?? d.day), -Infinity);
-    return Math.max(clockDay, Number.isFinite(last) ? last + 1 : clockDay);
-}
 
 /**
  * The day record (4.8) of a crafter's day on an order, and the order fields it moves: in `setup` a setup day, and

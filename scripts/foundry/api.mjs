@@ -1,5 +1,6 @@
 /**
- * The public API (DESIGN.md 11.2), as far as M4 builds it: opening the window, the order lifecycle and the funds. It is
+ * The public API (DESIGN.md 11.2), as far as M4-M6 build it: opening the window, the order lifecycle, the funds, formulas
+ * (M5), and downtime, Earn Income jobs and Communal Crafting helpers (M6). It is
  * published at `game.modules.get("pf2e-artisans-workshop").api` in `ready`, and the `pf2e-artisans-workshop.ready` hook
  * fires right after with the same object. Later milestones add their namespaces; M11 completes the macros of 11.1.
  *
@@ -21,6 +22,10 @@ import * as pledges from "./pledges.mjs";
 import { productFacts } from "./products.mjs";
 import * as services from "./services.mjs";
 import { handOver } from "./custody.mjs";
+import * as communal from "./communal.mjs";
+import * as downtime from "./downtime.mjs";
+import * as jobs from "./jobs.mjs";
+import { parseActivity } from "../logic/downtime.mjs";
 import { read, records } from "./store.mjs";
 import { status } from "./state.mjs";
 
@@ -206,6 +211,69 @@ export function buildApi() {
             },
             perform: (id, options = {}) => services.perform(id, options),
             cancel: (id) => services.cancel(id),
+        },
+        // M6 (11.2): downtime (4.8, 9), Earn Income jobs (6.10) and Communal Crafting helpers (6.7). An activity is
+        // `{kind, ref}` or its key (`"craft:<orderId>"`, `"earn:<jobId>"`, `"subsist"`).
+        downtime: {
+            today: () => downtime.today(),
+            status: (actor = null) => {
+                const who = resolveActor(actor);
+                return who ? { ...downtime.statusOf(who), pending: downtime.pendingOf(who), resolvedThrough: downtime.resolvedOf(who) } : null;
+            },
+            pending: (actor = null) => {
+                const who = resolveActor(actor);
+                return who ? downtime.pendingOf(who) : null;
+            },
+            setDowntime: (on, { actor = null, notDowntime = false } = {}) => {
+                const who = resolveActor(actor);
+                return who ? downtime.setDowntime(who.uuid, on, { notDowntime }) : Promise.resolve(noActor());
+            },
+            setActivity: (actor, activity) => {
+                const who = resolveActor(actor);
+                return who ? downtime.setActivity(who.uuid, typeof activity === "string" ? parseActivity(activity) : activity) : Promise.resolve(noActor());
+            },
+            resolve: ({ actor = null, activity = undefined, count = null } = {}) => {
+                const who = resolveActor(actor);
+                const chosen = typeof activity === "string" && activity !== "not-downtime" ? parseActivity(activity) : activity;
+                return who ? downtime.resolveDays({ actor: who, activity: chosen, count }) : Promise.resolve(noActor());
+            },
+            advance: ({ days = 1, since = false, assignments = {}, advanceClock = false } = {}) => downtime.advanceDays({
+                kind: since ? "since" : "days", count: days, advanceClock,
+                assignments: Object.fromEntries(Object.entries(assignments).map(([id, a]) => [id, typeof a === "string" && !["skip", "not-downtime"].includes(a) ? parseActivity(a) : a])),
+            }),
+            advanceClockToMatch: () => downtime.advanceClockToMatch(),
+            setSettlement: (profileId) => jobs.setSettlement(profileId),
+            settlement: () => jobs.settlement(),
+            profiles: () => jobs.profiles(),
+        },
+        income: {
+            list: (filter = {}) => records("jobs").filter((j) => (!filter.status || j.status === filter.status) && (!filter.actor || j.actor === filter.actor)),
+            start: ({ actor = null, skill, taskLevel } = {}) => {
+                const who = resolveActor(actor);
+                return who ? jobs.startJob({ actor: who.uuid, skill, taskLevel }) : Promise.resolve(noActor());
+            },
+            roll: (jobId, options = {}) => jobs.rollJob(jobId, options),
+            reroll: (jobId) => jobs.rerollJob(jobId),
+            end: (jobId) => jobs.endJob(jobId),
+            undo: (jobId) => jobs.undoJob(jobId),
+        },
+        communal: {
+            join: (order, { actor = null, skill = "crafting" } = {}) => {
+                const who = resolveActor(actor);
+                return who ? communal.joinOrder(order, who.uuid, skill) : Promise.resolve(noActor());
+            },
+            leave: (order, { actor = null } = {}) => {
+                const who = resolveActor(actor);
+                return who ? communal.leaveOrder(order, who.uuid) : Promise.resolve(noActor());
+            },
+            roll: (order, { actor = null, skipDialog } = {}) => {
+                const who = resolveActor(actor);
+                return who ? communal.rollHelp(order, who.uuid, { skipDialog }) : Promise.resolve(noActor());
+            },
+            accept: (order, helper) => {
+                const who = resolveActor(helper);
+                return who ? communal.acceptHelper(order, who.id) : Promise.resolve(noActor());
+            },
         },
     };
 }

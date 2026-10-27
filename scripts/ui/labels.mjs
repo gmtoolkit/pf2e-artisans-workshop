@@ -171,6 +171,33 @@ export const REFUSAL = Object.freeze({
     "not-there": "pf2e-artisans-workshop.Gate.NotThere",
     occupied: "pf2e-artisans-workshop.Gate.Occupied",
     taken: "pf2e-artisans-workshop.Refusal.Conflict",
+    // M6: downtime days, Communal Crafting helpers, Earn Income jobs and settlements.
+    "days-pending": "pf2e-artisans-workshop.Refusal.DaysPending",
+    "no-activity": "pf2e-artisans-workshop.Refusal.NoActivity",
+    "no-days": "pf2e-artisans-workshop.Refusal.NoDays",
+    "paid-off": "pf2e-artisans-workshop.Refusal.PaidOff",
+    "helper-locked": "pf2e-artisans-workshop.Refusal.Locked",
+    helping: "pf2e-artisans-workshop.Refusal.Helping",
+    "job-days-pending": "pf2e-artisans-workshop.Refusal.JobDaysPending",
+    "job-moved-on": "pf2e-artisans-workshop.Refusal.JobMovedOn",
+    moved: "pf2e-artisans-workshop.Refusal.Moved",
+    "not-eligible": "pf2e-artisans-workshop.Refusal.NotEligible",
+    "not-helping": "pf2e-artisans-workshop.Refusal.NotHelping",
+    already: "pf2e-artisans-workshop.Refusal.Already",
+    left: "pf2e-artisans-workshop.Refusal.Left",
+    crafter: "pf2e-artisans-workshop.Refusal.Crafter",
+    untrained: "pf2e-artisans-workshop.Refusal.Untrained",
+    "task-level-range": "pf2e-artisans-workshop.Refusal.TaskLevelRange",
+    "task-level-cap": "pf2e-artisans-workshop.Refusal.TaskLevelCap",
+    "no-profile": "pf2e-artisans-workshop.Refusal.NoProfile",
+    "bad-profile": "pf2e-artisans-workshop.Refusal.BadProfile",
+    "not-gm": "pf2e-artisans-workshop.Refusal.NotGm",
+    same: "pf2e-artisans-workshop.Refusal.Same",
+    "no-job": "pf2e-artisans-workshop.Refusal.NoJob",
+    "stale-round": "pf2e-artisans-workshop.Refusal.StaleRound",
+    rolled: "pf2e-artisans-workshop.Roll.AlreadyRolled",
+    unrolled: "pf2e-artisans-workshop.Refusal.Unrolled",
+    "no-earner": "pf2e-artisans-workshop.Refusal.NoCharacter",
     other: "pf2e-artisans-workshop.Refusal.Other",
 });
 
@@ -352,4 +379,64 @@ export const EVENT = Object.freeze({
     cancel: "pf2e-artisans-workshop.Event.Cancel",
     undo: "pf2e-artisans-workshop.Event.Undo",
     other: "pf2e-artisans-workshop.Event.Other",
+});
+
+/* -------------------------------------------- */
+/*  Downtime (M6)                                */
+/* -------------------------------------------- */
+
+/** Why a day plan stopped (`planDays`): what the day resolver, the wizard and the day card say, with what to do next. */
+export const DAY_STOP = Object.freeze({
+    locked: "pf2e-artisans-workshop.DayStop.Locked",
+    "no-order": "pf2e-artisans-workshop.DayStop.NoOrder",
+    "order-state": "pf2e-artisans-workshop.DayStop.OrderState",
+    check: "pf2e-artisans-workshop.DayStop.Check",
+    settle: "pf2e-artisans-workshop.DayStop.Settle",
+    "paid-off": "pf2e-artisans-workshop.DayStop.PaidOff",
+    "not-helping": "pf2e-artisans-workshop.DayStop.NotHelping",
+    "no-job": "pf2e-artisans-workshop.DayStop.NoJob",
+    "job-ended": "pf2e-artisans-workshop.DayStop.JobEnded",
+    "income-check": "pf2e-artisans-workshop.DayStop.IncomeCheck",
+    other: "pf2e-artisans-workshop.DayStop.Other",
+});
+
+/** Activities (4.8) as the Downtime tab and the wizard name them; craft, help and earn name their order or job. */
+export const ACTIVITY = Object.freeze({
+    craft: "pf2e-artisans-workshop.Activity.Craft",
+    help: "pf2e-artisans-workshop.Activity.Help",
+    earn: "pf2e-artisans-workshop.Activity.Earn",
+    subsist: "pf2e-artisans-workshop.Activity.Subsist",
+    retrain: "pf2e-artisans-workshop.Activity.Retrain",
+    other: "pf2e-artisans-workshop.Activity.Other",
+    formula: "pf2e-artisans-workshop.Activity.Other",
+    "prep-only": "pf2e-artisans-workshop.Activity.Other",
+    ext: "pf2e-artisans-workshop.Activity.Other",
+    none: "pf2e-artisans-workshop.Activity.None",
+    "not-downtime": "pf2e-artisans-workshop.Activity.NotDowntime",
+    skip: "pf2e-artisans-workshop.Activity.Skip",
+});
+
+/** Why a PC may not help on an order (6.7 `helperEligibility`). */
+export const HELPER_REASON = Object.freeze({
+    "no-feat": "pf2e-artisans-workshop.Helper.Reason.NoFeat",
+    "not-pc": "pf2e-artisans-workshop.Helper.Reason.NotPc",
+    untrained: "pf2e-artisans-workshop.Helper.Reason.Untrained",
+    "irrelevant-skill": "pf2e-artisans-workshop.Helper.Reason.IrrelevantSkill",
+    locked: "pf2e-artisans-workshop.Helper.Reason.Locked",
+    cap: "pf2e-artisans-workshop.Helper.Reason.Cap",
+});
+
+/** Earn Income job states (4.9): a word and an icon each. */
+export const JOB_STATUS = Object.freeze({
+    open: { key: "pf2e-artisans-workshop.Job.Status.Open", icon: "fa-solid fa-briefcase" },
+    ended: { key: "pf2e-artisans-workshop.Job.Status.Ended", icon: "fa-solid fa-flag-checkered" },
+    fired: { key: "pf2e-artisans-workshop.Job.Status.Fired", icon: "fa-solid fa-door-open" },
+});
+
+/** Settlement sizes (GM Core p.53). */
+export const SETTLEMENT_SIZE = Object.freeze({
+    village: "pf2e-artisans-workshop.Settlement.Size.Village",
+    town: "pf2e-artisans-workshop.Settlement.Size.Town",
+    city: "pf2e-artisans-workshop.Settlement.Size.City",
+    metropolis: "pf2e-artisans-workshop.Settlement.Size.Metropolis",
 });

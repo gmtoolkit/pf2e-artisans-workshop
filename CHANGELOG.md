@@ -82,6 +82,23 @@ All notable changes to this module are documented here. The format follows
   Collect, or kept in the strongbox); the header's pickup-shelf count is a Collect button.
 - The Queue's search box is labelled as an order filter; a magnifying-glass button opens the request form's item search,
   and the request form's "Browse" opens pf2e's Compendium Browser to drag an item from.
+- Downtime (milestone M6). A Downtime tab shows the workshop day (the world clock's day, or the days logged ahead of it)
+  and, for each character (a player's own, every member for a GM), whether it is in downtime, what its days go to (an
+  order it crafts, an order it helps with, an Earn Income job, or something else) and the days it has to resolve. When
+  the clock moves, each character in downtime with days to resolve gets one prompt, on its player's client (the GM's
+  when the player is away, or at the player's next login), and a badge on the tab. "Resolve days" resolves a
+  character's days; "Advance days" is a step-by-step wizard any member can run, with or without a GM, that moves the
+  days on for everyone in downtime, rolls the checks that are due, reviews what will be written and writes it; a GM
+  may move the world clock to match. A day is never resolved twice, from two devices or two players at once. An
+  order's "Work a day" is the same resolver for one day.
+- Communal Crafting helpers: a character with a relevant skill joins an order, rolls once against the item's DC, and
+  takes their share off each work day while they stay, in downtime until they leave; one who brings the feat waits for
+  the crafter to accept; one who leaves early loses what they gave (all as settings). A crafter's work days wait for the
+  Craft check to be settled, so a reroll never leaves days counted at the wrong result.
+- Earn Income jobs: a character takes a job at a task level the party's settlement offers for the skill, rolls after
+  the first day, and each day worked pays once into their purse, with no GM needed. A resumed job can be rolled again
+  after a level or rank change. Ending a job waits until its days so far are resolved, so they still pay. The GM keeps
+  settlement profiles (the highest task level, with exceptions by skill); any member chooses where the party is.
 - Retry after a critical failure asks where the missing up-front money comes from, as Finish does.
 - Formulas and castings use fund accounting (M5 on M4.1): buying a formula or a casting, a spell's cost and a formula
   copy's cost are paid from the party fund or a character's purse, chosen in the same dialog as "Fund this order"; a

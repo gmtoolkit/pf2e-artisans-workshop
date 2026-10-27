@@ -1,0 +1,13 @@
+<div class="pf2e chat-card pf2e-artisans-workshop-card card-days">
+    <header class="card-header flexrow">
+        <h3>{{heading}}</h3>
+    </header>
+    <div class="card-content">
+        {{#if summary}}<p class="card-summary">{{summary}}</p>{{/if}}
+        {{#each pcs}}
+        <p class="card-line"><strong>{{name}}</strong> {{span}}</p>
+        {{#if lines.length}}<ul class="card-days">{{#each lines}}<li>{{this}}</li>{{/each}}</ul>{{/if}}
+        {{#if stop}}<p class="card-line card-stop"><i class="fa-solid fa-hourglass-half" inert></i> {{stop}}</p>{{/if}}
+        {{/each}}
+    </div>
+</div>

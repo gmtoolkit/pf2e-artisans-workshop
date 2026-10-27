@@ -39,8 +39,10 @@ import { orderContext } from "./context.mjs";
 import { money, report } from "./format.mjs";
 import { DEGREE_CLASS, DEGREE_KEY, PROVENANCE } from "./labels.mjs";
 import { askMoney } from "./prompts.mjs";
+import { dayLines, spanText, stopText } from "./days.mjs";
 
 const TEMPLATES = Object.freeze({
+    days: "modules/pf2e-artisans-workshop/templates/chat/days.hbs",
     card: "modules/pf2e-artisans-workshop/templates/chat/order-card.hbs",
     augment: "modules/pf2e-artisans-workshop/templates/chat/check-augment.hbs",
     summary: "modules/pf2e-artisans-workshop/templates/chat/summary.hbs",
@@ -151,6 +153,36 @@ export async function postFormulaCard(actor, uuid, route) {
         });
     } catch (error) {
         console.warn(`${MODULE_ID} | could not post a formula card`, error);
+        return null;
+    }
+}
+
+/**
+ * The day summary card (10.5, M6), from the client that resolved the days: per PC, the days and what they amounted to
+ * (setup days, days of work and what they took off, help, wages), and where a PC's days stopped, with what to do. A
+ * summary only; whispered to the PCs' owners and GMs (or public by `chat.visibility`).
+ * @param {{actor: Actor, records?: object[], stop?: object|null}[]} results
+ */
+export async function postDaysCard(results, { toDay = null } = {}) {
+    try {
+        const pcs = results.filter((r) => r.records?.length || r.stop).map((r) => ({
+            name: r.actor.name, span: spanText(r.records ?? []), lines: dayLines(r.records ?? []), stop: stopText(r.stop),
+        }));
+        if (!pcs.length) return null;
+        const content = await foundry.applications.handlebars.renderTemplate(TEMPLATES.days, {
+            heading: game.i18n.localize("pf2e-artisans-workshop.Card.Days"),
+            summary: Number.isInteger(toDay) ? game.i18n.format("pf2e-artisans-workshop.Card.Summary.Days", { day: String(toDay) }) : "",
+            pcs,
+        });
+        const publicCards = setting("chat.visibility") === "public";
+        const users = new Set([...game.users.filter((u) => u.isGM).map((u) => u.id), game.user.id]);
+        for (const r of results) for (const user of ownersOf(r.actor)) users.add(user.id);
+        return await ChatMessage.implementation.create({
+            content, speaker: ChatMessage.implementation.getSpeaker({ alias: game.i18n.localize("pf2e-artisans-workshop.Window.Title") }),
+            whisper: publicCards ? [] : [...users], flags: { [MODULE_ID]: { card: { kind: "days", order: null } } },
+        });
+    } catch (error) {
+        console.warn(`${MODULE_ID} | could not post a day card`, error);
         return null;
     }
 }
