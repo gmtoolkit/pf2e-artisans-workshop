@@ -3449,7 +3449,7 @@ see OQ-47):
   | Stages | the `<strong>Stage N</strong>` paragraphs in order, and range labels such as `<strong>Stages 1–5</strong>`, which give every stage in the range the same effects and interval; the label is also matched in the system's localized `PF2E.Item.Affliction.StageLabel` |
   | Interval | the stage's last parenthesised duration: rounds, minutes, hours, days, or a dice formula such as "1d4 hours", rolled once each time the stage starts |
   | Damage | `@Damage[...]` terms with type and category (persistent, splash) |
-  | Conditions | `@UUID[Compendium.pf2e.conditionitems.Item.<name>]{<label> n}` links, and bare condition names with a value, mapped to pf2e condition slugs |
+  | Conditions | `@UUID[Compendium.pf2e.conditionitems.Item.<name or id>]{<label> n}` links (pf2e's source packs link by name, its build writes the condition item's id, which is what the installed compendium carries at runtime: M8a live pass), and bare condition names with a value, mapped to pf2e condition slugs |
   | Effects | `@UUID` links to effect items |
   | Delivery, virulent, level | the item's traits (contact, ingested, inhaled, injury, virulent) and its level |
   | "as stage N" | a copy of that stage's parsed effects |
@@ -3583,7 +3583,8 @@ The first match wins:
      failure: the coating is spent with no exposure. Failure: it stays. Success or critical success: it
      is armed for that Strike's damage roll.
   2. That Strike's damage roll (`context.type === "damage-roll"`, same origin, with `context.target`).
-     If `flags.pf2e.damageRoll.types` holds piercing or slashing damage, an exposure claim is created for
+     If its damage rolls' instances (pf2e 8.6.1 writes no `flags.pf2e.damageRoll` on a Strike's damage message; that
+     legacy flag's `types` is read too) hold piercing or slashing damage, an exposure claim is created for
      the target and the coating is spent; with Sticky Poison a DC 17 flat check keeps it until the end
      of the attacker's next turn (`sticky.untilTurn`). Otherwise the coating is spent with no exposure.
   3. Resistance that cuts the piercing or slashing damage to 0 also spends it with no save. The
@@ -5750,7 +5751,7 @@ Foundry and window parts over a fake of pf2e's saves, conditions and damage roll
 `actor.saves[type].roll` records the item and options it is given and makes the message pf2e would, with `flags.pf2e.context`;
 the ephemeral item is physical with a level, as `Statistic#roll`'s incapacitation reads it; `ConditionManager.getCondition`;
 `DamageRoll`; core's `preUpdateItem` and `preDeleteItem`; `test/foundry/afflictions.test.mjs`, `ui-m8a.test.mjs`,
-`harness-m8a.test.mjs`). The live plans are written and not yet run. pf2e read: the dev head `be4ab21b`
+`harness-m8a.test.mjs`). The live plans passed their first live pass, with and without a canvas (M8a live pass, below). pf2e read: the dev head `be4ab21b`
 (`item/affliction/data.ts`, `document.ts` (`handleStageChange`, `EXPIRING_CONDITIONS`, `getLinkedItems`, `_onCreate`, `_onUpdate`,
 `rollRecovery`), `item/effect/document.ts` (`increase`, `decrease`, the badge clamp and deletion in `_preUpdate`),
 `item/abstract-effect/values.ts` and `helpers.ts` (`DURATION_UNITS`, `calculateRemainingDuration`), `system/statistic/statistic.ts`
@@ -5862,8 +5863,11 @@ in the dev world).
   repair, process, backend, open}` and `rules.afflictionStep`; internal hooks `afflictionPrompt`, `afflictionCoating`,
   `afflictionCloud`, `afflictionNotice`; the public `afflictionChanged` (12.3) with `reason` initial, re-exposure, stage, onset,
   max-duration or manual.
-- **Live plans** (15.3 scenario 12; `tools/harness/affliction-scenarios.mjs`, scenario `m8a`; `live-plans.mjs`), to run later:
-  - `m8a-strike` (12a; GM, P1; `--canvas`, the NPC fixture 17a placed): a dagger coated with Black Adder Venom, Sticky Poison given;
+- **Live plans** (15.3 scenario 12; `tools/harness/affliction-scenarios.mjs`, scenario `m8a`; `live-plans.mjs`), first run in the
+  M8a live pass (below). A plan that needs a running affliction types a DC no fixture makes (`M8A.failDc`, 45; a stamped dose for
+  a Strike or a cloud), so its checks run every time instead of being skipped when the dice say so.
+  - `m8a-strike` (12a; GM, P1; `--canvas`, the NPC fixture 17a placed on a marked scene, its token unlinked as at a table): a
+    dagger coated with Black Adder Venom, Sticky Poison given;
     pf2e's Strike and damage expose the NPC once; its initial save rolled once, on the GM's client; stage saves at the turn ends of
     the round after; the 3-round maximum ends it; the coating kept exactly when the flat check succeeded. Skipped without a canvas.
   - `m8a-cloud` (12b; P1, P2, the GM only to move the clock): an inhaled poison at both characters; one prompt each, each rolled by
@@ -5927,6 +5931,85 @@ in the dev world).
   - In passing (a low finding, in the same lines): a Double Poison exposure is keyed as the double (`coating.defKey`), not as its
     second poison.
 
+#### M8a live pass (2026-10-27, Foundry 14.368, pf2e 8.6.1, with and without a canvas)
+
+One pass at `1a444c0` (M0-M8a), then once more after the fixes below:
+
+- **M8a plans** (`--runs 1`): with `--canvas`, `m8a-strike`; without a canvas, `m8a-cloud`, `m8a-once`, `m8a-powerful`,
+  `m8a-timing`, `m8a-forge`, `m8a-backends`, `m8a-panel`, `m8a-familiar` and `m8a-shots` pass. The first run passed every plan
+  without a canvas, but most of its checks had run on nothing: the fixture NPCs were never found (the step looked for "Fixture
+  17a: ordinary NPC"; the builder names them "... (Goblin Warrior)"), `m8a-strike` skipped itself, and where the fighter
+  (Fortitude +19) made its save against DC 18 (`m8a-panel`, `m8a-backends`, `m8a-familiar`, the onset half of `m8a-timing`,
+  the reroll and away halves of `m8a-cloud`) the plan passed on its "nothing to check" branch. The harness was fixed (15.3):
+  the NPC found by its fixture name; `M8A.failDc` (above); the roll step waits until the target's client has applied the
+  exposure claim (the save is listed as soon as the claim is written but can be rolled only once the claims sweep has applied
+  it, so the step refused `no-save` and timed out); `m8a-strike` places the bomber and the goblin on a marked scene (M8's
+  `arena`) and targets the token's own actor, gives pf2e's Strike a click instead of `skipDialog` (pf2e's Strike reads the
+  dialog from the event, `CheckPF2e.roll`, so the step waited on its dialog), targets through the token placeable, reads
+  Sticky Poison's check from the coating card's text, and counts three turn changes to the end of the anchor's turn in round
+  2 (8.10.7); `m8a-cloud` gives the fighter a Hero Point first (an earlier run had spent it). Console: the headless browser's
+  warnings, and with a canvas a pf2e page error on the GM's client while the marked scene is created and activated (`reading
+  'addChild'`, during the scene's first draw). No slow server answers.
+- **Regression** (`--runs 1`, no canvas): scenario 7, `m8-turn`, `m8-healing-bomb`, `m7-expiry` and `m4-lifecycle` pass.
+  Console errors: scenario 7's expected ones (15.3) and pf2e's page error at each encounter's deletion without a canvas (M8
+  live pass).
+- **Found and fixed** (each with a test that fails without it; `afflictions.test.mjs`, `affliction-parse.test.mjs` and
+  `ui-m8a.test.mjs`, "After the M8a live pass"):
+  - *A coated Strike never exposed its target* (high; `m8a-strike`). The damage roll's types were read from
+    `flags.pf2e.damageRoll.types`, which pf2e 8.6.1 does not write on a Strike's damage message (the types are in its
+    `DamageRoll`'s instances), so every hit read as "no piercing or slashing damage": the coating was spent (or kept by
+    Sticky Poison's DC 5 check) and nothing was exposed. `damageTypesOf` reads the damage rolls' instances, and the flag too.
+  - *Stages read at runtime were partial where the corpus check read them fully* (medium; found preparing the hands-on pass,
+    Spider Venom read `partial`). pf2e's source packs link a condition by name (`conditionitems.Item.Sickened`), but its build
+    writes the item's id, and the installed compendium is what the parser reads at runtime: every condition link was left
+    over, so each stage with one was `unparsed`, the window showed its paragraph instead of its parts, and a condition with no
+    bare name the grammar knows (wounded, dying, persistent damage) was lost. Over every Item pack of the installed pf2e 8.6.1:
+    16 of 201 candidates read fully before, 80 after (`CONDITION_IDS`, the condition items' ids, 8.10.2).
+  - *A pending save's prompt card said "Rolled." after a reload* (medium; the hands-on pass). The chat log renders before the
+    module finds the ledger, so a pending initial save, read from its claim, looked rolled: the card hid its buttons, nothing
+    rendered it again, and no new card is posted for a state that has one, so the player could roll only from the Afflictions
+    window (seen on Player Two's client at login, on the GM's waiting card, and on both clients after a reload). A card is not
+    called rolled until the ledger is known, and prompt cards whose shown state is wrong are rendered again when the module's
+    status changes or a save is recorded.
+  - *A successful initial save was recorded as a move stopped after its lock* (medium; every plan's console). With nothing to
+    write on the creature the apply request was empty: `runLockFirst` sent it, read "the client sent nothing" as stopped and
+    warned, and `recordResult` refused, so `afflictionChanged` (reason initial) never fired for an unaffected creature. A move
+    with nothing to apply is complete once its lock request is (`batch.mjs`).
+- **Hands-on pass** (a scratch Playwright script; the goblin half went through in three runs, the whole in two, the last after
+  every fix; real clicks and keys, canvas on; the GM and Player One online, Player Two
+  offline until the second half; setup through the harness: Player One made owner of the toxicologist fixture (5), which
+  learns Spider Venom and holds a dagger; `npcSaves: prompt`, so the GM's card can be clicked; a marked scene with the
+  toxicologist, the goblin warrior (17a, unlinked) next to it and the fighter; the toxicologist's daily preparations make two
+  Spider Venom (Advanced Alchemy, infused; its class DC 20 does not beat the printed 22, so no stamp); an encounter of the
+  toxicologist (30) and the goblin (10), not started). The GM clicks Begin Encounter in the combat tracker, and Player One's
+  Bandolier opens by itself with "Spider Venom 2 Apply poison". Player One clicks Apply poison, picks Dagger in the dialog
+  and Applies: the coating card "coated Dagger with Spider Venom", DC 22 (inline) frozen. Player One hovers the goblin and
+  presses T, double-clicks their token, opens the sheet's Actions tab, clicks the dagger's Strike and Roll in pf2e's dialog,
+  then Damage on the attack card and Roll: the coating card says it is spent, and the save prompt appears on the GM's client
+  only (whispered to the GM and the assistant GM; Player One's client has none), "Initial save DC 22 Fortitude" with Roll save
+  and "No piercing or slashing damage got through". The GM clicks Roll save and Roll: Spider Venom at its stage with its
+  conditions (a critical failure: stage 2, clumsy 1 granted `cascade`, sickened 2 granted `detach`; in the last run the goblin
+  made its save, unaffected, no tracker and no stage card). The GM opens the Workshop
+  from the Actors directory and clicks the header's "Saves: 1": the Afflictions window lists the goblin's Spider Venom, "Stage
+  2 of 3", "Next save in 1 rounds.", "Ends in 6 rounds at most.", the three stages with their parts and intervals, Reduce
+  stage, End, Re-apply conditions. The GM clicks Next Turn: at the goblin's turn of round 2 (the end of the toxicologist's
+  turn, the anchor) the stage save's card appears; Roll save, Roll: stage 3, clumsy 2 and sickened 3; then one stage save a
+  round, each one card, each clicked, the conditions following the stage; the affliction ends (one run: the 6-round maximum
+  runs out in round 7, its stage card says so; another: a critical success at stage 2 in round 6, "has ended"), and the
+  goblin keeps its sickened (expiring, detached) while clumsy (cascade) has gone with the tracker. Player versus player:
+  Player One closes the
+  sheet, clicks Apply poison again (the second dose; no replace question, the first coating was spent), targets the fighter,
+  Strikes: a hit, Damage. With Player Two offline the fighter's save waits, nothing rolled: the GM's client posts "Waiting for
+  the player to connect." with Roll for them (the GM's button), to the GMs and Player Two. Player Two logs in: their own
+  prompt card and a notification "a save against Spider Venom is due."; on their client the waiting card says "Rolled." with
+  no buttons before the prompt-card fix, and after it shows only "No piercing or slashing damage got through" (Roll for them
+  is the GM's). They click Roll save and Roll: the save is recorded (a success each time: unaffected). No raw keys in the
+  Bandolier, the dialog, the cards or the Afflictions window on any client; the only console errors are pf2e's while the
+  marked scene is created (above).
+- **Screenshots**: `afflictions.png` (the Afflictions window as Player One: Ilsa with Spider Venom at its first stage and Giant
+  Wasp Venom's save to roll; `stageAfflictions`, her save rolled with the die one short of the DC) is linked from the README
+  (17.1); every capture taken again.
+
 #### Follow-ups (M8a, low)
 
 - Purge (5.9) strips the trackers' module flags and leaves them as plain effects with their badge; it neither lists them nor
@@ -5983,6 +6066,20 @@ in the dev world).
     `isStackableWith`, which ignores flags); a fired piece pf2e keeps at quantity 0 keeps its coating flag.
   - An exposure claim that waits (behind an earlier claim of the same definition, or now behind a pending stage save) is listed by
     `pendingOf` as a pending initial save whose Roll does nothing until the claim is applied.
+- From the M8a live pass (low, not fixed in that pass):
+  - The due-save notification is shown again on the owner's client each time any user connects or disconnects (`asked` is
+    cleared on `userConnected`), though the card is not posted again: a player with a pending save sees "a save against ... is
+    due." whenever someone else joins or leaves.
+  - Apply poison offers a bomb (the toxicologist's Versatile Vial) as a host for an injury poison; a bomb deals no piercing or
+    slashing damage, so its coating is spent unexposed. Leave thrown bombs out of `hostsFor` for injury poisons.
+  - The GM's "waiting for the player" card stays on the player's client beside their own once they connect, both offering "No
+    piercing or slashing damage got through".
+  - An unidentified poison's notification reads "a save against An affliction is due." (the generic name capitalised
+    mid-sentence; a draft string).
+  - The corpus check reads pf2e's source packs, whose links the build rewrites (condition names to ids): it could also read the
+    built packs, so a reading that differs at runtime is caught there.
+  - M8's `arena` step, switched off, left the dev world with no active scene after `m8a-strike` and the hands-on pass (the
+    scene it activates again is not active afterwards); the world's own scene was activated again by hand.
 
 ---
 
@@ -6654,9 +6751,11 @@ read fully, 110 overridden, 5 ignored, none failing (10.15); `spells` and `besti
   150 s as failed instead of waiting for ever.
 - As built in M8a: scenario `m8a` (`tools/harness/affliction-scenarios.mjs`) and the behaviours `m8a-strike`, `m8a-cloud`,
   `m8a-once`, `m8a-powerful`, `m8a-timing`, `m8a-forge`, `m8a-backends`, `m8a-panel`, `m8a-familiar` and `m8a-shots`, described in
-  10.15; not run yet. They are scenario 12 of the list above. `m8a-strike` needs `--canvas` (a Strike's target is a token) and
-  says it was skipped without one; Affliction Forge is a stand-in package entry on each client when it is not installed, which
-  throws on a player's client as its engine does.
+  10.15; first run in the M8a live pass (10.15). They are scenario 12 of the list above. `m8a-strike` needs `--canvas` (a
+  Strike's target is a token) and says it was skipped without one; it places its tokens on M8's marked scene and Strikes with
+  a click that skips pf2e's dialog, as M8's steps do. Affliction Forge is a stand-in package entry on each client when it is
+  not installed, which throws on a player's client as its engine does. The `roll` step waits until the target's client has
+  applied the exposure claim; a plan that needs a running affliction types a DC no fixture makes (`M8A.failDc`).
 - As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
   counts the rows that are new since `purseBefore` by id, not by a server-time cut-off (two devices' estimates of
   the server's time differ by milliseconds, and one real row was left out); the `claim` step reports its own rows
@@ -6849,10 +6948,10 @@ draft; the letters keep the existing milestone numbers stable.
 | M3 | Registry and roll wrapper | registry tiers 1-2, validation script, roll wrapper with reroll recording, Earn Income roll | M1, M2 |
 | M4 | Queue and Funds | Workshop shell, Queue and Funds tabs, order lifecycle, escrow and refunds, pickup shelf, chat cards, request drag and drop; built, with the 5.11 and 6.12 follow-ups (10.10) | M2, M3 |
 | M5 | Formulas | codex, families, provenance, acquisition jobs, picks owed, casting pledges, precious materials, service orders, rune etching, upgrades and transfers; built, live plans run (10.11, M5 live pass) | M4 |
-| M6 | Downtime | per-PC status, clock accrual and prompts, day resolver, Advance days wizard, Communal Crafting helpers, Earn Income jobs, settlement profiles; built, live plans not yet run (10.12) | M4 |
-| M7 | Morning | daily sources panel, loadouts, standing orders, Talisman Dabbler and Esoterica lists, the Dabbler DC stamp, affix records, party-wide expiry, rest ordering, pf2e-dailies custom daily; built, live plans not yet run (10.13) | M5 |
-| M8 | Combat | Bandolier, HUD palette, Quick Alchemy panel, quick vials, Quick Bomber, Healing Bomb, additives, vial gathering, turn expiry, Duct Tape step-aside, Use best consumable; built, live plans not yet run (10.14) | M7 |
-| M8a | Afflictions | 8.10: the affliction rules engine with tests; the parser, `scripts/data/afflictions.mjs` overrides and the corpus check in the validation script; backend detection, the effect backend and the native backend with its constraints and migration; grant flags and the stage guard; exposure and coating-spend claims; coatings and Strike handling; saves (with the source item, for incapacitation), recording and pending state; turn and world-time timing, catch-up and the affliction time function for logged days; the DC stamp at creation; Afflictions drawer and cards; Affliction Forge coexistence and the GM-routed hand-off; harness scenario 12; built, live plans not yet run (10.15) | M3 (validation script, roll recording), M6 (day resolver for logged days), M7 (creation stamps, infused expiry), M8 (Bandolier entry point) |
+| M6 | Downtime | per-PC status, clock accrual and prompts, day resolver, Advance days wizard, Communal Crafting helpers, Earn Income jobs, settlement profiles; built, first live pass run (10.12) | M4 |
+| M7 | Morning | daily sources panel, loadouts, standing orders, Talisman Dabbler and Esoterica lists, the Dabbler DC stamp, affix records, party-wide expiry, rest ordering, pf2e-dailies custom daily; built, first live pass run (10.13) | M5 |
+| M8 | Combat | Bandolier, HUD palette, Quick Alchemy panel, quick vials, Quick Bomber, Healing Bomb, additives, vial gathering, turn expiry, Duct Tape step-aside, Use best consumable; built, first live pass run (10.14) | M7 |
+| M8a | Afflictions | 8.10: the affliction rules engine with tests; the parser, `scripts/data/afflictions.mjs` overrides and the corpus check in the validation script; backend detection, the effect backend and the native backend with its constraints and migration; grant flags and the stage guard; exposure and coating-spend claims; coatings and Strike handling; saves (with the source item, for incapacitation), recording and pending state; turn and world-time timing, catch-up and the affliction time function for logged days; the DC stamp at creation; Afflictions drawer and cards; Affliction Forge coexistence and the GM-routed hand-off; harness scenario 12; built, first live pass run (10.15) | M3 (validation script, roll recording), M6 (day resolver for logged days), M7 (creation stamps, infused expiry), M8 (Bandolier entry point) |
 | M9 | Tattoos and remaining crafts | tattoo process and toggle, grafts, spellhearts, fulus, missives, snares and gadgets specifics, spell-supplied items beyond scrolls and wands | M5, M6 |
 | M9a | Treasure Vault (Remastered) variants | 6.16 behind their settings: Complex Crafting and Quick Setup (setup, rush, sub-day setups, rushed finishing), crafting with adjustments, downtime events, Critical Crafting, Deconstruct and components, Grow with untended growth and seasons, gardens, bestowed gifts, crafting quests; the one-group-at-a-time notice; harness scenario 13 | M5 (service orders, materials, Repair), M6 (day resolver, seasons, events), M7 (expiry stamps and the inert guard for produce, components and gifts) |
 | M10 | Extension API | registration, interfaces, hooks, extension store; the separate circus module built against it as acceptance test | M6 |

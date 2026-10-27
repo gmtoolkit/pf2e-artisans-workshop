@@ -164,3 +164,50 @@ test("every label the affliction interface uses is a key of the language file", 
     assert.ok(keys.length > 60);
     assert.deepEqual(keys.filter((k) => !(k in lang)), []);
 });
+
+/* -------------------------------------------- */
+/*  After the M8a live pass                      */
+/* -------------------------------------------- */
+
+/** A rendered prompt card's element, as far as `renderAfflictionCard` reads it: its buttons and its state line. */
+function cardElement(message) {
+    const { data } = JSON.parse(message.content);
+    const buttons = data.buttons.map((b) => ({ dataset: { pf2eArtisansWorkshopOp: b.op, actor: b.actor, ...(b.gm ? { gm: "true" } : {}) }, hidden: false, addEventListener() {} }));
+    const state = { hidden: true, textContent: "" };
+    return { buttons, state, querySelectorAll: () => buttons, querySelector: (selector) => (selector === ".card-state" ? state : null) };
+}
+
+test("a pending save's prompt card rendered before this client finds the ledger keeps its Roll button, and is rendered again once it does (10.5)", async () => {
+    await afflictions.expose({ item: poison, targets: [hero], delivery: "injury", key: "msg00000001" });
+    await settle();
+    await claims.sweepClaims();
+    const [prompt] = cards().filter((m) => m.flags[MOD].card.kind === "affliction-prompt");
+    const docs = state.shared();
+    // A reload: the chat log renders before the module has found the shared documents.
+    state.setShared({ ledger: null, strongbox: null, status: "missing" });
+    const early = cardElement(prompt);
+    ui.renderAfflictionCard(prompt, early);
+    assert.equal(early.state.hidden, true, "not said to be rolled");
+    assert.equal(early.buttons.find((b) => b.dataset.pf2eArtisansWorkshopOp === "roll").hidden, false, "the Roll button shows");
+    // The module finds the ledger: a card whose shown state is wrong is rendered again (here, none is: the save is pending).
+    const rendered = [];
+    globalThis.ui.chat = { element: { querySelector: () => ({}) }, updateMessage: (m) => rendered.push(m.id) };
+    state.setShared({ ...docs, status: "ready" });
+    Hooks.callAll(`${MOD}.status`, "ready");
+    assert.deepEqual(rendered, []);
+    const ready = cardElement(prompt);
+    ui.renderAfflictionCard(prompt, ready);
+    assert.equal(ready.buttons.find((b) => b.dataset.pf2eArtisansWorkshopOp === "roll").hidden, false, "still pending: Roll");
+    // Rolled: the card shown with its button is rendered again, and then says so.
+    world.outcomes.push("failure");
+    const pending = afflictions.pendingOf(hero)[0];
+    await afflictions.rollSave(hero, { runId: pending.runId, seq: pending.seq }, { skipDialog: true });
+    await afflictions.onAfflictionMessage(world.lastMessage);
+    await settle();
+    assert.ok(rendered.includes(prompt.id), "rendered again once rolled");
+    const after = cardElement(prompt);
+    ui.renderAfflictionCard(prompt, after);
+    assert.equal(after.state.hidden, false);
+    assert.equal(after.state.textContent, lang["pf2e-artisans-workshop.Affliction.Rolled"]);
+    delete globalThis.ui.chat;
+});

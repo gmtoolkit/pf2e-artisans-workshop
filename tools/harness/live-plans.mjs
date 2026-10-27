@@ -3264,6 +3264,9 @@ export const M8A = Object.freeze({
     npcImmune: "Fixture 17b: poison-immune NPC",
     npcHigh: "Fixture 17c: 9th-level NPC",
     template: "Compendium.pf2e-affliction-forge.templates.Item.m8aTemplate00001",
+    // A typed DC no fixture's save reaches (the fighter's Fortitude is +19: 39 at most, a failure even on a natural 20),
+    // so a plan that needs a running affliction gets one every run instead of skipping its checks when the dice say so.
+    failDc: 45,
 });
 
 /** Every M8a plan starts here: the world reset, M7's, M8's and M8a's items and trackers taken back. */
@@ -3301,34 +3304,46 @@ async function m8aStrike(h, w) {
         return { skipped: true };
     }
     await m8aReset(h, w, [npc.uuid]);
-    const dose = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.blackAdder, qty: 2 });
+    // Stamped with a DC the goblin never makes, so the stage saves and the maximum duration are checked every run.
+    const dose = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.blackAdder, qty: 2,
+        flags: { [MOD]: { dcStamp: { value: M8A.failDc, rule: "harness", printed: 18 } } } });
     const dagger = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.dagger, system: { equipped: { carryType: "held", handsHeld: 1 } } });
     await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.stickyPoison });
+    // The NPC placed next to the bomber, its token unlinked as the table has it: the victim is the token's own actor.
+    const arena = await h.step("gm", "m8", "arena", { tokens: [{ actor: w.pcs.p1.uuid, x: 3, y: 3 }, { actor: npc.uuid, x: 4, y: 3 }] });
+    const victim = arena.tokens?.find((t) => t.actor !== w.pcs.p1.uuid)?.actor ?? null;
+    if (!h.check("the NPC's token is on the arena", !!victim, arena)) return { arena };
     await h.only(["gm", "p1"]);
     await h.settle("ready");
     const coated = await h.step("p1", "m8a", "coat", { poison: dose.id, weapon: dagger.id });
     h.check("the coating: Black Adder Venom's DC frozen, one dose spent", coated.result.ok && coated.coating?.dc?.value >= 18 && coated.coating.delivery === "injury", coated);
-    const fight = await h.step("gm", "m8", "encounter", { actors: [w.pcs.p1.uuid, npc.uuid] });
+    const fight = await h.step("gm", "m8", "encounter", { actors: [w.pcs.p1.uuid, victim] });
     let struck = null;
-    for (let i = 0; i < 6 && !struck?.claims?.length; i++) struck = await h.step("p1", "m8a", "strike", { weapon: dagger.id, target: npc.uuid, damage: true });
-    h.check("a hit with piercing damage exposes the NPC once", (struck?.claims ?? []).filter((c) => c.actor === npc.uuid).length === 1, struck?.claims);
+    for (let i = 0; i < 6 && !struck?.claims?.length; i++) struck = await h.step("p1", "m8a", "strike", { weapon: dagger.id, target: victim, damage: true });
+    h.check("a hit with piercing damage exposes the NPC once", (struck?.claims ?? []).filter((c) => c.actor === victim).length === 1, struck?.claims);
+    // The coating card after the hit names Sticky Poison's DC 17 flat check: "... flat check: <total> against DC <dc>."
     const sticky = struck.messages.find((m) => m.card?.kind === "affliction-coating");
-    h.check("Sticky Poison: the coating stays exactly when its flat check succeeds", !!sticky && (struck.coating !== null) === (sticky.affliction?.coating !== null), { sticky, coating: struck.coating });
-    const after = await h.step("gm", "m8a", "brief", { actors: [npc.uuid], ms: 3000 });
+    const [, total, dc] = /(\d+)\D+DC (\d+)/.exec(sticky?.text ?? "") ?? [];
+    h.check("Sticky Poison: the coating stays exactly when its flat check succeeds", !!total && (struck.coating !== null) === (Number(total) >= Number(dc)),
+        { sticky, coating: struck.coating });
+    const after = await h.step("gm", "m8a", "brief", { actors: [victim], ms: 3000 });
     const saves = struck.messages.filter((m) => m.type === "saving-throw" && m.options.some((o) => o.includes(":affliction:")));
-    h.check("the initial save is rolled once, on the GM's client", after.claims.filter((c) => c.actor === npc.uuid && c.resolved).length === 1 &&
+    h.check("the initial save is rolled once, on the GM's client", after.claims.filter((c) => c.actor === victim && c.resolved).length === 1 &&
         saves.every((m) => m.author === w.users.gm), { claims: after.claims, saves });
     const tracker = trackerIn(after.actors[0]);
     if (tracker) {
-        await h.step("gm", "m8", "next", { combat: fight.id, times: 2 });
-        const round2 = await h.step("gm", "m8a", "brief", { actors: [npc.uuid], ms: 3000 });
+        // The stage began on the bomber's turn (the anchor, exposure-turn): its 1-round interval ends at the end of the bomber's turn
+        // in round 2 (8.10.7), three turn changes on (the goblin's, the bomber's again, the goblin's).
+        await h.step("gm", "m8", "next", { combat: fight.id, times: 3 });
+        const round2 = await h.step("gm", "m8a", "brief", { actors: [victim], ms: 3000 });
         h.check("a stage save fell due at the end of the turn of the round after the stage began", Object.keys(trackerIn(round2.actors[0])?.saves ?? {}).length >= 2 ||
             !trackerIn(round2.actors[0]), round2.actors[0]);
-        await h.step("gm", "m8", "next", { combat: fight.id, times: 6 });
-        const done = await h.step("gm", "m8a", "brief", { actors: [npc.uuid], ms: 4000 });
+        await h.step("gm", "m8", "next", { combat: fight.id, times: 5 });
+        const done = await h.step("gm", "m8a", "brief", { actors: [victim], ms: 4000 });
         h.check("the maximum duration (3 rounds) has ended it", done.actors[0].trackers.length === 0, done.actors[0]);
     }
     await h.step("gm", "m8", "end", { combat: fight.id });
+    await h.step("gm", "m8", "arena", { off: true, previous: arena.previous });
     await checkStatuses(h);
     return { coated, struck, after };
 }
@@ -3341,7 +3356,13 @@ async function m8aStrike(h, w) {
  */
 async function m8aCloud(h, w) {
     await m8aReset(h, w);
-    const gas = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.tatzlwyrm, qty: 1 });
+    const gas = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.tatzlwyrm, qty: 1,
+        flags: { [MOD]: { dcStamp: { value: M8A.failDc, rule: "harness", printed: 15 } } } });
+    // The reroll spends a Hero Point, which an earlier run may have used up.
+    await h.evaluate("gm", async (uuid) => {
+        await fromUuidSync(uuid).update({ "system.resources.heroPoints.value": 1 });
+        return fromUuidSync(uuid).system.resources.heroPoints.value;
+    }, w.pcs.p2.uuid, "a Hero Point for the fighter");
     await h.only(["p1", "p2"]);
     await h.settle("ready");
     const unleashed = await h.step("p1", "m8a", "unleash", { poison: gas.id, targets: [w.pcs.p1.uuid, w.pcs.p2.uuid] });
@@ -3438,11 +3459,11 @@ async function m8aTiming(h, w) {
     await h.step("gm", "m8a", "setting", { key: "afflictions.catchUpLimit", value: 2 });
     await h.only(["gm", "p1", "p2"]);
     await h.settle("ready");
-    await h.step("p1", "m8a", "expose", { item: arsenic.uuid, targets: [w.pcs.p2.uuid], delivery: "ingested", key: "m8aonset1" });
+    await h.step("p1", "m8a", "expose", { item: arsenic.uuid, targets: [w.pcs.p2.uuid], delivery: "ingested", key: "m8aonset1", dc: M8A.failDc });
     const first = await h.step("gm", "m8a", "brief", { actors: [w.pcs.p2.uuid], ms: 4000 });
     const onset = trackerIn(first.actors[0]);
     if (onset?.phase === "onset") {
-        await h.step("p1", "m8a", "expose", { item: arsenic.uuid, targets: [w.pcs.p2.uuid], delivery: "ingested", key: "m8aonset2" });
+        await h.step("p1", "m8a", "expose", { item: arsenic.uuid, targets: [w.pcs.p2.uuid], delivery: "ingested", key: "m8aonset2", dc: M8A.failDc });
         const raised = await h.step("gm", "m8a", "brief", { actors: [w.pcs.p2.uuid], ms: 4000 });
         const t = trackerIn(raised.actors[0]);
         h.check("re-exposure during the onset: the stage rises or stays (a success), the onset's end does not move", t.phase === "onset" && t.stage >= onset.stage, { onset, t });
@@ -3508,7 +3529,7 @@ async function m8aBackends(h, w) {
     const seen = {};
     for (const role of ["gm", "p1", "p2"]) seen[role] = (await h.step(role, "m8a", "definition", { uuid: M8A.blackAdder })).backend;
     h.check("every client reads one backend", new Set(Object.values(seen)).size === 1, seen);
-    await h.step("p1", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p2.uuid], delivery: "injury", key: "m8abackend" });
+    await h.step("p1", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p2.uuid], delivery: "injury", key: "m8abackend", dc: M8A.failDc });
     const rolled = await h.step("p2", "m8a", "roll", {});
     const t = trackerIn(rolled.brief ?? { trackers: [] });
     if (seen.gm === "effect") h.check("effect backend: an effect item whose badge is the stage", !t || (t.type === "effect" && t.badge?.value === t.stage), t);
@@ -3526,7 +3547,7 @@ async function m8aPanel(h, w) {
     const dose = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.blackAdder, qty: 1 });
     await h.only(["gm", "p1", "p2"]);
     await h.settle("ready");
-    await h.step("p1", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p2.uuid], delivery: "injury", key: "m8apanel" });
+    await h.step("p1", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p2.uuid], delivery: "injury", key: "m8apanel", dc: M8A.failDc });
     const rolled = await h.step("p2", "m8a", "roll", {});
     const t = trackerIn(rolled.brief ?? { trackers: [] });
     if (!t) {
@@ -3555,7 +3576,7 @@ async function m8aFamiliar(h, w) {
     await h.step("gm", "m8a", "identify", { item: dose.uuid, on: false });
     await h.only(["p1", "p2"]);
     await h.settle("ready");
-    await h.step("p1", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p2.uuid], delivery: "injury", key: "m8ahidden" });
+    await h.step("p1", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p2.uuid], delivery: "injury", key: "m8ahidden", dc: M8A.failDc });
     const rolled = await h.step("p2", "m8a", "roll", {});
     const t = trackerIn(rolled.brief ?? { trackers: [] });
     h.check("an unidentified poison: Player Two sees a stage badge under a generic name, never an unidentified effect", !t || (!t.unidentified && t.badge?.value >= 1), t);
@@ -3569,7 +3590,7 @@ async function m8aShots(h, w) {
     const dose = await h.step("gm", "m8a", "give", { actor: w.pcs.p1.uuid, uuid: M8A.blackAdder, qty: 1 });
     await h.only(["gm", "p1", "p2"]);
     await h.settle("ready");
-    await h.step("p1", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p2.uuid], delivery: "injury", key: "m8ashots" });
+    await h.step("p1", "m8a", "expose", { item: dose.uuid, targets: [w.pcs.p2.uuid], delivery: "injury", key: "m8ashots", dc: M8A.failDc });
     await h.step("p2", "m8a", "roll", {});
     const opened = [];
     for (const scheme of ["dark", "light"]) {

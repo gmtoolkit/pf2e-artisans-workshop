@@ -60,7 +60,8 @@ M8a is in place: the affliction tracker (the rules engine, `scripts/logic/afflic
 in `tools/validate-registry.mjs`; definitions, the backend and DCs, `scripts/foundry/affliction-defs.mjs`; exposure claims,
 saves, recording, timing and the stage guard, `scripts/foundry/afflictions.mjs`; coatings and Strikes, `scripts/foundry/coatings.mjs`;
 Affliction Forge, `scripts/foundry/forge.mjs`; the Afflictions window, cards and item-card augment, `scripts/ui/afflictions.mjs`);
-DESIGN 10.15 says what was built, and the live plans `m8a-*` (`tools/harness/affliction-scenarios.mjs`) have not run yet.
+DESIGN 10.15 says what was built, and the live plans `m8a-*` (`tools/harness/affliction-scenarios.mjs`) passed their first live
+pass, with and without a canvas (10.15, M8a live pass).
 README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
 world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every

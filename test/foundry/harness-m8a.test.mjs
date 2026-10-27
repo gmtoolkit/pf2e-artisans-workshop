@@ -93,3 +93,10 @@ test("the Affliction Forge stand-in comes and goes on this client and refuses a 
     assert.deepEqual(await steps.forge.run({ on: false }), { installed: false, active: false });
     assert.equal(game.modules.get("pf2e-affliction-forge"), undefined);
 });
+
+test("the npc step finds a fixture NPC under the name the fixture builder gives it, the creature's name after it (M8a live pass)", async () => {
+    const goblin = addDocument("Actor", { name: `${M8A.npcOrdinary} (Goblin Warrior)`, type: "npc", items: [] });
+    const found = await steps.npc.run({ name: M8A.npcOrdinary });
+    assert.equal(found.uuid, goblin.uuid);
+    assert.deepEqual(await steps.npc.run({ name: M8A.npcImmune }), { missing: M8A.npcImmune });
+});

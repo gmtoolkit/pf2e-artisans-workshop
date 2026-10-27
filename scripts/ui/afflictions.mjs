@@ -24,6 +24,7 @@ import * as afflictions from "../foundry/afflictions.mjs";
 import { applyDelivery, applyPoison, coatingOf, coatingSpent, touchCoating, unleash, voidExposure } from "../foundry/coatings.mjs";
 import { heldKeysOf } from "../foundry/registry.mjs";
 import { setting } from "../foundry/settings.mjs";
+import { shared } from "../foundry/state.mjs";
 import { read, write } from "../foundry/store.mjs";
 import { rerenderShown } from "./chat.mjs";
 import { whisperFor } from "./combat-cards.mjs";
@@ -436,19 +437,29 @@ async function runCardOp(message, button) {
     return runOp(op, button.dataset);
 }
 
-/** Whether a prompt card's save has been rolled (its claim resolved, or the run recorded the save). */
+/**
+ * Whether a prompt card's save has been rolled (its claim resolved, or the run recorded the save). Unknown (null) while this
+ * client has not found the ledger yet: the chat log renders at load before the module does (M8a live pass), and a pending
+ * initial save, read from its claim, would read as rolled.
+ */
 function promptDone(message) {
     const flags = message.flags?.[MODULE_ID]?.affliction ?? {};
     const victim = actorOf(flags.actor);
     if (!victim) return true;
+    if (!shared().ledger) return null;
     return !afflictions.pendingOf(victim).some((p) => p.runId === flags.run && p.seq === flags.seq);
 }
+
+/** Prompt cards as this client last rendered them: rolled or not, by message id, so a change re-renders only those. */
+const shownDone = new Map();
 
 /** Wire an affliction card's buttons on this client: hidden from users who may not use them; a rolled prompt says so. */
 export function renderAfflictionCard(message, html) {
     const card = message.flags?.[MODULE_ID]?.card;
     if (!card || !AFFLICTION_CARDS.includes(card.kind) || !foundry.utils.isElementInstanceOf(html, HTMLElement)) return false;
-    if (card.kind === "affliction-prompt" && promptDone(message)) {
+    const done = card.kind === "affliction-prompt" ? promptDone(message) === true : false;
+    if (card.kind === "affliction-prompt") shownDone.set(message.id, done);
+    if (done) {
         for (const button of html.querySelectorAll("button[data-pf2e-artisans-workshop-op]")) button.hidden = true;
         const state = html.querySelector(".card-state");
         if (state) {
@@ -629,11 +640,14 @@ export function registerAfflictionUi() {
         AfflictionsApp.instance?.refresh();
     });
     // A save recorded anywhere: the prompt cards of that affliction shown here say "rolled" (rendered again locally, 10.5).
+    // Also once this client finds the ledger: a card rendered before it showed its buttons, and one now rolled says so.
     const rerender = () => {
         for (const message of game.messages ?? []) {
-            if (message.flags?.[MODULE_ID]?.card?.kind === "affliction-prompt" && promptDone(message) && ui.chat) rerenderShown(message);
+            if (message.flags?.[MODULE_ID]?.card?.kind !== "affliction-prompt" || !shownDone.has(message.id) || !ui.chat) continue;
+            if (shownDone.get(message.id) !== (promptDone(message) === true)) rerenderShown(message);
         }
     };
+    Hooks.on(`${MODULE_ID}.status`, rerender);
     for (const name of ["updateItem", "createItem", "deleteItem"]) {
         Hooks.on(name, (item) => {
             if (item?.flags?.[MODULE_ID]?.affliction?.run) rerender();

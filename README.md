@@ -62,6 +62,9 @@ until 1.0: every string is rewritten before the first release, and these capture
 ![Quick Alchemy](docs/screenshots/quick-alchemy.png)\
 *Quick Alchemy: what the alchemist can make now, by formula or family, picked from the keyboard, with what it costs in vials.*
 
+![The Afflictions window](docs/screenshots/afflictions.png)\
+*The Afflictions window: a poison running on the alchemist with its stages, the next save and the maximum duration, and a save still to roll.*
+
 ![The Queue in the light theme](docs/screenshots/queue-light.png)\
 *The Queue in the light theme, with a finished order's cost summary.*
 

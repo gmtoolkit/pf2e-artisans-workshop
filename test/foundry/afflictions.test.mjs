@@ -672,3 +672,44 @@ test("a Double Poison exposure is keyed as the double, not as its second poison 
     await coatings.onStrikeMessage(strikeMessage(hero.items.get(weapon.id), "damage-roll", { damageRoll: { types: { piercing: { base: 4 } } } }));
     assert.equal(claimsOf()[0].defKey, `double:${poison.uuid}:${second.uuid}`);
 });
+
+/* -------------------------------------------- */
+/*  After the M8a live pass                      */
+/* -------------------------------------------- */
+
+/** A Strike's damage message as pf2e 8.6.1 makes it: no `flags.pf2e.damageRoll`, the types in its DamageRoll's instances. */
+function damageMessage(weapon, types) {
+    const message = strikeMessage(weapon, "damage-roll");
+    message.rolls = [{ kinds: new Set(["damage"]), instances: types.map((type) => ({ type, persistent: false })) }];
+    return message;
+}
+
+test("a Strike's damage roll as pf2e 8.6.1 posts it (types in the roll, no damageRoll flag) exposes the target (8.10.5)", async () => {
+    const { weapon } = await coat();
+    await coatings.onStrikeMessage(strikeMessage(weapon, "attack-roll", { context: { outcome: "success" } }));
+    const result = await coatings.onStrikeMessage(damageMessage(hero.items.get(weapon.id), ["piercing"]));
+    assert.equal(result.outcome, "exposed", JSON.stringify(result));
+    assert.equal(claimsOf()[0].actor, ogre.uuid);
+    const again = await coat();
+    await coatings.onStrikeMessage(strikeMessage(again.weapon, "attack-roll", { context: { outcome: "success" } }));
+    assert.equal((await coatings.onStrikeMessage(damageMessage(hero.items.get(again.weapon.id), ["bludgeoning"]))).outcome, "spent", "no piercing or slashing");
+    assert.deepEqual(coatings.damageTypesOf({ rolls: [{ kinds: new Set(["healing"]), instances: [{ type: "vitality" }] }] }), [], "a healing roll has no damage types");
+});
+
+test("a successful initial save is recorded in one request, with nothing left to apply: recorded, its change announced, no stopped move (8.10.8)", async () => {
+    await exposeTo([hero]);
+    const changes = hooked("afflictionChanged");
+    const warned = [];
+    const warn = console.warn;
+    console.warn = (...args) => warned.push(args.join(" "));
+    try {
+        const { recorded } = await rollAndRecord(hero, "success");
+        assert.equal(recorded.ok, true, JSON.stringify(recorded));
+        assert.equal(recorded.ended, true);
+    } finally {
+        console.warn = warn;
+    }
+    assert.equal(claimsOf()[0].outcome, "unaffected");
+    assert.deepEqual(changes.map((c) => [c.reason, c.to]), [["initial", 0]]);
+    assert.deepEqual(warned.filter((w) => w.includes("stopped after its lock")), []);
+});

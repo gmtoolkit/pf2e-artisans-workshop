@@ -207,6 +207,20 @@ const AMMO_STRIKE = "ammoStrike";
 const ammoStrikeOf = (host) => host?.flags?.[MODULE_ID]?.[AMMO_STRIKE] ?? null;
 
 /**
+ * The damage types of a pf2e damage message (8.10.5): the instances of its damage rolls. pf2e 8.6.1 writes no
+ * `flags.pf2e.damageRoll` on a Strike's damage message (M8a live pass), so that legacy flag is only read as well.
+ */
+export function damageTypesOf(message) {
+    const types = new Set();
+    for (const roll of message?.rolls ?? []) {
+        if (roll?.kinds && !roll.kinds.has?.("damage")) continue;
+        for (const instance of roll?.instances ?? []) if (instance?.type) types.add(instance.type);
+    }
+    for (const type of Object.keys(message?.flags?.pf2e?.damageRoll?.types ?? {})) types.add(type);
+    return [...types];
+}
+
+/**
  * A Strike's chat message (8.10.5), on the attacker's responsible client: the attack roll arms, keeps or spends the coating;
  * the hit's damage roll exposes the target and spends it. A launcher's Strike uses its ammunition's coating: the piece leaves
  * with the shot (pf2e consumes it), so a hit arms the coating on the launcher for the Strike's damage roll and a miss takes it
@@ -253,7 +267,7 @@ export async function onStrikeMessage(message) {
     if (!coating?.armed || coating.delivery !== "injury" || !attacker || !isResponsibleFor(attacker)) return null;
     const targetUuid = context.target?.actor ?? coating.armed.target ?? null;
     const target = targetUuid ? fromUuidSync(targetUuid, { strict: false }) : null;
-    const types = Object.keys(message.flags?.pf2e?.damageRoll?.types ?? {});
+    const types = damageTypesOf(message);
     const blowgun = isBlowgun(host) && heldKeysOf(attacker).includes("blowgun-poisoner");
     const result = coatingAfterDamage({ types, blowgun, keepsCoating: coating.keeps });
     const disarmed = { ...coating, armed: null };

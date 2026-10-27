@@ -261,6 +261,9 @@ export async function runLockFirst({ lock, apply }, docs = shared()) {
         const outcome = first.outcome === "partial" && lockPagesIn(first.first) ? "stopped" : AFTER_LOCK[first.outcome];
         return { outcome, applied: outcome === "stopped" ? first.applied : 0, total, phase: "lock", reason: first.reason };
     }
+    // Nothing to apply (a save that left its creature unaffected writes only its lock and ledger change): the lock request
+    // was the whole move. Sending an empty request would read as "the client sent nothing", a move stopped after its lock.
+    if (!applyOps.length) return { outcome: "ok", applied: first.applied, total, phase: "lock" };
     const second = await send(applyOps);
     const outcome = applyOutcome(apply, second, docs);
     if (outcome === "stopped") console.warn(`${MODULE_ID} | a move stopped after its lock (${second.reason}); its rows stay pending`);

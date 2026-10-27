@@ -14,7 +14,7 @@
  * | stages | `<strong>Stage N</strong>` paragraphs, and ranges (`Stages 1–5`), whose stages share their effects and interval |
  * | interval | the stage's last parenthesised duration (or one in its label: `Stage 1 (9 Days)`), dice included |
  * | damage | `@Damage[...]` terms (type and category), and plain "1d6 poison damage" |
- * | conditions | `@UUID[Compendium.pf2e.conditionitems.Item.<Name>]{<Label> n}` links and bare condition names with a value |
+ * | conditions | `@UUID[Compendium.pf2e.conditionitems.Item.<Name or id>]{<Label> n}` links and bare condition names with a value |
  * | effects | `@UUID` links to effect items |
  * | "as stage N" | a copy of that stage's parsed effects |
  *
@@ -39,6 +39,26 @@ export const CONDITION_SLUGS = Object.freeze([
     "petrified", "prone", "quickened", "restrained", "sickened", "slowed", "stunned", "stupefied", "unconscious", "undetected",
     "unfriendly", "unnoticed", "wounded",
 ]);
+
+/**
+ * pf2e's condition items by document id (the `_id` of each `packs/pf2e/conditions/*.json`, stable across releases). The
+ * system's source packs link a condition by name (`conditionitems.Item.Sickened`), but its build writes the id, so the
+ * installed compendium's descriptions, which the parser reads at runtime, carry `conditionitems.Item.fesd1n5eVhpCSS18` (M8a
+ * live pass, pf2e 8.6.1).
+ */
+export const CONDITION_IDS = Object.freeze({
+    XgEqL1kFApUbl5Z2: "blinded", "6dNUvdb1dhToNDj3": "broken", i3OJZU2nk64Df3xm: "clumsy", DmAIPqOBomZ7H95W: "concealed", yblD8fOR1J8rDwEQ: "confused",
+    "9qGBRpbX9NEwtAAr": "controlled", zXZjC8HLaRoLR17U: "cursebound", TkIyaNPgTZFBCCuh: "dazzled", "9PR9y0bi4JPKnHPR": "deafened",
+    "3uh1r86TzbQvosxv": "doomed", "4D2KBtexWXa6oUMR": "drained", yZRUzMqrMmfLu0V1: "dying", D5mg6Tc7Jzrj6ro7: "encumbered",
+    MIRkyAjyBeXivMa7: "enfeebled", AdPVz7rbaVSRxHFg: "fascinated", HL2l2VRSaQHu9lUw: "fatigued", sDPxOjQ9kx2RZE8D: "fleeing",
+    v66R7FdOf11l94im: "friendly", TBSHQspnbcqxsmjL: "frightened", kWc1fhmv9LBiTuei: "grabbed", v44P3WUcU1j0115l: "helpful", iU0fEDdBp3rXpTMC: "hidden",
+    ud7gTLwPeklzYSXG: "hostile", eIcWbB5o3pP6OIMe: "immobilized", fuG8dgthlDWfWjIA: "indifferent", zJxUflt9np0q4yML: "invisible",
+    "1wQY3JYyhMYeeV2G": "observed", AJh5ex99aV6VTggg: "off-guard", "6uEgoh53GbXuHpTF": "paralyzed", lDVqvLKA6eF3Df60: "persistent-damage",
+    dTwPJuKgBQCMxixg: "petrified", j91X7x0XSomq8d60: "prone", nlCjDvLMf2EkV2dl: "quickened", VcDeM8A5oI6VqhbM: "restrained",
+    fesd1n5eVhpCSS18: "sickened", xYTAsEpcJE1Ccni3: "slowed", dfCMdR4wnpbYNTix: "stunned", e1XGnhKNSQIm5IXg: "stupefied",
+    fBnFDH2MTzgFijKf: "unconscious", VRSef5y1LmL2Hkjf: "undetected", I1ffBVISxLr2gC4u: "unfriendly", "9evPzg9E6muFcoSk": "unnoticed",
+    Yl48xTdMh3aeQYL2: "wounded",
+});
 
 /** Conditions that carry a value (pf2e's valued conditions). */
 export const VALUED_CONDITIONS = Object.freeze([
@@ -255,7 +275,7 @@ function parseStageText(html, labelInterval) {
     text = text.replace(/@UUID\[([^\]]+)\](?:\{([^}]*)\})?(?:\s+(\d+)\b)?/g, (whole, uuid, label, after) => {
         const condition = /^Compendium\.pf2e\.conditionitems\.Item\.(.+)$/.exec(uuid);
         if (condition) {
-            const slug = slugOf(condition[1]);
+            const slug = CONDITION_IDS[condition[1]] ?? slugOf(condition[1]);
             if (!CONDITION_SLUGS.includes(slug)) return ` ${whole} `;
             const value = valueIn(label) ?? (after ? Number(after) : null);
             if (VALUED_CONDITIONS.includes(slug) && value === null) return ` ${whole} `;

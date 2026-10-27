@@ -16,8 +16,8 @@
  * put right by the next one. The orders, funds, formulas and downtime are staged through the module's own functions,
  * each on the client of the user who would do it at a table (Player One plays the alchemist who crafts, Player Two the
  * fighter, the GM the other two and the world clock), so the Funds ledger names the right people. The demo's Craft and
- * Earn Income checks roll a fixed 12 on the die, so every run stages the same states: that is the only thing it changes
- * in the page, and it is put back after the rolls. Downtime moves the world clock forward (never back), as the M6 live
+ * Earn Income checks roll a fixed 12 on the die, and the alchemist's save against a poison a die one short of its DC, so
+ * every run stages the same states: that is the only thing it changes in the page, and it is put back after the rolls. Downtime moves the world clock forward (never back), as the M6 live
  * plans do, so run it in the dev world only.
  *
  * Captures (`CAPTURES`) are taken on Player One's client at 1440x900, cropped to the window's element, dark unless named
@@ -67,6 +67,8 @@ export const ITEMS = Object.freeze({
     healingLesser: "Compendium.pf2e.equipment-srd.Item.e0vSAQfxhHauiAoD",
     mistformModerate: "Compendium.pf2e.equipment-srd.Item.Ax8XcBd0rRd1Z7hN",
     lab: "Compendium.pf2e.equipment-srd.Item.k6xZkDUpF7E1Totd",
+    spiderVenom: "Compendium.pf2e.equipment-srd.Item.5RGNjhDxZ0yMhTds",
+    waspVenom: "Compendium.pf2e.equipment-srd.Item.aBOPYlfHAcXUmhF7",
 });
 
 /** The Workshop window's element. */
@@ -77,6 +79,7 @@ const SELECTORS = Object.freeze({
     request: `[id^="${MODULE_ID}-request-"]`,
     bandolier: `#${MODULE_ID}-bandolier`,
     "quick-alchemy": `#${MODULE_ID}-quick-alchemy`,
+    afflictions: `#${MODULE_ID}-afflictions`,
 });
 
 /**
@@ -101,6 +104,8 @@ export const CAPTURES = Object.freeze([
         caption: "The Bandolier in an encounter: the vials, Quick Alchemy and quick vials, and what is ready, with how long it stays potent and pf2e's Strike buttons." },
     { file: "quick-alchemy.png", scheme: "dark", view: "quick-alchemy",
         caption: "Quick Alchemy: what the alchemist can make now, by formula or family, picked from the keyboard, with what it costs in vials." },
+    { file: "afflictions.png", scheme: "dark", view: "afflictions",
+        caption: "The Afflictions window: a poison running on the alchemist with its stages, the next save and the maximum duration, and a save still to roll." },
     { file: "queue-light.png", scheme: "light", view: "queue", order: "complete",
         caption: "The Queue in the light theme, with a finished order's cost summary." },
 ]);
@@ -108,8 +113,8 @@ export const CAPTURES = Object.freeze([
 /**
  * Captures taken and written beside `CAPTURES` but not yet linked from the README (17.1 "refreshed whenever a milestone adds
  * a tab"): a new tab's capture goes here first. After a run, check the file by eye, move its entry into `CAPTURES` and add
- * its caption to the README's Screenshots section, which `test/screenshots.test.mjs` then holds to it. Empty since the M7
- * live pass linked `morning.png`.
+ * its caption to the README's Screenshots section, which `test/screenshots.test.mjs` then holds to it. Empty since the M8a
+ * live pass linked `afflictions.png`.
  */
 export const NEXT_CAPTURES = Object.freeze([]);
 
@@ -234,10 +239,10 @@ async function pageAct({ mod, op, p }) {
         import(`${at}/foundry/products.mjs`), import(`${at}/foundry/rolls.mjs`), import(`${at}/foundry/store.mjs`), import(`${at}/logic/codex.mjs`),
         import(`${at}/logic/funds.mjs`), import(`${at}/foundry/jobs.mjs`),
     ]);
-    /** Run `fn` with the die fixed at 12 (`CONFIG.Dice.randomUniform`), and put the random source back after it. */
-    const fixedDie = async (fn) => {
+    /** Run `fn` with the die fixed at `face` (`CONFIG.Dice.randomUniform`, core's face is `ceil((1 - u) * 20)`), then put the random source back. */
+    const fixedDie = async (fn, face = 12) => {
         const random = CONFIG.Dice.randomUniform;
-        CONFIG.Dice.randomUniform = () => 0.42;
+        CONFIG.Dice.randomUniform = () => 1 - (face - 0.5) / 20;
         try {
             return await fn();
         } finally {
@@ -305,6 +310,26 @@ async function pageAct({ mod, op, p }) {
             return plain(await formulas.acquire({ learner: p.actor, uuid: p.uuid, route: p.route, payer: p.actor, paidFrom: p.paidFrom ?? "purse", source, pickLevel }));
         }
         case "statuses": return Object.fromEntries(store.records("orders").map((o) => [o.id, o.status]));
+        case "afflict": {
+            // An exposure (M8a), as the item card's Expose makes it; unless `pending`, the initial save is rolled through pf2e with
+            // the die one short of the DC (a failure: the first stage), once the claim has been applied on this client.
+            const afflictions = await import(`${at}/foundry/afflictions.mjs`);
+            const victim = fromUuidSync(p.actor);
+            const exposed = await afflictions.expose({ item: p.uuid, targets: [victim], delivery: p.delivery ?? "injury", key: p.key });
+            if (!exposed.ok || p.pending) return plain(exposed);
+            let save = null;
+            await waitFor(async () => {
+                const listed = afflictions.pendingOf(victim).find((x) => x.claim?.idem?.startsWith(`expose:${p.key}:`));
+                save = listed ? await afflictions.pendingSave(victim, listed) : null;
+                return !!save;
+            });
+            if (!save) return { ok: false, reason: "never-applied" };
+            const runId = save.claim.pending.runId;
+            const face = Math.min(19, Math.max(2, (save.dc?.value ?? 0) - 1 - (victim.saves?.[save.def.save.type]?.mod ?? 0)));
+            await fixedDie(() => afflictions.rollSave(victim, { runId, seq: save.claim.pending.seq }, { skipDialog: true }), face);
+            const recorded = await waitFor(() => !!victim.items.get(runId) || !afflictions.pendingOf(victim).some((x) => x.runId === runId));
+            return { ok: recorded, face, stage: afflictions.runOf(victim.items.get(runId))?.stage ?? 0 };
+        }
         default: throw new Error(`no staging action ${op}`);
     }
 }
@@ -538,6 +563,19 @@ async function stageCombat(h, demo) {
     return { combat: fight.id ?? null };
 }
 
+/**
+ * Afflictions (M8a), with Player One online: in the encounter, Ilsa is poisoned with Spider Venom (her save a failure: its
+ * first stage, sickened) and exposed to Giant Wasp Venom, whose save she has still to roll. The Afflictions window shows both.
+ */
+async function stageAfflictions(h, demo) {
+    const ilsa = demo.alchemist.uuid;
+    const spider = await act(h, "p1", "afflict", { actor: ilsa, uuid: ITEMS.spiderVenom, key: "demo-spider" });
+    const wasp = await act(h, "p1", "afflict", { actor: ilsa, uuid: ITEMS.waspVenom, key: "demo-wasp", pending: true });
+    h.check("the demo's afflictions: Spider Venom at its first stage, Giant Wasp Venom's save pending", spider.ok === true && spider.stage === 1 && wasp.ok === true,
+        { spider, wasp });
+    return { spider, wasp };
+}
+
 /* -------------------------------------------- */
 /*  Captures                                     */
 /* -------------------------------------------- */
@@ -546,6 +584,7 @@ async function stageCombat(h, demo) {
 async function show(h, capture, orders, demo, morning = {}) {
     await h.evaluate("p1", pageCloseForms, { mod: MODULE_ID });
     await h.step("p1", "m8", "close", {});
+    await h.step("p1", "m8a", "close", {});
     if (capture.view === "formulas") {
         return h.step("p1", "m5", "open", { tab: "formulas", actor: demo.alchemist.uuid, uuid: ITEMS.lightningModerate, ms: 2000 });
     }
@@ -561,6 +600,7 @@ async function show(h, capture, orders, demo, morning = {}) {
     // The Bandolier of Ilsa's turn (M8), and the Quick Alchemy panel beside it with an elixir picked from the keyboard.
     if (capture.view === "bandolier") return h.step("p1", "m8", "bandolier", { actor: demo.alchemist.uuid });
     if (capture.view === "quick-alchemy") return h.step("p1", "m8", "panel", { actor: demo.alchemist.uuid, query: "elixir", close: false });
+    if (capture.view === "afflictions") return h.step("p1", "m8a", "window", { ms: 1500 });
     const tab = capture.view === "funds" ? "funds" : "queue";
     const opened = await h.step("p1", "m4", "open", { tab, order: capture.order ? orders[capture.order] : null, ms: 1500 });
     if (capture.view === "request") return { ...opened, form: await h.evaluate("p1", pageRequestForm, { mod: MODULE_ID, uuid: ITEMS.mistformModerate, quantity: 2 }) };
@@ -694,6 +734,7 @@ async function main() {
         report.downtime = await stageDowntime(h, cast.made, report.orders);
         report.morning = await stageMorning(h, cast.made);
         report.combat = await stageCombat(h, cast.made);
+        report.afflictions = await stageAfflictions(h, cast.made);
         h.label = "capture";
         await h.only(["p1"]);
         await h.settle("ready", ["p1"]);

@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AFFLICTION_OVERRIDES } from "../../scripts/data/afflictions.mjs";
-import { durationSeconds, flattenInlineRolls, isCandidate, ownSaveDc, parseAffliction, parseDuration } from "../../scripts/logic/affliction-parse.mjs";
+import { CONDITION_IDS, CONDITION_SLUGS, durationSeconds, flattenInlineRolls, isCandidate, ownSaveDc, parseAffliction, parseDuration } from "../../scripts/logic/affliction-parse.mjs";
 import { applyOverride } from "../../scripts/logic/affliction.mjs";
 
 const p = (label, rest) => `<p><strong>${label}</strong> ${rest}</p>`;
@@ -221,4 +221,21 @@ test("Curare's shape: an override's explicit stage parts replace a stage the par
     const def = applyOverride(parsed, { prose: [3], stages: { 3: { duration: { value: 1, unit: "rounds" }, conditions: [{ slug: "slowed", value: 1, linked: true }] } } });
     assert.deepEqual(def.stages[2].conditions, [{ slug: "slowed", value: 1, linked: true }]);
     assert.equal(def.stages[2].unparsed, true, "still shown to the table");
+});
+
+/* -------------------------------------------- */
+/*  After the M8a live pass                      */
+/* -------------------------------------------- */
+
+test("the installed compendium's condition links carry the item's id, not its name: the same stage parses fully either way", () => {
+    // pf2e's build writes `conditionitems.Item.<id>` where its source packs have the name (the ids of Sickened and Clumsy).
+    const byId = (id, label) => `@UUID[Compendium.pf2e.conditionitems.Item.${id}]{${label}}`;
+    const html = [p("Saving Throw", "@Check[fortitude|dc:22]"), p("Maximum Duration", "6 rounds"),
+        p("Stage 1", `@Damage[1d10[poison]] damage and ${byId("fesd1n5eVhpCSS18", "Sickened 1")} (1 round)`),
+        p("Stage 2", `@Damage[1d12[poison]] damage, ${byId("i3OJZU2nk64Df3xm", "Clumsy 1")}, and ${byId("fesd1n5eVhpCSS18", "Sickened 2")} (1 round)`)].join("");
+    const def = parseAffliction(html, { traits: ["poison", "injury"] });
+    assert.equal(def.confidence, "full", JSON.stringify(def.problems));
+    assert.deepEqual(def.stages.map((s) => s.conditions.map((c) => `${c.slug} ${c.value}`)), [["sickened 1"], ["clumsy 1", "sickened 2"]]);
+    assert.deepEqual(def.stages.map((s) => !!s.unparsed), [false, false]);
+    for (const slug of Object.values(CONDITION_IDS)) assert.ok(CONDITION_SLUGS.includes(slug), slug);
 });

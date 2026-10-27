@@ -57,6 +57,8 @@ function messagesSince(since) {
         id: m.id, author: m.author?.id ?? null, type: m.flags?.pf2e?.context?.type ?? null, outcome: m.flags?.pf2e?.context?.outcome ?? null,
         options: m.flags?.pf2e?.context?.options ?? [], card: plain(m.flags?.[MODULE_ID]?.card ?? null), affliction: plain(m.flags?.[MODULE_ID]?.affliction ?? null),
         whisper: [...(m.whisper ?? [])],
+        // What the card says, as the chat log shows it (the module's cards only): a check reads its numbers, or a raw key.
+        ...(m.flags?.[MODULE_ID]?.card ? { text: m.content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 400) } : {}),
     }));
 }
 
@@ -106,7 +108,8 @@ export const AFFLICTION_SCENARIOS = {
             return out;
         } },
         npc: { about: "any client: the fixture NPC named params.name (17a ordinary, 17b immune to poison, 17c 9th level)", run: async (p) => {
-            const actor = game.actors.find((a) => a.name === p.name) ?? null;
+            // The fixture builder names an NPC after its fixture and the creature: "Fixture 17a: ordinary NPC (Goblin Warrior)".
+            const actor = game.actors.find((a) => a.name === p.name || a.name.startsWith(`${p.name} (`)) ?? null;
             return actor ? { uuid: actor.uuid, id: actor.id, name: actor.name, level: actor.level } : { missing: p.name };
         } },
         give: { about: "GM: give params.actor params.qty of params.uuid (an item or feat) with params.system merged, marked for reset", run: async (p) => {
@@ -139,11 +142,15 @@ export const AFFLICTION_SCENARIOS = {
             const weapon = actor.items.get(p.weapon);
             const strike = actor.system.actions.find((a) => a.item?.id === weapon?.id && a.type === "strike");
             const target = p.target ? fromUuidSync(p.target) : null;
-            const token = target?.getActiveTokens?.(true, true)?.[0] ?? null;
+            // The placeable (not the document): `Token#setTarget` targets it for this user.
+            const token = target?.getActiveTokens?.(true)?.[0] ?? null;
             if (token) token.setTarget(true, { releaseOthers: true });
-            const attack = await strike?.variants?.[p.map ?? 0]?.roll({ skipDialog: true });
+            // pf2e's Strike reads its dialog from the event, not `skipDialog` (`CheckPF2e.roll`, `eventToRollParams`): a click that
+            // skips it for this user, as M8's steps do, or the step waits on a dialog nobody clicks.
+            const click = (dialogs) => new globalThis.MouseEvent("click", { shiftKey: game.user.settings?.[dialogs] !== false });
+            const attack = await strike?.variants?.[p.map ?? 0]?.roll({ event: click("showCheckDialogs") });
             let damage = null;
-            if (p.damage && attack) damage = await strike.damage({ skipDialog: true });
+            if (p.damage && attack) damage = await strike.damage({ event: click("showDamageDialogs") });
             await sleep(p.ms ?? 1800);
             const host = actor.items.get(p.weapon);
             return { attack: attack ? attack.total ?? null : null, damage: !!damage, coating: plain(host?.flags?.[MODULE_ID]?.coating ?? null), messages: messagesSince(since),
@@ -172,6 +179,9 @@ export const AFFLICTION_SCENARIOS = {
             const actor = actorOf(p);
             const pending = p.runId ? { runId: p.runId, seq: p.seq } : afflictions.pendingOf(actor)[0] ?? null;
             if (!pending) return { none: true, brief: afflictionBrief(actor) };
+            // An exposure is listed as soon as its claim is written, but its save can be rolled only once the target's
+            // responsible client has applied the claim (the claims sweep, which may be busy with an earlier run): wait for that.
+            await waitFor(() => afflictions.pendingSave(actor, pending), p.applyMs ?? 8000);
             const since = Date.now();
             const result = await afflictions.rollSave(actor, { runId: pending.runId, seq: pending.seq }, { skipDialog: true, voluntaryFail: !!p.voluntaryFail });
             await waitFor(() => !afflictions.pendingOf(actor).some((x) => x.runId === pending.runId && x.seq === pending.seq), p.ms ?? 6000);
