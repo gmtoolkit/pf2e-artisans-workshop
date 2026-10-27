@@ -93,6 +93,18 @@ function audit(root) {
     return { unnamed, positive, noAlt, looseTabs, lowContrast: lowContrast.slice(0, 20), lowContrastCount: lowContrast.length };
 }
 
+/**
+ * The windows a macro run opened: the module's own (its class on the window) and core's dialogs (the questions), by a class
+ * that says which. Core's interface (the hotbar, the sidebar, the players list and the rest) is ApplicationV2 too and always
+ * in `foundry.applications.instances`, so counting every rendered instance found a window for every run (M11 live pass).
+ */
+export function moduleWindows(apps) {
+    const Dialog = foundry.applications.api.DialogV2;
+    return [...apps].filter((a) => a?.rendered && ((a.options?.classes ?? []).includes(MODULE_ID) || (typeof Dialog === "function" && a instanceof Dialog)))
+        .map((a) => (a.options?.classes ?? []).find((c) => c !== MODULE_ID && /window|shelf|panel|bandolier|request|advance|afflictions|dialog|workshop/.test(c))
+            ?? a.constructor?.name ?? "window");
+}
+
 /** The user's macros of the catalogue (flagged with an id), and the hotbar slots that hold them. */
 function catalogueMacros() {
     const mine = game.macros.filter((m) => m.flags?.[MODULE_ID]?.macro && m._source.author === game.user.id);
@@ -224,8 +236,7 @@ export const INTEGRATION_SCENARIOS = {
                 const started = Date.now();
                 const running = api.macros.run(id, p.args?.[id] ?? {});
                 const settled = await Promise.race([running.then((r) => ({ done: true, result: r })), sleep(p.wait ?? 3000).then(() => ({ done: false }))]);
-                const windows = [...foundry.applications.instances.values()].filter((a) => a.rendered)
-                    .map((a) => (a.options?.classes ?? []).find((c) => /window|shelf|panel|bandolier|request|advance|afflictions|dialog/.test(c)) ?? a.constructor.name);
+                const windows = moduleWindows(foundry.applications.instances.values());
                 await closeOurs();
                 const result = settled.done ? settled.result : await Promise.race([running, sleep(3000).then(() => ({ pending: true }))]);
                 const notes = (window.__live?.notes ?? []).slice(notesBefore).map((n) => ({ type: n.type, message: n.message }));
@@ -271,5 +282,23 @@ export const INTEGRATION_SCENARIOS = {
             return { on: game.settings.get(MODULE_ID, "ui.parchment"), classes: WorkshopApp.instance ? [...WorkshopApp.instance.element.classList] : [] };
         } },
         own: { about: "any client: whether the user's catalogue macro of params.id exists (ownMacroOf)", run: async (p) => ({ id: ownMacroOf(p.id)?.id ?? null }) },
+        table: { about: "any client: what core's keybindings change (the pause, the view, the controlled tokens and where the tokens stand); params.tokens activates the token layer and releases every token first; params.blur takes focus off any control", run: async (p) => {
+            if (p.blur) document.activeElement?.blur?.();
+            // A scene the GM just activated draws on every client a moment later.
+            if (p.tokens) await waitFor(() => canvas?.ready && canvas.tokens?.placeables?.length, 15000);
+            const ready = canvas?.ready === true;
+            if (ready && p.tokens) {
+                canvas.tokens.activate();
+                canvas.tokens.releaseAll();
+                await sleep(300);
+            }
+            const pivot = ready ? { x: Math.round(canvas.stage.pivot.x), y: Math.round(canvas.stage.pivot.y) } : null;
+            return plain({
+                paused: game.paused, canvas: ready, layer: ready ? canvas.activeLayer?.constructor?.name ?? null : null, pivot,
+                controlled: ready ? canvas.tokens.controlled.map((t) => t.id).sort() : [],
+                tokens: ready ? canvas.tokens.placeables.map((t) => ({ id: t.id, x: t.document.x, y: t.document.y })).sort((a, b) => (a.id < b.id ? -1 : 1)) : [],
+                focus: document.activeElement?.tagName ?? null,
+            });
+        } },
     },
 };

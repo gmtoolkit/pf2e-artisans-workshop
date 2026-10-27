@@ -4461,7 +4461,9 @@ async function m11Sheet(h, w) {
     await h.step("p1", "m11", "close", {});
     const other = await h.step("p2", "m11", "sheet", { actor: w.pcs.p2.uuid });
     checkStrip(h, "Player Two's fighter", other);
-    h.check("the fighter's strip has nothing waiting", /No Workshop jobs right now|Orders for this character/.test(other.stripText ?? ""), other.stripText);
+    // M11 live pass: "Orders for this character: n" is a count of orders filed for the fighter, so it no longer passes as "nothing".
+    h.check("the fighter's strip has nothing waiting: \"No Workshop jobs right now.\" and no count", /No Workshop jobs right now/.test(other.stripText ?? "") &&
+        !/: \d/.test(other.stripText ?? ""), other.stripText);
     await checkStatuses(h);
     if (before.toolbelt || before.workbench) await m11Companions(h, { toolbelt: before.toolbelt, workbench: before.workbench });
     return { order, sheet, request: request.clicked, other };
@@ -4479,10 +4481,14 @@ async function m11CompanionsPlan(h, w) {
     h.check("Toolbelt's crafting sort setting found and on for Player One", !!settings.p1.sortList, settings);
     const sheet = await h.step("p1", "m11", "sheet", { actor: w.pcs.p1.uuid, ms: 1500 });
     checkStrip(h, "with Toolbelt and Workbench", sheet);
-    h.check("Toolbelt's sort buttons are on the formula headers, Workbench's rows are untouched by the strip",
-        sheet.toolbeltSort >= 1 && sheet.formulaItems >= 1, { toolbeltSort: sheet.toolbeltSort, formulaItems: sheet.formulaItems, workbenchRarity: sheet.workbenchRarity });
-    const party = await h.step("p1", "m11", "party", {});
-    h.check("the Party card is there with the companions too", party.first.cards === 1 || !party.first.region, party.first);
+    h.check("Toolbelt's sort buttons are on the formula headers", sheet.toolbeltSort >= 1 && sheet.formulaItems >= 1,
+        { toolbeltSort: sheet.toolbeltSort, formulaItems: sheet.formulaItems });
+    // M11 live pass: the rarity classes were read and never checked, so "Workbench active" did not show Workbench ran on the sheet.
+    h.check("Workbench's rarity classes are on the formula rows, none in the strip", sheet.workbenchRarity >= 1 && sheet.stripWorkbench === 0,
+        { workbenchRarity: sheet.workbenchRarity, stripWorkbench: sheet.stripWorkbench, formulaItems: sheet.formulaItems });
+    // The GM always has the Overview (pf2e hides it from players only with its party stats off), so the card cannot be skipped.
+    const party = await h.step("gm", "m11", "party", {});
+    h.check("the Party card is there with the companions too (the GM's Overview)", party.first.region && party.first.cards === 1 && party.again.cards === 1, party);
     await checkStatuses(h);
     await m11Companions(h, { toolbelt: before.toolbelt, workbench: before.workbench });
     return { settings, sheet, party };
@@ -4496,9 +4502,11 @@ async function m11CompanionsPlan(h, w) {
 async function m11Party(h, w) {
     await m11Reset(h, w);
     const views = { gm: await h.step("gm", "m11", "party", {}), p1: await h.step("p1", "m11", "party", {}) };
+    // M11 live pass: with no Overview on both clients every card check was skipped. pf2e never hides it from a GM.
+    h.check("gm: the Party sheet has its Overview region", views.gm.first.region === true, views.gm.first);
     for (const [role, view] of Object.entries(views)) {
         h.check(`${role}: one Workshop button in the Party sheet's header`, view.first.header === 1, view.first.header);
-        if (!view.first.region) {
+        if (!view.first.region && role !== "gm") {
             h.check(`${role}: no Overview (pf2e's party stats off): no card, the header button stays`, view.first.cards === 0, view.first);
             continue;
         }
@@ -4596,6 +4604,10 @@ async function m11Macros(h, w) {
     h.check("each opened what asks for the rest, did its step, or refused in words", runs.every(RUN_OK), runs.filter((r) => !RUN_OK(r)));
     h.check("no macro errored or showed a raw key", runs.every((r) => !r.notes.some((n) => /pf2e-artisans-workshop\./.test(n.message ?? "")) && r.result?.reason !== "macro-error"),
         runs.filter((r) => r.result?.reason === "macro-error" || r.notes.some((n) => /pf2e-artisans-workshop\./.test(n.message ?? ""))));
+    // M11 live pass: what the user reads, not only the keys: no unfilled placeholder, no `undefined`, `NaN` or object text.
+    const unfilled = (n) => /\{[A-Za-z_][\w.]*\}|undefined|NaN|\[object /.test(n.message ?? "");
+    h.check("no notification shows an unfilled {placeholder}, undefined or NaN", runs.every((r) => !r.notes.some(unfilled)),
+        runs.filter((r) => r.notes.some(unfilled)).map((r) => [r.id, r.notes]));
     h.check("the windows that ask: the request form, the Workshop's tabs, the panel, the wizard", byId["request-item"].windows.length > 0 && byId["earn-income"].windows.length > 0 &&
         byId["learn-formula"].windows.length > 0 && byId["advance-days"].windows.length > 0 && byId["open-workshop"].windows.length > 0, runs.map((r) => [r.id, r.windows]));
     h.check("Pledge with an order and an amount pledged", byId.pledge.result?.ok === true, byId.pledge);
@@ -4616,11 +4628,15 @@ async function m11Keys(h, w) {
         unbound.others.every(Boolean), unbound);
     await h.step("p1", "m11", "keybinding", { bind: true });
     const { page } = h.clients.get("p1");
-    await page.mouse.click(5, 300);
+    // M11 live pass: the Workshop closed and focus on no control first, so an open window cannot pass for one the keys opened
+    // (and no click lands on the scene controls, as the click at (5, 300) did).
+    await h.step("p1", "m11", "close", {});
+    const before = await h.step("p1", "m11", "open", {});
+    await h.step("p1", "m11", "table", { blur: true });
     await page.keyboard.press("Alt+Shift+KeyW");
     await sleep(1500);
     const opened = await h.step("p1", "m11", "open", {});
-    h.check("Alt+Shift+W opens the Workshop", opened.open === true, opened);
+    h.check("Alt+Shift+W opens the Workshop (closed before the keys)", before.open === false && opened.open === true, { before, opened });
     await h.step("p1", "m11", "keybinding", { bind: false });
     await h.step("p1", "m11", "close", {});
     return { unbound, opened };
@@ -4639,68 +4655,111 @@ async function pressUntil(h, role, key, until, max = 60) {
 }
 
 /**
- * A keyboard-only walkthrough of the Workshop (15.3 scenario 10, 10.9): opened with the keybinding; the tabs by the arrow keys;
- * the order list's tab stop and Enter for the detail; in the medium tier Tab stays inside the detail and Escape gives focus
- * back to its row; the status bar's Macros button by Tab and Enter, and a tile added to the hotbar with Enter; the audit of
- * the window and the shelf finds no control without a name and no positive tab index.
+ * A keyboard-only walkthrough of the Workshop (15.3 scenario 10, 10.9), as Player One (`m11-keyboard`) or the GM
+ * (`m11-keyboard-gm`): opened with the keybinding; the tabs by the arrow keys; the order list's tab stop and Enter (Space for
+ * the GM, the key core pauses on) for the detail; in the medium tier Tab stays inside the detail and Escape gives focus back
+ * to its row; the status bar's Macros button by Tab and Enter, and a tile added to the hotbar with Enter; the audit of the
+ * window and the shelf finds no control without a name and no positive tab index. M11 live pass: none of those keys reaches
+ * core: the pause, the view and the controlled tokens are as they were. With `--canvas` the plan stages a marked scene with
+ * both characters' tokens (`m8 arena`, the world's own scene active again afterwards), and once the Workshop is closed it
+ * shows the same keys do reach core outside it (Tab controls a token; the GM's Space pauses and unpauses), so "unchanged"
+ * is not a canvas that ignores keys.
  */
-async function m11Keyboard(h, w) {
+async function m11Keyboard(h, w, { role = "p1" } = {}) {
     const order = await m11Reset(h, w);
-    await h.step("p1", "m11", "keybinding", { bind: true });
-    const { page } = h.clients.get("p1");
-    await page.mouse.click(5, 300);
+    const arena = h.canvas ? await h.step("gm", "m8", "arena", { tokens: [{ actor: w.pcs.p1.uuid, x: 4, y: 4 }, { actor: w.pcs.p2.uuid, x: 8, y: 6 }] }) : null;
+    try {
+        return await keyboardWalk(h, role, order, arena);
+    } finally {
+        if (arena) await h.step("gm", "m8", "arena", { off: true, previous: arena.previous });
+    }
+}
+
+/** What core's keybindings change, as `table` reads it, without the focus. */
+const tableState = (t) => JSON.stringify({ paused: t.paused, pivot: t.pivot, controlled: t.controlled, tokens: t.tokens });
+
+async function keyboardWalk(h, role, order, arena) {
+    const who = role === "gm" ? "GM" : "Player One";
+    if (role !== "p1") await h.step(role, "m11", "cleanup", {});
+    await h.step(role, "m11", "keybinding", { bind: true });
+    const { page } = h.clients.get(role);
+    const table0 = await h.step(role, "m11", "table", { tokens: !!arena, blur: true });
+    if (arena) h.check(`${who}: the arena's two tokens are on the canvas, none controlled`, table0.canvas && table0.tokens.length === 2 && table0.controlled.length === 0, table0);
     await page.keyboard.press("Alt+Shift+KeyW");
     await sleep(1500);
     // M11 review: the keybinding puts focus in the window, on its active tab; no Tab press is needed to get there.
-    const toTabs = await h.step("p1", "m11", "focus", {});
-    h.check("the keybinding puts focus on the Workshop's active tab", toTabs.inWorkshop && toTabs.tab === toTabs.currentTab, toTabs);
+    const toTabs = await h.step(role, "m11", "focus", {});
+    h.check(`${who}: the keybinding puts focus on the Workshop's active tab`, toTabs.inWorkshop && toTabs.tab === toTabs.currentTab, toTabs);
     await page.keyboard.press("ArrowDown");
     await sleep(600);
-    const funds = await h.step("p1", "m11", "focus", {});
-    h.check("ArrowDown moves to the next tab and shows it", funds.currentTab === "funds" && funds.tab === "funds", funds);
+    const funds = await h.step(role, "m11", "focus", {});
+    h.check(`${who}: ArrowDown moves to the next tab and shows it`, funds.currentTab === "funds" && funds.tab === "funds", funds);
     await page.keyboard.press("ArrowUp");
     await sleep(600);
-    const toRow = await pressUntil(h, "p1", "Tab", (f) => f.inWorkshop && f.orderId && f.tag === "LI", 40);
-    h.check("Tab reaches the order list's one tab stop", toRow.orderId === order, toRow);
-    await page.keyboard.press("Enter");
+    const toRow = await pressUntil(h, role, "Tab", (f) => f.inWorkshop && f.orderId && f.tag === "LI", 40);
+    h.check(`${who}: Tab reaches the order list's one tab stop`, toRow.orderId === order, toRow);
+    const openKey = role === "gm" ? "Space" : "Enter";
+    await page.keyboard.press(openKey);
     await sleep(900);
-    const detail = await h.step("p1", "m11", "focus", {});
-    h.check("Enter opens the order's detail and puts focus in it", detail.selected === order && detail.inDetail, detail);
-    await h.step("p1", "m11", "size", { width: 900 });
+    const detail = await h.step(role, "m11", "focus", {});
+    h.check(`${who}: ${openKey} opens the order's detail and puts focus in it`, detail.selected === order && detail.inDetail, detail);
+    await h.step(role, "m11", "size", { width: 900 });
     const seen = [];
     for (let i = 0; i < 25; i++) {
         await page.keyboard.press("Tab");
         await sleep(40);
-        seen.push((await h.step("p1", "m11", "focus", {})).inDetail);
+        seen.push((await h.step(role, "m11", "focus", {})).inDetail);
     }
-    h.check("in the medium tier Tab stays inside the detail (the slide-over traps focus)", seen.every(Boolean), seen);
+    h.check(`${who}: in the medium tier Tab stays inside the detail (the slide-over traps focus)`, seen.every(Boolean), seen);
     await page.keyboard.press("Escape");
     await sleep(800);
-    const back = await h.step("p1", "m11", "focus", {});
-    h.check("Escape closes the detail and gives focus back to its row", !back.detailOpen && back.orderId === order && back.tag === "LI", back);
-    const sized = await h.step("p1", "m11", "size", { width: 1100 });
-    h.check("the resize is remembered for the next window", sized.saved?.width === 1100, sized);
-    const toMacros = await pressUntil(h, "p1", "Tab", (f) => f.action === "macros", 120);
-    h.check("Tab reaches the status bar's Macros button", toMacros.action === "macros", toMacros);
+    const back = await h.step(role, "m11", "focus", {});
+    h.check(`${who}: Escape closes the detail and gives focus back to its row`, !back.detailOpen && back.orderId === order && back.tag === "LI", back);
+    const sized = await h.step(role, "m11", "size", { width: 1100 });
+    h.check(`${who}: the resize is remembered for the next window`, sized.saved?.width === 1100, sized);
+    const toMacros = await pressUntil(h, role, "Tab", (f) => f.action === "macros", 120);
+    h.check(`${who}: Tab reaches the status bar's Macros button`, toMacros.action === "macros", toMacros);
     await page.keyboard.press("Enter");
     await sleep(1500);
-    const inShelf = await h.step("p1", "m11", "focus", {});
-    h.check("Enter on Macros puts focus on the shelf's first tile (M11 review)", inShelf.inShelf && inShelf.action === "run", inShelf);
-    const toHotbar = await pressUntil(h, "p1", "Tab", (f) => f.inShelf && f.action === "hotbar", 4);
-    h.check("Tab reaches a tile's Add to hotbar in the shelf", toHotbar.inShelf && toHotbar.action === "hotbar", toHotbar);
+    const inShelf = await h.step(role, "m11", "focus", {});
+    h.check(`${who}: Enter on Macros puts focus on the shelf's first tile (M11 review)`, inShelf.inShelf && inShelf.action === "run", inShelf);
+    const toHotbar = await pressUntil(h, role, "Tab", (f) => f.inShelf && f.action === "hotbar", 4);
+    h.check(`${who}: Tab reaches a tile's Add to hotbar in the shelf`, toHotbar.inShelf && toHotbar.action === "hotbar", toHotbar);
     await page.keyboard.press("Enter");
     await sleep(1500);
-    const hotbar = await h.step("p1", "m11", "hotbar", {});
-    h.check("Enter on Add to hotbar puts the macro on the hotbar, no drag needed", hotbar.macros.length === 1 && hotbar.slots.length === 1, hotbar);
-    const kept = await h.step("p1", "m11", "focus", {});
-    h.check("focus stays on that tile's Add to hotbar as the shelf renders again (M11 review)", kept.inShelf && kept.action === "hotbar" && kept.macro === toHotbar.macro, kept);
-    const audit = await h.step("p1", "m11", "audit", {});
-    h.check("the Workshop and the shelf: no control without a name, no positive tab index, no tab outside its tablist",
+    const hotbar = await h.step(role, "m11", "hotbar", {});
+    h.check(`${who}: Enter on Add to hotbar puts the macro on the hotbar, no drag needed`, hotbar.macros.length === 1 && hotbar.slots.length === 1, hotbar);
+    const kept = await h.step(role, "m11", "focus", {});
+    h.check(`${who}: focus stays on that tile's Add to hotbar as the shelf renders again (M11 review)`, kept.inShelf && kept.action === "hotbar" && kept.macro === toHotbar.macro, kept);
+    const audit = await h.step(role, "m11", "audit", {});
+    h.check(`${who}: the Workshop and the shelf: no control without a name, no positive tab index, no tab outside its tablist`,
         ["workshop", "shelf"].every((k) => audit[k] && audit[k].unnamed.length === 0 && audit[k].positive.length === 0 && audit[k].looseTabs === 0), audit);
-    await h.step("p1", "m11", "keybinding", { bind: false });
-    await h.step("p1", "m11", "close", {});
-    await h.step("p1", "m11", "cleanup", {});
-    return { toTabs, funds, toRow, detail, seen, back, toMacros, toHotbar, hotbar, audit };
+    const table1 = await h.step(role, "m11", "table", {});
+    h.check(`${who}: none of the keys reached core: the pause${arena ? ", the view, the controlled tokens and the tokens' places" : ""} are as they were`,
+        tableState(table1) === tableState(table0), { before: table0, after: table1 });
+    await h.step(role, "m11", "keybinding", { bind: false });
+    await h.step(role, "m11", "close", {});
+    await h.step(role, "m11", "cleanup", {});
+    // The controls: outside the module's windows the same keys are core's, so the comparison above could have failed.
+    const control = {};
+    if (arena) {
+        await h.step(role, "m11", "table", { blur: true });
+        await page.keyboard.press("Tab");
+        await sleep(800);
+        control.tab = await h.step(role, "m11", "table", {});
+        h.check(`${who}, control: outside the Workshop, Tab is core's (it controls a token)`, control.tab.controlled.length === 1, control.tab);
+    }
+    if (role === "gm") {
+        const paused = (await h.step(role, "m11", "table", { blur: true })).paused;
+        await page.keyboard.press("Space");
+        await sleep(800);
+        control.space = (await h.step(role, "m11", "table", {})).paused;
+        await page.keyboard.press("Space");
+        await sleep(800);
+        control.again = (await h.step(role, "m11", "table", {})).paused;
+        h.check("GM, control: outside the Workshop, Space is core's (it pauses or unpauses, and back)", control.space === !paused && control.again === paused, { paused, ...control });
+    }
+    return { toTabs, funds, toRow, detail, seen, back, toMacros, toHotbar, hotbar, audit, table0, table1, control };
 }
 
 /**
@@ -4712,13 +4771,19 @@ async function m11Themes(h, w) {
     const order = await m11Reset(h, w);
     const results = {};
     for (const scheme of ["dark", "light", "parchment"]) {
-        await h.step("p1", "m4", "theme", { scheme: scheme === "parchment" ? "dark" : scheme });
+        const set = await h.step("p1", "m4", "theme", { scheme: scheme === "parchment" ? "dark" : scheme });
         const parchment = await h.step("p1", "m11", "parchment", { on: scheme === "parchment" });
+        // M11 live pass: the shelf too (the plan said so and never opened it), and the scheme checked, so two runs in one scheme
+        // cannot pass for both. The Workshop on the order's detail, then the shelf beside it (`api.ui.macros`).
         await h.step("p1", "m4", "open", { tab: "queue", order });
+        await h.evaluate("p1", async (mod) => !!(await game.modules.get(mod).api.ui.macros()), MOD, "open the macro shelf");
         await sleep(800);
         const audit = await h.step("p1", "m11", "audit", {});
-        results[scheme] = { parchment, audit };
+        results[scheme] = { set, parchment, audit };
+        h.check(`${scheme}: the interface is in the ${scheme === "light" ? "light" : "dark"} scheme`, set.scheme === (scheme === "light" ? "light" : "dark") &&
+            audit.scheme === set.scheme, { set: set.scheme, seen: audit.scheme });
         h.check(`${scheme}: no text in the Workshop below its contrast (4.5:1, large text 3:1)`, audit.workshop?.lowContrastCount === 0, audit.workshop?.lowContrast);
+        h.check(`${scheme}: no text in the macro shelf below its contrast`, audit.shelf?.lowContrastCount === 0, audit.shelf?.lowContrast ?? audit.shelf);
         if (scheme === "parchment") h.check("Parchment: core's light theme and the parchment class on the open window", ["themed", "theme-light", "paw-parchment"]
             .every((c) => audit.classes.includes(c)), audit.classes);
         await h.step("p1", "m11", "close", {});
@@ -4746,7 +4811,9 @@ async function m11Shots(h, w) {
         await h.step("p1", "m11", "close", {});
     }
     await h.step("p1", "m4", "theme", { scheme: "dark" });
-    h.check("the strip, the card and the shelf were there for every capture", taken.every((t) => t.strips === 1 || t.first?.cards === 1 || t.first?.region === false || t.open), taken);
+    // M11 live pass: six captures, each with what it shows (a card skipped for want of an Overview no longer passes).
+    const shown = (t) => t.strips === 1 || t.first?.cards === 1 || (t.open === true && t.tiles?.length > 0);
+    h.check("the strip, the card and the shelf were there for every capture", taken.length === 6 && taken.every(shown), taken);
     return { shots: h.shots.filter((s) => s.label === h.label).map((s) => s.file) };
 }
 
@@ -4759,6 +4826,7 @@ Object.assign(BEHAVIOURS, {
     "m11-macros": m11Macros,
     "m11-keys": m11Keys,
     "m11-keyboard": m11Keyboard,
+    "m11-keyboard-gm": (h, w) => m11Keyboard(h, w, { role: "gm" }),
     "m11-themes": m11Themes,
     "m11-shots": m11Shots,
 });
