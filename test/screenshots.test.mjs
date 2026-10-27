@@ -61,3 +61,13 @@ test("every capture is a PNG in docs/screenshots/, linked from the README in ord
         assert.ok(readme.includes(`(${SCREENSHOT_DIR}${capture.file})\\\n*${capture.caption}*`), `README caption of ${capture.file}`);
     }
 });
+
+test("the Morning tab's capture (M7) is taken by npm run screenshots but linked from the README only once it has been checked", async () => {
+    const { NEXT_CAPTURES } = await import("../tools/harness/screenshots.mjs");
+    assert.deepEqual(NEXT_CAPTURES.map((c) => [c.file, c.view]), [["morning.png", "morning"]]);
+    for (const capture of NEXT_CAPTURES) {
+        assert.ok(!CAPTURES.some((c) => c.file === capture.file), capture.file);
+        assert.ok(isScreenshotPath(`${SCREENSHOT_DIR}${capture.file}`), capture.file);
+        assert.deepEqual(textProblems(capture.caption), []);
+    }
+});

@@ -198,6 +198,21 @@ export const REFUSAL = Object.freeze({
     rolled: "pf2e-artisans-workshop.Roll.AlreadyRolled",
     unrolled: "pf2e-artisans-workshop.Refusal.Unrolled",
     "no-earner": "pf2e-artisans-workshop.Refusal.NoCharacter",
+    // M7 (7.1-7.7): daily preparations, loadouts, standing orders, Food Preservation.
+    prepared: "pf2e-artisans-workshop.Refusal.Prepared",
+    sheet: "pf2e-artisans-workshop.Refusal.Sheet",
+    plan: "pf2e-artisans-workshop.Refusal.Plan",
+    busy: "pf2e-artisans-workshop.Refusal.Busy",
+    off: "pf2e-artisans-workshop.Refusal.Off",
+    "no-loadout": "pf2e-artisans-workshop.Refusal.NoLoadout",
+    "bad-loadout": "pf2e-artisans-workshop.Refusal.BadLoadout",
+    "nothing-prepared": "pf2e-artisans-workshop.Refusal.NothingPrepared",
+    "no-crafter": "pf2e-artisans-workshop.Refusal.NoCrafter",
+    "bad-standing": "pf2e-artisans-workshop.Refusal.BadStanding",
+    "no-standing": "pf2e-artisans-workshop.Refusal.NoStanding",
+    "not-preservable": "pf2e-artisans-workshop.Refusal.NotPreservable",
+    "too-many": "pf2e-artisans-workshop.Refusal.TooMany",
+    system: "pf2e-artisans-workshop.Refusal.System",
     other: "pf2e-artisans-workshop.Refusal.Other",
 });
 

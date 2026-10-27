@@ -22,6 +22,7 @@ import { MODULE_ID } from "../constants.mjs";
 import { compareIds } from "../logic/ids.mjs";
 import { registerBatchWatcher } from "./batch.mjs";
 import { sweepWages } from "./downtime.mjs";
+import { expirySweep } from "./expiry.mjs";
 import { sweepClaims, sweepDeliveries } from "./claims.mjs";
 import { resumeFormulaClaims } from "./formulas.mjs";
 import { loadCoinTemplates } from "./coins.mjs";
@@ -201,6 +202,8 @@ const SWEEP_STEPS = [
     ["wages", () => sweepWages()],
     // M6: order repairs the hook missed, such as a setup a runner's day records completed while nobody was responsible.
     ["orders", () => sweepOrderRepairs()],
+    // M7: party-wide expiry (7.7): items the actors this tab is responsible for hold, and its share of the strongbox.
+    ["expiry", () => expirySweep()],
     ["resume", async () => sweepAgainIn("resume", (await resumeStalled()).dueInMs)],
     ["pending rows", () => sweepAgainIn("pending rows", reportOwnPending().dueInMs)],
 ];

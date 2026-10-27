@@ -2,6 +2,56 @@
 
 Newest first.
 
+## 2026-10-26: Preserved foods stop being temporary; the rules text beats pf2e's daily-pool data
+
+**Decision:** a food designated with Food Preservation gets `system.temporary: false` (and is made temporary again when
+it spoils), and the designations are kept on the creator rather than read from its inventory. Where pf2e's data for a
+daily-preparation source disagrees with the feat's text (Herbalist's two fewer outside the wilderness, Lethargy
+Poisoner's doses by rank and Stupor Poison from expert, the alchemist archetype's Advanced Alchemy making consumables
+only), the registry's `correction` effects lower pf2e's count or narrow what the pool makes, the Morning tab shows both
+numbers, and the Workshop refuses a plan beyond the rules' count, a kept preparation included. Whether the preparations
+are made in the wilderness is asked on the Morning tab for each preparation.
+
+**Why:** pf2e's Rest for the Night deletes every temporary item on the actor that rests, so an exemption from the
+module's own expiry alone kept nothing; the feat's cap counts every preserved food, wherever it went. The registry exists
+for data the system gets wrong (6.11), and the module never re-implements pf2e's crafting: the corrections only make the
+module ask pf2e for less than pf2e would allow, through the same `CraftingAbility` methods.
+
+**Consequences:** DESIGN 7.4, 7.7, 7.9 and 10.13 (After the second M7 review); a correction carries the pf2e rule it
+answers (`bug`), and the validation script reports it once pf2e's rule changes. pf2e's own sheet still prepares by
+pf2e's numbers.
+
+## 2026-10-26: Talisman Dabbler's daily talismans need no formula book
+
+**Decision:** the talisman pools' virtual lists (Talisman Dabbler: common talismans of the character's level or lower;
+Talisman Esoterica: the common GM Core ones) are offered on the Morning tab up to the pool's own item level (half the
+character's level), and the talismans picked are made with pf2e's `CraftingAbility#craft` without consuming a prepared
+slot, counted against the pool's slots by the module. Nothing is written into the formula book for them, and no
+`virtual` provenance record is written. A talisman the book does have goes through the pool's prepared list as before.
+
+**Why:** Player Core 2's Talisman Dabbler Dedication says the character remembers talisman formulas and needs no formula
+book for them; writing every talisman picked into the book would fill it with formulas the character never learned
+from one. pf2e drops prepared formulas the book does not know, so its prepared list cannot hold them; `craft` does not
+check the book (verified), which is what lets a virtual talisman be made through the system's own method.
+
+**Consequences:** DESIGN 7.4 and 4.13 change; the Morning tab, not the book, is where a Dabbler's talismans are chosen;
+permanent talismans crafted in downtime still take the 1-day `virtual` route of 4.3 (OQ-8).
+
+## 2026-10-26: Expiry by preparation cycle, raised at the rest
+
+**Decision:** what a character's daily preparations make is stamped with the character's preparation cycle
+(`pcs.<actorId>.prepCycle`), which goes up when Rest for the Night is taken (after pf2e-dailies' own rest when it is
+active) for a character with a daily pool or versatile vials, or when "Prepare for a new day" is used without a rest.
+Each holder's client marks inert what an older cycle made, wherever it is; a character in downtime without a standing
+routine keeps its cycle at a rest. A party member's standing order never blocks the crafter's own preparation: one that
+does not fit is left out for the day.
+
+**Why:** the infused trait ends items at the creator's next daily preparations, and the system deletes temporary items
+only on the actor that rests; the rest is the one signal every table already gives. A fighter's rest writes nothing,
+since nothing it makes is stamped.
+
+**Consequences:** DESIGN 7.7, 7.8 and 10.13 (As built in M7); the turn-based expiry of Quick Alchemy items is M8's.
+
 ## 2026-10-26: README screenshots in docs/screenshots/
 
 **Decision:** the README shows screenshots of the module's own window, taken by `npm run screenshots` from a demo party

@@ -42,9 +42,20 @@ const KINDS = {
     skillSubstitution: (e) => typeof e.skill === "string" && typeof e.when === "object",
     toolSubstitution: (e) => Array.isArray(e.tools) && e.tools.length > 0,
     earnIncome: (e) => typeof e.doubleFailure === "boolean",
-    correction: (e) => e.consumable === true,
+    // A talisman batched as a consumable; or (M7, 7.1) a daily pool's source: its slots, what it makes, or a rank gate,
+    // with the pf2e rule it answers.
+    correction: (e) => e.consumable === true || (typeof e.pool === "string" && typeof e.bug === "object" && (
+        (typeof e.slots === "object" && (Array.isArray(e.slots.byRank) ? e.slots.byRank.every(Number.isInteger) && typeof e.slots.skill === "string"
+            : Number.isInteger(e.slots.add))) ||
+        typeof e.craftable === "object" ||
+        (typeof e.gate === "object" && typeof e.gate.when === "object" && typeof e.gate.skill === "string" && Number.isInteger(e.gate.rank)))),
     repairHp: (e) => Number.isInteger(e.success) && Number.isInteger(e.critSuccess),
     variantOnly: (e) => typeof e.variant === "string" && e.variant in rulesWith({}).variants,
+    // M7 (7.1, 7.4, 7.7, 7.10).
+    dcStamp: (e) => typeof e.pool === "string" && Array.isArray(e.dcs) && e.dcs.every((dc) => ["class", "spell"].includes(dc)),
+    dailyGap: (e) => ["note", "designate", "dailies"].includes(e.flow),
+    vialSource: (e) => typeof e.regain === "boolean",
+    expiryRule: (e) => e.rule === "designate" && typeof e.when === "object",
 };
 
 test("every entry has the schema of scripts/data/registry.mjs, tier 4 exactly for legacy entries", () => {

@@ -15,6 +15,9 @@
  *   and the Advance days wizard (`advance.mjs`), the current settlement and (for a GM) the settlement profiles, and Earn
  *   Income jobs; the tab's button carries a badge while the user's characters have days to resolve (9.1). An order's
  *   detail lists its Communal Crafting helpers (6.7).
+ * - Morning (M7, `morning.mjs`): one character's daily preparations: its pools and their sources, vials, talisman pickers,
+ *   loadouts, standing orders, the affix board and what will expire; the tab's button carries a badge while a rest has left
+ *   the user's characters waiting to prepare (7.8).
  * - Status bar: an `aria-live` region for queue events, and the banner when the shared documents are not usable.
  *
  * Detached-window safe: listeners are delegated from the window's own element, elements are tested with
@@ -52,6 +55,7 @@ import { formulasContext, formulasOn, onFormulaChange, onFormulaDrop, onFormulaO
 import { allServices } from "../foundry/services.mjs";
 import { dayWatcher, downtimeOn, today, worldDate } from "../foundry/downtime.mjs";
 import { downtimeContext, helpersContext, onDowntimeChange, onDowntimeInput, onDowntimeOp, onHelperOp, pendingBadge } from "./downtime.mjs";
+import { morningBadge, morningContext, onMorningChange, onMorningInput, onMorningOp } from "./morning.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -123,6 +127,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             // M6: the Downtime tab, and the helpers of an order (Communal Crafting).
             downtime: WorkshopApp.#onDowntime,
             helper: WorkshopApp.#onHelper,
+            // M7: the Morning tab.
+            morning: WorkshopApp.#onMorning,
         },
     };
 
@@ -131,6 +137,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         nav: { template: T("nav") },
         queue: { template: T("queue"), scrollable: [".queue-main", ".order-detail"], templates: PARTIALS },
         funds: { template: T("funds"), scrollable: [""] },
+        morning: { template: T("morning"), scrollable: [""] },
         formulas: { template: T("formulas"), scrollable: [".codex-main", ".codex-learn"] },
         downtime: { template: T("downtime"), scrollable: [""] },
         status: { template: T("status") },
@@ -141,6 +148,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             tabs: [
                 { id: "queue", icon: "fa-solid fa-list-check", label: "pf2e-artisans-workshop.Window.Tab.Queue" },
                 { id: "funds", icon: "fa-solid fa-coins", label: "pf2e-artisans-workshop.Window.Tab.Funds" },
+                { id: "morning", icon: "fa-solid fa-sun", label: "pf2e-artisans-workshop.Window.Tab.Morning" },
                 { id: "formulas", icon: "fa-solid fa-book-open", label: "pf2e-artisans-workshop.Window.Tab.Formulas" },
                 { id: "downtime", icon: "fa-solid fa-calendar-days", label: "pf2e-artisans-workshop.Window.Tab.Downtime" },
             ],
@@ -169,11 +177,20 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     /** The Downtime tab's badge as last rendered: the nav renders again only when it changes (9.1). */
     lastBadge = 0;
 
+    /** The Morning tab's badge as last rendered (7.8). */
+    lastMorningBadge = 0;
+
+    /** Whether a tab badge changed since the nav last rendered. */
+    badgesMoved() {
+        return pendingBadge() !== this.lastBadge || morningBadge() !== this.lastMorningBadge;
+    }
+
     /** Re-render after store changes stop for a moment (10.1). */
     refresh = foundry.utils.debounce(() => {
         if (!this.rendered) return;
         const parts = ["header", "queue", "funds", "formulas", "downtime", "status"];
-        if (pendingBadge() !== this.lastBadge) parts.push("nav");
+        if (this.tabGroups.primary === "morning") parts.push("morning");
+        if (this.badgesMoved()) parts.push("nav");
         this.render({ parts });
     }, 150);
 
@@ -181,7 +198,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     refreshDay = foundry.utils.debounce(() => {
         if (!this.rendered) return;
         const parts = ["header", "downtime"];
-        if (pendingBadge() !== this.lastBadge) parts.push("nav");
+        if (this.tabGroups.primary === "morning") parts.push("morning");
+        if (this.badgesMoved()) parts.push("nav");
         this.render({ parts });
     }, 150);
 
@@ -233,8 +251,17 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         if (partId === "downtime" && context.readable) Object.assign(part, downtimeContext(this));
         if (partId === "nav") {
             this.lastBadge = context.readable ? pendingBadge() : 0;
-            part.badges = { downtime: this.lastBadge || null };
-            part.badgeLabels = { downtime: this.lastBadge ? game.i18n.format("pf2e-artisans-workshop.Downtime.Badge", { n: number(this.lastBadge) }) : null };
+            this.lastMorningBadge = context.readable ? morningBadge() : 0;
+            part.badges = { downtime: this.lastBadge || null, morning: this.lastMorningBadge || null };
+            part.badgeLabels = {
+                downtime: this.lastBadge ? game.i18n.format("pf2e-artisans-workshop.Downtime.Badge", { n: number(this.lastBadge) }) : null,
+                morning: this.lastMorningBadge ? game.i18n.format(this.lastMorningBadge === 1 ? "pf2e-artisans-workshop.Morning.BadgeOne" : "pf2e-artisans-workshop.Morning.Badge",
+                    { n: number(this.lastMorningBadge) }) : null,
+            };
+        }
+        // The Morning tab reads every character's pools and the equipment catalogue: built only while its tab is shown.
+        if (partId === "morning" && context.readable) {
+            Object.assign(part, this.tabGroups.primary === "morning" ? await morningContext(this) : { morningPending: true });
         }
         // The Codex scans the equipment catalogue, so it is built only while its tab is shown (changeTab renders it then).
         if (partId === "formulas" && context.readable) {
@@ -440,6 +467,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         super.changeTab(tab, group, options);
         this.#syncTabs();
         if (tab === "formulas") this.render({ parts: ["formulas"] });
+        if (tab === "morning") this.render({ parts: ["morning"] });
         if (setting("ui.lastTab") !== tab) game.settings.set(MODULE_ID, "ui.lastTab", tab);
     }
 
@@ -465,6 +493,10 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             this.render({ parts: ["formulas"] });
             return;
         }
+        if (target.closest?.(".workshop-morning")) {
+            if (onMorningChange(this, target)) this.render({ parts: ["morning"] });
+            return;
+        }
         if (target.closest?.(".workshop-downtime")) {
             const again = await onDowntimeChange(this, target);
             if (again) this.render({ parts: ["downtime"] });
@@ -487,6 +519,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     #formulaSearchDebounce = foundry.utils.debounce(() => this.render({ parts: ["formulas"] }), 250);
 
     #onInput(event) {
+        if (event.target.closest?.(".workshop-morning") && onMorningInput(this, event.target)) return;
         if (event.target.closest?.(".workshop-downtime") && onDowntimeInput(this, event.target)) return;
         if (event.target.dataset?.codex === "search") {
             onFormulaSearch(this, event.target.value);
@@ -827,6 +860,18 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         return this.render({ parts: ["downtime"] });
     }
 
+    /** A Morning tab button (M7). */
+    static async #onMorning(_event, target) {
+        target.disabled = true;
+        try {
+            const result = await onMorningOp(this, target);
+            if (result?.ok) this.announce(game.i18n.localize("pf2e-artisans-workshop.Event.Morning"));
+        } finally {
+            if (target.isConnected) target.disabled = false;
+        }
+        return this.render({ parts: ["morning", "nav"] });
+    }
+
     /** A helpers button on an order's detail (M6, 6.7). */
     static async #onHelper(_event, target) {
         target.disabled = true;
@@ -874,6 +919,9 @@ export function registerWindowHooks() {
         if (dayMoved()) WorkshopApp.instance?.refreshDay();
     });
     Hooks.on("pf2e-artisans-workshop.announce", (text) => WorkshopApp.instance?.announce(text));
+    // M7: a rest's Morning prompt and a preparation change the Morning tab and its badge (7.8).
+    Hooks.on("pf2e-artisans-workshop.morningPrompt", touch);
+    Hooks.on("pf2e-artisans-workshop.preparationCompleted", touch);
     Hooks.once("setup", () => foundry.applications.handlebars.loadTemplates([...PARTIALS]));
 }
 

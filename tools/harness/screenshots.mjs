@@ -92,6 +92,16 @@ export const CAPTURES = Object.freeze([
         caption: "The Queue in the light theme, with a finished order's cost summary." },
 ]);
 
+/**
+ * Captures taken and written beside `CAPTURES` but not yet linked from the README (M7: the Morning tab, 17.1 "refreshed
+ * whenever a milestone adds a tab"). After a run, check the file by eye, move its entry into `CAPTURES` and add its caption
+ * to the README's Screenshots section, which `test/screenshots.test.mjs` then holds to it.
+ */
+export const NEXT_CAPTURES = Object.freeze([
+    { file: "morning.png", scheme: "dark", view: "morning",
+        caption: "Morning: a character's daily crafting by pool, the talismans it can make today, loadouts and standing orders." },
+]);
+
 /** Names that must never appear in a capture: the fixture actors' labels and the character imported into the dev world. */
 export const BANNED_NAMES = Object.freeze(["Fixture"]);
 
@@ -483,6 +493,12 @@ async function show(h, capture, orders, demo) {
         return h.step("p1", "m5", "open", { tab: "formulas", actor: demo.alchemist.uuid, uuid: ITEMS.lightningModerate, ms: 2000 });
     }
     if (capture.view === "downtime") return h.step("p1", "m4", "open", { tab: "downtime", ms: 2000 });
+    if (capture.view === "morning") {
+        // The alchemist's Morning with two talismans of the Dabbler's picker chosen (M7, `morning-scenarios.mjs`).
+        const facts = await h.step("p1", "m7", "facts", { actor: demo.alchemist.uuid });
+        const picks = (facts.pools.find((p) => p.slug === "talisman-dabbler")?.offered ?? []).slice(0, 2).map((t) => t.uuid);
+        return h.step("p1", "m7", "open", { actor: demo.alchemist.uuid, talismans: { "talisman-dabbler": picks }, ms: 2000 });
+    }
     const tab = capture.view === "funds" ? "funds" : "queue";
     const opened = await h.step("p1", "m4", "open", { tab, order: capture.order ? orders[capture.order] : null, ms: 1500 });
     if (capture.view === "request") return { ...opened, form: await h.evaluate("p1", pageRequestForm, { mod: MODULE_ID, uuid: ITEMS.mistformModerate, quantity: 2 }) };
@@ -521,7 +537,7 @@ export function compress(path, limit = SCREENSHOT_MAX_BYTES) {
 async function captureAll(h, orders, demo, outDir) {
     const results = [];
     let scheme = null;
-    for (const capture of CAPTURES) {
+    for (const capture of [...CAPTURES, ...NEXT_CAPTURES]) {
         if (capture.scheme !== scheme) {
             await h.step("p1", "m4", "theme", { scheme: capture.scheme });
             scheme = capture.scheme;

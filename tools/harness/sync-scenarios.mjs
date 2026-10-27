@@ -18,6 +18,8 @@
  *   m5   formulas, formula jobs, runes, materials, pledges, services and the Formulas tab (M5, `formula-scenarios.mjs`)
  *   m6   downtime: the clock and its prompt, the day resolver and the wizard, helpers, Earn Income, settlements (M6,
  *        `downtime-scenarios.mjs`)
+ *   m7   daily preparations: the Morning, loadouts, standing orders, expiry, rest ordering with and without pf2e-dailies,
+ *        affixing (M7, `morning-scenarios.mjs`)
  *
  * They run in a dev world (`game.settings.set("pf2e-artisans-workshop", "dev", true)`), in each user's own
  * browser profile, from the console or from Playwright through `page.evaluate`:
@@ -51,6 +53,7 @@ import { newId, read, records, stampNow } from "../../scripts/foundry/store.mjs"
 import { refresh } from "../../scripts/foundry/sync.mjs";
 import { DOWNTIME_SCENARIOS } from "./downtime-scenarios.mjs";
 import { FORMULA_SCENARIOS } from "./formula-scenarios.mjs";
+import { MORNING_SCENARIOS } from "./morning-scenarios.mjs";
 import { ORDER_SCENARIOS } from "./order-scenarios.mjs";
 import { ROLL_SCENARIOS } from "./roll-scenarios.mjs";
 
@@ -335,6 +338,7 @@ const SCENARIOS = {
     ...ORDER_SCENARIOS,
     ...FORMULA_SCENARIOS,
     ...DOWNTIME_SCENARIOS,
+    ...MORNING_SCENARIOS,
 };
 
 /** Every scenario, its steps and what each does. */

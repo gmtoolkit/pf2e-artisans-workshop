@@ -163,6 +163,16 @@ test("predicates may name only item options some physical item has; books and co
     assert.deepEqual(stale.problems.map((p) => p.problem), ["has the consumable trait now, so its correction is stale"]);
 });
 
+test("a daily pool's correction is reported once pf2e's CraftingAbility rule no longer reads as its bug says (second M7 review)", (t) => {
+    const source = loadSource(fakeCheckout(t));
+    const entry = (bug) => ({ uuid: uuid("feats-srd", FEAT_ID), type: "feat", remaster: true,
+        effects: [{ kind: "correction", pool: "talisman-dabbler", slots: { add: -1, unless: "wilderness" }, bug }] });
+    assert.deepEqual(checkEntries({ registry: { "talisman-dabbler-dedication": entry({ slug: "talisman-dabbler", maxSlots: 2 }) }, ignore: {}, source }).problems, []);
+    const stale = checkEntries({ registry: { "talisman-dabbler-dedication": entry({ slug: "talisman-dabbler", maxSlots: 4 }) }, ignore: {}, source });
+    assert.deepEqual(stale.problems.map((p) => p.problem),
+        ['its CraftingAbility rule no longer reads {"slug":"talisman-dabbler","maxSlots":4}: check whether the talisman-dabbler correction is still needed']);
+});
+
 test("completeness: an unlisted item that mentions formulas is reported; the Craft Requirements heading alone is not", (t) => {
     const source = loadSource(fakeCheckout(t));
     const found = unlisted({ registry: REG, ignore: {}, source });
@@ -206,6 +216,16 @@ test("the command line fails a checkout that lacks the packs it should check: no
 /* -------------------------------------------- */
 
 const NEEDS_SOURCE = { skip: !process.env.PF2E_SRC && "set PF2E_SRC to a pf2e checkout" };
+
+test("the daily-pool corrections answer pf2e's compendium rules as they read (second M7 review: Herbalist, Lethargy Poisoner, the archetype's Advanced Alchemy)", NEEDS_SOURCE, () => {
+    const source = loadSource(process.env.PF2E_SRC);
+    const rulesOf = (key) => (source.get(REGISTRY[key].uuid)?.system?.rules ?? []).filter((r) => r.key === "CraftingAbility");
+    assert.deepEqual(rulesOf("herbalist-dedication").map((r) => [r.slug, r.maxSlots]), [["advanced-alchemy", 4]], "Herbalist: 4 always");
+    assert.deepEqual(rulesOf("lethargy-poisoner").map((r) => [r.maxSlots ?? null, r.craftableItems]),
+        [["ternary(gte(@actor.system.skills.crafting.rank,3),3,1)", ["item:slug:lethargy-poison"]], [null, ["item:slug:stupor-poison"]]],
+        "Lethargy Poisoner: 3 doses from master; Stupor Poison on a rule whose rank predicate CraftingAbility never tests");
+    assert.deepEqual(rulesOf("advanced-alchemy@archetype").map((r) => r.craftableItems), [["item:trait:alchemical"]], "any alchemical item, not consumables only");
+});
 
 test("every registry entry and ignored UUID matches the pf2e checkout", NEEDS_SOURCE, (t) => {
     const source = loadSource(process.env.PF2E_SRC);

@@ -1,0 +1,232 @@
+<section class="tab workshop-morning {{tab.cssClass}}" data-group="primary" data-tab="morning" role="tabpanel"
+         id="pf2e-artisans-workshop-panel-morning" aria-labelledby="pf2e-artisans-workshop-tab-morning">
+    {{#if morningPending}}
+    {{else if morningOff}}
+    <p class="queue-empty">{{localize "pf2e-artisans-workshop.Morning.Off"}}</p>
+    {{else if readable}}
+    {{#with morning}}
+    <div class="morning-toolbar" role="group" aria-label="{{localize 'pf2e-artisans-workshop.Morning.Toolbar'}}">
+        {{#if choices.length}}
+        <label class="morning-actor">
+            <span class="label">{{localize "pf2e-artisans-workshop.Morning.Character"}}</span>
+            <select name="morningActor" data-morning="actor">
+                {{#each choices}}<option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{name}}</option>{{/each}}
+            </select>
+        </label>
+        {{/if}}
+        {{#if actor}}
+        <span class="morning-state chip"><i class="{{state.icon}}" inert></i> {{state.word}}</span>
+        <span class="morning-cycle">{{localize "pf2e-artisans-workshop.Morning.Cycle" n=cycle}}{{#if lastDay}} · {{localize "pf2e-artisans-workshop.Morning.LastDay" day=lastDay}}{{/if}}</span>
+        {{#if canPrepare}}<button type="button" class="primary" data-action="morning" data-op="prepare" {{#unless ready}}disabled{{/unless}}>
+            <i class="fa-solid fa-flask" inert></i>{{localize "pf2e-artisans-workshop.Morning.Prepare"}}</button>{{/if}}
+        {{#if canAgain}}<button type="button" data-action="morning" data-op="again" {{#unless ready}}disabled{{/unless}}>
+            <i class="fa-solid fa-rotate" inert></i>{{localize "pf2e-artisans-workshop.Morning.Again"}}</button>{{/if}}
+        {{#if inDowntime}}<button type="button" class="small" data-action="morning" data-op="routine" aria-pressed="{{#if routine}}true{{else}}false{{/if}}">
+            <i class="fa-solid {{#if routine}}fa-square-check{{else}}fa-square{{/if}}" inert></i>{{localize "pf2e-artisans-workshop.Morning.Routine"}}</button>{{/if}}
+        {{#if wildernessAsked}}<label class="chip morning-wilderness"><input type="checkbox" data-morning="wilderness" {{#if wilderness}}checked{{/if}}>
+            <i class="fa-solid fa-tree" inert></i> {{localize "pf2e-artisans-workshop.Morning.Wilderness"}}</label>{{/if}}
+        {{/if}}
+    </div>
+    {{#if actor}}
+    {{#if dailies}}<p class="hint"><i class="fa-solid fa-sun" inert></i> {{localize "pf2e-artisans-workshop.Morning.DailiesActive"}}</p>{{/if}}
+
+    {{#if due.length}}
+    <section class="morning-due" aria-labelledby="pf2e-artisans-workshop-morning-due">
+        <h3 id="pf2e-artisans-workshop-morning-due">{{localize "pf2e-artisans-workshop.Morning.Due"}}</h3>
+        <ul class="morning-chips">
+            {{#each due}}
+            <li><label class="chip"><input type="checkbox" data-morning="standing" data-standing="{{id}}" {{#if included}}checked{{/if}}> {{text}}</label></li>
+            {{/each}}
+        </ul>
+    </section>
+    {{/if}}
+
+    <h3>{{localize "pf2e-artisans-workshop.Morning.Pools"}}</h3>
+    {{#if hasPools}}
+    <div class="morning-pools">
+        {{#each pools}}
+        <article class="morning-pool" data-pool="{{slug}}" aria-labelledby="pf2e-artisans-workshop-pool-{{slug}}">
+            <header>
+                <h4 id="pf2e-artisans-workshop-pool-{{slug}}">{{label}}</h4>
+                <span class="pool-facts">
+                    {{#if slots}}<span class="chip{{#if insufficient}} warn{{/if}}"><i class="fa-solid fa-boxes-stacked" inert></i> {{slots}}</span>{{/if}}
+                    {{#if corrected}}<span class="chip warn"><i class="fa-solid fa-scale-balanced" inert></i> {{corrected}}</span>{{/if}}
+                    <span class="chip"><i class="fa-solid fa-layer-group" inert></i> {{localize "pf2e-artisans-workshop.Morning.MaxLevel" level=maxItemLevel}}</span>
+                    <span class="chip"><i class="fa-solid fa-cubes" inert></i> {{localize "pf2e-artisans-workshop.Morning.Batch" n=batch}}</span>
+                    {{#if made}}<span class="chip on"><i class="fa-solid fa-check" inert></i> {{localize "pf2e-artisans-workshop.Morning.Made"}}</span>{{/if}}
+                </span>
+            </header>
+            {{#if sources.length}}
+            <p class="pool-sources"><span class="label">{{localize "pf2e-artisans-workshop.Morning.Sources"}}</span>
+                {{#each sources}}<span class="chip{{#if wins}} on{{/if}}">{{name}}{{#if slots}} · {{localize "pf2e-artisans-workshop.Morning.SourceSlots" n=slots}}{{/if}}{{#if wins}} <i class="fa-solid fa-crown" inert></i>{{/if}}</span>{{/each}}</p>
+            {{/if}}
+            {{#if byLevel.length}}<p class="pool-levels"><span class="label">{{localize "pf2e-artisans-workshop.Morning.Prepared"}}</span> {{#each byLevel}}<span class="chip">{{this}}</span>{{/each}}</p>{{/if}}
+            {{#if prepared.length}}
+            <ul class="pool-prepared">
+                {{#each prepared}}<li{{#if expended}} class="expended"{{/if}}>{{#if img}}<img src="{{img}}" alt="">{{/if}} <span class="entry-name">{{name}}</span> <span class="entry-level">{{localize "pf2e-artisans-workshop.Formulas.Level" level=level}}</span> <span class="qty">× {{qty}}</span></li>{{/each}}
+            </ul>
+            {{else}}<p class="empty">{{localize "pf2e-artisans-workshop.Morning.NothingPrepared"}}</p>{{/if}}
+            <label class="pool-plan">
+                <span class="label">{{localize "pf2e-artisans-workshop.Morning.Plan"}}</span>
+                <select name="morningPlan" data-morning="plan" data-pool="{{slug}}">
+                    {{#each plans}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+                </select>
+            </label>
+            {{#if talisman}}
+            <fieldset class="pool-talismans">
+                <legend>{{localize "pf2e-artisans-workshop.Morning.Talismans" n=pickedCount}}</legend>
+                {{#if dcStamp}}<p class="hint"><i class="fa-solid fa-stamp" inert></i> {{dcStamp}}</p>{{/if}}
+                {{#if offered.length}}
+                <ul class="talisman-picker">
+                    {{#each offered}}
+                    <li{{#if picked}} class="picked"{{/if}}><label><input type="number" class="talisman-count" min="0" {{#if ../pickMax}}max="{{../pickMax}}"{{/if}} step="1" value="{{count}}" data-morning="talisman" data-pool="{{../slug}}" data-uuid="{{uuid}}">
+                        {{#if img}}<img src="{{img}}" alt="">{{/if}} {{name}} <span class="entry-level">{{localize "pf2e-artisans-workshop.Formulas.Level" level=level}}</span></label></li>
+                    {{/each}}
+                </ul>
+                {{else}}<p class="empty">{{localize "pf2e-artisans-workshop.Morning.NoTalismans"}}</p>{{/if}}
+            </fieldset>
+            {{/if}}
+            {{#if lines.length}}
+            <div class="pool-lines">
+                <p class="label">{{localize "pf2e-artisans-workshop.Morning.WillMake"}} {{#if planned}}<span class="hint">{{planned}}</span>{{/if}}</p>
+                <ul>
+                    {{#each lines}}<li><span class="entry-name">{{name}}</span> <span class="entry-level">{{localize "pf2e-artisans-workshop.Formulas.Level" level=level}}</span> <span class="qty">× {{qty}}</span>
+                        <span class="badge"><i class="{{route.icon}}" inert></i> {{localize route.key}}</span>{{#if request}} <span class="badge request"><i class="fa-solid fa-hand-holding-heart" inert></i> {{localize "pf2e-artisans-workshop.Morning.Request"}}</span>{{/if}}</li>{{/each}}
+                </ul>
+            </div>
+            {{/if}}
+        </article>
+        {{/each}}
+    </div>
+    {{else}}<p class="empty">{{localize "pf2e-artisans-workshop.Morning.NoPools"}}</p>{{/if}}
+
+    {{#if problems.length}}
+    <ul class="morning-problems" aria-label="{{localize 'pf2e-artisans-workshop.Morning.Problems'}}">
+        {{#each problems}}<li><i class="fa-solid fa-triangle-exclamation" inert></i> {{this}}</li>{{/each}}
+    </ul>
+    {{/if}}
+    {{#if diff.length}}
+    <details class="morning-diff">
+        <summary>{{localize "pf2e-artisans-workshop.Morning.DiffHeading"}}</summary>
+        <ul>{{#each diff}}<li>{{this}}</li>{{/each}}</ul>
+    </details>
+    {{/if}}
+
+    <div class="morning-columns">
+        <div class="morning-side">
+            {{#if vials}}
+            <section class="morning-vials" aria-labelledby="pf2e-artisans-workshop-morning-vials">
+                <h3 id="pf2e-artisans-workshop-morning-vials">{{localize "pf2e-artisans-workshop.Morning.VialsHeading"}}</h3>
+                <p><i class="fa-solid fa-flask-vial" inert></i> {{vials.text}}{{#if vials.level}} · {{localize "pf2e-artisans-workshop.Morning.VialLevel" level=vials.level}}{{/if}}</p>
+                {{#unless vials.consistent}}<p class="warn" role="note"><i class="fa-solid fa-triangle-exclamation" inert></i> {{localize "pf2e-artisans-workshop.Morning.VialsInconsistent" n=vials.inventory}}</p>{{/unless}}
+                {{#if vials.sources.length}}<p>{{#each vials.sources}}<span class="chip">{{name}}{{#if regain}} · {{localize "pf2e-artisans-workshop.Morning.Regains"}}{{/if}}</span>{{/each}}</p>{{/if}}
+                {{#if vials.buckets}}<p>{{#each vials.buckets}}<span class="chip">{{material}} · {{n}}</span>{{/each}}</p>{{/if}}
+            </section>
+            {{/if}}
+            {{#if slots.length}}
+            <section class="morning-slots">
+                <h3>{{localize "pf2e-artisans-workshop.Morning.OtherSlots"}}</h3>
+                <ul>{{#each slots}}<li><strong>{{label}}</strong>{{#if slots}} · {{localize "pf2e-artisans-workshop.Morning.SourceSlots" n=slots}}{{/if}} {{#each byLevel}}<span class="chip">{{this}}</span>{{/each}}</li>{{/each}}</ul>
+            </section>
+            {{/if}}
+            {{#if frequencies.length}}
+            <section class="morning-frequencies">
+                <h3>{{localize "pf2e-artisans-workshop.Morning.Frequencies"}}</h3>
+                <ul>{{#each frequencies}}<li>{{name}} · {{text}}</li>{{/each}}</ul>
+            </section>
+            {{/if}}
+            {{#if gaps.length}}
+            <section class="morning-gaps">
+                <h3>{{localize "pf2e-artisans-workshop.Morning.Gaps"}}</h3>
+                <ul>
+                    {{#each gaps}}
+                    <li>{{name}}
+                        {{#if handled}}<span class="chip on"><i class="fa-solid fa-sun" inert></i> {{localize "pf2e-artisans-workshop.Morning.HandledByDailies"}}</span>
+                        {{else if notAutomated}}<span class="chip"><i class="fa-solid fa-hand" inert></i> {{localize "pf2e-artisans-workshop.Morning.NotAutomated"}}</span>
+                        {{else if (eq flow "note")}}<button type="button" class="small" data-action="morning" data-op="gap" data-gap="{{key}}" data-done="{{#if done}}true{{else}}false{{/if}}" aria-pressed="{{#if done}}true{{else}}false{{/if}}">
+                            <i class="fa-solid {{#if done}}fa-square-check{{else}}fa-square{{/if}}" inert></i>{{localize "pf2e-artisans-workshop.Morning.DoneToday"}}</button>{{/if}}
+                    </li>
+                    {{/each}}
+                </ul>
+            </section>
+            {{/if}}
+            {{#if preservable.length}}
+            <section class="morning-preserve">
+                <h3>{{localize "pf2e-artisans-workshop.Morning.Preserve"}}</h3>
+                <ul>{{#each preservable}}<li>{{name}} {{#if preserved}}<span class="chip on"><i class="fa-solid fa-jar" inert></i> {{localize "pf2e-artisans-workshop.Morning.Preserved"}}</span>{{else}}
+                    <button type="button" class="small" data-action="morning" data-op="preserve" data-item="{{id}}"><i class="fa-solid fa-jar" inert></i>{{localize "pf2e-artisans-workshop.Morning.PreserveIt"}}</button>{{/if}}</li>{{/each}}</ul>
+            </section>
+            {{/if}}
+        </div>
+        <div class="morning-side">
+            <section class="morning-loadouts" aria-labelledby="pf2e-artisans-workshop-morning-loadouts">
+                <h3 id="pf2e-artisans-workshop-morning-loadouts">{{localize "pf2e-artisans-workshop.Morning.Loadouts"}}</h3>
+                {{#if loadouts.length}}
+                <ul>{{#each loadouts}}<li><strong>{{name}}</strong> <span class="hint">{{pools}}</span>
+                    <button type="button" class="small" data-action="morning" data-op="deleteLoadout" data-loadout="{{id}}" aria-label="{{localize 'pf2e-artisans-workshop.Morning.DeleteLoadout' name=name}}">
+                        <i class="fa-solid fa-trash" inert></i></button></li>{{/each}}</ul>
+                {{else}}<p class="empty">{{localize "pf2e-artisans-workshop.Morning.NoLoadouts"}}</p>{{/if}}
+                <div class="loadout-capture">
+                    <label><span class="label">{{localize "pf2e-artisans-workshop.Morning.LoadoutName"}}</span>
+                        <input type="text" name="loadoutName" data-morning="loadoutName" value="{{loadoutName}}"></label>
+                    <button type="button" class="small" data-action="morning" data-op="capture"><i class="fa-solid fa-floppy-disk" inert></i>{{localize "pf2e-artisans-workshop.Morning.Capture"}}</button>
+                </div>
+            </section>
+            <section class="morning-standing">
+                <h3>{{localize "pf2e-artisans-workshop.Morning.Standing"}}</h3>
+                {{#if placed.length}}
+                <ul>{{#each placed}}<li{{#unless active}} class="ended"{{/unless}}>{{text}}{{#if last}} <span class="hint">{{last}}</span>{{/if}}
+                    {{#if active}}<button type="button" class="small" data-action="morning" data-op="endStanding" data-standing="{{id}}"><i class="fa-solid fa-stop" inert></i>{{localize "pf2e-artisans-workshop.Morning.EndStanding"}}</button>
+                    {{else}}<span class="chip">{{localize "pf2e-artisans-workshop.Morning.Ended"}}</span>{{/if}}</li>{{/each}}</ul>
+                {{else}}<p class="empty">{{localize "pf2e-artisans-workshop.Morning.NoStanding"}}</p>{{/if}}
+                <button type="button" class="small" data-action="morning" data-op="askStanding"><i class="fa-solid fa-hand-holding-heart" inert></i>{{localize "pf2e-artisans-workshop.Morning.AskStanding"}}</button>
+            </section>
+            {{#if manager}}<p class="hint">{{localize "pf2e-artisans-workshop.Morning.Affix.Manager"}}</p>{{/if}}
+            {{#if board}}
+            <section class="morning-affix" aria-labelledby="pf2e-artisans-workshop-morning-affix">
+                <h3 id="pf2e-artisans-workshop-morning-affix">{{localize "pf2e-artisans-workshop.Morning.Affix.Heading"}}</h3>
+                {{#if board.minutes}}<p class="hint"><i class="fa-solid fa-clock" inert></i> {{board.minutes}}</p>{{/if}}
+                <ul class="affix-hosts">
+                    {{#each board.hosts}}
+                    <li class="affix-host{{#if suppressed}} suppressed{{/if}}"><strong>{{name}}</strong> <span class="chip"><i class="fa-solid {{#if suppressed}}fa-ban{{else}}fa-link{{/if}}" inert></i> {{state}}</span>
+                        {{#if sage}}<span class="chip on"><i class="fa-solid fa-hat-wizard" inert></i> {{localize "pf2e-artisans-workshop.Morning.Affix.Sage"}}</span>{{/if}}
+                        {{#if warn}}<span class="warn"><i class="fa-solid fa-triangle-exclamation" inert></i> {{localize "pf2e-artisans-workshop.Morning.Affix.NotInUse"}}</span>{{/if}}
+                        <ul>{{#each talismans}}<li data-talisman="{{id}}">{{name}}{{#if inert}} <span class="chip">{{localize "pf2e-artisans-workshop.Morning.Inert"}}</span>{{/if}}
+                            <button type="button" class="small" data-action="morning" data-op="unaffix" data-talisman="{{id}}"><i class="fa-solid fa-link-slash" inert></i>{{localize "pf2e-artisans-workshop.Morning.Affix.Remove"}}</button></li>{{/each}}</ul>
+                    </li>
+                    {{/each}}
+                </ul>
+                {{#if board.loose.length}}
+                <ul class="affix-loose">
+                    {{#each board.loose}}
+                    <li data-talisman="{{id}}">{{name}}
+                        <select name="affixHost" data-morning="host" data-talisman="{{id}}" aria-label="{{localize 'pf2e-artisans-workshop.Morning.Affix.HostFor' name=name}}">
+                            {{#each ../board.hostChoices}}<option value="{{id}}">{{name}}</option>{{/each}}
+                        </select>
+                        <button type="button" class="small" data-action="morning" data-op="affix" data-talisman="{{id}}"><i class="fa-solid fa-link" inert></i>{{localize "pf2e-artisans-workshop.Morning.Affix.Do"}}</button>
+                    </li>
+                    {{/each}}
+                </ul>
+                {{/if}}
+            </section>
+            {{/if}}
+            {{#if expiring.length}}
+            <section class="morning-expiry">
+                <h3>{{localize "pf2e-artisans-workshop.Morning.Expiring"}}</h3>
+                <ul>{{#each expiring}}<li>{{name}} <span class="qty">× {{qty}}</span> <span class="hint">{{text}}</span>{{#if due}} <span class="chip warn">{{localize "pf2e-artisans-workshop.Morning.ExpiresNow"}}</span>{{/if}}</li>{{/each}}</ul>
+            </section>
+            {{/if}}
+            {{#if inert.length}}
+            <section class="morning-inert">
+                <h3>{{localize "pf2e-artisans-workshop.Morning.InertHeading"}}</h3>
+                <ul>{{#each inert}}<li>{{name}}</li>{{/each}}</ul>
+            </section>
+            {{/if}}
+        </div>
+    </div>
+    {{else}}
+    <p class="empty">{{localize "pf2e-artisans-workshop.Morning.NoCharacter"}}</p>
+    {{/if}}
+    {{/with}}
+    {{/if}}
+</section>

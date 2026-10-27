@@ -2624,3 +2624,288 @@ Object.assign(BEHAVIOURS, {
     "m6-income": m6Income,
     "m6-settlement": m6Settlement,
 });
+
+/* -------------------------------------------- */
+/*  M7: daily preparations (DESIGN.md 7, 10.1)   */
+/* -------------------------------------------- */
+
+/** M7's compendium items (pf2e `packs/pf2e/equipment/`) and feats. */
+const M7 = Object.freeze({
+    elixirMinor: ELIXIR,
+    /** The family of the Elixir of Life grades: `familyKey({name: "Elixir of Life (Minor)", type: "consumable", category: "elixir"})`. */
+    elixirFamily: "consumable|elixir|elixir of life",
+    jadeCat: "Compendium.pf2e.equipment-srd.Item.2MgFoNXTccL8Own9",
+    bronzeBull: "Compendium.pf2e.equipment-srd.Item.nXStoLxPrrP2b6WB",
+    opal: "Compendium.pf2e.equipment-srd.Item.aKbrBW1SnFDxya5J",
+    talismanicSage: "Compendium.pf2e.feats-srd.Item.uPikeCzrTrgzEJT8",
+});
+/** The Morning prompt's key (7.8), as the page log records it. */
+const MORNING_PROMPT = "pf2e-artisans-workshop.Morning.Prompt";
+
+/** The Morning prompts each client showed since the last look, by client: the characters named. */
+async function morningPrompts(h) {
+    const pages = await takeNotes(h);
+    return Object.fromEntries(Object.entries(pages).map(([client, page]) => [client,
+        page.notes.filter((n) => n.message === MORNING_PROMPT).map((n) => n.format?.actor ?? null)]));
+}
+
+/**
+ * Every M7 plan starts here: the world reset, M5's and M7's items taken back and both characters' pools and books put
+ * back, then the alchemist knows Elixir of Life (Minor), whose family the plans prepare by.
+ */
+async function m7Reset(h, w) {
+    await resetWorld(h, w);
+    await h.step("gm", "m5", "reset", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid] });
+    await h.step("gm", "m7", "reset", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid] });
+    await h.step("gm", "m7", "learn", { actor: w.pcs.p1.uuid, uuids: [M7.elixirMinor] });
+}
+
+/** pf2e-dailies on or off for the plans that follow: every page reloads so it loads (or not). */
+async function m7Dailies(h, on) {
+    await h.only(["gm"]);
+    const set = await h.step("gm", "m7", "modules", { dailies: on });
+    await h.closeAll();
+    await h.only(["gm"]);
+    await h.settle("ready");
+    const active = await h.step("gm", "m7", "active", {});
+    h.check(`pf2e-dailies is ${on ? "active" : "inactive"} after the reload`, active.dailies === on, { set, active });
+    return set.before;
+}
+
+/**
+ * A preparation through pf2e's own methods (7.1, 7.4, 7.5): Player One's bomber (level 11, Talisman Dabbler) shows its
+ * pools from pf2e (Advanced Alchemy and Talisman Dabbler), the Dabbler's picker (common talismans up to level 5, none in
+ * the book) and its vials; a loadout by family prepares Elixir of Life at the best grade the pool allows (Moderate, level
+ * 9), written into the book by family; two virtual talismans are made without a book; everything is stamped with the
+ * cycle, Advanced Alchemy with its 24 hours; a second preparation in the same cycle is refused; the GM reads the same.
+ */
+async function m7Morning(h, w) {
+    await m7Reset(h, w);
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    const facts = await h.step("p1", "m7", "facts", {});
+    const aa = facts.pools.find((p) => p.slug === "advanced-alchemy");
+    const dabbler = facts.pools.find((p) => p.slug === "talisman-dabbler");
+    h.check("the alchemist's daily pools come from pf2e: Advanced Alchemy and Talisman Dabbler", !!aa && !!dabbler, facts.pools.map((p) => p.slug));
+    h.check("Advanced Alchemy lists its sources with their own slots", aa?.sources.length >= 1 && aa.sources.every((s) => Number.isInteger(s.maxSlots)), aa?.sources);
+    h.check("the Dabbler's picker: common talismans of level 5 or lower", dabbler?.offered.length >= 2 && dabbler.offered.every((t) => t.level <= 5), dabbler?.offered);
+    h.check("versatile vials read from the resource", facts.vials?.max > 0, facts.vials);
+    const saved = await h.step("p1", "m7", "loadout", { name: "Healer", pools: { "advanced-alchemy": [{ family: M7.elixirFamily, qty: 2 }] } });
+    h.check("the loadout is saved on the character", saved.ok === true, saved);
+    const picks = dabbler.offered.slice(0, 2).map((t) => t.uuid);
+    const prep = await h.step("p1", "m7", "prepare", { pools: { "advanced-alchemy": { mode: "loadout", id: saved.id } }, talismans: { "talisman-dabbler": picks } });
+    h.check("prepared in cycle 0", prep.result.ok === true && prep.result.cycle === 0, prep.result);
+    const elixirs = prep.brief.stamped.filter((i) => i.name.startsWith("Elixir of Life"));
+    h.check("the family resolved to Elixir of Life (Moderate), two of them, infused", elixirs.length === 1 && elixirs[0].name === "Elixir of Life (Moderate)" &&
+        elixirs[0].qty === 2 && elixirs[0].traits.includes("infused"), elixirs);
+    h.check("Advanced Alchemy's items carry the cycle and the 24 hours", elixirs[0]?.expiry?.cycle === 0 && Number.isFinite(elixirs[0]?.expiry?.at) &&
+        Number.isInteger(elixirs[0]?.expiry?.atDay), elixirs[0]?.expiry);
+    h.check("the grade went into the book by family", prep.brief.provenance.some((p) => p.route === "family"), prep.brief.provenance);
+    const talismans = prep.brief.stamped.filter((i) => i.expiry?.pool === "talisman-dabbler");
+    h.check("two virtual talismans made, none written to the book", talismans.length === 2 && picks.every((uuid) => !prep.brief.book.includes(uuid)), { talismans, book: prep.brief.book });
+    h.check("a Dabbler talisman with an inline save gets the creator's DC; one without carries no stamp",
+        talismans.every((t) => (t.description.includes("@Check") ? t.dcStamp?.dc >= Math.max(facts.dcs.classDc ?? 0, facts.dcs.spellDc ?? 0) : !t.dcStamp)), talismans);
+    const again = await h.step("p1", "m7", "prepare", {});
+    h.check("a second preparation in the same cycle is refused", again.result.reason === "prepared", again.result);
+    const gm = await h.step("gm", "m7", "state", { actors: [w.pcs.p1.uuid], ms: 1000 });
+    h.check("the GM reads the same stamps", gm.actors[0].stamped.length === prep.brief.stamped.length, gm.actors[0].stamped.length);
+    await checkStatuses(h);
+    return { facts, prep, again };
+}
+
+/**
+ * Party-wide expiry (7.7): Player One prepares; the GM hands one infused elixir to Player Two's fighter; Player One rests
+ * (pf2e's Rest for the Night): Player One's cycle goes up once, and Player Two's client marks the elixir Player Two holds
+ * inert, which pf2e's rest would not have touched. Then Player One prepares again and the GM moves the clock 24 hours:
+ * the new Advanced Alchemy items expire on their own clock.
+ */
+async function m7Expiry(h, w) {
+    await m7Reset(h, w);
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    await h.step("p1", "m7", "loadout", { name: "Healer", pools: { "advanced-alchemy": [{ family: M7.elixirFamily, qty: 2 }] } });
+    const loadout = (await h.step("p1", "m7", "state", {})).actors[0].loadouts[0];
+    const prep = await h.step("p1", "m7", "prepare", { pools: { "advanced-alchemy": { mode: "loadout", id: loadout.id } } });
+    const elixir = prep.brief.stamped.find((i) => i.name.startsWith("Elixir of Life"));
+    const moved = await h.step("gm", "m7", "move", { item: elixir.uuid, qty: 1, to: w.pcs.p2.uuid });
+    h.check("the GM hands one elixir to Player Two's fighter", !!moved.moved, moved);
+    const before = await h.step("p2", "m7", "state", { actors: [w.pcs.p2.uuid], ms: 1000 });
+    h.check("Player Two holds it, potent, stamped by Player One", before.actors[0].stamped.some((i) => i.expiry?.creator === w.pcs.p1.uuid && !i.inert), before.actors[0].stamped);
+    const rested = await h.step("p1", "m7", "rest", { actors: [w.pcs.p1.uuid], ms: 4000 });
+    const after = await h.step("p2", "m7", "state", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid], ms: 4000 });
+    h.check("the rest raised Player One's cycle once, keyed by its message", after.actors[0].prepCycle === 1 && after.actors[0].cycleKey === rested.messages[0], after.actors[0]);
+    h.check("Player Two's elixir is inert, marked by Player Two's client", after.actors[1].stamped.some((i) => i.inert && i.expiry?.creator === w.pcs.p1.uuid), after.actors[1].stamped);
+    h.check("the expiry claim was resolved", after.claims.length === 1 && after.claims[0].resolved, after.claims);
+    const prep2 = await h.step("p1", "m7", "prepare", { pools: { "advanced-alchemy": { mode: "loadout", id: loadout.id } } });
+    h.check("after the rest Player One prepares again, in cycle 1", prep2.result.ok && prep2.result.cycle === 1, prep2.result);
+    await h.step("gm", "m7", "clock", { seconds: 86400, ms: 4000 });
+    const day = await h.step("p1", "m7", "state", { actors: [w.pcs.p1.uuid], ms: 1000 });
+    const fresh = day.actors[0].stamped.filter((i) => i.expiry?.cycle === 1 && i.expiry?.pool === "advanced-alchemy");
+    h.check("24 hours later the cycle-1 Advanced Alchemy items are inert, by time", fresh.length > 0 && fresh.every((i) => i.inert), fresh);
+    await checkStatuses(h);
+    return { prep, moved, after, prep2, day };
+}
+
+/**
+ * Rest ordering without pf2e-dailies (7.8): the GM rests the party (both characters at once, as the party sheet does):
+ * the alchemist's cycle goes up once, on its own responsible client; Player One's client shows one Morning prompt for
+ * it; the fighter (no daily crafting, no vials) has no cycle and prompts nobody; the GM is prompted for nobody. With Player One away the
+ * GM's client is the alchemist's responsible client and is prompted.
+ */
+async function m7Rest(h, w) {
+    const before = await m7Dailies(h, false);
+    await m7Reset(h, w);
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    await morningPrompts(h);
+    const rested = await h.step("gm", "m7", "rest", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid], ms: 5000 });
+    const prompts = await morningPrompts(h);
+    h.check("one Morning prompt, on Player One's client, for the alchemist", prompts.p1?.length === 1 && prompts.p1[0] === w.pcs.p1.name &&
+        !prompts.gm?.length && !prompts.p2?.length, prompts);
+    const state = await h.step("gm", "m7", "state", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid], ms: 500 });
+    h.check("the alchemist's cycle went up once, keyed by its own rest message; the fighter, who makes nothing at preparations, has none",
+        state.actors[0].prepCycle === 1 && state.actors[0].cycleKey === rested.messages[0] && state.actors[1].prepCycle === 0, state.actors);
+    await h.only(["gm", "p2"]);
+    await morningPrompts(h);
+    await h.step("gm", "m7", "rest", { actors: [w.pcs.p1.uuid], ms: 5000 });
+    const away = await morningPrompts(h);
+    h.check("with Player One away, the GM's client is prompted for the alchemist", away.gm?.length === 1 && !away.p2?.length, away);
+    if (before.dailies) await m7Dailies(h, true);
+    return { rested, prompts, state, away };
+}
+
+/**
+ * Rest ordering with pf2e-dailies (7.8, 7.9): pf2e-dailies is turned on and every page reloads; the Workshop's custom daily
+ * is registered; Player One rests: the pipeline waits for pf2e-dailies' rested flag and raises the cycle once; Player One
+ * opens pf2e-dailies' interface, picks the saved loadout in the Workshop's row and accepts: the choice is recorded with
+ * nothing made inside pf2e-dailies' flow, and once its rested flag goes back to false Player One's client prepares the
+ * loadout through pf2e's methods. pf2e-dailies is put back as it was.
+ */
+async function m7DailiesPlan(h, w) {
+    const before = await m7Dailies(h, true);
+    await m7Reset(h, w);
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    const active = await h.step("p1", "m7", "active", {});
+    h.check("pf2e-dailies is active on Player One's client with its API", active.dailies && active.api, active);
+    const saved = await h.step("p1", "m7", "loadout", { name: "Healer", pools: { "advanced-alchemy": [{ family: M7.elixirFamily, qty: 2 }] } });
+    await morningPrompts(h);
+    const rested = await h.step("p1", "m7", "rest", { actors: [w.pcs.p1.uuid], ms: 6000 });
+    const state = await h.step("p1", "m7", "state", { actors: [w.pcs.p1.uuid] });
+    h.check("pf2e-dailies' rested flag is set and the cycle went up once", state.actors[0].dailiesRested === true && state.actors[0].prepCycle === 1 &&
+        state.actors[0].cycleKey === rested.messages[0], state.actors[0]);
+    const prompts = await morningPrompts(h);
+    h.check("one Morning prompt, on Player One's client", prompts.p1?.length === 1 && !prompts.gm?.length, prompts);
+    const chose = await h.step("p1", "m7", "dailies", { choices: { "advanced-alchemy": saved.id, "talisman-dabbler": "keep" }, ms: 6000 });
+    h.check("pf2e-dailies' interface showed the Workshop's rows", chose.opened && chose.rows.some((r) => r.row === "advanced-alchemy"), chose.rows);
+    const brief = chose.brief;
+    h.check("the choice was recorded for cycle 1 and applied after pf2e-dailies finished", brief.morning.choice?.cycle === 1 && !!brief.morning.choice?.applied &&
+        brief.dailiesRested === false, brief.morning);
+    h.check("the loadout was prepared through pf2e's methods: Elixir of Life (Moderate), stamped", brief.stamped.some((i) => i.name === "Elixir of Life (Moderate)" && i.expiry?.cycle === 1),
+        brief.stamped);
+    if (!before.dailies) await m7Dailies(h, false);
+    return { rested, state, chose };
+}
+
+/**
+ * Standing orders with no GM (7.6): Player Two asks Player One's alchemist for two elixirs every morning; Player One
+ * prepares: the two go on the pickup shelf for Player Two's fighter, stamped by Player One, and Player Two's client
+ * collects them; the same cycle never delivers twice; preparing for a new day delivers two more, and the first two
+ * expire with Player One's old cycle.
+ */
+async function m7Standing(h, w) {
+    await m7Reset(h, w);
+    await h.only(["p1", "p2"]);
+    await h.settle("ready");
+    const placed = await h.step("p2", "m7", "standing", { requester: w.pcs.p2.uuid, crafter: w.pcs.p1.uuid, uuid: M7.elixirMinor, qty: 2 });
+    h.check("Player Two places the standing order", placed.ok === true, placed);
+    await h.step("p1", "m5", "seen", { path: `standing.${placed.id}` });
+    const prep = await h.step("p1", "m7", "prepare", {});
+    h.check("Player One prepares; the order's two go to the shelf for Player Two", prep.result.ok && prep.result.deliveries.some((d) => d.ok && d.direct === false && d.qty === 2),
+        prep.result.deliveries);
+    const got = await h.step("p2", "m7", "state", { actors: [w.pcs.p2.uuid], ms: 5000 });
+    const held = got.actors[0].stamped.filter((i) => i.expiry?.creator === w.pcs.p1.uuid);
+    h.check("Player Two's client collected them, stamped by Player One", held.reduce((n, i) => n + i.qty, 0) === 2, held);
+    h.check("the order is filled for cycle 0", got.standing.find((s) => s.id === placed.id)?.last?.cycle === 0, got.standing);
+    const again = await h.step("p1", "m7", "prepare", { again: true });
+    h.check("a new day's preparation fills it again", again.result.ok && again.result.cycle === 1 && again.result.deliveries.some((d) => d.ok && d.qty === 2), again.result);
+    const later = await h.step("p2", "m7", "state", { actors: [w.pcs.p2.uuid], ms: 5000 });
+    const mine = later.actors[0].stamped.filter((i) => i.expiry?.creator === w.pcs.p1.uuid);
+    h.check("Player Two now holds two from cycle 0, inert, and two from cycle 1, potent",
+        mine.filter((i) => i.expiry.cycle === 0).every((i) => i.inert) && mine.filter((i) => i.expiry.cycle === 1 && !i.inert).reduce((n, i) => n + i.qty, 0) === 2, mine);
+    await checkStatuses(h);
+    return { placed, prep, got, again, later };
+}
+
+/**
+ * Affixing (7.4): Player One's alchemist with a repair toolkit and leather armor prepares two armor talismans (Jade Cat,
+ * Bronze Bull Pendant); the first affixes; the second is refused (one per host); the GM gives Talismanic Sage; the second
+ * affixes and treats the armor; a third (a permanent Mesmerizing Opal) is refused even there; the board says both work.
+ */
+async function m7Affix(h, w) {
+    await m7Reset(h, w);
+    const armor = await h.step("gm", "m7", "give", { actor: w.pcs.p1.uuid, uuid: M5.leatherArmor, system: { equipped: { carryType: "worn", inSlot: true } } });
+    await h.step("gm", "m7", "give", { actor: w.pcs.p1.uuid, uuid: M5.repairToolkit });
+    const opal = await h.step("gm", "m7", "give", { actor: w.pcs.p1.uuid, uuid: M7.opal });
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    const prep = await h.step("p1", "m7", "prepare", { talismans: { "talisman-dabbler": [M7.jadeCat, M7.bronzeBull] } });
+    const [t1, t2] = prep.brief.stamped.filter((i) => i.expiry?.pool === "talisman-dabbler");
+    h.check("two armor talismans made", !!t1 && !!t2, prep.brief.stamped);
+    const first = await h.step("p1", "m7", "affix", { talisman: t1.id, host: armor.id });
+    h.check("the first goes on the armor", first.result.ok === true, first.result);
+    const second = await h.step("p1", "m7", "affix", { talisman: t2.id, host: armor.id });
+    h.check("a second is refused: one per host", second.result.reason === "host-taken", second.result);
+    await h.step("gm", "m7", "give", { actor: w.pcs.p1.uuid, uuid: M7.talismanicSage });
+    const sage = await h.step("p1", "m7", "affix", { talisman: t2.id, host: armor.id });
+    h.check("with Talismanic Sage the second goes on and treats the armor", sage.result.ok === true && sage.result.treated === true, sage.result);
+    const third = await h.step("p1", "m7", "affix", { talisman: opal.id, host: armor.id });
+    h.check("a third is refused even on the treated armor", third.result.reason === "host-taken", third.result);
+    const host = third.board.hosts.find((x) => x.id === armor.id);
+    h.check("the board: the armor's two work, treated", host?.state === "active" && host.sage === true && host.count === 2, host);
+    return { prep, first, second, sage, third };
+}
+
+/**
+ * The Morning tab photographed (17.1, M7): as Player One, after a preparation with a standing order from Player Two due,
+ * at 1440x900 and 1024x768, dark and light; and as the GM.
+ */
+async function m7Shots(h, w) {
+    await m7Reset(h, w);
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    await h.step("p1", "m7", "loadout", { name: "Healer", pools: { "advanced-alchemy": [{ family: M7.elixirFamily, qty: 2 }] } });
+    await h.step("p2", "m7", "standing", { requester: w.pcs.p2.uuid, crafter: w.pcs.p1.uuid, uuid: M7.elixirMinor, qty: 1 });
+    const facts = await h.step("p1", "m7", "facts", {});
+    const picks = (facts.pools.find((p) => p.slug === "talisman-dabbler")?.offered ?? []).slice(0, 2).map((t) => t.uuid);
+    const sizes = [{ width: 1440, height: 900 }, { width: 1024, height: 768 }];
+    const opened = [];
+    for (const role of ["p1", "gm"]) {
+        for (const scheme of ["dark", "light"]) {
+            await h.step(role, "m4", "theme", { scheme });
+            for (const size of sizes) {
+                await h.screenshot(role, `m7-${role}-morning-${size.width}x${size.height}-${scheme}.png`, size, async () => {
+                    const open = await h.step(role, "m7", "open", { actor: w.pcs.p1.uuid, talismans: { "talisman-dabbler": picks } });
+                    opened.push({ role, scheme, ...size, ...open });
+                    return open;
+                });
+            }
+        }
+        await h.step(role, "m7", "close", {});
+        await h.step(role, "m4", "theme", { scheme: "dark" });
+    }
+    h.check("the Morning tab opened with the module's styles every time", opened.every((o) => o.open && o.hasStyles && o.tab === "morning"), opened.filter((o) => !o.open || !o.hasStyles));
+    h.check("the tab showed the pools, the talisman picker and what the plan makes", opened.every((o) => o.pools >= 2 && o.offered >= 2 && o.lines >= 1),
+        opened.map((o) => [o.role, o.pools, o.offered, o.lines]));
+    return { opened, shots: h.shots.filter((s) => s.label === h.label).map((s) => s.file) };
+}
+
+Object.assign(BEHAVIOURS, {
+    "m7-morning": m7Morning,
+    "m7-expiry": m7Expiry,
+    "m7-rest": m7Rest,
+    "m7-dailies": m7DailiesPlan,
+    "m7-standing": m7Standing,
+    "m7-affix": m7Affix,
+    "m7-shots": m7Shots,
+});

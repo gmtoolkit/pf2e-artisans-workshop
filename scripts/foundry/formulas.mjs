@@ -75,7 +75,7 @@ export function formulaClaimInput({ learner, uuid, route, source = null, pickLev
 }
 
 /** Append a formula to the book as pf2e's crafting tab does, from the actor's source. False when it is there already. */
-async function appendToBook(actor, uuid) {
+export async function appendToBook(actor, uuid) {
     const source = foundry.utils.deepClone(actor._source?.system?.crafting?.formulas ?? actor.system?.crafting?.formulas ?? []);
     if (source.some((formula) => formula.uuid === uuid)) return false;
     source.push({ uuid });
