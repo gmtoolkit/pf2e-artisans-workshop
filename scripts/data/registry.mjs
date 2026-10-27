@@ -55,6 +55,12 @@
  *   the crafter must also have.
  * - `earnIncome {doubleFailure}`: Experienced Professional's failure pay (6.10).
  * - `correction {consumable}`: a known data bug (talismans without the consumable trait batch as consumables).
+ * - `correction {pool, slots?, craftable?, gate?, bug}` (M7): pf2e data for a daily-preparation source that disagrees with
+ *   the rules text (7.1). `slots {byRank, skill}` reads the source's count from a rank, `slots {add, unless}` changes it
+ *   unless the preparation is made in that context (`wilderness`); `craftable` is a predicate ANDed into what the source
+ *   makes; `gate {when, skill, rank}` lets the source make items matching `when` only from that rank. `bug` is the
+ *   `CraftingAbility` rule (a partial match) the correction answers: the validation script reports the correction once
+ *   pf2e's rule no longer looks like that.
  * - `repairHp {success, critSuccess}` (M5): Hit Points a Repair restores are `n + n × rank` on that degree instead of the
  *   Player Core numbers (the Crafter's Eyepiece, which the system's repair macro ignores; 6.13, 6.15 gap 12).
  * - `variantOnly {variant}`: the entry counts only while that variant rule is on.
@@ -113,7 +119,10 @@ export const REGISTRY = deepFreeze({
     },
     "advanced-alchemy@archetype": {
         uuid: "Compendium.pf2e.feats-srd.Item.NlEZ0piDxg9buXCL", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
-        effects: [],
+        effects: [
+            // pf2e lets it make any alchemical item; the feat makes "alchemical consumables".
+            { kind: "correction", pool: "advanced-alchemy", craftable: { all: ["item:trait:consumable"] }, bug: { slug: "advanced-alchemy", craftableItems: ["item:trait:alchemical"] } },
+        ],
         relies: [
             { key: "CraftingAbility", match: { slug: "advanced-alchemy", isDailyPrep: true } },
         ],
@@ -769,6 +778,8 @@ export const REGISTRY = deepFreeze({
     "herbalist-dedication": {
         uuid: "Compendium.pf2e.feats-srd.Item.5CRt5Dy9eLv5LpRF", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
         effects: [
+            // pf2e always gives 4; the feat gives 2 fewer unless the daily preparations are made in the wilderness.
+            { kind: "correction", pool: "advanced-alchemy", slots: { add: -2, unless: "wilderness" }, bug: { slug: "advanced-alchemy", maxSlots: 4 } },
             { kind: "skillSubstitution", skill: "nature", when: { all: ["item:trait:alchemical", "item:trait:consumable", "item:trait:healing"] } },
             { kind: "toolSubstitution", tools: ["alchemists-lab"], requires: ["healers-toolkit"], when: { all: ["item:trait:alchemical", "item:trait:consumable", "item:trait:healing"] } },
         ],
@@ -918,7 +929,15 @@ export const REGISTRY = deepFreeze({
     },
     "lethargy-poisoner": {
         uuid: "Compendium.pf2e.feats-srd.Item.HlSwpxreIfsglTJ8", type: "feat", book: "Pathfinder Battlecry!", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            // pf2e gives 3 doses from master; the feat gives 1, 2 at master and 3 at legendary in Crafting.
+            { kind: "correction", pool: "lethargy-poisoner", slots: { skill: "crafting", byRank: [1, 1, 1, 2, 3] },
+                bug: { slug: "lethargy-poisoner", maxSlots: "ternary(gte(@actor.system.skills.crafting.rank,3),3,1)" } },
+            // pf2e's Stupor Poison rule carries a master-rank predicate that CraftingAbility never tests, so it offers Stupor
+            // Poison at any rank; the feat allows it from expert.
+            { kind: "correction", pool: "lethargy-poisoner", gate: { when: { all: ["item:slug:stupor-poison"] }, skill: "crafting", rank: 2 },
+                bug: { slug: "lethargy-poisoner", craftableItems: ["item:slug:stupor-poison"] } },
+        ],
         verified: "pf2e-8.6.1",
     },
     "lightning-snares": {

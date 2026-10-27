@@ -69,11 +69,20 @@ test("output merged into a stack with another stamp is split before stamping; on
 
 test("Food Preservation: 1, 2 from expert, 3 at master, 5 at legendary; the oldest spoil past the cap (7.7)", () => {
     assert.deepEqual([RANK.untrained, RANK.trained, RANK.expert, RANK.master, RANK.legendary].map(preservationCap), [1, 1, 2, 3, 5]);
-    const preserved = [{ id: "old", at: 1 }, { id: "mid", at: 2 }];
-    assert.deepEqual(preservePlan(preserved, ["new"], 2, 3), { ok: true, preserve: ["new"], spoil: ["old"] });
-    assert.deepEqual(preservePlan(preserved, ["new"], 3, 3), { ok: true, preserve: ["new"], spoil: [] });
-    assert.deepEqual(preservePlan(preserved, ["mid"], 2, 3), { ok: true, preserve: [], spoil: [] }, "preserving one already preserved changes nothing");
-    assert.deepEqual(preservePlan([], ["a", "b", "c"], 2, 1), { ok: false, reason: "too-many", data: { cap: 2 } });
+    const designations = [{ id: "old", n: 1, cycle: 1 }, { id: "mid", n: 2, cycle: 2 }];
+    assert.deepEqual(preservePlan(designations, 1, 2, 3), { ok: true, spoil: ["old"] });
+    assert.deepEqual(preservePlan(designations, 1, 3, 3), { ok: true, spoil: [] });
+    assert.deepEqual(preservePlan(designations, 2, 2, 3), { ok: true, spoil: ["old", "mid"] }, "two new at the cap: both older spoil");
+    assert.deepEqual(preservePlan([], 3, 2, 1), { ok: false, reason: "too-many", data: { cap: 2, left: 2 } });
+    // The cap is per preparation too (second review fix): two designated this cycle leave none for a third today.
+    assert.deepEqual(preservePlan([{ id: "a", n: 1, cycle: 3 }, { id: "b", n: 2, cycle: 3 }], 1, 2, 3), { ok: false, reason: "too-many", data: { cap: 2, left: 0 } });
+});
+
+test("a preserved food spoils once its creator no longer holds its designation, wherever it is (second review fix, 7.7)", () => {
+    const preserved = { creator: ALCH, cycle: 1, rule: "prep", pool: "advanced-alchemy", at: 10, exempt: { key: "food-preservation", id: "d1", n: 1 } };
+    assert.equal(expiryReason(preserved, { creatorCycle: 9, worldTime: 99, designations: new Set(["d1"]) }), null, "its designation stands");
+    assert.equal(expiryReason(preserved, { creatorCycle: 9, designations: new Set(["d2"]) }), "spoiled", "pushed past the cap");
+    assert.equal(expiryReason(preserved, { creatorCycle: 9, designations: null }), null, "a creator that cannot be read leaves it preserved");
 });
 
 test("an actor's id in its UUID", () => {

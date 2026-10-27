@@ -4,19 +4,21 @@
  * API at `game.dailies.api`; `registerCustomDailies` accepts a daily with `key`, `rows`, `process` and a `condition`).
  *
  * - Shown when the character has a daily-preparation crafting pool or versatile vials (`condition`).
- * - Rows: a select per pool ("keep current preparation", each saved loadout, "prepare in the Workshop later"), and a
- *   notify row listing the standing orders due today.
+ * - Rows: a select per pool ("keep current preparation", for a talisman pool with the last preparation's virtual
+ *   talismans; each saved loadout; "prepare everything in the Workshop later", which makes nothing now), and a notify row
+ *   listing the standing orders due today.
  * - `process` only records the choice on the actor (`flags.MOD.morning.choice = {pools, standing, cycle, at}`); it never
  *   creates items inside the pf2e-dailies flow, so the two modules' item bookkeeping never mixes. When pf2e-dailies has
  *   finished (its `rested` flag goes back to false), the character's responsible client applies the choice through the
  *   system's methods (`rest.mjs`, OQ-20).
- * - Its rows do not use pf2e-dailies' `save` (its flags are keyed by the daily's key, which holds a dot here); the
- *   Workshop keeps its own record.
+  * - Its select rows leave pf2e-dailies' `save` at its default, so pf2e-dailies remembers each pool's last selection under
+ *   its own flags and preselects it (DESIGN 10.13 Follow-ups: it can be a deleted loadout's id); the Workshop keeps its own
+ *   record of the choice.
  * Features pf2e-dailies already covers (scroll caches, staves, Root Magic and the like) are never duplicated: the Morning
  * tab shows them as handled by pf2e-dailies (7.10 `dailyGap` flow `dailies`).
  */
 import { MODULE_ID } from "../constants.mjs";
-import { standingDue } from "../logic/morning.mjs";
+import { TALISMAN_POOLS, standingDue } from "../logic/morning.mjs";
 import { statusOf, today } from "./downtime.mjs";
 import { dailiesActive, hasDailySources, loadoutsOf, morningOn } from "./morning.mjs";
 import { records, stampNow } from "./store.mjs";
@@ -52,7 +54,7 @@ export function dailyRows(actor) {
     const rows = poolsOf(actor).map((pool) => ({
         type: "select", slug: pool.slug, label: labelOf(pool.label),
         options: [
-            { value: "keep", label: game.i18n.localize("pf2e-artisans-workshop.Dailies.Keep") },
+            { value: "keep", label: game.i18n.localize(TALISMAN_POOLS.includes(pool.slug) ? "pf2e-artisans-workshop.Dailies.KeepTalismans" : "pf2e-artisans-workshop.Dailies.Keep") },
             ...loadouts.filter((l) => l.pools?.[pool.slug] || l.talismans?.[pool.slug]).map((l) => ({ value: l.id, label: l.name })),
             { value: "later", label: game.i18n.localize("pf2e-artisans-workshop.Dailies.Later") },
         ],

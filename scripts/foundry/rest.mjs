@@ -19,7 +19,7 @@
  * flag goes back to false), the character's responsible client applies the choice through the system methods (7.9, OQ-20).
  */
 import { MODULE_ID } from "../constants.mjs";
-import { afterRest } from "../logic/morning.mjs";
+import { TALISMAN_POOLS, afterRest, talismanPicksOf } from "../logic/morning.mjs";
 import { statusOf } from "./downtime.mjs";
 import { beginCycle, expiryOn } from "./expiry.mjs";
 import { applyMorning, dailiesActive, hasDailySources, isApplying, morningOf, morningOn, stampSheetCrafting } from "./morning.mjs";
@@ -116,18 +116,25 @@ export function onActorUpdate(actor, changed) {
 
 /**
  * Apply a Morning choice recorded in pf2e-dailies' interface (7.9), once, for the cycle it was made in: each pool keeps its
- * preparation or takes the loadout chosen; a pool left for the Workshop means nothing is made now (the prompt stands).
+ * preparation or takes the loadout chosen; a talisman pool kept makes again the virtual talismans of the last preparation
+ * (they are never in pf2e's prepared list, 7.4). A pool left for the Workshop means nothing is made now (the prompt
+ * stands, and the row says so).
  */
 export async function applyChoice(actor) {
-    const choice = morningOf(actor).choice;
+    const morning = morningOf(actor);
+    const choice = morning.choice;
     if (!choice || choice.applied || !morningOn()) return { ok: false, reason: "no-choice" };
     if (choice.cycle !== statusOf(actor).prepCycle) return { ok: false, reason: "stale-choice" };
     const pools = {};
+    const talismans = {};
+    const last = talismanPicksOf(morning.talismans);
     for (const [slug, value] of Object.entries(choice.pools ?? {})) {
         if (value === "later") return { ok: false, reason: "later" };
         pools[slug] = value === "keep" ? { mode: "keep" } : { mode: "loadout", id: value };
+        if (value === "keep" && TALISMAN_POOLS.includes(slug) && last[slug]?.length) talismans[slug] = last[slug];
     }
-    return applyMorning(actor, { pools, standing: choice.standing === false ? [] : "due", choice: true });
+    // pf2e-dailies' window does not ask where the character prepares (Herbalist): the last preparation's answer stands.
+    return applyMorning(actor, { pools, talismans, standing: choice.standing === false ? [] : "due", choice: true, wilderness: morning.wilderness === true });
 }
 
 /** Choices waiting to be applied, by actor id: one timer each, so a party's choices never cancel each other. */

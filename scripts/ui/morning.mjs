@@ -18,6 +18,7 @@
  * orders left out, the loadout name being typed.
  */
 import { familyBaseName } from "../logic/families.mjs";
+import { MAX_QTY } from "../logic/morning.mjs";
 import { members } from "../foundry/roster.mjs";
 import {
     affixBoardOf, affixOwn, applyMorning, captureLoadout, dailiesActive, deleteLoadout, endStanding, markGap, morningFacts, morningOn, placeStanding,
@@ -82,7 +83,7 @@ export function morningChoices() {
 
 /** The tab's state, with defaults. */
 export function morningState(app) {
-    app.morning ??= { actor: null, plans: {}, talismans: {}, skipped: [], loadoutName: "" };
+    app.morning ??= { actor: null, plans: {}, talismans: {}, skipped: [], loadoutName: "", wilderness: false };
     return app.morning;
 }
 
@@ -130,7 +131,7 @@ export async function morningContext(app) {
     const actor = morningActor(app);
     const choices = morningChoices().map((a) => ({ uuid: a.uuid, name: a.name, selected: a === actor }));
     if (!actor) return { morning: { choices, actor: null } };
-    const facts = await morningFacts(actor);
+    const facts = await morningFacts(actor, undefined, { wilderness: state.wilderness === true });
     const skipped = new Set(state.skipped);
     const due = planMorning(facts, { pools: {}, talismans: {}, standing: "due" }).due;
     const standing = due.filter((s) => !skipped.has(s.id)).map((s) => s.id);
@@ -138,13 +139,16 @@ export async function morningContext(app) {
     const loadouts = Object.values(facts.loadouts);
     const pools = facts.pools.map((pool) => {
         const resolved = plan.pools[pool.slug] ?? null;
-        const picked = new Set(state.talismans[pool.slug] ?? []);
+        const picks = state.talismans[pool.slug] ?? [];
+        const countOf = (uuid) => picks.filter((u) => u === uuid).length;
         const choice = state.plans[pool.slug]?.mode === "loadout" ? state.plans[pool.slug].id : "keep";
         return {
             slug: pool.slug, label: pool.label, talisman: pool.talisman,
             slots: pool.max === null ? null : fmt("pf2e-artisans-workshop.Morning.Slots", { used: number(pool.used), max: number(pool.max) }),
+            // pf2e's own count beside the rules' when the registry corrects it (6.11 `correction`, 7.1).
+            corrected: pool.corrected ? fmt("pf2e-artisans-workshop.Morning.Corrected", { system: number(pool.systemMaxSlots), max: number(pool.max) }) : null,
             maxItemLevel: number(pool.maxItemLevel), batch: number(pool.batchSize), insufficient: pool.insufficient, made: pool.made,
-            sources: pool.sources.map((s) => ({ name: s.name, slots: s.maxSlots === null ? null : number(s.maxSlots),
+            sources: pool.sources.map((s) => ({ name: s.name, slots: Number.isInteger(s.correctedSlots ?? s.maxSlots) ? number(s.correctedSlots ?? s.maxSlots) : null,
                 level: s.maxItemLevel === null ? null : number(s.maxItemLevel), wins: s.key === pool.merged.winners.maxSlots && pool.sources.length > 1 })),
             byLevel: pool.byLevel.map((b) => fmt("pf2e-artisans-workshop.Morning.ByLevel", { level: String(b.level), n: number(b.count) })),
             prepared: pool.prepared.map((p) => ({ name: p.name, img: p.img, level: p.level, qty: number(p.quantity), expended: p.expended })),
@@ -152,8 +156,10 @@ export async function morningContext(app) {
                 { value: "keep", label: loc("pf2e-artisans-workshop.Morning.Keep"), selected: choice === "keep" },
                 ...loadouts.filter((l) => l.pools?.[pool.slug] || l.talismans?.[pool.slug]).map((l) => ({ value: l.id, label: l.name, selected: choice === l.id })),
             ],
-            offered: pool.offered.map((item) => ({ uuid: item.uuid, name: item.name, img: item.img, level: item.level, picked: picked.has(item.uuid) })),
-            pickedCount: number(picked.size),
+            // A count per talisman: two of one are two picks (7.4), at most the pool's slots.
+            offered: pool.offered.map((item) => ({ uuid: item.uuid, name: item.name, img: item.img, level: item.level, count: countOf(item.uuid),
+                picked: countOf(item.uuid) > 0 })),
+            pickedCount: number(picks.length), pickMax: pool.max ?? "",
             dcStamp: pool.dcStamp && Number.isInteger(facts.dcs.classDc ?? facts.dcs.spellDc)
                 ? fmt("pf2e-artisans-workshop.Morning.DcStamp", { dc: String(Math.max(facts.dcs.classDc ?? 0, facts.dcs.spellDc ?? 0)) }) : null,
             lines: (resolved?.lines ?? []).map((line) => ({ name: line.item.name, level: line.item.level, qty: number(line.qty),
@@ -185,6 +191,7 @@ export async function morningContext(app) {
             lastDay: Number.isInteger(facts.morning.day) ? number(facts.morning.day) : null,
             canPrepare: facts.state === "fresh" && (facts.pools.length > 0 || !!facts.vials), canAgain: facts.state !== "fresh" && facts.pools.length > 0,
             inDowntime: status.inDowntime, routine: status.standingRoutine === true, dailies: dailiesActive(),
+            wildernessAsked: facts.pools.some((p) => p.contexts?.includes("wilderness")), wilderness: state.wilderness === true,
             pools, hasPools: pools.length > 0,
             problems: plan.problems.map((p) => problemText(p, facts.pools)),
             diff: plan.diff.filter((d) => d.kind !== "same" || d.request).map((d) => fmt(DIFF[d.kind] ?? DIFF.same, { item: d.name, qty: number(d.qty), from: d.from?.name ?? "" })
@@ -225,7 +232,7 @@ export function onMorningChange(app, target) {
     const field = target.dataset?.morning;
     if (!field) return false;
     if (field === "actor") {
-        Object.assign(state, { actor: target.value, plans: {}, talismans: {}, skipped: [] });
+        Object.assign(state, { actor: target.value, plans: {}, talismans: {}, skipped: [], wilderness: false });
         return true;
     }
     if (field === "plan") {
@@ -234,11 +241,16 @@ export function onMorningChange(app, target) {
         return true;
     }
     if (field === "talisman") {
-        const pool = target.dataset.pool;
-        const list = new Set(state.talismans[pool] ?? []);
-        if (target.checked) list.add(target.dataset.uuid);
-        else list.delete(target.dataset.uuid);
-        state.talismans = { ...state.talismans, [pool]: [...list] };
+        // A count per talisman (a number field; a checkbox counts one): the picks keep one UUID per talisman.
+        const { pool, uuid } = target.dataset;
+        const wanted = target.type === "checkbox" || target.value === undefined ? (target.checked ? 1 : 0) : Math.trunc(Number(target.value));
+        const count = Number.isFinite(wanted) ? Math.max(0, Math.min(wanted, MAX_QTY)) : 0;
+        const others = (state.talismans[pool] ?? []).filter((u) => u !== uuid);
+        state.talismans = { ...state.talismans, [pool]: [...others, ...Array(count).fill(uuid)] };
+        return true;
+    }
+    if (field === "wilderness") {
+        state.wilderness = target.checked === true;
         return true;
     }
     if (field === "standing") {
@@ -293,12 +305,12 @@ export async function onMorningOp(app, target) {
     const op = target.dataset.op;
     if (!actor) return null;
     const skipped = new Set(state.skipped);
-    const plan = { pools: state.plans, talismans: state.talismans };
+    const plan = { pools: state.plans, talismans: state.talismans, wilderness: state.wilderness === true };
     switch (op) {
         case "prepare":
         case "again": {
             if (op === "again" && !(await confirm({ title: "pf2e-artisans-workshop.Prompt.Again.Title", content: "pf2e-artisans-workshop.Prompt.Again.Content", app }))) return null;
-            const facts = await morningFacts(actor);
+            const facts = await morningFacts(actor, undefined, { wilderness: plan.wilderness });
             const due = planMorning(facts, { standing: "due" }).due.filter((s) => !skipped.has(s.id)).map((s) => s.id);
             const result = report(await applyMorning(actor, { ...plan, standing: due, again: op === "again" }));
             if (result?.ok) state.talismans = {};

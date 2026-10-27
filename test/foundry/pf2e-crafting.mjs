@@ -2,7 +2,8 @@
  * A small fake of pf2e's crafting model for the M7 stub tests (DESIGN.md 7.1), as `src/module/actor/character/crafting/`
  * runs it (pf2e dev head be4ab21b, cross-checked against 8.6.1 by DESIGN 7.1):
  * - `CraftingAbility`: `getPreparedCraftingFormulas` drops prepared formulas the book does not know; `setFormulaQuantity`
- *   refuses a new formula once the slots are spent and rounds a quantity up to whole batches (0 unprepares);
+ *   refuses an increase or a new formula once the slots are spent, clamps an increase to the slots left and refuses one
+ *   the pool cannot craft, and rounds an existing formula's quantity up to whole batches (0 unprepares);
  *   `updateFormulas` replaces the prepared list; `craft(uuid, {consume: false})` makes one batch of a temporary item,
  *   infused when alchemical, and adds to an identical stack WITHOUT waiting for the update (pf2e does not await it).
  * - `CharacterCrafting#performDailyCrafting`: every daily pool's prepared, unexpended formulas, made at once (nothing, with a
@@ -81,23 +82,38 @@ export class FakeAbility {
         });
     }
 
+    /** pf2e's `canCraft`: the pool's predicates and its item level. */
+    canCraft(item) {
+        const options = new Set(item.getRollOptions("item"));
+        return this.craftableItems.some((c) => c.predicate.test(options)) && item.level <= this.maxItemLevel;
+    }
+
+    /**
+     * pf2e's `setFormulaQuantity` (ability.ts): an increase (or a new formula) is refused once the slots are spent, and
+     * clamped to the slots left (`validMaxQuantity`); a new formula keeps the clamped quantity as it is, an existing one is
+     * rounded up to whole batches; 0 unprepares.
+     */
     async setFormulaQuantity(uuid, value) {
         this.calls.push(["setFormulaQuantity", uuid, value]);
         const prepared = await this.getPreparedCraftingFormulas();
         const consumed = prepared.reduce((sum, p) => sum + p.batches, 0);
         const data = this.preparedFormulaData.find((p) => p.uuid === uuid);
-        if (value === 0) {
-            this.preparedFormulaData = this.preparedFormulaData.filter((p) => p.uuid !== uuid);
-            return;
-        }
-        if (!data && consumed >= this.maxSlots) {
+        const item = world.compendium[uuid];
+        const batch = item ? this.batchFor(item) : 1;
+        const current = data?.quantity ?? 0;
+        const increasing = !data || value > current;
+        if (consumed >= this.maxSlots && increasing) {
             ui.notifications.warn("PF2E.CraftingTab.Alerts.MaxSlots");
             return;
         }
-        const item = world.compendium[uuid];
-        const batch = this.batchFor(item);
-        const quantity = Math.ceil(Math.min(Math.max(value, batch), batch * 50) / batch) * batch;
-        if (data) data.quantity = quantity;
+        const validMax = this.maxSlots ? current + (this.maxSlots - consumed) * batch : Infinity;
+        const quantity = Math.min(Math.max(value, 0), validMax);
+        if (quantity > current && (!item || !this.canCraft(item))) return;
+        if (quantity === 0) {
+            this.preparedFormulaData = this.preparedFormulaData.filter((p) => p.uuid !== uuid);
+            return;
+        }
+        if (data) data.quantity = Math.ceil(Math.min(Math.max(quantity, batch), batch * 50) / batch) * batch;
         else this.preparedFormulaData.push({ uuid, quantity });
     }
 

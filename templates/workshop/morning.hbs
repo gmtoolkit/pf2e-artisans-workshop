@@ -23,6 +23,8 @@
             <i class="fa-solid fa-rotate" inert></i>{{localize "pf2e-artisans-workshop.Morning.Again"}}</button>{{/if}}
         {{#if inDowntime}}<button type="button" class="small" data-action="morning" data-op="routine" aria-pressed="{{#if routine}}true{{else}}false{{/if}}">
             <i class="fa-solid {{#if routine}}fa-square-check{{else}}fa-square{{/if}}" inert></i>{{localize "pf2e-artisans-workshop.Morning.Routine"}}</button>{{/if}}
+        {{#if wildernessAsked}}<label class="chip morning-wilderness"><input type="checkbox" data-morning="wilderness" {{#if wilderness}}checked{{/if}}>
+            <i class="fa-solid fa-tree" inert></i> {{localize "pf2e-artisans-workshop.Morning.Wilderness"}}</label>{{/if}}
         {{/if}}
     </div>
     {{#if actor}}
@@ -48,6 +50,7 @@
                 <h4 id="pf2e-artisans-workshop-pool-{{slug}}">{{label}}</h4>
                 <span class="pool-facts">
                     {{#if slots}}<span class="chip{{#if insufficient}} warn{{/if}}"><i class="fa-solid fa-boxes-stacked" inert></i> {{slots}}</span>{{/if}}
+                    {{#if corrected}}<span class="chip warn"><i class="fa-solid fa-scale-balanced" inert></i> {{corrected}}</span>{{/if}}
                     <span class="chip"><i class="fa-solid fa-layer-group" inert></i> {{localize "pf2e-artisans-workshop.Morning.MaxLevel" level=maxItemLevel}}</span>
                     <span class="chip"><i class="fa-solid fa-cubes" inert></i> {{localize "pf2e-artisans-workshop.Morning.Batch" n=batch}}</span>
                     {{#if made}}<span class="chip on"><i class="fa-solid fa-check" inert></i> {{localize "pf2e-artisans-workshop.Morning.Made"}}</span>{{/if}}
@@ -76,7 +79,7 @@
                 {{#if offered.length}}
                 <ul class="talisman-picker">
                     {{#each offered}}
-                    <li><label><input type="checkbox" data-morning="talisman" data-pool="{{../slug}}" data-uuid="{{uuid}}" {{#if picked}}checked{{/if}}>
+                    <li{{#if picked}} class="picked"{{/if}}><label><input type="number" class="talisman-count" min="0" {{#if ../pickMax}}max="{{../pickMax}}"{{/if}} step="1" value="{{count}}" data-morning="talisman" data-pool="{{../slug}}" data-uuid="{{uuid}}">
                         {{#if img}}<img src="{{img}}" alt="">{{/if}} {{name}} <span class="entry-level">{{localize "pf2e-artisans-workshop.Formulas.Level" level=level}}</span></label></li>
                     {{/each}}
                 </ul>

@@ -1029,8 +1029,9 @@
   "pf2e-artisans-workshop.Card.Summary.Morning": "{actor} made their daily preparations.",
   "pf2e-artisans-workshop.Card.Summary.MorningNothing": "{actor} made their daily preparations; nothing new was made.",
   "pf2e-artisans-workshop.Dailies.Keep": "Keep the current preparation",
+  "pf2e-artisans-workshop.Dailies.KeepTalismans": "Keep the current preparation and the last talismans made",
   "pf2e-artisans-workshop.Dailies.Label": "Artisan's Workshop",
-  "pf2e-artisans-workshop.Dailies.Later": "Prepare in the Workshop later",
+  "pf2e-artisans-workshop.Dailies.Later": "Prepare everything in the Workshop later (nothing is made now)",
   "pf2e-artisans-workshop.Dailies.Standing": "Standing orders today: {orders}",
   "pf2e-artisans-workshop.Dailies.StandingLine": "{qty} {item} for {recipient}",
   "pf2e-artisans-workshop.Event.Morning": "Morning updated",
@@ -1038,6 +1039,7 @@
   "pf2e-artisans-workshop.Expiry.Reason.Cycle": "its creator made new daily preparations",
   "pf2e-artisans-workshop.Expiry.Reason.Day": "a new day was logged",
   "pf2e-artisans-workshop.Expiry.Reason.Time": "24 hours have passed",
+  "pf2e-artisans-workshop.Expiry.Reason.Spoiled": "it was the oldest food preserved, and a newer one took its place",
   "pf2e-artisans-workshop.Expiry.Used": "{item} is inert and can no longer be used.",
   "pf2e-artisans-workshop.Morning.Affix.Active": "Working",
   "pf2e-artisans-workshop.Morning.Affix.Do": "Affix",
@@ -1169,6 +1171,8 @@
   "pf2e-artisans-workshop.Settings.FeaturesMorning.Name": "Daily preparations",
   "pf2e-artisans-workshop.Window.Tab.Morning": "Morning",
   "pf2e-artisans-workshop.Morning.BadgeOne": "1 character waiting to prepare",
+  "pf2e-artisans-workshop.Morning.Corrected": "pf2e counts {system}; the rules allow {max}",
+  "pf2e-artisans-workshop.Morning.Wilderness": "Preparing in the wilderness",
   "pf2e-artisans-workshop.Morning.Problem.StandingSlots": "{name}: a standing order left out today, {pool} has no slots left for it.",
   "pf2e-artisans-workshop.Refusal.System": "pf2e did not make the daily crafting: a pool asks for more than it has. Adjust it and prepare again."
 }

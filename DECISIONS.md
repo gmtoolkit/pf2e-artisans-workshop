@@ -2,6 +2,25 @@
 
 Newest first.
 
+## 2026-10-26: Preserved foods stop being temporary; the rules text beats pf2e's daily-pool data
+
+**Decision:** a food designated with Food Preservation gets `system.temporary: false` (and is made temporary again when
+it spoils), and the designations are kept on the creator rather than read from its inventory. Where pf2e's data for a
+daily-preparation source disagrees with the feat's text (Herbalist's two fewer outside the wilderness, Lethargy
+Poisoner's doses by rank and Stupor Poison from expert, the alchemist archetype's Advanced Alchemy making consumables
+only), the registry's `correction` effects lower pf2e's count or narrow what the pool makes, the Morning tab shows both
+numbers, and the Workshop refuses a plan beyond the rules' count, a kept preparation included. Whether the preparations
+are made in the wilderness is asked on the Morning tab for each preparation.
+
+**Why:** pf2e's Rest for the Night deletes every temporary item on the actor that rests, so an exemption from the
+module's own expiry alone kept nothing; the feat's cap counts every preserved food, wherever it went. The registry exists
+for data the system gets wrong (6.11), and the module never re-implements pf2e's crafting: the corrections only make the
+module ask pf2e for less than pf2e would allow, through the same `CraftingAbility` methods.
+
+**Consequences:** DESIGN 7.4, 7.7, 7.9 and 10.13 (After the second M7 review); a correction carries the pf2e rule it
+answers (`bug`), and the validation script reports it once pf2e's rule changes. pf2e's own sheet still prepares by
+pf2e's numbers.
+
 ## 2026-10-26: Talisman Dabbler's daily talismans need no formula book
 
 **Decision:** the talisman pools' virtual lists (Talisman Dabbler: common talismans of the character's level or lower;

@@ -10,7 +10,8 @@
  * is an item whose Crafting bonus predicates an option only the roll wrapper can add (`wrapperOptions`), which needs a
  * registry entry with a `rollOptions` effect instead. It also fails when a predicate names an item option no physical
  * item in the checkout has (`checkReferences`: a trait, tag, slug, category, usage or type that pf2e renamed or that was
- * mistyped), a `books` title no item has, or a `correction` that pf2e has fixed.
+ * mistyped), a `books` title no item has, or a `correction` that pf2e has fixed (a talisman with the consumable trait now,
+ * or a daily pool's `CraftingAbility` rule that no longer reads as the correction's `bug` says).
  *
  * Completeness: every item of every Item pack in the checkout whose description mentions crafting, formulas, daily
  * preparations or Earn Income must be in the registry or on the ignore list. Those that are in neither are reported;
@@ -163,6 +164,10 @@ export function checkEntries({ registry = REGISTRY, ignore = REGISTRY_IGNORE, re
         const fixed = entry.effects.some((effect) => effect.kind === "correction" && effect.consumable) &&
             (doc.system?.traits?.value ?? []).includes("consumable");
         if (fixed) report("has the consumable trait now, so its correction is stale");
+        for (const effect of entry.effects.filter((e) => e.kind === "correction" && e.bug)) {
+            const still = (doc.system?.rules ?? []).some((r) => r.key === "CraftingAbility" && contains(r, effect.bug));
+            if (!still) report(`its CraftingAbility rule no longer reads ${JSON.stringify(effect.bug)}: check whether the ${effect.pool} correction is still needed`);
+        }
     }
     for (const [uuid, reason] of Object.entries(ignore)) {
         const report = (problem) => problems.push({ key: uuid, problem });

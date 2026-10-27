@@ -15,8 +15,9 @@
  *   `flags.MOD.inertFrom`; or, under the other setting, the item is deleted. A `preCreateChatMessage` guard cancels a
  *   chat message that uses or strikes with an inert item and says why (OQ-19: pf2e takes the consumable's quantity before
  *   the message, so the guard stops the effect's card, not the count).
- * - **Exceptions**: an item whose stamp is `exempt` (Food Preservation's designation) never expires here; affliction
- *   effects already running (8.10.10) are M8a's.
+ * - **Exceptions**: an item whose stamp is `exempt` (Food Preservation's designation) never expires here while its
+ *   creator still holds the designation (`flags.MOD.morning.preserved`); one pushed past the cap spoils at once, and is
+ *   made temporary again so the holder's next rest deletes it. Affliction effects already running (8.10.10) are M8a's.
  */
 import { MODULE_ID } from "../constants.mjs";
 import { pcStatusOf } from "../logic/downtime.mjs";
@@ -59,11 +60,23 @@ function nowFacts() {
     return { worldTime: game.time.worldTime ?? 0, loggedDay };
 }
 
+/**
+ * The ids of a creator's Food Preservation designations that stand (`flags.MOD.morning.preserved`, 7.7), or null when the
+ * creator cannot be read (its preserved foods stay preserved).
+ */
+export function designationsOf(creatorUuid) {
+    const creator = typeof creatorUuid === "string" ? fromUuidSync(creatorUuid, { strict: false }) : null;
+    if (!creator) return null;
+    const list = creator.flags?.[MODULE_ID]?.morning?.preserved;
+    return new Set(Array.isArray(list) ? list.map((d) => d?.id).filter(Boolean) : []);
+}
+
 /** Why `item` has expired now, or null. */
 export function expiredWhy(item, now = nowFacts()) {
     const stamp = stampOf(item);
     if (!stamp) return null;
-    return expiryReason(stamp, { creatorCycle: cycleOf(stamp.creator), worldTime: now.worldTime, loggedDay: now.loggedDay, inert: isInert(item) });
+    return expiryReason(stamp, { creatorCycle: cycleOf(stamp.creator), worldTime: now.worldTime, loggedDay: now.loggedDay, inert: isInert(item),
+        designations: stamp.exempt?.id ? designationsOf(stamp.creator) : null });
 }
 
 /** The name an inert item takes, without stacking the suffix. */
@@ -93,6 +106,8 @@ export async function expireItems(actor, items, now = nowFacts()) {
         _id: item.id, name: inertName(item),
         [`flags.${MODULE_ID}.inert`]: true,
         [`flags.${MODULE_ID}.inertFrom`]: { name: item.flags?.[MODULE_ID]?.inertFrom?.name ?? item.name, reason, at },
+        // A preserved food was made permanent so a rest would not delete it; spoiled, it is temporary again (7.7).
+        ...(item.system?.temporary === false && stampOf(item)?.exempt ? { "system.temporary": true } : {}),
     })));
     return marked;
 }
@@ -111,12 +126,42 @@ function strongboxShare(strongbox) {
     });
 }
 
+/** The sweep running on this client, and whether another was asked for meanwhile. */
+let sweeping = null;
+let sweepAgain = false;
+
 /**
  * Mark everything that expired among the actors this tab is responsible for, and the strongbox's share (P5: idempotent,
  * so the catch-up sweep can always run it). Posts one Expiry card per holder that lost something.
+ *
+ * Single-flight on this client: a sweep asked for while one runs (the timer, the catch-up sweep, the expiry claim, all
+ * started by one cycle raise) runs once more after it, never beside it. Foundry changes a local document only when the
+ * server answers, so two passes at once would both see an item as live and mark it twice (two Expiry cards; under
+ * `delete`, a second delete of an item already gone). Resolves with everything marked by the passes it waited for.
  * @returns {Promise<{holder: string, items: object[]}[]>}
  */
-export async function expirySweep() {
+export function expirySweep() {
+    if (sweeping) {
+        sweepAgain = true;
+        return sweeping;
+    }
+    sweeping = (async () => {
+        const out = [];
+        try {
+            do {
+                sweepAgain = false;
+                out.push(...await sweepOnce());
+            } while (sweepAgain);
+            return out;
+        } finally {
+            sweeping = null;
+        }
+    })();
+    return sweeping;
+}
+
+/** One pass of the sweep (`expirySweep`). */
+async function sweepOnce() {
     if (!canWrite() || !expiryOn()) return [];
     const now = nowFacts();
     const out = [];
@@ -187,16 +232,12 @@ export async function beginCycle(actor, { key = null, reason = "rest" } = {}) {
 }
 
 /**
- * The expiry claim's applier (5.5), on the creator's responsible client: the creator's share of the strongbox and the
- * shelf (holders' own clients mark what they hold), then the claim is resolved.
+ * The expiry claim's applier (5.5), on the creator's responsible client: the sweep, whose share of the strongbox and the
+ * shelf is the creator's on this client (holders' own clients mark what they hold), then the claim is resolved. It runs
+ * the single-flight sweep rather than marking on its own, so it never marks an item a sweep running beside it marks too.
  */
 async function applyExpiryClaim(claim) {
-    const strongbox = shared().strongbox;
-    if (strongbox) {
-        const items = stampedItems(strongbox).filter((item) => stampOf(item).creator === claim.actor);
-        const marked = await expireItems(strongbox, items);
-        if (marked.length) Hooks.callAll("pf2e-artisans-workshop.itemsExpired", Object.freeze({ holder: strongbox, items: marked }));
-    }
+    await expirySweep();
     await write({ set: { [`claims.${claim.id}.resolved`]: stampNow() } });
     return { ok: true, outcome: "ok" };
 }
@@ -227,6 +268,10 @@ export function registerExpiryHooks() {
     Hooks.on("createItem", (item) => {
         if (stampOf(item) && !isInert(item)) scheduleExpiry();
     });
+    // A creator's Food Preservation designations changed: a food pushed past the cap spoils wherever it is (7.7).
+    Hooks.on("updateActor", (actor, changed) => {
+        if (changed?.flags?.[MODULE_ID]?.morning && "preserved" in changed.flags[MODULE_ID].morning && expiryOn()) scheduleExpiry();
+    });
     // OQ-19: cancel a message that uses or strikes with an inert item, on the client creating it.
     Hooks.on("preCreateChatMessage", (message) => {
         const item = inertOrigin(message);
@@ -240,4 +285,6 @@ export function registerExpiryHooks() {
 export function resetExpiry() {
     clearTimeout(timer);
     timer = null;
+    sweeping = null;
+    sweepAgain = false;
 }

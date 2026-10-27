@@ -141,6 +141,7 @@ const EXPIRY_REASON = Object.freeze({
     cycle: "pf2e-artisans-workshop.Expiry.Reason.Cycle",
     time: "pf2e-artisans-workshop.Expiry.Reason.Time",
     day: "pf2e-artisans-workshop.Expiry.Reason.Day",
+    spoiled: "pf2e-artisans-workshop.Expiry.Reason.Spoiled",
 });
 
 /** Who a Morning or Expiry card goes to: the actor's owners and GMs, or everyone (`chat.visibility`). */

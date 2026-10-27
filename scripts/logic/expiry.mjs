@@ -11,8 +11,10 @@
  * - Advanced Alchemy items also carry `at` (world seconds, 24 hours after creation) and `atDay` (the workshop day after
  *   the day of creation): whichever comes first ends them (Player Core 2, Advanced Alchemy). `atDay` counts only days
  *   logged ahead of the clock (the wizard's days, 4.8): a clock that crosses midnight is not 24 hours, and `at` covers it.
- * - `exempt`: a feat's exception (Food Preservation's designation, 7.7), `{key, at}`; an exempt item never expires on
- *   these rules.
+ * - `exempt`: a feat's exception (Food Preservation's designation, 7.7), `{key, id, n, at}`; an exempt item never expires
+ *   on these rules while its designation stands. Food Preservation's designations are kept on the creator
+ *   (`flags.MOD.morning.preserved`, wherever the food has gone): one the creator's later designations push past the cap
+ *   has spoiled, and the food expires at once (`spoiled`).
  */
 import { RANK } from "./core.mjs";
 
@@ -59,14 +61,19 @@ export function sameStamp(a, b) {
  * Why a stamped item has expired, or null while it has not (7.7):
  * - `cycle`: the creator made daily preparations since (its counter is past the stamp's);
  * - `time`: world time reached `at`;
- * - `day`: the days logged ahead of the clock reached `atDay`.
- * Exempt items, items already inert, and rules M7 does not run (the turn rules, M8) never expire here.
+ * - `day`: the days logged ahead of the clock reached `atDay`;
+ * - `spoiled`: a preserved food whose designation the creator no longer holds (Food Preservation: "the previous item
+ *   becomes inedible").
+ * Exempt items whose designation stands (or cannot be read: `designations` null), items already inert, and rules M7
+ * does not run (the turn rules, M8) never expire here.
  *
  * @param {object|null} stamp
- * @param {{creatorCycle?: number|null, worldTime?: number|null, loggedDay?: number|null, inert?: boolean}} now
+ * @param {{creatorCycle?: number|null, worldTime?: number|null, loggedDay?: number|null, inert?: boolean,
+ *   designations?: Set<string>|null}} now   `designations`: the ids of the creator's designations that stand
  */
-export function expiryReason(stamp, { creatorCycle = null, worldTime = null, loggedDay = null, inert = false } = {}) {
-    if (!stamp || typeof stamp !== "object" || stamp.exempt || inert) return null;
+export function expiryReason(stamp, { creatorCycle = null, worldTime = null, loggedDay = null, inert = false, designations = null } = {}) {
+    if (!stamp || typeof stamp !== "object" || inert) return null;
+    if (stamp.exempt) return stamp.exempt.id && designations instanceof Set && !designations.has(stamp.exempt.id) ? "spoiled" : null;
     if (stamp.rule === "prep") {
         if (Number.isInteger(creatorCycle) && Number.isInteger(stamp.cycle) && creatorCycle > stamp.cycle) return "cycle";
         if (Number.isFinite(stamp.at) && Number.isFinite(worldTime) && worldTime >= stamp.at) return "time";
@@ -136,19 +143,20 @@ export function preservationCap(rank) {
 }
 
 /**
- * Designate foods (7.7 exception): the newly chosen ones (at most `cap` a preparation) are preserved, and when more than
- * `cap` would be preserved at once, the oldest stop being preserved ("spoil", the rule's "inedible"): their exemption
- * ends, so they expire on their stamp.
+ * Designate foods (7.7 exception, Food Preservation): `count` new foods are designated at this preparation. At most `cap`
+ * may be designated in one cycle, and at most `cap` stay preserved at once, counting the creator's designations wherever
+ * the foods have gone: past that, the oldest spoil (the rule's "inedible").
  *
- * @param {{id: string, at: number}[]} preserved   items preserved now, with when
- * @param {string[]} chosen                         ids to preserve now
- * @param {number} cap
- * @param {number} now                              when (any increasing number)
- * @returns {{ok: true, preserve: string[], spoil: string[]} | {ok: false, reason: "too-many", data: {cap: number}}}
+ * @param {{id: string, n: number, cycle: number}[]} designations   the creator's designations that stand, `n` increasing
+ * @param {number} count    foods designated now
+ * @param {number} cap      `preservationCap`
+ * @param {number} cycle    the creator's preparation cycle now
+ * @returns {{ok: true, spoil: string[]} | {ok: false, reason: "too-many", data: {cap: number, left: number}}}
  */
-export function preservePlan(preserved, chosen, cap, now) {
-    const fresh = [...new Set(chosen)].filter((id) => !preserved.some((p) => p.id === id));
-    if (fresh.length > cap) return { ok: false, reason: "too-many", data: { cap } };
-    const all = [...preserved.map((p) => ({ ...p })), ...fresh.map((id) => ({ id, at: now }))].sort((a, b) => b.at - a.at);
-    return { ok: true, preserve: fresh, spoil: all.slice(cap).map((p) => p.id) };
+export function preservePlan(designations, count, cap, cycle) {
+    const today = designations.filter((d) => d.cycle === cycle).length;
+    if (count + today > cap) return { ok: false, reason: "too-many", data: { cap, left: Math.max(0, cap - today) } };
+    const over = designations.length + count - cap;
+    const oldest = [...designations].sort((a, b) => a.n - b.n);
+    return { ok: true, spoil: over > 0 ? oldest.slice(0, over).map((d) => d.id) : [] };
 }

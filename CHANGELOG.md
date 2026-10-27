@@ -116,12 +116,14 @@ All notable changes to this module are documented here. The format follows
   PF2e Dailies handles). "Make daily preparations" prepares through pf2e's own crafting methods: each pool keeps its
   preparation or takes a saved loadout, which stores item families and makes the best grade the pool allows that day
   (writing that grade into the book by family when needed); a talisman pool makes the talismans picked from its list
-  without a formula book. Party members' standing orders ("two elixirs every morning") are made too and delivered, into
+  without a formula book (two of one if wanted). Where pf2e's data for a daily source disagrees with the feat (Herbalist
+  outside the wilderness, Lethargy Poisoner's doses and Stupor Poison, the alchemist archetype's Advanced Alchemy making
+  consumables only), the tab shows both counts and prepares by the rules. Party members' standing orders ("two elixirs every morning") are made too and delivered, into
   the recipient's inventory when the player owns it, else on the pickup shelf; one that does not fit is left out for
   the day. Everything made is stamped with its maker's preparation cycle: at the maker's next daily preparations it stops
   working wherever it is, and Advanced Alchemy items also after 24 hours (marked inert, or deleted by a setting);
-  Food Preservation's designated foods are kept. Talisman Dabbler's talismans use the higher of the maker's class and
-  spell DC. Talismans and spellhearts can be affixed and taken off from the tab, one per item, two on the item a
+  Food Preservation's designated foods are kept, through a rest and in other hands, until newer ones push them past the
+  cap. Talisman Dabbler's talismans use the higher of the maker's class and spell DC for their saving throws. Talismans and spellhearts can be affixed and taken off from the tab, one per item, two on the item a
   Talismanic Sage treats. Rest for the Night starts a new cycle and prompts each character's own player once, with or
   without PF2e Dailies; with it, a Workshop row in PF2e Dailies' window picks each pool's loadout, applied when it
   finishes. Morning and Expiry chat cards say what was made and what stopped working.

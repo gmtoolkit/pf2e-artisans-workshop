@@ -6,7 +6,7 @@ import { familyKey } from "../../scripts/logic/families.mjs";
 import {
     MAX_QTY, afterRest, captureEntries, countsByLevel, cycleState, dcStampPools, deliveriesOf, filledIn, gapEntries, makeLoadout, makeStanding,
     mergeSources, normalizeBuckets, poolView, preparationDiff, resolveEntry, resolvePools, standingDue, talismanChoices, talismanPickProblem,
-    vialSources, vialState, withStanding,
+    talismanPicksOf, vialSources, vialState, withStanding, correctPool, correctedSlots, poolCorrections,
 } from "../../scripts/logic/morning.mjs";
 
 /** Elixir of life grades as catalogue facts. */
@@ -31,6 +31,38 @@ test("pools from several sources merge by the highest slots, item level and batc
     ]);
     assert.deepEqual(merged, { maxSlots: 9, maxItemLevel: 9, batchSize: 2, winners: { maxSlots: "munitions-crafter", maxItemLevel: "advanced-alchemy" } });
     assert.equal(mergeSources([{ key: "a", maxSlots: null, maxItemLevel: 3 }]).maxSlots, null, "a resource-based pool has no slot count");
+});
+
+test("the registry's corrections of pf2e's daily-pool data, from the feats' text (second M7 review, 6.11, 7.1)", () => {
+    const lethargy = poolCorrections(["lethargy-poisoner"], "lethargy-poisoner");
+    const slots = lethargy.map((c) => c.effect);
+    assert.deepEqual([0, 1, 2, 3, 4].map((rank) => correctedSlots(rank >= 3 ? 3 : 1, slots, { ranks: { crafting: rank } })), [1, 1, 1, 2, 3],
+        "Lethargy Poisoner: one dose, two at master, three at legendary (pf2e: three from master)");
+    const herbal = poolCorrections(["herbalist-dedication"], "advanced-alchemy").map((c) => c.effect);
+    assert.equal(correctedSlots(4, herbal), 2, "Herbalist outside the wilderness");
+    assert.equal(correctedSlots(4, herbal, { context: { wilderness: true } }), 4);
+    assert.equal(correctedSlots(null, herbal), null, "a source with no count of its own");
+    // The pool: lowered by what the correction lowers the merge; a count pf2e adds on top of its sources stays.
+    const herbalist = { registryKey: "herbalist-dedication", maxSlots: 4, accepts: () => true };
+    const corrections = poolCorrections(["herbalist-dedication"], "advanced-alchemy");
+    assert.equal(correctPool({ maxSlots: 4, sources: [herbalist] }, corrections).maxSlots, 2);
+    assert.equal(correctPool({ maxSlots: 5, sources: [herbalist] }, corrections).maxSlots, 3, "one slot pf2e adds by an effect stays");
+    assert.equal(correctPool({ maxSlots: 7, sources: [herbalist, { registryKey: "advanced-alchemy", maxSlots: 7, accepts: () => true }] }, corrections).corrected, false,
+        "the alchemist's own count wins the merge");
+    // The archetype's Advanced Alchemy: consumables only; another source still makes what it makes.
+    const archetype = poolCorrections(["advanced-alchemy@archetype"], "advanced-alchemy");
+    const any = { registryKey: "advanced-alchemy@archetype", maxSlots: 4, accepts: (o) => o.has("item:trait:alchemical") };
+    const pool = correctPool({ maxSlots: 4, sources: [any] }, archetype);
+    assert.equal(pool.accepts(new Set(["item:trait:alchemical"])), false, "a permanent alchemical item");
+    assert.equal(pool.accepts(new Set(["item:trait:alchemical", "item:trait:consumable"])), true);
+    const withOoze = correctPool({ maxSlots: 4, sources: [any, { registryKey: null, maxSlots: 4, accepts: (o) => o.has("item:tag:ooze") }] }, archetype);
+    assert.equal(withOoze.accepts(new Set(["item:trait:alchemical", "item:tag:ooze"])), true);
+    assert.equal(correctPool({ maxSlots: 4, sources: [any] }, []).accepts(new Set()), true, "no correction: pf2e's predicate decides");
+    // Stupor Poison from expert.
+    const stupor = correctPool({ maxSlots: 1, sources: [{ registryKey: "lethargy-poisoner", maxSlots: null, accepts: (o) => o.has("item:slug:stupor-poison") }] }, lethargy, { ranks: { crafting: 1 } });
+    assert.equal(stupor.accepts(new Set(["item:slug:stupor-poison"])), false);
+    assert.equal(correctPool({ maxSlots: 1, sources: [{ registryKey: "lethargy-poisoner", maxSlots: null, accepts: () => true }] }, lethargy, { ranks: { crafting: 2 } })
+        .accepts(new Set(["item:slug:stupor-poison"])), true);
 });
 
 test("prepared items counted by level, and a pool's slots used and free (7.1)", () => {
@@ -66,12 +98,18 @@ test("only Talisman Dabbler's pool gets the DC stamp (7.4: Talisman Esoterica ha
 
 test("a loadout stores families and quantities, checked (4.11)", () => {
     const loadout = makeLoadout({ id: "l1", name: " Healer ", pools: { "advanced-alchemy": [{ family: ELIXIR, qty: "4" }] }, talismans: { "talisman-dabbler": ["a", "a", "b"] } });
-    assert.deepEqual(loadout, { id: "l1", v: 1, name: "Healer", pools: { "advanced-alchemy": [{ family: ELIXIR, qty: 4 }] }, talismans: { "talisman-dabbler": ["a", "b"] },
-        talismanHosts: {}, vialMaterials: null });
+    assert.deepEqual(loadout, { id: "l1", v: 1, name: "Healer", pools: { "advanced-alchemy": [{ family: ELIXIR, qty: 4 }] }, talismans: { "talisman-dabbler": ["a", "a", "b"] },
+        talismanHosts: {}, vialMaterials: null }, "two of one talisman stay two (second review fix)");
     assert.throws(() => makeLoadout({ id: "l1", name: "" }), TypeError);
     assert.throws(() => makeLoadout({ id: "l1", name: "x", pools: { a: [{ family: ELIXIR, qty: 0 }] } }), RangeError);
     assert.throws(() => makeLoadout({ id: "l1", name: "x", pools: { a: [{ family: ELIXIR, qty: MAX_QTY + 1 }] } }), RangeError);
     assert.throws(() => makeLoadout({ id: "l1", name: "x", pools: { a: [{ qty: 1 }] } }), TypeError);
+});
+
+test("a preparation's record of virtual talismans as picks, one UUID per talisman (7.4, 7.9)", () => {
+    assert.deepEqual(talismanPicksOf([{ pool: "talisman-dabbler", uuid: "a", qty: 2 }, { pool: "talisman-dabbler", uuid: "b", qty: 1 }, { pool: "x", uuid: "c", qty: 0 }]),
+        { "talisman-dabbler": ["a", "a", "b"] });
+    assert.deepEqual(talismanPicksOf(undefined), {});
 });
 
 test("capturing a preparation keeps families, adding up grades of one family", () => {

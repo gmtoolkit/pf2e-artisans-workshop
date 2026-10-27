@@ -3033,9 +3033,10 @@ without preparation keep yesterday's infused items expiring on their own clock a
   item level itself. A talisman the book does hold is prepared through the pool's list as before.
 - **Setup for permanent talismans.** A Talisman Dabbler's knowledge of these formulas counts as having
   the formula, so a downtime talisman order uses the 1-day setup (the `virtual` route, 4.3).
-- **DC stamp.** After `performDailyCrafting()`, the owner client rewrites inline `@Check[...|dc:N]`
-  values on the new temporary talismans from Talisman Dabbler (found as in 7.1) to the highest of class
-  DC, spell DC and the talisman's DC (Player Core 2). Talisman Esoterica has no such rule, so its
+- **DC stamp.** After `performDailyCrafting()`, the owner client rewrites inline saving throw checks
+  (`@Check[fortitude|reflex|will|...|dc:N]`; a flat or skill check keeps its DC) on the new temporary talismans from
+  Talisman Dabbler (found as in 7.1) to the highest of class DC, spell DC and the talisman's DC (Player Core 2: "any
+  saving throw DC"). Talisman Esoterica has no such rule, so its
   talismans keep their own DC.
 - **Affix records.** `flags.MOD.affix = {host: itemId, at, by}` on the talisman or spellheart, on the
   same actor as the host. Spellhearts share the records and the limit: one talisman or one spellheart
@@ -3082,7 +3083,10 @@ the system trade when the user owns both, otherwise to the shelf (5.5). Expiry s
   `preCreateChatMessage` guard that cancels use or Strike messages for that item with a notice (OQ-19).
   The holder's next rest deletes it anyway, because it is temporary. The alternative setting deletes it
   outright.
-- **Exceptions** from the registry: Food Preservation's designated foods, Eternal Elixir, effects that
+- **Exceptions** from the registry: Food Preservation's designated foods (designated from that cycle's Advanced Alchemy
+  output, at most the cap a preparation and at once, the designations kept on the creator so a food given away still
+  counts; a designated food stops being temporary so the holder's rest keeps it, and one pushed past the cap spoils at
+  once, wherever it is, and is temporary again), Eternal Elixir, effects that
   are already afflictions in progress (an affliction started by an infused poison runs its course after
   the poison expires, 8.10.10), and anything a feat explicitly extends. Coatings made from an infused
   poison are not an exception: the coating is removed with it, while the coated weapon itself is never
@@ -3120,8 +3124,9 @@ responsible user, not to the GM.
 - Registered after `init` through `game.dailies.api.registerCustomDailies([...])` (the API lives at
   `game.dailies.api`, not on the module object).
 - One custom daily, key `pf2e-artisans-workshop.morning`, shown when the actor has a daily-prep crafting
-  ability or versatile vials. Its rows: a select per pool ("keep current preparation", each saved loadout,
-  "prepare in the Workshop later") and a notify row listing standing orders.
+  ability or versatile vials. Its rows: a select per pool ("keep current preparation", which for a talisman pool
+  makes the last preparation's virtual talismans again; each saved loadout; "prepare everything in the Workshop later",
+  which makes nothing now) and a notify row listing standing orders.
 - Its `process` only records the choices. It never creates items inside the pf2e-dailies flow, so the
   two modules' item bookkeeping never mixes. When pf2e-dailies finishes (its `rested` flag goes back to
   false), the owner client applies the chosen loadouts through the system methods (OQ-20).
@@ -4973,10 +4978,12 @@ read: the dev head `be4ab21b` (`src/module/actor/character/crafting/`, `rule-ele
   effect card, not the count). pf2e's own daily crafting from the sheet is stamped too (`stampSheetCrafting`, on the
   responsible client 1.5 s after `dailyCraftingComplete` turns true): unstamped temporary items whose slug is a daily
   pool's prepared formula, with the current cycle; the state is then `sheet`.
-- **Food Preservation** (7.7 exception, `expiryRule {rule: "designate"}`): the holder's own stamped alchemical foods can be
-  preserved from the tab, at most as many at a preparation, and preserved at once, as its rank allows (1; 2 expert, 3
-  master, 5 legendary in Crafting or Cooking Lore, `preservationCap`); past the cap the oldest spoils (its exemption ends,
-  so it expires on its stamp). `exempt = {key, n, at}`.
+- **Food Preservation** (7.7 exception, `expiryRule {rule: "designate"}`): the alchemical foods the holder's own Advanced
+  Alchemy made this cycle can be preserved from the tab, at most as many at a preparation, and preserved at once, as its
+  rank allows (1; 2 expert, 3 master, 5 legendary in Crafting or Cooking Lore, `preservationCap`), counting the creator's
+  designations wherever the foods have gone (`flags.MOD.morning.preserved`); a preserved food is no longer temporary
+  (pf2e's rest deletes temporary items); past the cap the oldest spoils: inert at once wherever it is, and temporary
+  again. `exempt = {key, id, n, at}` (as built after the second M7 review).
 - **Rest ordering** (7.8, `rest.mjs`): the rest's chat message (`options.restForTheNight`, every client) starts a wait on
   the rested character's responsible client: without pf2e-dailies `SETTLE_MS` (750 ms) after the actor's last update,
   `SETTLE_LIMIT_MS` (5 s) at most; with it, until its `rested` flag turns true, `DAILIES_FALLBACK_MS` (5 s) at most. Then
@@ -4987,11 +4994,12 @@ read: the dev head `be4ab21b` (`src/module/actor/character/crafting/`, `rule-ele
 - **pf2e-dailies** (7.9, `dailies.mjs`): registered at `ready` with `game.dailies.api.registerCustomDailies`, key
   `pf2e-artisans-workshop.morning` (pf2e-dailies stores it as `module.<key>`); `condition`: the Morning is on and the
   character has a daily pool or vials; rows: a select per pool (keep, each loadout naming the pool, "prepare in the
-  Workshop later") and a notify row with the standing orders due; no row uses pf2e-dailies' `save` (its flags are keyed by
-  the daily's key, which holds a dot). `process` only writes `flags.MOD.morning.choice = {pools, standing, cycle, at,
+  Workshop later") and a notify row with the standing orders due; the select rows leave pf2e-dailies' `save` at its default,
+  so pf2e-dailies remembers each row's last selection under its own flags and preselects it (see Follow-ups); a kept
+  talisman pool makes the last preparation's virtual talismans again (after the second M7 review). `process` only writes `flags.MOD.morning.choice = {pools, standing, cycle, at,
   applied: null}`; nothing is made inside pf2e-dailies' flow. A pool left for later applies nothing (the prompt stands).
 - **Talismans** (7.4): the DC stamp (`dcStamp {pool: "talisman-dabbler", dcs: ["class", "spell"]}`) raises inline
-  `@Check[...|dc:N]` DCs below the higher of the creator's class DC (`actor.classDC`) and spell DCs to it, and records
+  saving throw `@Check[...|dc:N]` DCs (fortitude, reflex, will; a flat or skill check keeps its DC) below the higher of the creator's class DC (`actor.classDC`) and spell DCs to it, and records
   `flags.MOD.dcStamp = {dc, printed, pool, by}`; resolved DCs and higher printed ones are left alone; Talisman Esoterica gets
   no stamp. The affix board (`affixBoardOf`, macro 18): armor, shields and weapons (bombs out while
   `talismanHostsExcludeBombs`) with what is affixed, `active`, `suppressed` (more than one; more than two on the treated
@@ -5012,9 +5020,10 @@ read: the dev head `be4ab21b` (`src/module/actor/character/crafting/`, `rule-ele
   (`standingDue`), each once a cycle (`last.cycle`), at the best grade the pool allows; one that would take the pool past its
   slots is left out for the day (`standing-slots`), so it never blocks the crafter's own preparation. Its items go behind
   the lock page `standing:<id>:<crafter id>:<cycle>` in one request with `last`: created on the recipient when this user
-  owns it, else on the pickup shelf in the strongbox (`shelf.claimKey` the same key) for the recipient's client to collect
+  owns it, else on the pickup shelf in the strongbox for the recipient's client to collect
   (5.5); only this run's output is handed out, never what a stack held before; the stamp travels with them; a crafter
-  who is its own recipient keeps them.
+  who is its own recipient keeps them. The shelf item's own `claimKey` is `deliver:standing:<id>:<crafter id>:<cycle>`
+  (after the second M7 review), never the lock's key.
 - **The Morning tab** (10.1): the character (own; every member for a GM), the cycle's state (icon and word: ready to
   prepare, prepared, prepared from the sheet), "Make daily preparations", "Prepare for a new day" (confirmed), "Prepare on
   downtime days" for a character in downtime (`standingRoutine`, 7.2); the standing orders due as chips the crafter may
@@ -5035,7 +5044,8 @@ read: the dev head `be4ab21b` (`src/module/actor/character/crafting/`, `rule-ele
   `preparationCompleted` `{actor, cycle, created}` on the client that prepared; `morningSummary`, `itemsExpired` and
   `morningPrompt` are internal (cards and the window), not public API.
 - **Registry** (6.11): effect kinds `dcStamp`, `dailyGap {flow: note | designate | dailies}`, `vialSource {regain}`,
-  `expiryRule {rule: "designate", when}`; `dailyGap` on Alter Admixture, Natural Mutagen, Herbal Forager, Chrysanthemum
+  `expiryRule {rule: "designate", when}`, and (after the second M7 review) `correction {pool, slots | craftable | gate,
+  bug}` on Herbalist Dedication, Lethargy Poisoner and the alchemist archetype's Advanced Alchemy; `dailyGap` on Alter Admixture, Natural Mutagen, Herbal Forager, Chrysanthemum
   Leshy, Imperial Dragon Potion, Practical Magic, Contingency Gadgets, Witch's Bottle, Poisoned Sticks and Stones, Prepare
   Elemental Medicine and Repurposed Parts (`note`), Food Preservation (`designate`), Ceremonial Knife, Root Magic, Scroll
   Adept, Scroll Esoterica and Elaborate Scroll Esoterica (`dailies`); `vialSource` on the class's Versatile Vials and
@@ -5078,8 +5088,57 @@ read: the dev head `be4ab21b` (`src/module/actor/character/crafting/`, `rule-ele
     timer per character.
   - The tab's "Affix" read the host from the button itself (which carries the talisman's id), so it never found the
     host's select; it reads the talisman's row.
-  - Every Rest for the Night raised a cycle and wrote an expiry claim for every character, fighters included; only
+    - Every Rest for the Night raised a cycle and wrote an expiry claim for every character, fighters included; only
     characters with daily sources get one.
+- **After the second M7 review** (one pass; high and medium findings fixed, each with a stub or unit test that fails
+  without it):
+  - Standing-order items on the pickup shelf could never be collected: the shelf item's `claimKey` was the lock page's
+    own key, and `claims.deliver` locks the hash of its key as the delivered row, so every collection was refused
+    `locked`. The shelf item now carries its own key, `deliver:standing:<id>:<crafter id>:<cycle>`.
+  - Switching loadouts in a full pool dropped entries silently: quantities were set in line order, and pf2e refuses a new
+    formula once the slots are spent (and clamps an increase to the slots left). The plan's dropped formulas are
+    unprepared first, then every decrease, then the increases and new formulas; a line already at its batches is left
+    alone (pf2e refuses even a same-batch increase in a full pool). pf2e's prepared list is then compared with the plan
+    (`preparedDifferences`, in whole batches): any difference is refused as `system` with `data.differences` before
+    `performDailyCrafting` runs. The stub of pf2e's `setFormulaQuantity` now clamps and checks `canCraft` as pf2e does.
+  - Food Preservation did nothing in practice: pf2e's Rest for the Night deletes every `system.temporary` item, preserved
+    foods included, and foods given away never counted toward the cap. Preserving writes `system.temporary: false` and an
+    `exempt` with a designation id; the designations are kept on the creator (`flags.MOD.morning.preserved = [{id, n,
+    cycle, at}]`); a food whose designation the creator no longer holds has `spoiled` (`expiryReason`), so every holder's
+    sweep marks it inert at once and makes it temporary again; a change to the creator's designations runs the sweep on
+    every client. Designation is limited to the current cycle's own Advanced Alchemy output, and the cap applies per
+    preparation as well as at once (which also answers the low finding that designation was looser than the feat).
+  - Two clients could prepare one character at once (the GM's tab and the player's, or two devices) and make everything
+    twice: the per-client `applying` set was the only guard. A cycle's preparation now runs behind the lock page
+    `prep:<actorId>:<cycle>:<attempt>`; a client refused there gets `busy`. A `system` refusal, or a throw before pf2e's
+    daily crafting was asked, moves on to the next attempt (`flags.MOD.morning.attempt = {cycle, n}`), so the player can
+    try again; once pf2e was asked, the lock stands ("Prepare for a new day" begins a new cycle).
+  - The Talisman Dabbler DC stamp raised every inline check's DC, flat checks included (Mummified Bat's flat DC 5 became
+    DC 41 for a 20th-level Dabbler). Only `fortitude`, `reflex` and `will` checks (by the first parameter or `type:`)
+    are stamped.
+  - pf2e's data for three daily sources disagrees with the feats' text, and these notes claimed the 7.1 corrections were
+    built when none were: the registry now carries `correction {pool, slots | craftable | gate, bug}` effects (6.11),
+    applied per source in `morningFacts` (`correctPool`). Herbalist Dedication gives two fewer unless the preparations
+    are made in the wilderness (the Morning tab asks; the answer is remembered for pf2e-dailies' choice). Lethargy
+    Poisoner gives one dose, two at master and three at legendary in Crafting (pf2e: three from master), and Stupor
+    Poison from expert (pf2e's Stupor rule carries a master-rank predicate that `CraftingAbility` never tests, so pf2e
+    offers it at any rank; the review had read it as never allowed). The alchemist archetype's Advanced Alchemy makes
+    alchemical consumables only (pf2e: any alchemical item). A pool's count is lowered by as much as the correction
+    lowers the merge, so a count pf2e adds on top of its sources stays; the tab shows pf2e's count beside the rules'; a
+    kept pool beyond the corrected count is refused as `plan` (pf2e would make it all). `bug` is the pf2e rule each
+    correction answers: the validation script reports a correction once pf2e's rule no longer reads that way, and a
+    `PF2E_SRC` test checks the three rules as they read now.
+  - Two of one virtual talisman (two Potency Crystals) could not be prepared from the tab or a loadout: the picker was a
+    checkbox set and loadouts and captures de-duplicated. The picker has a count per talisman, loadouts keep one UUID per
+    talisman, and a preparation records the virtual talismans it made (`flags.MOD.morning.talismans = [{pool, uuid,
+    qty}]`), which a captured loadout reads.
+  - With pf2e-dailies, a talisman pool's "keep" made nothing (virtual talismans are never in pf2e's prepared list) and
+    still recorded the cycle as prepared, locking the Workshop out. Keep on a talisman pool makes the last preparation's
+    virtual talismans again (its row says so); "prepare everything in the Workshop later" says that it makes nothing now.
+  - One client could run overlapping expiry passes (the timer, the catch-up sweep and the expiry claim, all started by
+    one cycle raise), each seeing an item as live until the server answered: duplicate Expiry cards, and under
+    `delete` a second delete of an item already gone. `expirySweep` is single-flight (a sweep asked for meanwhile runs
+    once more after it), and the expiry claim's applier runs that sweep instead of marking on its own.
 
 #### Follow-ups (M7, low)
 
@@ -5101,8 +5160,8 @@ read: the dev head `be4ab21b` (`src/module/actor/character/crafting/`, `rule-ele
 - The expiry sweep reads world actors: an unlinked token's items are not swept.
 - A rest waits on the client responsible when its message arrives; if that client leaves before the settle ends, that
   rest raises no cycle (the next rest or "Prepare for a new day" does).
-- Lock pages `cycle:<actorId>:<n>` and `standing:<id>:<crafter>:<cycle>` and resolved expiry claims accumulate; archive
-  them with old rows (5.3.3).
+- Lock pages `cycle:<actorId>:<n>`, `prep:<actorId>:<cycle>:<attempt>` and `standing:<id>:<crafter>:<cycle>` and resolved
+  expiry claims accumulate; archive them with old rows (5.3.3).
 - The Morning prompt is a notification and a badge, with no card; the wizard's daily-preparation step (9.2 step 4) is
   still not built: a downtime day's preparation is made from the tab ("Prepare for a new day").
 - A second stack of vial items is pointed out, not merged (the resource reads the first stack only).
@@ -5112,6 +5171,44 @@ read: the dev head `be4ab21b` (`src/module/actor/character/crafting/`, `rule-ele
 - The Morning tab renders on every store change while it is shown, as the Downtime tab does.
 - `stampSheetCrafting` could stamp an unstamped temporary item another character handed over when it shares a slug with
   one of the holder's daily formulas.
+- From the second M7 review (low, not fixed in that pass):
+  - Talisman host exceptions of 7.4 are not built: bands of force and assassin's bracers (pf2e type `equipment`) count as
+    light armor, but `hostsOf` keeps only armor, shields and weapons and M5's `affixProblem` refuses `equipment` as
+    `not-host`. Add a registry or host exception (`hostAs: "armor"`) read by both.
+  - The Dabbler DC reads only the primary class DC (`actor.classDC`); RAW takes the highest class DC, and pf2e's
+    `getStatistic("class-spell")` already gives the highest of all `classDCs` and spell DCs.
+  - The investigator's Alchemical Sciences Methodology grants versatile vials (a `versatile-vials` SpecialResource) but has
+    no `vialSource` (PC2 p.173: no regain unless stated), so the tab lists no vial source for an investigator.
+  - "Prepare for a new day" begins a cycle but does not renew versatile vials: pf2e refills the resource only in Rest for
+    the Night. Set the resource to its max with `actor.updateResource` there, with the wizard's daily-preparation step.
+  - The affix board turns a suppressed host back to active once the count drops to its limit; GM Core says the talismans
+    must be removed and re-affixed first. Record the suppression on the talismans and clear it only on a re-affix.
+  - Lethargy Poisoner's "only you can use these poisons" is not enforced: standing orders and deliveries from the
+    `lethargy-poisoner` pool to another actor are accepted (a registry `selfOnly` flag would refuse them).
+  - Advanced Alchemy's `at` deadline is measured on the world clock even when the workshop day is ahead of it: advancing
+    the clock to catch up with logged days ends items made "today". Stamp only `atDay` while `today().ahead > 0`.
+  - A pf2e-dailies choice that fails to apply (a plan problem, a pf2e refusal, a stale choice) fails silently:
+    `applyChoiceSoon` notifies on success only. Warn on the responsible client with the plan's problems.
+  - First-time prompts disagree: with pf2e-dailies active the rest prompt still says to use the Morning tab (whose hint
+    says to use pf2e-dailies' window, and whose button stays enabled); a downtime rest without a standing routine shows
+    the same prompt, while the tab offers only "Prepare for a new day". Word both prompts for their case.
+  - pf2e's own trade and drag-and-drop merge a stamped item into an identical stack (`isStackableWith` compares `system`
+    only), so an elixir from one creator handed to a holder of another creator's stack follows the other stamp. Wrap the
+    stack test so differently stamped stacks never merge (this would also cover `performDailyCrafting` and `craft`).
+  - On the "again" path pf2e's refusal goes unnoticed when `dailyCraftingComplete` was already true from the previous
+    preparation (pf2e returns before touching it); kept pools are slot-checked only where a registry correction lowers
+    their count. Compare the expended state before and after, and slot-check every kept pool.
+  - A preparation made within the settle window just after a rest (before the pipeline raises the cycle) is stamped with
+    the old cycle and goes inert when the pipeline runs. Refuse or defer `applyMorning` and `applyChoice` while a rest is
+    pending for the actor on this client.
+  - The pf2e-dailies select rows leave its `save` at the default, so pf2e-dailies remembers each pool's last selection
+    (under its own flags) and preselects it, which can be a deleted loadout's id (applied as `no-loadout`). Set
+    `save: false`, or drop deleted loadouts from the remembered value.
+- New with the second M7 review's fixes:
+  - pf2e-dailies' window does not ask whether the preparations are made in the wilderness: a Herbalist's choice applies
+    with the Workshop's last answer (`flags.MOD.morning.wilderness`).
+  - A preserved food whose creator can no longer be read (an actor deleted) stays preserved; Eternal Elixir and the other
+    `expiryRule` exceptions of 7.7 are still to come.
 
 ---
 

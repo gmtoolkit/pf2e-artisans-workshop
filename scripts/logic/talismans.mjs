@@ -25,10 +25,23 @@ export function dabblerDc({ classDc = null, spellDc = null } = {}) {
 const INLINE_CHECK = /@Check\[([^\]]*)\]/g;
 /** A plain DC parameter; a resolved one (`dc:resolve(...)`) is left alone. */
 const DC_PARAM = /^(\s*dc\s*:\s*)(\d+)(\s*)$/i;
+/** The checks whose DC the Dabbler stamp raises: saving throws only (Player Core 2: "any saving throw DC"). */
+export const SAVE_TYPES = Object.freeze(["fortitude", "reflex", "will"]);
 
 /**
- * Rewrite a talisman's inline check DCs to `dc` where `dc` is higher (7.4, 8.10.4: the stamp is written only when the
- * creator's DC beats the printed one). Returns the new text, how many checks changed, and the printed DCs.
+ * An inline check's type, as pf2e reads it (`#parseInlineParams` with `first: "type"`): the first parameter when it has no
+ * colon, else a `type:` parameter; a list (`reflex,fortitude`) as its names.
+ */
+function checkTypes(params) {
+    const first = params[0]?.includes(":") ? null : params[0];
+    const type = first ?? params.map((p) => /^\s*type\s*:(.*)$/i.exec(p)?.[1]).find((t) => t !== undefined) ?? "";
+    return type.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+}
+
+/**
+ * Rewrite a talisman's inline saving throw DCs to `dc` where `dc` is higher (7.4, 8.10.4: the stamp is written only when
+ * the creator's DC beats the printed one). Other checks (a flat check, a skill check) keep their DC: Talisman Dabbler
+ * raises "any saving throw DC" only. Returns the new text, how many checks changed, and the printed save DCs.
  *
  * @param {string} text   the item's description HTML
  * @param {number|null} dc
@@ -40,6 +53,8 @@ export function stampInlineChecks(text, dc) {
     if (typeof text !== "string" || !text) return { text: text ?? "", changed, printed };
     const out = text.replace(INLINE_CHECK, (whole, inner) => {
         const params = inner.split("|");
+        const types = checkTypes(params);
+        if (!types.length || !types.every((t) => SAVE_TYPES.includes(t))) return whole;
         let touched = false;
         const next = params.map((param) => {
             const match = DC_PARAM.exec(param);

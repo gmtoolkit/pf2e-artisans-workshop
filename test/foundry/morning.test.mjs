@@ -150,6 +150,89 @@ test("the Morning reads every daily source from the system: pools with their sou
 });
 
 /* -------------------------------------------- */
+/*  Corrections of pf2e's data (6.11, 7.1)       */
+/* -------------------------------------------- */
+
+/**
+ * A character with one daily pool as pf2e builds it from the compendium (second M7 review): the feat, its
+ * `CraftingAbility` rule elements, and the merged ability pf2e makes of them.
+ */
+function poolCharacter(name, { feat, rules, pool, formulas, rank = RANK.trained, level = 8 }) {
+    const actor = addDocument("Actor", { name, type: "character", ownership: { default: 0, p1: 3 }, items: [{ type: "feat", name: feat, sourceId: REGISTRY[feat].uuid }] });
+    const item = { sourceId: REGISTRY[feat].uuid, slug: feat.split("@")[0], name: feat };
+    asCharacter(actor, { level, formulas, rules: rules.map((r) => ({ key: "CraftingAbility", resolveValue: (v) => (typeof v === "number" ? v : r.resolved), ...r, item })) });
+    actor.skills = { crafting: { slug: "crafting", rank } };
+    actor.crafting.add(pool);
+    world.collections.Actor.party.members.push(actor);
+    return actor;
+}
+
+test("Lethargy Poisoner: one dose, two at master, three at legendary, as the feat says (pf2e gives three from master); Stupor Poison from expert (second review fix, 7.1)", async () => {
+    const lethargy = compendiumItem({ id: "lethargyPoison01", name: "Lethargy Poison", level: 2, category: "poison", traits: ["alchemical", "consumable", "poison", "injury"] });
+    const stupor = compendiumItem({ id: "stuporPoison0001", name: "Stupor Poison", level: 6, category: "poison", traits: ["alchemical", "consumable", "poison", "injury"] });
+    resetCatalogue();
+    const lin = (rank) => poolCharacter(`Lin ${rank}`, { feat: "lethargy-poisoner", rank, formulas: [lethargy.uuid, stupor.uuid],
+        rules: [
+            { slug: "lethargy-poisoner", maxSlots: "ternary(gte(@actor.system.skills.crafting.rank,3),3,1)", resolved: rank >= RANK.master ? 3 : 1, craftableItems: predicate("item:slug:lethargy-poison") },
+            { slug: "lethargy-poisoner", craftableItems: predicate("item:slug:stupor-poison") },
+        ],
+        pool: { slug: "lethargy-poisoner", maxSlots: rank >= RANK.master ? 3 : 1, maxItemLevel: 8, batchSize: 1,
+            craftableItems: [predicate("item:slug:lethargy-poison"), predicate("item:slug:stupor-poison")] } });
+    const doses = (family, qty, uuid) => ({ pools: { "lethargy-poisoner": { mode: "set", entries: [{ family, qty, uuid }] } } });
+    const master = lin(RANK.master);
+    const facts = await morning.morningFacts(master);
+    assert.deepEqual([facts.pools[0].maxSlots, facts.pools[0].systemMaxSlots, facts.pools[0].corrected], [2, 3, true], "pf2e's three, the feat's two");
+    const three = await morning.applyMorning(master, doses(familyKey(lethargy), 3, lethargy.uuid));
+    assert.deepEqual([three.reason, three.data.problems[0].reason, three.data.problems[0].max], ["plan", "slots", 2]);
+    assert.equal((await morning.applyMorning(master, doses(familyKey(lethargy), 2, lethargy.uuid))).ok, true);
+    // A kept preparation of three, which pf2e would make in full, is refused too.
+    const kept = lin(RANK.master);
+    kept.crafting.abilities.get("lethargy-poisoner").preparedFormulaData = [{ uuid: lethargy.uuid, quantity: 3 }];
+    const keep = await morning.applyMorning(kept, {});
+    assert.deepEqual([keep.reason, keep.data.problems[0]?.reason, keep.data.problems[0]?.corrected], ["plan", "slots", true]);
+    assert.equal(kept.crafting.performed, 0);
+    assert.equal((await morning.morningFacts(lin(RANK.legendary))).pools[0].maxSlots, 3, "legendary: three");
+    const trained = lin(RANK.trained);
+    const noStupor = await morning.applyMorning(trained, doses(familyKey(stupor), 1, stupor.uuid));
+    assert.deepEqual([noStupor.reason, noStupor.data.problems[0].reason], ["plan", "no-grade"], "pf2e offers Stupor Poison at any rank; the feat from expert");
+    const expert = lin(RANK.expert);
+    assert.equal((await morning.applyMorning(expert, doses(familyKey(stupor), 1, stupor.uuid))).ok, true);
+    assert.equal(named(expert, "Stupor Poison")[0]?.quantity, 1);
+});
+
+test("Herbalist: two fewer herbal items unless the preparations are made in the wilderness (pf2e always gives four; second review fix, 7.1)", async () => {
+    const hal = poolCharacter("Hal", { feat: "herbalist-dedication", formulas: [items.minor.uuid],
+        rules: [{ slug: "advanced-alchemy", maxSlots: 4, craftableItems: predicate("item:trait:healing") }],
+        pool: { slug: "advanced-alchemy", maxSlots: 4, maxItemLevel: 8, batchSize: 1, craftableItems: [predicate("item:trait:healing")] } });
+    const four = { pools: { "advanced-alchemy": { mode: "set", entries: [{ family: familyKey(items.minor), qty: 4, uuid: items.minor.uuid }] } } };
+    assert.equal((await morning.morningFacts(hal)).pools[0].maxSlots, 2);
+    assert.deepEqual((await morning.morningFacts(hal)).pools[0].contexts, ["wilderness"], "the tab asks where");
+    assert.equal((await morning.applyMorning(hal, four)).reason, "plan");
+    const wild = await morning.applyMorning(hal, { ...four, wilderness: true });
+    assert.equal(wild.ok, true, JSON.stringify(wild));
+    assert.equal(flagsOf(hal).morning.wilderness, true, "remembered for pf2e-dailies' choice");
+    // With the alchemist's own Advanced Alchemy as well, the pool keeps the higher count (Player Core 2 p.173).
+    const both = poolCharacter("Both", { feat: "herbalist-dedication", formulas: [items.minor.uuid],
+        rules: [{ slug: "advanced-alchemy", maxSlots: 4, craftableItems: predicate("item:trait:healing") }],
+        pool: { slug: "advanced-alchemy", maxSlots: 7, maxItemLevel: 8, batchSize: 1, craftableItems: [predicate("item:trait:healing")] } });
+    both.rules.push({ key: "CraftingAbility", slug: "advanced-alchemy", maxSlots: 7, resolveValue: (v) => v, craftableItems: predicate("item:trait:alchemical"),
+        item: { sourceId: REGISTRY["advanced-alchemy"].uuid, slug: "advanced-alchemy", name: "Advanced Alchemy" } });
+    assert.equal((await morning.morningFacts(both)).pools[0].maxSlots, 7);
+});
+
+test("the alchemist archetype's Advanced Alchemy makes alchemical consumables only (pf2e takes any alchemical item; second review fix, 7.1)", async () => {
+    const ooze = compendiumItem({ id: "oozeSkin00000001", name: "Ooze Skin", level: 1, type: "armor", category: "light", traits: ["alchemical"] });
+    resetCatalogue();
+    const ari = poolCharacter("Ari", { feat: "advanced-alchemy@archetype", formulas: [ooze.uuid, items.minor.uuid],
+        rules: [{ slug: "advanced-alchemy", maxSlots: 4, craftableItems: predicate("item:trait:alchemical") }],
+        pool: { slug: "advanced-alchemy", maxSlots: 4, maxItemLevel: 8, batchSize: 2, craftableItems: [predicate("item:trait:alchemical")] } });
+    const plan = (item) => ({ pools: { "advanced-alchemy": { mode: "set", entries: [{ family: familyKey(item), qty: 1, uuid: item.uuid }] } } });
+    const armor = await morning.applyMorning(ari, plan(ooze));
+    assert.deepEqual([armor.reason, armor.data.problems[0].reason], ["plan", "no-grade"]);
+    assert.equal((await morning.applyMorning(ari, plan(items.minor))).ok, true);
+});
+
+/* -------------------------------------------- */
 /*  Preparing (7.1, 7.5)                         */
 /* -------------------------------------------- */
 
@@ -187,6 +270,70 @@ test("a plan the pool cannot hold changes nothing, not even the cycle (7.5)", as
     assert.equal(result.data.problems[0].reason, "slots");
     assert.equal(vera.crafting.performed, 0);
     assert.equal(downtime.statusOf(vera).prepCycle, 0);
+});
+
+test("switching loadouts in a full pool frees slots first: a new formula listed before a shrinking one is still made (second review fix, 7.5)", async () => {
+    vera.crafting.abilities.get("advanced-alchemy").preparedFormulaData = [{ uuid: items.minor.uuid, quantity: 8 }];
+    const saved = await morning.saveLoadout(vera, { name: "Mix", pools: { "advanced-alchemy": [
+        { family: familyKey(items.fire), qty: 2 }, { family: familyKey(items.minor), qty: 6, uuid: items.minor.uuid }] } });
+    const result = await morning.applyMorning(vera, { pools: { "advanced-alchemy": { mode: "loadout", id: saved.id } } });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(named(vera, "Alchemist's Fire (Lesser)")[0]?.quantity, 2, "the fire the loadout asked for");
+    assert.equal(named(vera, "Elixir of Life (Minor)")[0]?.quantity, 6);
+    assert.equal(world.notes.filter((n) => String(n[1]).includes("MaxSlots")).length, 0, "pf2e never ran out of slots");
+});
+
+test("a full pool kept with an order left out: lines already at their batches are not set again (pf2e refuses even a same-batch increase when full)", async () => {
+    // Seven stored, eight made: pf2e rounds up to whole batches of two.
+    vera.crafting.abilities.get("advanced-alchemy").preparedFormulaData = [{ uuid: items.minor.uuid, quantity: 7 }];
+    await as("p2", () => morning.placeStanding({ requester: bo.uuid, crafter: vera.uuid, uuid: items.fire.uuid, qty: 2 }));
+    const result = await morning.applyMorning(vera, {});
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(named(vera, "Elixir of Life (Minor)")[0]?.quantity, 8);
+    assert.equal(world.notes.filter((n) => String(n[1]).includes("MaxSlots")).length, 0, "no spurious pf2e warning that the pool is full");
+});
+
+test("a prepared list pf2e did not take as planned is refused before anything is made (second review fix, 7.5)", async () => {
+    const ability = vera.crafting.abilities.get("advanced-alchemy");
+    const real = ability.setFormulaQuantity.bind(ability);
+    // pf2e declining one formula (as it does for a slot it will not free): its own warning, nothing prepared.
+    ability.setFormulaQuantity = async (uuid, value) => (uuid === items.fire.uuid ? undefined : real(uuid, value));
+    const result = await morning.applyMorning(vera, { pools: { "advanced-alchemy": { mode: "set", entries: [{ family: familyKey(items.fire), qty: 2 }, { family: familyKey(items.minor), qty: 2, uuid: items.minor.uuid }] } } });
+    assert.equal(result.reason, "system", JSON.stringify(result));
+    assert.deepEqual(result.data.differences.map((d) => [d.uuid, d.planned, d.prepared]), [[items.fire.uuid, 2, 0]]);
+    assert.equal(vera.crafting.performed, 0, "pf2e's daily crafting never ran on a list that is not the plan");
+    assert.equal(flagsOf(vera).morning?.cycle, undefined, "nothing recorded: the player may prepare again");
+});
+
+test("two clients preparing one character at once: one prepares, the other is refused busy (second review fix, 7.7)", async () => {
+    vera.crafting.abilities.get("advanced-alchemy").preparedFormulaData = [{ uuid: items.minor.uuid, quantity: 2 }];
+    const first = morning.applyMorning(vera, {});
+    // Another client (the GM's tab, or the player's second device): its own module state, so no local `applying` entry.
+    morning.resetMorning();
+    const second = as("gm00000000000000", () => morning.applyMorning(vera, {}));
+    const results = await Promise.all([first, second]);
+    assert.deepEqual(results.map((r) => r.ok).sort(), [false, true], JSON.stringify(results));
+    assert.ok(["busy", "prepared"].includes(results.find((r) => !r.ok).reason));
+    assert.equal(vera.crafting.performed, 1, "pf2e's daily crafting ran once");
+    assert.equal(named(vera, "Elixir of Life (Minor)").reduce((n, i) => n + i.quantity, 0), 2, "two elixirs, not four");
+});
+
+test("an attempt that stopped before pf2e made anything moves on to a new lock; one that may have made something keeps it (second review fix, 7.7)", async () => {
+    const ability = vera.crafting.abilities.get("advanced-alchemy");
+    ability.preparedFormulaData = [{ uuid: items.minor.uuid, quantity: 2 }];
+    const set = ability.setFormulaQuantity.bind(ability);
+    ability.setFormulaQuantity = async () => { throw new Error("lost"); };
+    const plan = { pools: { "advanced-alchemy": { mode: "set", entries: [{ family: familyKey(items.minor), qty: 4, uuid: items.minor.uuid }] } } };
+    await assert.rejects(morning.applyMorning(vera, plan), /lost/);
+    ability.setFormulaQuantity = set;
+    assert.equal((await morning.applyMorning(vera, plan)).ok, true, "the next try takes the next attempt's lock");
+    // A new day: pf2e's daily crafting itself fails, so it may have made something: no second try in this cycle.
+    const crafting = vera.crafting.performDailyCrafting.bind(vera.crafting);
+    vera.crafting.performDailyCrafting = async () => { throw new Error("lost"); };
+    await assert.rejects(morning.applyMorning(vera, { again: true }), /lost/);
+    vera.crafting.performDailyCrafting = crafting;
+    await vera.update({ "flags.pf2e.dailyCraftingComplete": false });
+    assert.equal((await morning.applyMorning(vera, {})).reason, "busy");
 });
 
 test("output merged into another creator's stack is split into its own item before stamping; theirs keeps its count and stamp (7.1 step 3)", async () => {
@@ -230,7 +377,6 @@ test("pf2e's craft() adds to a stack without waiting: the run waits for the quan
     assert.equal(result.ok, true);
     const jade = named(vera, "Jade Cat")[0];
     // Two of one talisman: the second craft() stacks onto the first with an update pf2e does not await.
-    await vera.update({ [`flags.${MOD}.morning.cycle`]: -1 });
     const twice = await morning.applyMorning(vera, { again: true, talismans: { "talisman-dabbler": [items.crystal.uuid, items.crystal.uuid] } });
     assert.equal(twice.ok, true, JSON.stringify(twice));
     const crystals = named(vera, "Potency Crystal");
@@ -238,6 +384,17 @@ test("pf2e's craft() adds to a stack without waiting: the run waits for the quan
     assert.equal(crystals[0].quantity, 2, "both landed");
     assert.equal(twice.created.find((c) => c.id === crystals[0].id).qty, 2);
     assert.ok(jade);
+});
+
+test("two of one virtual talisman: a loadout keeps both, prepares both, and a captured loadout holds both (second review fix, 7.4)", async () => {
+    const saved = await morning.saveLoadout(vera, { name: "Crystals", talismans: { "talisman-dabbler": [items.crystal.uuid, items.crystal.uuid] } });
+    assert.deepEqual(saved.loadout.talismans["talisman-dabbler"], [items.crystal.uuid, items.crystal.uuid], "not folded into one");
+    const result = await morning.applyMorning(vera, { pools: { "talisman-dabbler": { mode: "loadout", id: saved.id } } });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(named(vera, "Potency Crystal").reduce((n, i) => n + i.quantity, 0), 2);
+    assert.deepEqual(flagsOf(vera).morning.talismans, [{ pool: "talisman-dabbler", uuid: items.crystal.uuid, qty: 2 }], "the record of what was made");
+    const captured = await morning.captureLoadout(vera, "Again");
+    assert.deepEqual(captured.loadout.talismans["talisman-dabbler"], [items.crystal.uuid, items.crystal.uuid]);
 });
 
 /* -------------------------------------------- */
@@ -268,6 +425,20 @@ test("a standing order from Bo's player is filled at Vera's preparation and land
     // Ending it: the requester's player.
     assert.equal((await as("p2", () => morning.endStanding(placed.id))).ok, true);
     assert.equal(read(`standing.${placed.id}.active`), false);
+});
+
+test("Bo's client collects the standing order's items from the shelf, with Vera's stamp (second review fix: the shelf key was the lock's, 7.6)", async () => {
+    vera.crafting.abilities.get("advanced-alchemy").preparedFormulaData = [{ uuid: items.minor.uuid, quantity: 2 }];
+    const placed = await as("p2", () => morning.placeStanding({ requester: bo.uuid, crafter: vera.uuid, uuid: items.minor.uuid, qty: 2 }));
+    assert.equal((await morning.applyMorning(vera, {})).ok, true);
+    const [shelf] = docs.strongbox.items.filter((i) => i.flags?.[MOD]?.shelf);
+    const collected = await as("p2", () => claims.deliver(shelf, bo));
+    assert.equal(collected.ok, true, JSON.stringify(collected));
+    const got = named(bo, "Elixir of Life (Moderate)");
+    assert.deepEqual(got.map((i) => i.quantity), [2], "both elixirs reach Bo (the family's best grade at level 10)");
+    assert.equal(stampOf(got[0]).creator, vera.uuid, "with Vera's stamp");
+    assert.equal(docs.strongbox.items.filter((i) => i.flags?.[MOD]?.shelf).length, 0, "the shelf is empty");
+    assert.ok(placed.ok);
 });
 
 test("a standing order for a character this user owns is delivered straight into its inventory (7.6)", async () => {
@@ -356,6 +527,25 @@ test("party-wide expiry: Vera's next cycle makes the elixir Bo holds inert, on B
     await as("p2", async () => assert.deepEqual(await expiry.expirySweep(), [], "never marked twice"));
 });
 
+test("overlapping expiry passes on one client mark an item once: one Expiry card, one delete (second review fix, 7.7)", async () => {
+    const stamp = { creator: vera.uuid, cycle: 0, rule: "prep", pool: "advanced-alchemy" };
+    docs.strongbox.addItem({ type: "consumable", name: "Elixir of Life (Minor)", system: { quantity: 1, temporary: true }, flags: { [MOD]: { expiry: stamp } } });
+    const fired = [];
+    Hooks.on(`${MOD}.itemsExpired`, (p) => fired.push(p.items.map((i) => i.name)));
+    // Foundry changes the local document only when the server answers.
+    const real = docs.strongbox.updateEmbeddedDocuments.bind(docs.strongbox);
+    docs.strongbox.updateEmbeddedDocuments = async (...args) => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return real(...args);
+    };
+    expiry.registerExpiryHooks();
+    await rested(vera, "rest-1");
+    const claim = records("claims").find((c) => c.kind === "expiry");
+    await Promise.all([expiry.expirySweep(), claims.applyClaim(claim, vera), expiry.expirySweep()]);
+    assert.equal(fired.length, 1, JSON.stringify(fired));
+    assert.ok(read(`claims.${claim.id}.resolved`), "the claim is resolved after the sweep");
+});
+
 test("Advanced Alchemy items expire after 24 hours or the next logged day; exceptions never; the delete setting deletes (7.7)", async () => {
     const at = (extra) => ({ creator: vera.uuid, cycle: 0, rule: "prep", pool: "advanced-alchemy", at: ADVANCED_ALCHEMY_SECONDS, atDay: 1, ...extra });
     const a = vera.addItem({ type: "consumable", name: "A", system: { quantity: 1 }, flags: { [MOD]: { expiry: at() } } });
@@ -403,20 +593,48 @@ test("preparing again begins a new cycle and un-expends the pools through pf2e; 
     assert.equal(stampOf(fresh[0]).cycle, 1);
 });
 
-test("Food Preservation: designated foods are exempt; past the cap the oldest spoil (7.7)", async () => {
-    const food = (name) => Object.assign(vera.addItem({ type: "consumable", name, system: { quantity: 1 },
-        flags: { [MOD]: { expiry: { creator: vera.uuid, cycle: 0, rule: "prep", pool: "advanced-alchemy" } } } }), { getRollOptions: () => ["item:tag:alchemical-food"] });
-    const [x, y, z, w, v] = [food("X"), food("Y"), food("Z"), food("W"), food("V")];
-    assert.deepEqual(morning.preservable(vera).map((i) => i.name), ["X", "Y", "Z", "W", "V"]);
+test("Food Preservation: preserved foods outlive pf2e's rest; past the cap the oldest spoils at once, even in another's hands (second review fix, 7.7)", async () => {
+    expiry.registerExpiryHooks();
+    const food = (name, cycle) => Object.assign(vera.addItem({ type: "consumable", name, system: { quantity: 1, temporary: true },
+        flags: { [MOD]: { expiry: { creator: vera.uuid, cycle, rule: "prep", pool: "advanced-alchemy", at: 10 * ADVANCED_ALCHEMY_SECONDS, atDay: 99 } } } }),
+    { getRollOptions: () => ["item:tag:alchemical-food"] });
+    /** pf2e's Rest for the Night on Vera: `inventory.deleteTemporaryItems()`, then the module raises her cycle. */
+    const restNow = async (key) => {
+        await vera.deleteEmbeddedDocuments("Item", vera.items.filter((i) => i.system?.temporary === true).map((i) => i.id));
+        await rested(vera, key);
+    };
+    const [x, y] = [food("X", 0), food("Y", 0)];
+    assert.deepEqual(morning.preservable(vera).map((i) => i.name), ["X", "Y"]);
     assert.equal((await morning.preserve(vera, [x.id, y.id])).ok, true, "two at expert");
-    assert.equal((await morning.preserve(vera, [z.id, w.id, v.id])).reason, "too-many", "never more than the cap at once");
+    assert.equal(vera.items.get(x.id).system.temporary, false, "no longer temporary");
+    // Y goes to Bo, as a trade does: a copy with its flags.
+    const yData = structuredClone({ type: "consumable", name: "Y", system: vera.items.get(y.id).system, flags: vera.items.get(y.id).flags });
+    const boY = Object.assign(bo.addItem(yData), { getRollOptions: () => ["item:tag:alchemical-food"] });
+    await vera.deleteEmbeddedDocuments("Item", [y.id]);
+    await restNow("rest-1");
+    assert.ok(vera.items.get(x.id), "pf2e's rest deletes temporary items; the preserved food is not one");
+    await expiry.expirySweep();
+    assert.notEqual(vera.items.get(x.id).flags[MOD].inert, true, "and it does not expire with the cycle");
+    // Cycle 1: two new foods, preserved one at a time. Each pushes the oldest designation out, wherever its food is.
+    const [z, w, v] = [food("Z", 1), food("W", 1), food("V", 1)];
+    assert.deepEqual(morning.preservable(vera).map((i) => i.name), ["Z", "W", "V"], "only this cycle's foods");
     const third = await morning.preserve(vera, [z.id]);
-    assert.deepEqual(third.spoiled, [x.id], "the oldest spoils");
-    assert.equal(stampOf(vera.items.get(x.id)).exempt, null);
-    assert.equal(stampOf(vera.items.get(z.id)).exempt.key, "food-preservation");
-    await write({ set: { [`pcs.${vera.id}`]: { id: vera.id, v: 1, prepCycle: 1 } } });
-    const out = await expiry.expirySweep();
-    assert.deepEqual(out[0].items.map((i) => i.name).sort(), ["V", "W", "X"], "the spoiled one expires with the rest; the preserved two stay");
+    assert.equal(third.spoiled.length, 1);
+    await expiry.expirySweep();
+    assert.equal(vera.items.get(x.id).flags[MOD].inert, true, "X spoiled at once");
+    assert.equal(vera.items.get(x.id).flags[MOD].inertFrom.reason, "spoiled");
+    assert.equal(vera.items.get(x.id).system.temporary, true, "temporary again, so the next rest deletes it");
+    assert.equal((await morning.preserve(vera, [w.id])).ok, true);
+    await as("p2", async () => {
+        resetLease();
+        requestLease("p2");
+        await expiry.expirySweep();
+    });
+    assert.equal(bo.items.get(boY.id).flags[MOD].inert, true, "Y, in Bo's hands, still counted toward the cap and spoiled");
+    assert.equal((await morning.preserve(vera, [v.id])).reason, "too-many", "never more than the cap a preparation");
+    await restNow("rest-2");
+    assert.equal(vera.items.get(x.id), undefined, "the spoiled food goes at the next rest");
+    assert.ok(vera.items.get(z.id) && vera.items.get(w.id), "the two preserved stay");
 });
 
 test("the inert guard cancels a message that uses an inert item, with a notice (OQ-19)", async () => {
@@ -517,6 +735,22 @@ test("with pf2e-dailies: the pipeline waits for its rested flag; its interface's
     assert.ok(flagsOf(vera).morning.choice.applied, "applied once");
     assert.equal((await rest.applyChoice(vera)).reason, "no-choice");
     game.modules.delete("pf2e-dailies");
+});
+
+test("pf2e-dailies' keep on a talisman pool makes the last preparation's virtual talismans again (second review fix, 7.9)", async () => {
+    vera.crafting.abilities.get("advanced-alchemy").preparedFormulaData = [{ uuid: items.minor.uuid, quantity: 2 }];
+    assert.equal((await morning.applyMorning(vera, { talismans: { "talisman-dabbler": [items.fear.uuid, items.crystal.uuid] } })).ok, true);
+    // Rest for the Night: pf2e deletes temporary items, clears its flag and un-expends; the module raises the cycle.
+    await vera.deleteEmbeddedDocuments("Item", vera.items.filter((i) => i.system?.temporary).map((i) => i.id));
+    await vera.update({ "flags.pf2e.dailyCraftingComplete": false });
+    vera.crafting.abilities.get("advanced-alchemy").preparedFormulaData = [{ uuid: items.minor.uuid, quantity: 2 }];
+    await rested(vera, "rest-2");
+    const daily = dailies.morningDaily();
+    assert.equal(daily.rows(vera)[1].options[0].label, "pf2e-artisans-workshop.Dailies.KeepTalismans");
+    await daily.process({ actor: vera, rows: { "advanced-alchemy": "keep", "talisman-dabbler": "keep" } });
+    const applied = await rest.applyChoice(vera);
+    assert.equal(applied.ok, true, JSON.stringify(applied));
+    assert.deepEqual(applied.created.map((c) => c.name).sort(), ["Elixir of Life (Minor)", "Fear Gem", "Potency Crystal"]);
 });
 
 test("two characters' pf2e-dailies choices both apply: one timer each (review fix, 7.9)", async (t) => {

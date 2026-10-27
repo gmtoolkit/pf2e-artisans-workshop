@@ -22,6 +22,17 @@ test("the DC stamp raises inline check DCs below the creator's and leaves higher
     assert.equal(stampInlineChecks("@Check[fortitude| dc: 18 ]", 22).text, "@Check[fortitude| dc: 22 ]", "spacing kept");
 });
 
+test("the DC stamp raises saving throw DCs only: a flat check or a skill check keeps its DC (second review fix, Player Core 2)", () => {
+    // Mummified Bat (GM Core, level 10: a 20th-level Dabbler makes it): a flat DC 5 a stamp of 41 would make impossible.
+    const bat = "<p>you need only a successful @Check[flat|dc:5] to target a concealed creature</p>";
+    assert.deepEqual(stampInlineChecks(bat, 41), { text: bat, changed: 0, printed: [] });
+    assert.equal(stampInlineChecks("@Check[flat|showDC:all|dc:10]", 41).changed, 0, "Horned Lion Amulet's flat check");
+    assert.equal(stampInlineChecks("@Check[athletics|dc:20]", 30).changed, 0, "a skill check");
+    assert.equal(stampInlineChecks("@Check[type:will|dc:20]", 30).text, "@Check[type:will|dc:30]", "a save named by type:");
+    assert.equal(stampInlineChecks("@Check[reflex,fortitude|dc:20]", 30).changed, 1, "a choice of saves");
+    assert.equal(stampInlineChecks("@Check[dc:20]", 30).changed, 0, "no type, no stamp");
+});
+
 test("affixing takes 10 minutes each; 1 with Rapid Affixture; four per 10 minutes for a Dabbler, four per minute with Quick Fix (7.4)", () => {
     assert.equal(affixMinutes(3), 30);
     assert.equal(affixMinutes(3, { rapidAffixture: true }), 3);

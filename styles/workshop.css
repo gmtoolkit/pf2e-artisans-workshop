@@ -833,6 +833,7 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .morning-pool .pool-plan select { max-width: 18rem; }
 .morning-pool .pool-talismans { border: 1px dashed var(--paw-line); padding: 0.2rem 0.5rem; margin: 0.3rem 0; }
 .morning-pool .talisman-picker label { display: inline-flex; align-items: center; gap: 0.35rem; }
+.morning-pool .talisman-picker .talisman-count { width: 3.5rem; flex: none; }
 .morning-pool .badge.request { border-color: var(--paw-escrow); }
 .morning-problems li { color: var(--paw-warning); font-weight: 600; padding: 0.15rem 0; }
 .morning-diff summary { cursor: pointer; font-weight: 600; }

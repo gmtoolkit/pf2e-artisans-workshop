@@ -26,15 +26,15 @@ import { MODULE_ID } from "../constants.mjs";
 import { RANK } from "../logic/core.mjs";
 import { familyKey, formulaCoverage } from "../logic/families.mjs";
 import { makeProvenance, provenancePath, virtualLists } from "../logic/codex.mjs";
-import { needsSplit, outputsOf, preservationCap, preservePlan, prepStamp, sameStamp, snapshotOf } from "../logic/expiry.mjs";
+import { ADVANCED_POOL, needsSplit, outputsOf, preservationCap, preservePlan, prepStamp, sameStamp, snapshotOf } from "../logic/expiry.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
 import {
-    TALISMAN_POOLS, captureEntries, countsByLevel, cycleState, dcStampPools, deliveriesOf, gapEntries, makeLoadout, makeStanding, mergeSources,
-    normalizeBuckets, poolView, preparationDiff, resolvePools, standingDue, talismanChoices, talismanPickProblem, vialSources, vialState,
+    TALISMAN_POOLS, captureEntries, correctPool, countsByLevel, cycleState, dcStampPools, deliveriesOf, gapEntries, makeLoadout, makeStanding, mergeSources,
+    normalizeBuckets, poolCorrections, poolView, preparationDiff, preparedDifferences, resolvePools, standingDue, talismanChoices, talismanPickProblem, talismanPicksOf, vialSources, vialState,
     withStanding,
 } from "../logic/morning.mjs";
 import { affixBoard, affixMinutes, dabblerDc, stampInlineChecks } from "../logic/talismans.mjs";
-import { heldEffects, testPredicate } from "../logic/registry.mjs";
+import { heldEffects, heldKeys, testPredicate } from "../logic/registry.mjs";
 import { runRequest } from "./batch.mjs";
 import { catalogue } from "./catalogue.mjs";
 import { today, statusOf } from "./downtime.mjs";
@@ -106,13 +106,26 @@ function resolved(rule, value) {
 }
 
 /**
- * Each source of a pool, from the actor's `CraftingAbility` rule elements with its slug (7.1): the item it comes from and
- * its own slot count and item level, before pf2e merges them.
+ * Whether one `CraftingAbility` rule element makes an item (its `craftableItems` predicate, or one of its batch-size
+ * definitions, which pf2e merges into the pool's craftable items too).
+ */
+function ruleAccepts(rule, options) {
+    const set = options instanceof Set ? options : new Set(options ?? []);
+    const predicates = [rule.craftableItems, ...(rule.batchSizes?.other ?? []).map((other) => other?.definition)];
+    return predicates.some((predicate) => predicate && (predicate.length ?? 1) > 0 && (predicate.test?.(set) ?? false));
+}
+
+/**
+ * Each source of a pool, from the actor's `CraftingAbility` rule elements with its slug (7.1): the item it comes from (and
+ * its registry key, for the registry's corrections), its own slot count and item level before pf2e merges them, and
+ * whether it makes an item.
  */
 export function sourcesOf(actor, slug) {
     return (actor?.rules ?? []).filter((rule) => rule.key === "CraftingAbility" && rule.slug === slug && !rule.ignored).map((rule) => ({
         key: rule.item?.slug ?? rule.item?.id ?? slug, name: rule.item?.name ?? slug, maxSlots: resolved(rule, rule.maxSlots),
         maxItemLevel: resolved(rule, rule.maxItemLevel) ?? actor.level ?? null, batchSize: rule.batchSizes?.default ?? null,
+        registryKey: heldKeys([{ sourceId: rule.item?.sourceId ?? null, slug: rule.item?.slug ?? null, selections: {} }])[0] ?? null,
+        accepts: (options) => ruleAccepts(rule, options),
     }));
 }
 
@@ -149,10 +162,18 @@ export function creatorDcs(actor) {
 
 /**
  * Everything the Morning tab and a preparation read about a character (7.1): its pools with their prepared formulas
- * and sources, other prepared slots, vials, talisman pickers, frequencies, gap entries, its cycle and loadouts.
+ * and sources, other prepared slots, vials, talisman pools' pickers, frequencies, gap entries, its cycle and loadouts.
+ * A pool the registry corrects (6.11 `correction`: Herbalist's two fewer outside the wilderness, Lethargy Poisoner's doses
+ * by rank and Stupor Poison from expert, the alchemist archetype's Advanced Alchemy making consumables only) carries the
+ * corrected count as `maxSlots` (pf2e's in `systemMaxSlots`) and the corrected predicate as `accepts`.
+ *
+ * @param {Actor} actor
+ * @param {object} [rules]
+ * @param {{wilderness?: boolean}} [context]   whether this preparation is made in the wilderness (Herbalist)
  */
-export async function morningFacts(actor, rules = rulesFromSettings()) {
+export async function morningFacts(actor, rules = rulesFromSettings(), { wilderness = false } = {}) {
     const held = heldKeysOf(actor);
+    const ranks = ranksOf(actor);
     const items = await catalogue();
     const byUuid = new Map(items.map((item) => [item.uuid, item]));
     const book = new Set(bookOf(actor));
@@ -173,14 +194,17 @@ export async function morningFacts(actor, rules = rulesFromSettings()) {
             continue;
         }
         const sources = sourcesOf(actor, ability.slug);
+        const fix = correctPool({ maxSlots: base.maxSlots, sources }, poolCorrections(held, ability.slug, rules), { ranks, context: { wilderness } });
+        const accepts = (options) => poolAccepts(ability, options) && fix.accepts(options instanceof Set ? options : new Set(options ?? []));
+        const pool = { ...base, maxSlots: fix.maxSlots, systemMaxSlots: base.maxSlots };
         const talisman = TALISMAN_POOLS.includes(ability.slug);
         const listKey = TALISMAN_LISTS[ability.slug];
         const offered = talisman && lists.has(listKey)
-            ? talismanChoices(lists.get(listKey), { maxItemLevel: base.maxItemLevel, canCraft: (item) => poolAccepts(ability, item.options) })
+            ? talismanChoices(lists.get(listKey), { maxItemLevel: base.maxItemLevel, canCraft: (item) => accepts(item.options) })
             : [];
         pools.push({
-            ...base, ...poolView(base), sources, merged: mergeSources(sources), talisman, offered, dcStamp: stamps.has(ability.slug),
-            batchSize: ability.batchSize ?? 1, resource: ability.resource ?? null,
+            ...pool, ...poolView(pool), sources: fix.sources, merged: mergeSources(sources), talisman, offered, dcStamp: stamps.has(ability.slug),
+            batchSize: ability.batchSize ?? 1, resource: ability.resource ?? null, accepts, corrected: fix.corrected, contexts: fix.contexts,
         });
     }
     const status = statusOf(actor);
@@ -190,7 +214,7 @@ export async function morningFacts(actor, rules = rulesFromSettings()) {
         frequencies: frequenciesOf(actor, held), gaps: gapEntries(held, { dailies: dailiesActive() }, rules), status, morning,
         state: cycleState({ prepCycle: status.prepCycle, morningCycle: Number.isInteger(morning.cycle) ? morning.cycle : null,
             dailyCraftingComplete: actor.flags?.pf2e?.dailyCraftingComplete === true }),
-        loadouts: loadoutsOf(actor), dcs: creatorDcs(actor), rules,
+        loadouts: loadoutsOf(actor), dcs: creatorDcs(actor), rules, wilderness,
     };
 }
 
@@ -207,10 +231,10 @@ function routeOfFor(facts, pool) {
     };
 }
 
-/** The pools as `resolvePools` reads them. */
+/** The pools as `resolvePools` reads them: the corrected count and predicate (7.1). */
 function poolInputs(facts) {
     return Object.fromEntries(facts.pools.map((pool) => [pool.slug, {
-        maxSlots: pool.maxSlots, maxItemLevel: pool.maxItemLevel, canCraft: (item) => poolAccepts(pool.ability, item.options),
+        maxSlots: pool.maxSlots, maxItemLevel: pool.maxItemLevel, canCraft: (item) => pool.accepts(item.options),
         batchSize: (item) => batchFor(pool.ability, item.options),
     }]));
 }
@@ -264,6 +288,11 @@ export function planMorning(facts, { pools: plans = {}, talismans = {}, standing
             modes[pool.slug] = "set";
         }
         modes[pool.slug] ??= "keep";
+    }
+    // A pool kept as it is that asks for more than the rules allow: pf2e's own count is wrong there (a registry correction,
+    // 7.1), so pf2e would make it all; the plan says no instead.
+    for (const pool of facts.pools) {
+        if (modes[pool.slug] === "keep" && pool.corrected && pool.insufficient) problems.push({ pool: pool.slug, reason: "slots", used: pool.used, max: pool.max, corrected: true });
     }
     const due = standingChosen(facts.actor, standing, today().day);
     const withOrders = withStanding(entries, due, cycle);
@@ -426,7 +455,10 @@ async function deliverStanding(actor, delivery, cycle) {
     delete source._id;
     source.system.quantity = delivery.qty;
     const direct = recipient.isOwner && recipient !== actor;
-    if (!direct) foundry.utils.setProperty(source, `flags.${MODULE_ID}.shelf`, { for: recipient.uuid, from: actor.uuid, order: null, claimKey: key, at: stampNow().at });
+    // The shelf item's own delivery key, never the lock's: `claims.deliver` locks the hash of its key as the delivered
+    // row's id, and this request's lock page already holds `hashId(key)`, so the same key could never be collected.
+    const claimKey = idemKey("deliver", "standing", delivery.standing, actor.id, String(cycle));
+    if (!direct) foundry.utils.setProperty(source, `flags.${MODULE_ID}.shelf`, { for: recipient.uuid, from: actor.uuid, order: null, claimKey, at: stampNow().at });
     const left = item.quantity - delivery.qty;
     const stamp = stampNow();
     const result = await runRequest([
@@ -476,19 +508,33 @@ function originOf(item, planned) {
     return match ? { pool: match.pool, uuid: match.uuid } : { pool: null, uuid: null };
 }
 
+/** The lock page of one attempt at a character's preparations in a cycle (7.7): two clients never both prepare it. */
+export const prepLockId = (actorId, cycle, attempt) => hashId(idemKey("prep", actorId, String(cycle), String(attempt)));
+
+/** Which attempt at this cycle's preparations comes next: a refused attempt (pf2e's, `system`) moves on to a new lock. */
+function attemptOf(actor, cycle) {
+    const attempt = morningOf(actor).attempt;
+    return attempt?.cycle === cycle && Number.isInteger(attempt.n) ? attempt.n : 0;
+}
+
 /**
  * Make a character's daily preparations (7.1, 7.5, 7.6), on its owner's client. Refusals: `not-ready`, `off`,
- * `no-actor`, `not-owner`, `busy` (this client is preparing it already), `prepared` (this cycle's preparations are made:
- * pass `again` to begin a new day's cycle), `sheet` (pf2e's daily crafting ran this cycle from the sheet; its items were
- * stamped), `plan` (a pool asks for more than its slots, or an entry has no grade it can make; `data.problems`; a standing
- * order that does not fit is left out instead, as a problem with its `standing` id), `system` (pf2e's daily crafting
- * refused: a pool beyond its own slots or resource).
+ * `no-actor`, `not-owner`, `busy` (this client is preparing it already, or another client holds this cycle's lock page),
+ * `prepared` (this cycle's preparations are made: pass `again` to begin a new day's cycle), `sheet` (pf2e's daily crafting
+ * ran this cycle from the sheet; its items were stamped), `plan` (a pool asks for more than its slots, or an entry has no
+ * grade it can make; `data.problems`; a standing order that does not fit is left out instead, as a problem with its
+ * `standing` id), `system` (pf2e did not take the plan: its prepared list differs from it, `data.differences`, or its daily
+ * crafting refused a pool beyond its own slots or resource).
+ *
+ * Every client a character's owners use may press "Make daily preparations" (a player's two devices, the GM's tab): the
+ * preparation of a cycle runs behind the lock page `prep:<actorId>:<cycle>:<attempt>`, so one of them prepares and the
+ * others are refused `busy`. A `system` refusal (nothing made) moves on to the next attempt, so the player can try again.
  *
  * @param {Actor|string} actorRef
  * @param {object} [p]   `planMorning`'s plan, plus `again`
  * @returns {Promise<{ok: boolean, cycle?: number, created?: object[], deliveries?: object[], reason?: string, data?: object}>}
  */
-export async function applyMorning(actorRef, { pools = {}, talismans = {}, standing = "due", again = false, nonce = newId(), choice = false } = {}) {
+export async function applyMorning(actorRef, { pools = {}, talismans = {}, standing = "due", again = false, nonce = newId(), choice = false, wilderness = false } = {}) {
     if (!canWrite()) return refuse("not-ready");
     if (!morningOn()) return refuse("off");
     const actor = actorOf(actorRef);
@@ -497,7 +543,7 @@ export async function applyMorning(actorRef, { pools = {}, talismans = {}, stand
     if (applying.has(actor.id)) return refuse("busy");
     applying.add(actor.id);
     try {
-        let facts = await morningFacts(actor);
+        const facts = await morningFacts(actor, undefined, { wilderness });
         if (facts.state === "prepared" && !again) return refuse("prepared", { cycle: facts.status.prepCycle });
         if (facts.state === "sheet" && !again) return refuse("sheet", { cycle: facts.status.prepCycle });
         // Check the plan before anything moves: a refused plan changes nothing, not even the cycle.
@@ -509,92 +555,134 @@ export async function applyMorning(actorRef, { pools = {}, talismans = {}, stand
             const begun = await beginCycle(actor, { key: `again:${nonce}`, reason: "again" });
             if (!begun.ok) return begun;
             cycle = begun.cycle;
-            for (const ability of abilitiesOf(actor).filter((a) => a.isDailyPrep && a.preparedFormulaData?.some((f) => f.expended))) {
-                await ability.updateFormulas(ability.preparedFormulaData.map((f) => ({ ...f, expended: false })));
-            }
-            facts = await morningFacts(actor);
         }
-        await actor.update({ [`flags.${MODULE_ID}.morning.applying`]: { cycle, at: stampNow().at } });
-        const plan = planMorning(facts, { pools, talismans, standing, cycle });
-        // 1. Grades the book lacks but their family covers: written into the book first (6.4, provenance `family`).
-        for (const [slug, pool] of Object.entries(plan.pools)) {
-            if (TALISMAN_POOLS.includes(slug)) continue;
-            for (const line of pool.lines.filter((l) => l.route === "family")) {
-                if (await appendToBook(actor, line.uuid)) {
-                    const path = provenancePath(actor.id, line.uuid);
-                    if (!exists(path)) await write({ set: { [path]: makeProvenance({ uuid: line.uuid, route: "family", source: line.family, day: today().day }, stampNow()) } });
-                }
-            }
+        // One client prepares a cycle: whoever creates this attempt's lock page first.
+        const attempt = attemptOf(actor, cycle);
+        const lock = await runRequest([{ op: "lock", ids: [prepLockId(actor.id, cycle, attempt)] }]);
+        if (lock.outcome !== "ok") return refuse("busy", { cycle });
+        let made = false;
+        const retry = () => actor.update({ [`flags.${MODULE_ID}.morning.applying`]: null, [`flags.${MODULE_ID}.morning.attempt`]: { cycle, n: attempt + 1 } });
+        try {
+            return await prepareLocked(actor, { facts, again: facts.state !== "fresh", cycle, pools, talismans, standing, choice, wilderness, retry,
+                making: () => { made = true; } });
+        } catch (error) {
+            // Nothing was made yet: the next try takes a new lock. Once pf2e's daily crafting has been asked, it may have made
+            // something, so the lock stands ("Prepare for a new day" begins a new cycle).
+            if (!made) await retry().catch(() => {});
+            throw error;
         }
-        // 2. Prepared quantities through pf2e (setFormulaQuantity), for the pools whose plan changes them.
-        for (const [slug, pool] of Object.entries(plan.pools)) {
-            const ability = abilitiesOf(actor).find((a) => a.slug === slug);
-            if (!ability) continue;
-            const system = pool.lines.filter((l) => l.route !== "virtual");
-            const keep = new Set(system.map((l) => l.uuid));
-            for (const p of [...(ability.preparedFormulaData ?? [])]) if (!keep.has(p.uuid)) await ability.setFormulaQuantity(p.uuid, 0);
-            for (const line of system) await abilitiesOf(actor).find((a) => a.slug === slug).setFormulaQuantity(line.uuid, line.qty);
-        }
-        // 3. Make them: pf2e's daily crafting, then the virtual talismans (no slot spent, no book).
-        const planned = await plannedItems(actor);
-        const before = snapshotOf(physical(actor));
-        await actor.crafting.performDailyCrafting();
-        if (planned.length && actor.flags?.pf2e?.dailyCraftingComplete !== true) {
-            // pf2e stopped before making anything (a pool asks for more than its slots or resource, with its own warning):
-            // nothing is recorded, so the player can fix the pool and prepare again in this cycle.
-            await actor.update({ [`flags.${MODULE_ID}.morning.applying`]: null });
-            return refuse("system");
-        }
-        const middle = snapshotOf(physical(actor));
-        const crafted = new Map();
-        for (const [slug, pool] of Object.entries(plan.pools)) {
-            const ability = abilitiesOf(actor).find((a) => a.slug === slug);
-            for (const line of pool.lines.filter((l) => l.route === "virtual")) {
-                for (let i = 0; i < Math.ceil(line.qty / line.batch); i++) {
-                    const made = await ability?.craft(line.uuid, { consume: false });
-                    if (!made) continue;
-                    const entry = crafted.get(made.id) ?? { pool: slug, uuid: line.uuid, calls: 0, batch: line.batch };
-                    entry.calls += 1;
-                    crafted.set(made.id, entry);
-                }
-            }
-        }
-        // pf2e's `craft` adds to a stack without waiting for the update: wait until every quantity has landed.
-        await until(() => [...crafted].every(([id, c]) => (actor.items.get(id)?.quantity ?? 0) >= (middle[id] ?? 0) + c.calls * c.batch));
-        const all = outputsOf(before, physical(actor).map((item) => ({ id: item.id, quantity: item.quantity })))
-            .map((o) => ({ ...o, ...(crafted.has(o.id) ? { pool: crafted.get(o.id).pool, uuid: crafted.get(o.id).uuid } : originOf(actor.items.get(o.id), planned)) }))
-            .filter((o) => o.pool);
-        // 4. Stamp (4.12, 7.7) and the Talisman Dabbler DC stamp (7.4).
-        const day = today().day;
-        const stampPools = new Set(facts.pools.filter((p) => p.dcStamp).map((p) => p.slug));
-        const dc = dabblerDc(facts.dcs);
-        const stamped = await stampOutputs(actor, all,
-            (o) => prepStamp({ creator: actor.uuid, cycle, pool: o.pool, worldTime: game.time.worldTime, day }),
-            (o) => (stampPools.has(o.pool) ? dc : null));
-        const created = stamped.map((o) => ({ id: o.id, uuid: o.uuid, pool: o.pool, qty: o.added, name: actor.items.get(o.id)?.name ?? null }));
-        // 5. Standing orders (7.6).
-        const lines = Object.values(plan.pools).flatMap((p) => p.lines).filter((l) => l.standing.length);
-        // Only this run's output is handed out, never what its stack held before (`added`, not the stack's quantity).
-        const { deliveries, short } = deliveriesOf(stamped.filter((o) => o.uuid).map((o) => ({ ...o, quantity: o.added })), lines);
-        const delivered = [];
-        for (const delivery of deliveries) delivered.push(await deliverStanding(actor, delivery, cycle));
-        // 6. Advanced Vials' material buckets kept in step with the vials the resource counts (7.3).
-        await syncVials(actor, plan.vialMaterials);
-        // 7. The record, the hook and the card.
-        await actor.update({ [`flags.${MODULE_ID}.morning`]: {
-            cycle, day, at: stampNow().at, created: created.map((c) => c.id).filter((id) => actor.items.get(id)), applying: null,
-            choice: choice ? { ...(morningOf(actor).choice ?? {}), applied: stampNow().at } : morningOf(actor).choice ?? null,
-            gaps: morningOf(actor).gaps ?? {},
-        } });
-        scheduleExpiry();
-        const result = { ok: true, cycle, created, deliveries: delivered, short, problems: plan.problems, dc: stampPools.size ? dc : null };
-        Hooks.callAll(`${MODULE_ID}.preparationCompleted`, Object.freeze({ actor, cycle, created }));
-        // The Morning summary card (10.5), from this client only (12.3: hooks fire on the client that wrote).
-        Hooks.callAll(`${MODULE_ID}.morningSummary`, Object.freeze({ actor, result }));
-        return result;
     } finally {
         applying.delete(actor.id);
     }
+}
+
+/** The preparation itself, behind this cycle's lock page (`applyMorning`). */
+async function prepareLocked(actor, { facts, again, cycle, pools, talismans, standing, choice, wilderness, retry, making }) {
+    if (again) {
+        for (const ability of abilitiesOf(actor).filter((a) => a.isDailyPrep && a.preparedFormulaData?.some((f) => f.expended))) {
+            await ability.updateFormulas(ability.preparedFormulaData.map((f) => ({ ...f, expended: false })));
+        }
+        facts = await morningFacts(actor, undefined, { wilderness });
+    }
+    await actor.update({ [`flags.${MODULE_ID}.morning.applying`]: { cycle, at: stampNow().at } });
+    const plan = planMorning(facts, { pools, talismans, standing, cycle });
+    // 1. Grades the book lacks but their family covers: written into the book first (6.4, provenance `family`).
+    for (const [slug, pool] of Object.entries(plan.pools)) {
+        if (TALISMAN_POOLS.includes(slug)) continue;
+        for (const line of pool.lines.filter((l) => l.route === "family")) {
+            if (await appendToBook(actor, line.uuid)) {
+                const path = provenancePath(actor.id, line.uuid);
+                if (!exists(path)) await write({ set: { [path]: makeProvenance({ uuid: line.uuid, route: "family", source: line.family, day: today().day }, stampNow()) } });
+            }
+        }
+    }
+    // 2. Prepared quantities through pf2e (setFormulaQuantity), for the pools whose plan changes them. pf2e refuses a new
+    // formula once the slots are spent and clamps an increase to the slots left, so slots are freed first: formulas
+    // the plan drops, then every decrease, then the increases and new formulas.
+    const differences = [];
+    for (const [slug, pool] of Object.entries(plan.pools)) {
+        const ability = () => abilitiesOf(actor).find((a) => a.slug === slug);
+        if (!ability()) continue;
+        const system = pool.lines.filter((l) => l.route !== "virtual");
+        const keep = new Set(system.map((l) => l.uuid));
+        for (const p of [...(ability().preparedFormulaData ?? [])]) if (!keep.has(p.uuid)) await ability().setFormulaQuantity(p.uuid, 0);
+        // pf2e's own view of the list, in whole batches: a line already prepared at its batches is left alone (pf2e makes
+        // whole batches, and refuses even a same-batch increase in a full pool).
+        const prepared = async () => new Map((await ability().getPreparedCraftingFormulas?.() ?? []).map((p) => [p.uuid, p]));
+        const now = await prepared();
+        const unchanged = (line) => now.has(line.uuid) && now.get(line.uuid).batches === Math.ceil(line.qty / (now.get(line.uuid).batchSize || 1));
+        const current = (line) => now.get(line.uuid)?.quantity ?? 0;
+        const changing = system.filter((line) => !unchanged(line));
+        const ordered = [...changing.filter((l) => current(l) > l.qty), ...changing.filter((l) => current(l) <= l.qty)];
+        for (const line of ordered) await ability().setFormulaQuantity(line.uuid, line.qty);
+        differences.push(...preparedDifferences(slug, system, [...(await prepared()).values()]));
+    }
+    if (differences.length) {
+        // pf2e did not take the plan as it is (a slot it would not free, a formula it would not prepare): nothing is made
+        // from a list that is not the plan, and the player may prepare again in this cycle.
+        await retry();
+        return refuse("system", { differences });
+    }
+    // 3. Make them: pf2e's daily crafting, then the virtual talismans (no slot spent, no book).
+    const planned = await plannedItems(actor);
+    const before = snapshotOf(physical(actor));
+    making();
+    await actor.crafting.performDailyCrafting();
+    if (planned.length && actor.flags?.pf2e?.dailyCraftingComplete !== true) {
+        // pf2e stopped before making anything (a pool asks for more than its slots or resource, with its own warning):
+        // nothing is recorded, so the player can fix the pool and prepare again in this cycle.
+        await retry();
+        return refuse("system");
+    }
+    const middle = snapshotOf(physical(actor));
+    const crafted = new Map();
+    for (const [slug, pool] of Object.entries(plan.pools)) {
+        const ability = abilitiesOf(actor).find((a) => a.slug === slug);
+        for (const line of pool.lines.filter((l) => l.route === "virtual")) {
+            for (let i = 0; i < Math.ceil(line.qty / line.batch); i++) {
+                const made = await ability?.craft(line.uuid, { consume: false });
+                if (!made) continue;
+                const entry = crafted.get(made.id) ?? { pool: slug, uuid: line.uuid, calls: 0, batch: line.batch };
+                entry.calls += 1;
+                crafted.set(made.id, entry);
+            }
+        }
+    }
+    // pf2e's `craft` adds to a stack without waiting for the update: wait until every quantity has landed.
+    await until(() => [...crafted].every(([id, c]) => (actor.items.get(id)?.quantity ?? 0) >= (middle[id] ?? 0) + c.calls * c.batch));
+    const all = outputsOf(before, physical(actor).map((item) => ({ id: item.id, quantity: item.quantity })))
+        .map((o) => ({ ...o, ...(crafted.has(o.id) ? { pool: crafted.get(o.id).pool, uuid: crafted.get(o.id).uuid } : originOf(actor.items.get(o.id), planned)) }))
+        .filter((o) => o.pool);
+    // 4. Stamp (4.12, 7.7) and the Talisman Dabbler DC stamp (7.4).
+    const day = today().day;
+    const stampPools = new Set(facts.pools.filter((p) => p.dcStamp).map((p) => p.slug));
+    const dc = dabblerDc(facts.dcs);
+    const stamped = await stampOutputs(actor, all,
+        (o) => prepStamp({ creator: actor.uuid, cycle, pool: o.pool, worldTime: game.time.worldTime, day }),
+        (o) => (stampPools.has(o.pool) ? dc : null));
+    const created = stamped.map((o) => ({ id: o.id, uuid: o.uuid, pool: o.pool, qty: o.added, name: actor.items.get(o.id)?.name ?? null }));
+    // 5. Standing orders (7.6).
+    const lines = Object.values(plan.pools).flatMap((p) => p.lines).filter((l) => l.standing.length);
+    // Only this run's output is handed out, never what its stack held before (`added`, not the stack's quantity).
+    const { deliveries, short } = deliveriesOf(stamped.filter((o) => o.uuid).map((o) => ({ ...o, quantity: o.added })), lines);
+    const delivered = [];
+    for (const delivery of deliveries) delivered.push(await deliverStanding(actor, delivery, cycle));
+    // 6. Advanced Vials' material buckets kept in step with the vials the resource counts (7.3).
+    await syncVials(actor, plan.vialMaterials);
+    // 7. The record (with the virtual talismans made, which a kept pool makes again, 7.9), the hook and the card.
+    const virtual = Object.entries(plan.pools).flatMap(([slug, pool]) => pool.lines.filter((l) => l.route === "virtual")
+        .map((l) => ({ pool: slug, uuid: l.uuid, qty: l.qty })));
+    await actor.update({ [`flags.${MODULE_ID}.morning`]: {
+        cycle, day, at: stampNow().at, created: created.map((c) => c.id).filter((id) => actor.items.get(id)), applying: null, talismans: virtual, wilderness,
+        choice: choice ? { ...(morningOf(actor).choice ?? {}), applied: stampNow().at } : morningOf(actor).choice ?? null,
+        gaps: morningOf(actor).gaps ?? {},
+    } });
+    scheduleExpiry();
+    const result = { ok: true, cycle, created, deliveries: delivered, short, problems: plan.problems, dc: stampPools.size ? dc : null };
+    Hooks.callAll(`${MODULE_ID}.preparationCompleted`, Object.freeze({ actor, cycle, created }));
+    // The Morning summary card (10.5), from this client only (12.3: hooks fire on the client that wrote).
+    Hooks.callAll(`${MODULE_ID}.morningSummary`, Object.freeze({ actor, result }));
+    return result;
 }
 
 /* -------------------------------------------- */
@@ -665,7 +753,8 @@ export async function deleteLoadout(actorRef, id) {
 
 /**
  * Save the character's current preparation as a loadout (7.5): each pool's prepared formulas by family, and the talisman
- * pools' virtual talismans of the last preparation.
+ * pools' virtual talismans of the last preparation (its record, so two of one talisman stay two, and a talisman used or
+ * deleted at the rest since still counts).
  */
 export async function captureLoadout(actorRef, name) {
     const actor = actorOf(actorRef);
@@ -673,14 +762,11 @@ export async function captureLoadout(actorRef, name) {
     const facts = await morningFacts(actor);
     const pools = {};
     const talismans = {};
+    const made = talismanPicksOf(facts.morning.talismans);
     for (const pool of facts.pools) {
         const prepared = pool.prepared.filter((p) => p.item);
         if (prepared.length) pools[pool.slug] = captureEntries(prepared);
-        if (pool.talisman) {
-            const made = (facts.morning.created ?? []).map((id) => actor.items.get(id)).filter((item) => item && stampOf(item)?.pool === pool.slug);
-            const uuids = made.map((item) => pool.offered.find((o) => o.name === (item.flags?.[MODULE_ID]?.inertFrom?.name ?? item.name))?.uuid).filter(Boolean);
-            if (uuids.length) talismans[pool.slug] = [...new Set(uuids)];
-        }
+        if (pool.talisman && made[pool.slug]?.length) talismans[pool.slug] = made[pool.slug];
     }
     if (!Object.keys(pools).length && !Object.keys(talismans).length) return refuse("nothing-prepared");
     return saveLoadout(actor, { name, pools, talismans });
@@ -744,44 +830,64 @@ export async function markGap(actorRef, key, done = true) {
     return { ok: true };
 }
 
-/** The alchemical foods a Food Preservation holder may preserve: its own stamped outputs that match the rule's predicate. */
+/** A creator's Food Preservation designations that stand (`flags.MOD.morning.preserved`), wherever the foods have gone. */
+export function designationsOn(actor) {
+    const list = morningOf(actor).preserved;
+    return Array.isArray(list) ? list.filter((d) => d && typeof d.id === "string" && Number.isFinite(d.n)) : [];
+}
+
+/**
+ * The alchemical foods a Food Preservation holder may preserve (7.7, 7.10): what its own Advanced Alchemy made at this
+ * cycle's preparations ("when you use advanced alchemy to create alchemical food") that matches the rule's predicate,
+ * still in its hands; foods already preserved this cycle are listed too, marked by their stamp.
+ */
 export function preservable(actor) {
     const rules = heldEffects(heldKeysOf(actor), "expiryRule").filter(({ effect }) => effect.rule === "designate");
     if (!rules.length) return [];
+    const cycle = statusOf(actor).prepCycle;
     return physical(actor).filter((item) => {
         const stamp = stampOf(item);
-        if (!stamp || stamp.creator !== actor.uuid || isInert(item)) return false;
+        if (!stamp || stamp.creator !== actor.uuid || stamp.pool !== ADVANCED_POOL || stamp.cycle !== cycle || isInert(item)) return false;
         const options = new Set(item.getRollOptions?.("item") ?? []);
         return rules.some(({ effect }) => testPredicate(effect.when, options));
     });
 }
 
 /**
- * Preserve alchemical foods (Food Preservation, 7.7 exception): the chosen items' stamps become `exempt`; past the cap
- * (by the better of Crafting and Cooking Lore, `preservationCap`), the oldest preserved items spoil: their exemption ends,
- * so they expire on their stamp at the next sweep.
+ * Preserve alchemical foods (Food Preservation, 7.7 exception): each chosen food's stamp becomes `exempt` with a
+ * designation id, and it stops being temporary, so pf2e's Rest for the Night (which deletes temporary items) keeps it. The
+ * designations are kept on the creator (`flags.MOD.morning.preserved`), so a food handed to someone else still counts.
+ * At most the cap (by the better of Crafting and Cooking Lore, `preservationCap`) a preparation, and at most the cap at
+ * once: past it the oldest spoil, which every holder's client marks inert at once (temporary again).
  */
 export async function preserve(actorRef, ids) {
     const actor = actorOf(actorRef);
     if (!actor?.isOwner) return refuse("not-owner");
     const candidates = preservable(actor);
-    if (ids.some((id) => !candidates.some((item) => item.id === id))) return refuse("not-preservable");
+    const chosen = [...new Set(ids)];
+    if (!chosen.length || chosen.some((id) => !candidates.some((item) => item.id === id))) return refuse("not-preservable");
+    const fresh = chosen.filter((id) => !stampOf(actor.items.get(id))?.exempt);
     const ranks = ranksOf(actor);
     const cap = preservationCap(Math.max(ranks.crafting ?? RANK.untrained, ranks["cooking-lore"] ?? RANK.untrained));
-    const preserved = candidates.filter((item) => stampOf(item).exempt?.key === "food-preservation")
-        .map((item) => ({ id: item.id, at: stampOf(item).exempt.n ?? 0 }));
-    const counter = (actor.flags?.[MODULE_ID]?.morning?.preserved ?? 0) + 1;
-    const plan = preservePlan(preserved, ids, cap, counter);
+    const cycle = statusOf(actor).prepCycle;
+    const standing = designationsOn(actor);
+    const plan = preservePlan(standing, fresh.length, cap, cycle);
     if (!plan.ok) return refuse(plan.reason, plan.data);
-    const updates = [
-        // Designated in one go, the first named counts as the oldest: it is the one to spoil first.
-        ...plan.preserve.map((id, i) => ({ _id: id, [`flags.${MODULE_ID}.expiry.exempt`]: { key: "food-preservation", n: counter + i / 1000, at: stampNow().at } })),
-        ...plan.spoil.map((id) => ({ _id: id, [`flags.${MODULE_ID}.expiry.exempt`]: null })),
-    ];
-    if (updates.length) await actor.updateEmbeddedDocuments("Item", updates);
-    await actor.update({ [`flags.${MODULE_ID}.morning.preserved`]: counter });
-    scheduleExpiry();
-    return { ok: true, preserved: plan.preserve, spoiled: plan.spoil, cap };
+    if (!fresh.length) return { ok: true, preserved: [], spoiled: [], cap };
+    const at = stampNow().at;
+    let n = Math.max(0, ...standing.map((d) => d.n));
+    // Designated in one go, the first named counts as the oldest: it is the one to spoil first.
+    const added = fresh.map((item) => ({ id: newId(), item, n: ++n, cycle, at }));
+    const spoiled = new Set(plan.spoil);
+    // The designations first: a write that stops between the two leaves a designation without a food, never a food
+    // whose designation is missing (which would spoil it).
+    await actor.update({ [`flags.${MODULE_ID}.morning.preserved`]: [...standing.filter((d) => !spoiled.has(d.id)), ...added.map((d) => ({ id: d.id, n: d.n, cycle: d.cycle, at: d.at }))] });
+    await actor.updateEmbeddedDocuments("Item", added.map((d) => ({
+        _id: d.item, "system.temporary": false,
+        [`flags.${MODULE_ID}.expiry.exempt`]: { key: "food-preservation", id: d.id, n: d.n, at },
+    })));
+    scheduleExpiry(0);
+    return { ok: true, preserved: fresh, spoiled: [...spoiled], cap };
 }
 
 /* -------------------------------------------- */

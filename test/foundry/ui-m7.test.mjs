@@ -118,9 +118,28 @@ test("the Morning tab: a player's own characters, each pool in words with its pl
     assert.deepEqual(again.pools[1].offered.map((o) => o.picked), [true]);
     assert.equal(again.pools[1].lines[0].route.key, "pf2e-artisans-workshop.Morning.Route.Virtual");
     assert.ok(again.pools[0].lines.length > 0, "the loadout's lines");
+    // A count per talisman (second review fix): two of one are two picks.
+    assert.equal(morningUi.onMorningChange(app, { type: "number", value: "2", dataset: { morning: "talisman", pool: "talisman-dabbler", uuid: items.fear.uuid } }), true);
+    assert.deepEqual(app.morning.talismans["talisman-dabbler"], [items.fear.uuid, items.fear.uuid]);
+    const two = (await morningPart(app)).morning.pools[1];
+    assert.deepEqual([two.offered[0].count, two.pickedCount, two.lines[0].qty], [2, "2", "2"]);
     world.currentUser = "gm00000000000000";
     const gm = (await morningPart(new WorkshopApp())).morning;
     assert.deepEqual(gm.choices.map((c) => c.name), ["Vera", "Bo"], "a GM sees every member");
+});
+
+test("a corrected pool shows pf2e's count beside the rules'; the tab asks whether the preparations are in the wilderness (second review fix, 7.1)", async () => {
+    vera.addItem({ type: "feat", name: "Herbalist Dedication", sourceId: REGISTRY["herbalist-dedication"].uuid });
+    vera.rules = [{ key: "CraftingAbility", slug: "advanced-alchemy", maxSlots: 4, resolveValue: (v) => v, craftableItems: predicate("item:trait:healing"),
+        item: { sourceId: REGISTRY["herbalist-dedication"].uuid, slug: "herbalist-dedication", name: "Herbalist Dedication" } }];
+    const app = new WorkshopApp();
+    const m = (await morningPart(app)).morning;
+    assert.equal(m.wildernessAsked, true);
+    assert.equal(m.pools[0].corrected, "pf2e counts 4; the rules allow 2");
+    assert.equal(m.pools[0].slots, "2 of 2 batches");
+    assert.equal(morningUi.onMorningChange(app, { dataset: { morning: "wilderness" }, checked: true }), true);
+    const wild = (await morningPart(app)).morning;
+    assert.deepEqual([wild.wilderness, wild.pools[0].corrected, wild.pools[0].slots], [true, null, "2 of 4 batches"]);
 });
 
 test("standing orders due show as chips the crafter may leave out; the badge counts characters waiting after a rest (7.6, 7.8)", async () => {
