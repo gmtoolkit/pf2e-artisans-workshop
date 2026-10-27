@@ -6,27 +6,32 @@
  * rarity adjustment), `action:craft`, the product's roll options from an unsaved copy of the product owned by the
  * crafter (so gear and feats predicated on the item fire), the registry's options and modifiers, and the order's
  * link option `<MOD>:order:<id>:<attempt>`. An Earn Income check adds `action:earn-income` (so Experienced
- * Professional, the Tradecraft Tattoo and the Earn Income gear fire) and `<MOD>:job:<id>`. The pure parts are in
+ * Professional, the Tradecraft Tattoo and the Earn Income gear fire) and `<MOD>:job:<id>:<round>` (M6). A Communal
+ * Crafting helper's check (M6) is linked as `<MOD>:help:<orderId>:<actorId>`. The pure parts are in
  * `scripts/logic/rolls.mjs`.
  *
  * Recording. `createChatMessage` fires on every client; the message's author records it, in the tab that holds that
  * user's lease (5.6), first rolls and rerolls alike: pf2e lets the author or a GM reroll, and a reroll's new message
  * belongs to the rerolling user and keeps only `flags.pf2e`, where the link option survives. A Craft check goes
  * through M1's `recordCheck` (a reroll before settlement replaces the check; one after it is kept as a conflict for
- * the card; one for an earlier attempt is refused as stale), an Earn Income check through `jobCheckPatch`.
+ * the card; one for an earlier attempt is refused as stale), an Earn Income check through `jobCheckPatch`, a helper's
+ * through `helperCheckPatch`.
  *
  * Settling a Craft check posts its money rows through M2's coin moves (`settleOrder`), and an Earn Income day is paid
  * once however often it is resolved (`payWage`): the earner's responsible client mints the wage, anyone else files a
  * wage claim, and both share the row's lock.
  */
 import { MODULE_ID } from "../constants.mjs";
+import { helperCheckPatch } from "../logic/communal.mjs";
+import { liveRows } from "../logic/core.mjs";
 import { committedFromRows, hasSettlementRows, recordCheck, settleCheck } from "../logic/craft.mjs";
-import { daysPaid, wageKey, wageSeq } from "../logic/earn-income.mjs";
+import { wageDaysOf } from "../logic/downtime.mjs";
+import { wageKey, wageSeq } from "../logic/earn-income.mjs";
 import { returnSlotLockId } from "../logic/funds.mjs";
 import { hashId } from "../logic/ids.mjs";
 import { earnIncomeFlags } from "../logic/registry.mjs";
 import {
-    checkFromContext, craftDegree, craftRollPlan, earnIncomeRollPlan, guardCheck, jobCheckPatch, parseLink,
+    checkFromContext, craftDegree, craftRollPlan, earnIncomeRollPlan, guardCheck, helpLink, jobCheckPatch, parseLink,
 } from "../logic/rolls.mjs";
 import { closedAs, settlementRecord, transitionChange } from "../logic/orders.mjs";
 import { makeRow, seqFor } from "../logic/rows.mjs";
@@ -109,9 +114,36 @@ export async function rollEarnIncome(jobId, { skipDialog } = {}) {
     if (!statistic) return refuse("no-skill", { skill: job.skill });
     const roll = await statistic.roll({
         dc: { value: job.dc, label: game.i18n.localize("pf2e-artisans-workshop.Roll.EarnIncomeDC") },
-        extraRollOptions: earnIncomeRollPlan(job.id).options,
+        extraRollOptions: earnIncomeRollPlan(job.id, job.round ?? 1).options,
         traits: ["downtime"],
         label: game.i18n.format("pf2e-artisans-workshop.Roll.EarnIncome", { skill: statistic.label }),
+        skipDialog,
+        createMessage: true,
+    });
+    return roll ? { ok: true, total: roll.total } : refuse("cancelled");
+}
+
+/**
+ * Roll a Communal Crafting helper's check (6.7, M6): the skill the helper joined with, against the item's Craft DC (the
+ * order's frozen DC, `rules.communal.helperDc` "item"), as a downtime check linked to the helper's entry. It records
+ * itself when its message is created. Refused: `no-order`, `not-helping`, `state` (the order has no DC yet: it has not
+ * started), `not-owner`, `no-skill`, `cancelled`.
+ */
+export async function rollHelper(orderId, actorUuid, { skipDialog } = {}) {
+    const order = read(`orders.${orderId}`);
+    if (!order) return refuse("no-order");
+    const actor = fromUuidSync(actorUuid);
+    const helper = actor ? order.helpers?.[actor.id] : null;
+    if (!helper || helper.leftDay != null) return refuse("not-helping");
+    if (closedAs(order) || !order.dc?.final) return refuse("state", { status: closedAs(order) ?? order.status });
+    if (!actor.isOwner) return refuse("not-owner");
+    const statistic = statisticOf(actor, helper.skill);
+    if (!statistic) return refuse("no-skill", { skill: helper.skill });
+    const roll = await statistic.roll({
+        dc: { value: order.dc.final, label: game.i18n.localize("pf2e-artisans-workshop.Roll.HelperDC") },
+        extraRollOptions: [helpLink(orderId, actor.id)],
+        traits: ["downtime"],
+        label: game.i18n.format("pf2e-artisans-workshop.Roll.Helper", { item: order.product?.snapshot?.name ?? "" }),
         skipDialog,
         createMessage: true,
     });
@@ -151,9 +183,30 @@ export async function onCheckMessage(message) {
         return guarded;
     }
     const check = { ...guarded.check, messageId: message.id };
-    return link.kind === "order"
-        ? recordOrderCheck(link, check, message.actor, context.options ?? [])
-        : recordJobCheck(link.id, check, message.actor);
+    if (link.kind === "order") return recordOrderCheck(link, check, message.actor, context.options ?? []);
+    if (link.kind === "help") return recordHelperCheck(link, check, message.actor);
+    return recordJobCheck(link, check, message.actor);
+}
+
+/**
+ * Record a Communal Crafting helper's check on their entry (6.7, M6): the degree, and the level and rank at the roll,
+ * which their rate uses; a reroll replaces it (`helperCheckPatch`). Each helper writes only their own entry (4.2.4).
+ */
+async function recordHelperCheck({ id, actor: actorId }, check, actor) {
+    const order = read(`orders.${id}`);
+    if (!order) return refuse("no-order");
+    if (closedAs(order)) return refuse("state", { status: closedAs(order) });
+    const helperActor = actor?.id === actorId ? actor : game.actors.get(actorId);
+    const skill = order.helpers?.[actorId]?.skill ?? "crafting";
+    const result = helperCheckPatch(order, actorId, check, { level: helperActor?.level ?? 0, rank: statisticOf(helperActor, skill)?.rank ?? 0 });
+    if (!result.ok) {
+        if (result.reason === "rolled") ui.notifications.warn("pf2e-artisans-workshop.Roll.AlreadyRolled", { localize: true });
+        return result;
+    }
+    const base = `orders.${id}.helpers.${actorId}`;
+    await write({ replace: { [`${base}.check`]: result.patch.check },
+        set: { [`${base}.degree`]: result.patch.degree, [`${base}.level`]: result.patch.level, [`${base}.rank`]: result.patch.rank } });
+    return { ok: true, check: result.patch.check };
 }
 
 /**
@@ -194,9 +247,10 @@ async function recordOrderCheck({ id, attempt }, check, actor, options) {
 
 /**
  * Record an Earn Income check on its job (6.10): the check, the pay per day and the status after the roll. A reroll
- * refused because a wage was already paid at the earlier rate is kept on the job as `conflict`, as for an order.
+ * refused because a wage was already paid (or a wage claim filed, M6) at the earlier rate is kept on the job as
+ * `conflict`, as for an order; a roll for an earlier round of the job (`rerollJob`, M6) is refused as stale.
  */
-async function recordJobCheck(jobId, check, actor) {
+async function recordJobCheck({ id: jobId, round }, check, actor) {
     const job = read(`jobs.${jobId}`);
     if (!job) return refuse("no-job");
     const earner = actor ?? fromUuidSync(job.actor);
@@ -205,7 +259,8 @@ async function recordJobCheck(jobId, check, actor) {
         level: earner.level, rank: statisticOf(earner, job.skill)?.rank ?? 0,
         experiencedProfessional: earnIncomeFlags(featKeysOf(earner)).experiencedProfessional,
     };
-    const result = jobCheckPatch(job, check, earnerAtRoll, daysPaid(rowsOf("job", jobId), jobId));
+    const promised = wageDaysOf(liveRows(rowsOf("job", jobId)), records("claims"), jobId).size;
+    const result = jobCheckPatch(job, check, earnerAtRoll, promised, round ?? 1);
     if (!result.ok) {
         if (result.reason === "paid") await write({ replace: { [`jobs.${jobId}.conflict`]: { ...check, ...stampNow() } } });
         const second = result.reason === "rolled" && job.check?.messageId !== check.messageId;
@@ -277,22 +332,23 @@ export async function settleOrder(orderId) {
  * Pay one day of an Earn Income job (4.9, 6.10), once however often the day is resolved: a `wage` row keyed
  * `wage:<jobId>:<day>:<seq>`. The earner's responsible client mints it into the purse; any other client files a
  * wage claim with the same key, which that client applies; both take the row's lock, so a day resolved twice, or by
- * two clients at once, pays once. Refused: `not-ready`, `no-job`, `unrolled`, `nothing` (the day pays nothing),
- * `no-earner`.
+ * two clients at once, pays once. `cp` is the day's wage as its day record has it (M6), the job's pay per day by
+ * default. Refused: `not-ready`, `no-job`, `unrolled`, `nothing` (the day pays nothing), `no-earner`.
  * @returns {Promise<{ok: boolean, outcome?: string, reason?: string}>}  outcome "ok", "already" or "claimed"
  */
-export async function payWage(jobId, day) {
+export async function payWage(jobId, day, { cp = null } = {}) {
     if (!canWrite()) return refuse("not-ready");
     const job = read(`jobs.${jobId}`);
     if (!job) return refuse("no-job");
     if (!job.check) return refuse("unrolled");
-    if (!(job.perDayCp > 0)) return refuse("nothing");
+    const pay = cp ?? job.perDayCp;
+    if (!(pay > 0)) return refuse("nothing");
     const earner = fromUuidSync(job.actor);
     if (!earner) return refuse("no-earner");
     const idem = wageKey(jobId, day, wageSeq(rowsOf("job", jobId), jobId, day));
     if (exists(`rows.${hashId(idem)}`)) return { ok: true, outcome: "already" };
-    const row = { kind: "wage", idem, cp: job.perDayCp, actor: job.actor, job: jobId, day };
+    const row = { kind: "wage", idem, cp: pay, actor: job.actor, job: jobId, day };
     if (isResponsibleFor(earner)) return mint({ actor: earner, row });
-    const created = await createClaims([{ kind: "wage", idem, actor: job.actor, cp: job.perDayCp, job: jobId, day, parties: [job.actor] }]);
+    const created = await createClaims([{ kind: "wage", idem, actor: job.actor, cp: pay, job: jobId, day, parties: [job.actor] }]);
     return { ok: true, outcome: created.length ? "claimed" : "already" };
 }

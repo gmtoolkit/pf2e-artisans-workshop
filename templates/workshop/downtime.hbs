@@ -1,0 +1,177 @@
+<section class="tab workshop-downtime {{tab.cssClass}}" data-group="primary" data-tab="downtime" role="tabpanel"
+         id="pf2e-artisans-workshop-panel-downtime" aria-labelledby="pf2e-artisans-workshop-tab-downtime">
+    {{#if downtimeOff}}
+    <p class="queue-empty">{{localize "pf2e-artisans-workshop.Downtime.Off"}}</p>
+    {{else if readable}}
+    {{#with downtime}}
+    <div class="downtime-day" role="group" aria-label="{{localize 'pf2e-artisans-workshop.Downtime.DayHeading'}}">
+        <span class="day"><i class="fa-solid fa-calendar-day" inert></i> {{dayText}}</span>
+        {{#if worldDate}}<span class="date">{{worldDate}}</span>{{/if}}
+        {{#if aheadText}}<span class="ahead"><i class="fa-solid fa-forward" inert></i> {{aheadText}}</span>{{/if}}
+        {{#if canMatch}}<button type="button" class="small" data-action="downtime" data-op="match"><i class="fa-solid fa-clock" inert></i>{{localize "pf2e-artisans-workshop.Downtime.Match"}}</button>{{/if}}
+        {{#if behindText}}<span class="behind" role="status"><i class="fa-solid fa-triangle-exclamation" inert></i> {{behindText}}</span>{{/if}}
+        {{#if canAdvance}}<button type="button" class="primary" data-action="downtime" data-op="advance"><i class="fa-solid fa-forward-fast" inert></i>{{localize "pf2e-artisans-workshop.Downtime.Advance"}}</button>{{/if}}
+    </div>
+    <p class="hint">{{localize "pf2e-artisans-workshop.Downtime.Rule"}}</p>
+
+    <h3>{{localize "pf2e-artisans-workshop.Downtime.Characters"}}</h3>
+    {{#if pcs.length}}
+    <ul class="downtime-pcs">
+        {{#each pcs}}
+        <li class="downtime-pc{{#if pending}} has-pending{{/if}}" data-actor="{{uuid}}">
+            {{#if img}}<img src="{{img}}" alt="">{{/if}}
+            <div class="pc-main">
+                <strong class="pc-name">{{name}}</strong>
+                <span class="pc-state">
+                    {{#if inDowntime}}<span class="chip on"><i class="fa-solid fa-mug-hot" inert></i> {{localize "pf2e-artisans-workshop.Downtime.In"}}</span>{{#if sinceText}} <span class="since">{{sinceText}}</span>{{/if}}
+                    {{else}}<span class="chip off"><i class="fa-solid fa-person-hiking" inert></i> {{localize "pf2e-artisans-workshop.Downtime.Out"}}</span>{{/if}}
+                </span>
+                {{#if pendingText}}<span class="pc-pending" role="status"><i class="fa-solid fa-hourglass-half" inert></i> {{pendingText}}</span>{{/if}}
+                <span class="pc-facts">{{#if resolvedText}}{{resolvedText}} {{/if}}{{nextText}}</span>
+                {{#if locked}}<span class="pc-locked"><i class="fa-solid fa-lock" inert></i> {{locked}}</span>{{/if}}
+            </div>
+            <div class="pc-activity">
+                {{#if activityOptions}}
+                <label>
+                    <span class="label">{{localize "pf2e-artisans-workshop.Downtime.Activity"}}</span>
+                    <select name="dtActivity" data-actor="{{uuid}}" {{#if locked}}disabled{{/if}}>
+                        {{#each activityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+                    </select>
+                </label>
+                {{else}}
+                <span class="label">{{localize "pf2e-artisans-workshop.Downtime.Activity"}}</span> <span>{{activityText}}</span>
+                {{/if}}
+            </div>
+            <div class="pc-actions">
+                {{#if owner}}<button type="button" class="small" data-action="downtime" data-op="toggle" data-actor="{{uuid}}" aria-pressed="{{#if inDowntime}}true{{else}}false{{/if}}">
+                    {{#if inDowntime}}<i class="fa-solid fa-person-hiking" inert></i>{{localize "pf2e-artisans-workshop.Downtime.End"}}{{else}}<i class="fa-solid fa-mug-hot" inert></i>{{localize "pf2e-artisans-workshop.Downtime.Begin"}}{{/if}}</button>{{/if}}
+                {{#if canResolve}}<button type="button" class="small primary" data-action="downtime" data-op="resolve" data-actor="{{uuid}}"><i class="fa-solid fa-list-check" inert></i>{{localize "pf2e-artisans-workshop.Downtime.Resolve"}}</button>{{/if}}
+            </div>
+        </li>
+        {{/each}}
+    </ul>
+    {{else}}
+    <p class="empty">{{localize "pf2e-artisans-workshop.Downtime.NoCharacters"}}</p>
+    {{/if}}
+
+    <h3>{{localize "pf2e-artisans-workshop.Settlement.Heading"}}</h3>
+    <div class="downtime-settlement">
+        {{#if settlement.canSet}}
+        <label>
+            <span class="label">{{localize "pf2e-artisans-workshop.Settlement.Current"}}</span>
+            <select name="dtSettlement">
+                {{#each settlement.options}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+            </select>
+        </label>
+        {{/if}}
+        <p class="settlement-cap">{{settlement.capText}}</p>
+        {{#if settlement.caps.length}}<p class="settlement-caps">{{#each settlement.caps}}<span class="chip">{{this}}</span>{{/each}}</p>{{/if}}
+        {{#if settlement.notes}}<p class="hint">{{settlement.notes}}</p>{{/if}}
+        {{#if settlement.setBy}}<p class="by">{{settlement.setBy}}</p>{{/if}}
+    </div>
+
+    {{#if profiles}}
+    <details class="downtime-profiles"{{#if profiles.draft}} open{{/if}}>
+        <summary>{{localize "pf2e-artisans-workshop.Settlement.Profiles"}}</summary>
+        <p class="hint">{{localize "pf2e-artisans-workshop.Settlement.ProfilesHint"}}</p>
+        {{#if profiles.list.length}}
+        <table class="profiles-table">
+            <thead><tr><th scope="col">{{localize "pf2e-artisans-workshop.Settlement.Name"}}</th><th scope="col">{{localize "pf2e-artisans-workshop.Settlement.Size"}}</th>
+                <th scope="col">{{localize "pf2e-artisans-workshop.Settlement.Level"}}</th><th scope="col">{{localize "pf2e-artisans-workshop.Settlement.Exceptions"}}</th><th></th></tr></thead>
+            <tbody>
+                {{#each profiles.list}}
+                <tr>
+                    <td>{{name}}</td><td>{{size}}</td><td>{{level}}</td>
+                    <td>{{#each caps}}<span class="chip">{{this}}</span>{{/each}}</td>
+                    <td class="row-actions">
+                        <button type="button" class="small" data-action="downtime" data-op="profile-edit" data-profile="{{id}}">{{localize "pf2e-artisans-workshop.Settlement.Edit"}}</button>
+                        <button type="button" class="small danger" data-action="downtime" data-op="profile-delete" data-profile="{{id}}">{{localize "pf2e-artisans-workshop.Settlement.Delete"}}</button>
+                    </td>
+                </tr>
+                {{/each}}
+            </tbody>
+        </table>
+        {{/if}}
+        {{#with profiles.draft}}
+        <div class="profile-form">
+            <label><span class="label">{{localize "pf2e-artisans-workshop.Settlement.Name"}}</span><input type="text" name="profileName" value="{{name}}"></label>
+            <label><span class="label">{{localize "pf2e-artisans-workshop.Settlement.Size"}}</span>
+                <select name="profileSize">{{#each sizes}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+            <label><span class="label">{{localize "pf2e-artisans-workshop.Settlement.Level"}}</span><input type="number" name="profileLevel" min="0" max="20" step="1" value="{{level}}"></label>
+            <fieldset class="profile-caps">
+                <legend>{{localize "pf2e-artisans-workshop.Settlement.Exceptions"}}</legend>
+                {{#each caps}}
+                <p class="cap-row"><span>{{label}}</span> <span>{{max}}</span>
+                    <button type="button" class="small" data-action="downtime" data-op="cap-remove" data-skill="{{skill}}" aria-label="{{localize 'pf2e-artisans-workshop.Settlement.RemoveException' skill=label}}"><i class="fa-solid fa-xmark" inert></i></button></p>
+                {{/each}}
+                <p class="cap-row">
+                    <select name="capSkill" aria-label="{{localize 'pf2e-artisans-workshop.Settlement.ExceptionSkill'}}">{{#each skills}}<option value="{{slug}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
+                    <input type="number" name="capLevel" min="0" max="20" step="1" value="{{capLevel}}" aria-label="{{localize 'pf2e-artisans-workshop.Settlement.ExceptionLevel'}}">
+                    <button type="button" class="small" data-action="downtime" data-op="cap-add"><i class="fa-solid fa-plus" inert></i>{{localize "pf2e-artisans-workshop.Settlement.AddException"}}</button>
+                </p>
+            </fieldset>
+            <label class="wide"><span class="label">{{localize "pf2e-artisans-workshop.Settlement.Notes"}}</span><textarea name="profileNotes" rows="2">{{notes}}</textarea></label>
+            <div class="detail-actions">
+                <button type="button" class="primary" data-action="downtime" data-op="profile-save"><i class="fa-solid fa-floppy-disk" inert></i>{{localize "pf2e-artisans-workshop.Settlement.Save"}}</button>
+                <button type="button" data-action="downtime" data-op="profile-cancel">{{localize "pf2e-artisans-workshop.Settlement.Cancel"}}</button>
+            </div>
+        </div>
+        {{else}}
+        <button type="button" data-action="downtime" data-op="profile-new"><i class="fa-solid fa-plus" inert></i>{{localize "pf2e-artisans-workshop.Settlement.Add"}}</button>
+        {{/with}}
+    </details>
+    {{/if}}
+
+    {{#if income}}
+    <h3>{{localize "pf2e-artisans-workshop.Job.Heading"}}</h3>
+    {{#if jobs.length}}
+    <ul class="downtime-jobs">
+        {{#each jobs}}
+        <li class="job-row job-{{status}}" data-job="{{id}}">
+            <span class="job-who"><strong>{{actor}}</strong> {{localize "pf2e-artisans-workshop.Job.Line" skill=skill level=taskLevel}}</span>
+            <span class="status-chip"><i class="{{statusIcon}}" inert></i> {{statusWord}}</span>
+            {{#if unconfirmed}}<span class="chip warn" data-tooltip="{{localize 'pf2e-artisans-workshop.Job.UnconfirmedHint'}}">{{localize "pf2e-artisans-workshop.Job.Unconfirmed"}}</span>{{/if}}
+            {{#if settlementName}}<span class="fact">{{localize "pf2e-artisans-workshop.Job.In" name=settlementName}}</span>{{/if}}
+            {{#if dc}}<span class="fact">{{localize "pf2e-artisans-workshop.Queue.Dc" dc=dc}}</span>{{/if}}
+            {{#if checkText}}<span class="fact degree {{checkClass}}">{{localize "pf2e-artisans-workshop.Queue.Check" degree=checkText}}</span>{{/if}}
+            {{#if perDay}}<span class="fact">{{localize "pf2e-artisans-workshop.Queue.PerDay" amount=perDay}}</span>{{/if}}
+            <span class="fact">{{daysText}}</span>
+            {{#if shortened}}<span class="fact">{{localize "pf2e-artisans-workshop.Job.Shortened"}}</span>{{/if}}
+            {{#if conflict}}<span class="fact conflict"><i class="fa-solid fa-code-compare" inert></i> {{localize "pf2e-artisans-workshop.Job.Conflict"}}</span>{{/if}}
+            <span class="row-actions">
+                {{#if actions.roll}}<button type="button" class="small primary" data-action="downtime" data-op="job-roll" data-job="{{id}}"><i class="fa-solid fa-dice-d20" inert></i>{{localize "pf2e-artisans-workshop.Job.Roll"}}</button>{{/if}}
+                {{#if actions.reroll}}<button type="button" class="small" data-action="downtime" data-op="job-reroll" data-job="{{id}}">{{localize "pf2e-artisans-workshop.Job.Reroll"}}</button>{{/if}}
+                {{#if actions.end}}<button type="button" class="small" data-action="downtime" data-op="job-end" data-job="{{id}}">{{localize "pf2e-artisans-workshop.Job.End"}}</button>{{/if}}
+                {{#if actions.undo}}<button type="button" class="small" data-action="downtime" data-op="job-undo" data-job="{{id}}">{{localize "pf2e-artisans-workshop.Action.Undo"}}</button>{{/if}}
+            </span>
+        </li>
+        {{/each}}
+    </ul>
+    {{else}}
+    <p class="empty">{{localize "pf2e-artisans-workshop.Job.None"}}</p>
+    {{/if}}
+    {{#if jobForm}}
+    {{#with jobForm}}
+    <fieldset class="job-form">
+        <legend>{{localize "pf2e-artisans-workshop.Job.Start"}}</legend>
+        <label><span class="label">{{localize "pf2e-artisans-workshop.Job.Character"}}</span>
+            <select name="jobActor">{{#each actors}}<option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{name}}</option>{{/each}}</select></label>
+        {{#if noSkill}}
+        <p class="hint">{{localize "pf2e-artisans-workshop.Job.NoSkill"}}</p>
+        {{else}}
+        <label><span class="label">{{localize "pf2e-artisans-workshop.Job.Skill"}}</span>
+            <select name="jobSkill">{{#each skills}}<option value="{{slug}}" {{#if selected}}selected{{/if}}>{{localize "pf2e-artisans-workshop.Job.SkillOption" skill=label rank=rank}}</option>{{/each}}</select></label>
+        <label><span class="label">{{localize "pf2e-artisans-workshop.Job.TaskLevel"}}</span>
+            <input type="number" name="jobLevel" min="0" max="{{max}}" step="1" value="{{level}}"></label>
+        <p class="hint">{{#if unconfirmed}}{{localize "pf2e-artisans-workshop.Job.NoSettlement"}}{{else}}{{localize "pf2e-artisans-workshop.Job.Max" max=max}}{{/if}}</p>
+        <p class="job-preview">{{#if dc}}{{localize "pf2e-artisans-workshop.Job.PreviewDc" dc=dc}} {{/if}}{{localize "pf2e-artisans-workshop.Job.Preview" crit=pay.crit success=pay.success fail=pay.fail}}</p>
+        <p class="hint">{{localize "pf2e-artisans-workshop.Job.Rule"}}</p>
+        <button type="button" class="primary" data-action="downtime" data-op="job-start" {{#unless ready}}disabled{{/unless}}><i class="fa-solid fa-briefcase" inert></i>{{localize "pf2e-artisans-workshop.Job.StartButton"}}</button>
+        {{/if}}
+    </fieldset>
+    {{/with}}
+    {{/if}}
+    {{/if}}
+    {{/with}}
+    {{/if}}
+</section>

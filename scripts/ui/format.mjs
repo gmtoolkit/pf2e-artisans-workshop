@@ -5,7 +5,7 @@
  */
 import { REGISTRY } from "../data/registry.mjs";
 import { coinParts } from "../logic/views.mjs";
-import { GATE, GRADE, RANK_KEY, REFUSAL, REQUIREMENT, STATUS, TOOL } from "./labels.mjs";
+import { GATE, GRADE, HELPER_REASON, RANK_KEY, REFUSAL, REQUIREMENT, STATUS, TOOL } from "./labels.mjs";
 
 const loc = (key) => game.i18n.localize(key);
 const fmt = (key, data) => game.i18n.format(key, data);
@@ -122,6 +122,8 @@ export function refusalText(result) {
         reason, status: STATUS[data.status] ? loc(STATUS[data.status].key) : "",
         short: money(data.shortCp ?? 0), max: Number.isInteger(data.max) ? String(data.max) : money(data.maxCp ?? 0),
         gates: (data.gates ?? []).map(gateText).join(" "),
+        // M6: pending days, and why a PC may not help (6.7).
+        count: String(data.count ?? ""), reasons: (data.reasons ?? []).map((r) => loc(HELPER_REASON[r] ?? REFUSAL.other)).join(" "),
     });
 }
 

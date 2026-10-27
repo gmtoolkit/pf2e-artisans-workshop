@@ -1,6 +1,7 @@
 import { MODULE_ID } from "./constants.mjs";
 import { publishApi } from "./foundry/api.mjs";
 import { registerFormulaClaims } from "./foundry/formulas.mjs";
+import { registerDowntimeHooks } from "./foundry/downtime.mjs";
 import { registerOrderHooks } from "./foundry/orders.mjs";
 import { initSync, readySync } from "./foundry/sync.mjs";
 import { registerChatHooks } from "./ui/chat.mjs";
@@ -46,6 +47,8 @@ Hooks.once("init", () => {
     registerOrderHooks();
     // M5: the formula claim's applier (5.5), so the claims sweep writes formulas into the learner's book.
     registerFormulaClaims();
+    // M6: the prompt when downtime days accrue (9.1), the day offset frozen once, and the clock's high-water mark.
+    registerDowntimeHooks();
     registerChatHooks();
     registerNotifications();
     registerWindowHooks();

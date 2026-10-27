@@ -37,6 +37,11 @@ service orders (`scripts/logic/services.mjs`, `scripts/foundry/services.mjs`), c
 (`scripts/foundry/custody.mjs`), what a finish makes (`scripts/foundry/outputs.mjs`) and the equipment catalogue
 (`scripts/foundry/catalogue.mjs`), with its purchases paid from M4.1's sources (DESIGN 10.11, As built in M5 on M4.1);
 DESIGN 10.11 says what was built, and the live plans `m5-*` (`tools/harness/formula-scenarios.mjs`) have not run yet.
+M6 is in place: downtime (the Downtime tab, `scripts/ui/downtime.mjs`; the Advance days wizard and day resolver,
+`scripts/ui/advance.mjs`; the workshop day, per-PC status, the day planner and the prompt, `scripts/logic/downtime.mjs`,
+`scripts/foundry/downtime.mjs`), Communal Crafting helpers (`scripts/foundry/communal.mjs`), Earn Income jobs and
+settlement profiles (`scripts/logic/jobs.mjs`, `scripts/foundry/jobs.mjs`); DESIGN 10.12 says what was built, and the
+live plans `m6-*` (`tools/harness/downtime-scenarios.mjs`) have not run yet.
 `DECISIONS.md` holds every
 decision made so far, newest first; read it before proposing a design change.
 

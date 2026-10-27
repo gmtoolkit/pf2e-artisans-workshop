@@ -244,6 +244,27 @@
             <div class="detail-actions"><button type="button" data-action="custody" data-op="stock"><i class="fa-solid fa-cubes" inert></i>{{localize "pf2e-artisans-workshop.Custody.AddStock"}}</button></div>
             {{/if}}
             {{/with}}
+            {{#if helpers}}{{#if (or helpers.list.length helpers.canJoin)}}
+            <h4>{{localize "pf2e-artisans-workshop.Helper.Heading"}}</h4>
+            {{#if helpers.list.length}}
+            <ul class="detail-list detail-helpers">
+                {{#each helpers.list}}
+                <li class="helper{{#if left}} left{{/if}}">
+                    <span>{{#if rank}}{{localize "pf2e-artisans-workshop.Helper.LineRank" name=name skill=skill rank=rank}}{{else}}{{localize "pf2e-artisans-workshop.Helper.Line" name=name skill=skill}}{{/if}}</span>
+                    {{#if degreeText}}<span class="fact degree {{degreeClass}}">{{localize "pf2e-artisans-workshop.Queue.Check" degree=degreeText}}</span>{{/if}}
+                    {{#if rate}}<span class="fact">{{localize "pf2e-artisans-workshop.Helper.Rate" amount=rate}}</span>{{/if}}
+                    {{#if waiting}}<span class="chip warn">{{localize "pf2e-artisans-workshop.Helper.Waiting"}}</span>{{/if}}
+                    <span class="by">{{#if left}}{{#if forfeited}}{{localize "pf2e-artisans-workshop.Helper.LeftForfeit" joined=joined left=left}}{{else}}{{localize "pf2e-artisans-workshop.Helper.Left" joined=joined left=left}}{{/if}}{{else}}{{localize "pf2e-artisans-workshop.Helper.Joined" day=joined}}{{/if}}</span>
+                    {{#if canRoll}}<button type="button" class="small primary" data-action="helper" data-op="roll" data-actor="{{uuid}}"><i class="fa-solid fa-dice-d20" inert></i>{{localize "pf2e-artisans-workshop.Helper.Roll"}}</button>{{/if}}
+                    {{#if canAccept}}<button type="button" class="small" data-action="helper" data-op="accept" data-helper="{{id}}">{{localize "pf2e-artisans-workshop.Helper.Accept"}}</button>{{/if}}
+                    {{#if canLeave}}<button type="button" class="small" data-action="helper" data-op="leave" data-actor="{{uuid}}">{{localize "pf2e-artisans-workshop.Helper.Leave"}}</button>{{/if}}
+                </li>
+                {{/each}}
+            </ul>
+            {{/if}}
+            {{#if helpers.canJoin}}<div class="detail-actions"><button type="button" data-action="helper" data-op="join"><i class="fa-solid fa-people-carry-box" inert></i>{{localize "pf2e-artisans-workshop.Helper.Join"}}</button></div>{{/if}}
+            <p class="hint">{{#if helpers.dc}}{{localize "pf2e-artisans-workshop.Helper.RuleDc" dc=helpers.dc}}{{else}}{{localize "pf2e-artisans-workshop.Helper.Rule"}}{{/if}}</p>
+            {{/if}}{{/if}}
             {{#if (or contributorsText.length stockText.length)}}
             <h4>{{localize "pf2e-artisans-workshop.Detail.Contributors"}}</h4>
             <ul class="detail-list">

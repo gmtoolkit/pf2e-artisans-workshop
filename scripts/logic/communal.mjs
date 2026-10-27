@@ -81,9 +81,57 @@ export function helperRate(helper, rules = DEFAULT_RULES) {
     return 0;
 }
 
-/** Whether a helper was with the crafter on `day`: from the day they joined to before the day they left. */
+/**
+ * Whether a helper was with the crafter on `day`: from the day they joined to before the day they left. A helper the
+ * crafter has not accepted yet (`accepted: false`, M6: only the helper has the feat) is not with them.
+ */
 export function helperPresent(helper, day) {
-    return helper.joinedDay <= day && (helper.leftDay == null || day < helper.leftDay);
+    return helper.accepted !== false && helper.joinedDay <= day && (helper.leftDay == null || day < helper.leftDay);
+}
+
+/* -------------------------------------------- */
+/*  Joining, leaving and the helper's check (M6) */
+/* -------------------------------------------- */
+
+/** Order states a helper may join in: a crafter has the order and it is not over. */
+const HELPABLE = Object.freeze(["accepted", "setup", "check", "rolled", "finishing", "paused"]);
+
+/**
+ * A PC joins an order as a Communal Crafting helper (6.7): their entry `helpers.<actorId>`, written by their owner.
+ * `accepted` is false when only the helper has the feat, until the crafter accepts them. Refused: `state` (no crafter
+ * yet, or the order is over), `crafter` (the crafter cannot help themself), `already` (helping now), `left` (a helper who
+ * left does not come back: their entry, and with it what they forfeited, stays as it is).
+ */
+export function joinHelper(order, { actorId, crafterId, skill, rank, level, joinedDay, accepted = true }) {
+    if (!HELPABLE.includes(order.status)) return { ok: false, reason: "state", data: { status: order.status } };
+    if (actorId === crafterId) return { ok: false, reason: "crafter" };
+    const existing = order.helpers?.[actorId];
+    if (existing) return { ok: false, reason: existing.leftDay == null ? "already" : "left" };
+    return { ok: true, entry: { actor: actorId, skill, rank, level, degree: null, check: null, joinedDay, leftDay: null, accepted } };
+}
+
+/**
+ * A helper leaves (6.7): `leftDay` is the first day they no longer help (never before the day they joined). Whether they
+ * forfeit what they contributed is `helperLeaveRetroactive`. Refused: `not-helping`, `left`.
+ */
+export function leaveHelper(order, actorId, leftDay) {
+    const helper = order.helpers?.[actorId];
+    if (!helper) return { ok: false, reason: "not-helping" };
+    if (helper.leftDay != null) return { ok: false, reason: "left" };
+    return { ok: true, leftDay: Math.max(leftDay, helper.joinedDay) };
+}
+
+/**
+ * The fields a helper's check writes on their entry (6.7: rolled once, kept for the order): the degree, and the level
+ * and rank at the roll, which their rate uses. A reroll replaces it; a second roll that is not one is refused (`rolled`),
+ * and so is a roll for a helper who left or an order that is over (`not-helping`, `state`).
+ */
+export function helperCheckPatch(order, actorId, check, { level, rank }) {
+    const helper = order.helpers?.[actorId];
+    if (!helper || helper.leftDay != null) return { ok: false, reason: "not-helping" };
+    if (!HELPABLE.includes(order.status)) return { ok: false, reason: "state", data: { status: order.status } };
+    if (helper.check && !check.rerolled) return { ok: false, reason: "rolled" };
+    return { ok: true, patch: { degree: check.degree, level, rank, check } };
 }
 
 /**

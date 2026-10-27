@@ -103,6 +103,20 @@ export function registerSettings(handlers) {
         hint: "pf2e-artisans-workshop.Settings.FeaturesFormulas.Hint",
         scope: "world", config: true, type: Boolean, default: true,
     });
+    // M6 (DESIGN.md 14.1, 14.2): the Downtime tab (per-PC status, clock accrual, the day resolver and the wizard, helpers),
+    // Earn Income jobs, and the settlement profiles the GM keeps (edited in the Downtime tab, so hidden here). The current
+    // settlement is not a setting: players cannot write world settings, so it lives in the ledger (`meta.settlement`).
+    game.settings.register(MODULE_ID, "features.downtime", {
+        name: "pf2e-artisans-workshop.Settings.FeaturesDowntime.Name",
+        hint: "pf2e-artisans-workshop.Settings.FeaturesDowntime.Hint",
+        scope: "world", config: true, type: Boolean, default: true,
+    });
+    game.settings.register(MODULE_ID, "features.income", {
+        name: "pf2e-artisans-workshop.Settings.FeaturesIncome.Name",
+        hint: "pf2e-artisans-workshop.Settings.FeaturesIncome.Hint",
+        scope: "world", config: true, type: Boolean, default: true,
+    });
+    game.settings.register(MODULE_ID, "settlements", { scope: "world", config: false, type: Object, default: {} });
     game.settings.register(MODULE_ID, "claims.auto", {
         name: "pf2e-artisans-workshop.Settings.AutoClaim.Name",
         hint: "pf2e-artisans-workshop.Settings.AutoClaim.Hint",

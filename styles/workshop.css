@@ -657,3 +657,135 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .pf2e-artisans-workshop-augment .augment-header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
 .pf2e-artisans-workshop-augment .warning,
 .pf2e-artisans-workshop-augment .hazard { color: var(--paw-warning); font-weight: 600; }
+
+/* ------------------------------------------------------------------ */
+/*  The Downtime tab, the wizard and helpers (10.1, 9, 6.7, M6)        */
+/* ------------------------------------------------------------------ */
+
+.workshop-header .workshop-day .date { color: var(--color-text-subtle, #555); }
+.workshop-tab { position: relative; }
+.workshop-tab .tab-badge {
+    min-width: 1.2rem;
+    padding: 0 0.3rem;
+    border-radius: 0.6rem;
+    background: var(--paw-warning);
+    color: var(--paw-panel);
+    font-size: var(--font-size-12, 0.75rem);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+.workshop-body > .workshop-downtime.active { display: block; overflow: auto; }
+.downtime-day { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.9rem; }
+.downtime-day .day { font-family: var(--serif, var(--font-h2)); font-size: var(--font-size-16, 1rem); font-weight: 700; }
+.downtime-day .date { color: var(--color-text-subtle, #555); }
+.downtime-day .ahead { color: var(--paw-paid); font-weight: 600; }
+.downtime-day .behind { color: var(--paw-warning); font-weight: 600; }
+.downtime-day > button.primary { margin-left: auto; }
+.downtime-pcs,
+.downtime-jobs,
+.wizard-pcs,
+.wizard-checks,
+.wizard-steps { list-style: none; margin: 0; padding: 0; }
+.downtime-pc,
+.job-row,
+.wizard-pc {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.75rem;
+    padding: 0.4rem 0.3rem;
+    border-bottom: 1px solid var(--paw-line);
+}
+.downtime-pc.has-pending { border-left: 4px solid var(--paw-warning); padding-left: 0.4rem; }
+.downtime-pc img,
+.wizard-pc img { width: 2.25rem; height: 2.25rem; border: none; flex: 0 0 auto; }
+.downtime-pc .pc-main,
+.wizard-pc .pc-main { display: flex; flex-direction: column; gap: 0.15rem; flex: 1 1 14rem; min-width: 0; }
+.downtime-pc .pc-name { font-size: var(--font-size-15, 0.9375rem); }
+.downtime-pc .pc-pending { color: var(--paw-warning); font-weight: 600; }
+.downtime-pc .pc-facts,
+.downtime-pc .since { color: var(--color-text-subtle, #555); font-size: var(--font-size-13, 0.8125rem); }
+.downtime-pc .pc-locked,
+.wizard-pc .pc-locked { color: var(--paw-paid); font-size: var(--font-size-13, 0.8125rem); }
+.downtime-pc .pc-activity { flex: 1 1 14rem; }
+.downtime-pc .pc-activity label,
+.wizard-pc label,
+.downtime-settlement label,
+.job-form label,
+.profile-form label { display: flex; flex-direction: column; gap: 0.15rem; }
+.downtime-pc .pc-activity select,
+.wizard-pc select { max-width: 100%; }
+.downtime-pc .pc-actions,
+.job-row .row-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-left: auto; }
+.pf2e-artisans-workshop .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0 0.35rem;
+    border: 1px solid var(--paw-line);
+    border-radius: 3px;
+    background: var(--paw-surface);
+    font-size: var(--font-size-12, 0.75rem);
+    white-space: nowrap;
+}
+.pf2e-artisans-workshop .chip.on { border-color: var(--paw-earned); }
+.pf2e-artisans-workshop .chip.warn { border-color: var(--paw-warning); color: var(--paw-warning); }
+.downtime-settlement { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.4rem 0.9rem; }
+.downtime-settlement p { margin: 0; }
+.downtime-settlement .by { color: var(--color-text-subtle, #555); font-size: var(--font-size-13, 0.8125rem); }
+.downtime-profiles { margin-top: 0.6rem; }
+.downtime-profiles summary { cursor: pointer; font-weight: 600; }
+.profiles-table { width: 100%; }
+.profiles-table .row-actions { white-space: nowrap; }
+.profile-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 0.4rem 0.75rem; margin: 0.4rem 0; }
+.profile-form .profile-caps,
+.profile-form .wide,
+.profile-form .detail-actions { grid-column: 1 / -1; }
+.profile-form .cap-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin: 0.15rem 0; }
+.job-row .job-who { flex: 1 1 14rem; }
+.job-row.job-ended,
+.job-row.job-fired { opacity: 0.8; }
+.job-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.4rem 0.75rem; margin-top: 0.5rem; }
+.job-form .hint,
+.job-form .job-preview,
+.job-form button { grid-column: 1 / -1; }
+.job-form button { justify-self: start; }
+.job-form .job-preview { margin: 0; font-weight: 600; }
+
+/* The wizard: a numbered stepper, the step's body, the buttons. */
+.advance-window .wizard { display: flex; flex-direction: column; gap: 0.5rem; }
+.wizard-steps { display: flex; flex-wrap: wrap; gap: 0.3rem 0.8rem; }
+.wizard-steps li { color: var(--color-text-subtle, #555); }
+.wizard-steps li .n {
+    display: inline-flex;
+    justify-content: center;
+    min-width: 1.4rem;
+    border: 1px solid var(--paw-line);
+    border-radius: 50%;
+    font-variant-numeric: tabular-nums;
+}
+.wizard-steps li.current { color: inherit; font-weight: 700; }
+.wizard-steps li.current .n { background: var(--paw-accent); color: var(--paw-accent-text); border-color: var(--paw-accent); }
+.wizard-steps li.done .n { border-color: var(--paw-earned); }
+.wizard-body { max-height: 60vh; overflow: auto; }
+.wizard-span label { display: flex; align-items: center; gap: 0.4rem; }
+.wizard-span input[type="number"] { width: 5rem; }
+.wizard-day { font-weight: 700; }
+.wizard-pc.skipped { opacity: 0.75; }
+.wizard-pc .will { margin: 0; }
+.wizard-pc .stop,
+.wizard-review .stop { margin: 0.15rem 0; color: var(--paw-warning); }
+.wizard-checks li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; padding: 0.2rem 0; }
+.wizard-checks .pending { color: var(--color-text-subtle, #555); font-style: italic; }
+.wizard-review ul { margin: 0.2rem 0; padding-left: 1.2rem; }
+.wizard-review .span { font-family: var(--font-sans); font-size: var(--font-size-13, 0.8125rem); font-weight: 400; }
+.wizard-buttons { display: flex; justify-content: flex-end; gap: 0.4rem; }
+
+/* Helpers on an order's detail (6.7). */
+.detail-helpers li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; }
+.detail-helpers li.left { opacity: 0.8; }
+
+/* The day card (10.5). */
+.pf2e-artisans-workshop-card .card-days { margin: 0.15rem 0 0.3rem; padding-left: 1.1rem; }
+.pf2e-artisans-workshop-card .card-stop { color: var(--paw-warning); }

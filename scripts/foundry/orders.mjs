@@ -16,7 +16,11 @@
  * copy (review fix of M4.1).
  *
  * The one hook-driven write here is the order repair (6.12, As built in M4), on the crafter's responsible client: a
- * settled check a late reroll overwrote, and a closed order's status a late work day or first roll moved.
+ * settled check a late reroll overwrote, a closed order's status a late work day or first roll moved, and (M6) a setup
+ * that day records written by a wizard runner who does not own the crafter completed, which moves to `check`.
+ *
+ * As built in M6: an order's "Work a day" is the day resolver for one day of the crafter's (`resolveDays`,
+ * `scripts/foundry/downtime.mjs`), and starting an order makes it the crafter's downtime activity (4.2.3).
  */
 import { MODULE_ID } from "../constants.mjs";
 import { batchMax, splitIntoBatches } from "../logic/batches.mjs";
@@ -27,9 +31,10 @@ import {
 import { returnSlotLockId } from "../logic/funds.mjs";
 import { allPass } from "../logic/gates.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
+import { PC_VERSION } from "../logic/downtime.mjs";
 import {
-    TARGETED, acceptOrder, closedAs, closedRepair, lastEntry, leftAfterSpend, makeOrder, nextWorkDay, refundClaims, releaseOrder,
-    settlementRepair, transitionChange, undoPlan, withdrawableCp, workDayRecord,
+    TARGETED, acceptOrder, closedAs, closedRepair, lastEntry, leftAfterSpend, makeOrder, refundClaims, releaseOrder,
+    settlementRepair, setupRepair, transitionChange, undoPlan, withdrawableCp,
 } from "../logic/orders.mjs";
 import { remainingCp } from "../logic/progress.mjs";
 import { seqFor } from "../logic/rows.mjs";
@@ -40,6 +45,7 @@ import { materialsCp } from "../logic/materials.mjs";
 import { spellSupply } from "../logic/pledges.mjs";
 import { postCard } from "../ui/chat.mjs";
 import { givingBack, heldLines } from "./custody.mjs";
+import { resolveDays } from "./downtime.mjs";
 import { applyIfResponsible, knownState } from "./formulas.mjs";
 import { freeStacks, lockedWrite, moveCoins, pledge, reverseRows, withdraw } from "./money.mjs";
 import { finishOutputs } from "./outputs.mjs";
@@ -231,44 +237,42 @@ export async function start(id) {
     const commit = result.rows.map((row) => ({ kind: "commit", idem: idemKey("commit", id, patch.attempt, seqFor(rows, idemKey("commit", id, patch.attempt))),
         cp: Math.max(0, row.cp - materialsCp(order)), order: id })).filter((row) => row.cp > 0);
     const change = transitionChange(order, "start", patch, { rows: commit.map((row) => hashId(row.idem)) }, stampNow());
-    const posted = await lockedWrite([change.lock, returnSlotLockId(order, rows)], commit, { set: change.set, replace: change.replace });
+    // The crafter's downtime activity becomes this order (4.2.3, M6): the days the crafter resolves go to it by default.
+    const activity = { [`pcs.${crafter.id}.activity`]: { kind: "craft", ref: id } };
+    const status = { [`pcs.${crafter.id}.id`]: crafter.id, [`pcs.${crafter.id}.v`]: PC_VERSION };
+    const posted = await lockedWrite([change.lock, returnSlotLockId(order, rows)], commit,
+        { set: { ...change.set, ...status }, replace: { ...change.replace, ...activity } });
     if (!posted.ok) return posted;
     await postCard("started", read(`orders.${id}`));
     return { ok: true };
 }
 
-/** The clock's day: whole days of world time (4.8; M6 adds the day offset and logged days). */
-function clockDay() {
-    const days = game.time.calendar?.days ?? {};
-    const secondsPerDay = (days.hoursPerDay ?? 24) * (days.minutesPerHour ?? 60) * (days.secondsPerMinute ?? 60);
-    return Math.max(0, Math.floor((game.time.worldTime ?? 0) / secondsPerDay));
-}
+/** Why a work day planned nothing, as a refusal: the planner's stop (`planDays`). */
+const WORK_STOPS = Object.freeze({ "paid-off": "paid-off", locked: "helper-locked" });
 
 /**
- * The crafter works one day on the order (M4's stand-in for M6's day resolver, 4.8): a setup day, which moves the order
- * to `check` once the setup is complete; or an extra day that brings the remainder down. An order whose check is
- * recorded but not settled is settled first (4.2.3: settlement comes with the order's next day). The day is the clock's,
- * or the day after the crafter's last record, whichever is later, so days can be logged ahead of the clock.
+ * The crafter works one day on the order: "Work a day" (M4), now the day resolver for one day (M6, 9.1): the crafter's
+ * next open day (their first pending day while in downtime, else the next day), a setup day, which moves the order to
+ * `check` once the setup is complete, or an extra day that brings the remainder down. An order whose check is recorded but
+ * not settled is settled first (4.2.3: settlement comes with the order's next day); when that leaves nothing to take off,
+ * the settlement is the step and no day is logged (`kind` null). Refused besides the usual: `paid-off` (nothing left to
+ * take off: finish it), `helper-locked` (the crafter is helping on another order, 6.7), `taken`.
  */
 export async function workDay(id) {
     const found = orderOrRefuse(id);
     if (found.refusal) return found.refusal;
-    let order = found.order;
+    const order = found.order;
     const crafter = actorOf(order.crafter);
     if (!crafter?.isOwner) return refuse("not-owner");
-    if (order.status === "rolled") {
-        const settled = await settleOrder(id);
-        if (!settled.ok) return settled;
-        order = read(`orders.${id}`);
-    }
-    if (!["setup", "finishing"].includes(order.status)) return refuse("state", { status: order.status });
-    const facts = { actorId: crafter.id, level: crafter.level, rank: crafter.skills?.[order.skill ?? "crafting"]?.rank ?? 0 };
-    const day = nextWorkDay(clockDay(), records("days").filter((d) => d.actor === crafter.id));
-    const work = workDayRecord(order, day, facts, orderDays(id), stampNow(), rulesFromSettings());
-    if (!work) return refuse("state", { status: order.status });
-    const set = Object.fromEntries(Object.entries(work.patch).map(([key, value]) => [`orders.${id}.${key}`, value]));
-    await write({ replace: { [`days.${work.record.id}`]: work.record }, set });
-    return { ok: true, day, kind: work.record.kind, status: work.patch.status ?? order.status };
+    if (!["setup", "rolled", "finishing"].includes(order.status)) return refuse("state", { status: order.status });
+    const wasRolled = order.status === "rolled";   // `read` hands out the stored object, which the settlement updates
+    const result = await resolveDays({ actor: crafter, activity: { kind: "craft", ref: id }, count: 1, mode: "work" });
+    if (!result.ok) return result;
+    const record = result.records?.[0];
+    const status = read(`orders.${id}.status`);
+    if (!record && wasRolled && status === "finishing") return { ok: true, day: null, kind: null, status, settled: true };
+    if (!record) return refuse(WORK_STOPS[result.stop?.reason] ?? "state", { status });
+    return { ok: true, day: record.day, kind: record.kind, status };
 }
 
 /** Roll the Craft check through the roll wrapper (6.12). */
@@ -484,9 +488,12 @@ export async function undo(id, { event = null } = {}) {
 /*  A reroll after settlement (6.12)             */
 /* -------------------------------------------- */
 
-/** What an order needs repaired: a settled check a late reroll overwrote, a closed order's status a late write moved. */
+/**
+ * What an order needs repaired: a settled check a late reroll overwrote, a closed order's status a late write moved, a
+ * setup a runner's day records completed (M6).
+ */
 const repairOf = (order) => {
-    const patch = { ...settlementRepair(order), ...closedRepair(order) };
+    const patch = { ...settlementRepair(order), ...closedRepair(order), ...setupRepair(order, orderDays(order.id)) };
     return Object.keys(patch).length ? patch : null;
 };
 
@@ -563,14 +570,19 @@ export async function onOrdersChanged(ids) {
 }
 
 /**
- * The order hooks, at `init`: a ledger change that touches orders runs the order repair on the crafter's responsible
- * client (P4) and this client's check of its own recent rerolls.
+ * The order hooks, at `init`: a ledger change that touches orders, or day records of orders (M6), runs the order repair
+ * on the crafter's responsible client (P4) and this client's check of its own recent rerolls.
  */
 export function registerOrderHooks() {
     Hooks.on("updateJournalEntry", (doc, changed) => {
         if (doc.flags?.[MODULE_ID]?.role !== "ledger") return;
-        const ids = Object.keys(changed.flags?.[MODULE_ID]?.orders ?? {});
-        if (ids.length) onOrdersChanged(ids).catch((error) => console.warn(`${MODULE_ID} | settlement repair failed`, error));
+        const flags = changed.flags?.[MODULE_ID] ?? {};
+        const ids = new Set(Object.keys(flags.orders ?? {}));
+        for (const key of Object.keys(flags.days ?? {})) {
+            const order = read(`days.${key}`)?.order;
+            if (typeof order === "string") ids.add(order);
+        }
+        if (ids.size) onOrdersChanged([...ids]).catch((error) => console.warn(`${MODULE_ID} | settlement repair failed`, error));
     });
 }
 

@@ -17,7 +17,7 @@ test("the link options name the order and attempt, or the job, under the module 
     assert.equal(LINK_PREFIX, MODULE_ID);
     assert.equal(orderLink("abc123", 2), "pf2e-artisans-workshop:order:abc123:2");
     assert.deepEqual(parseLink(["action:craft", orderLink("abc123", 2)]), { kind: "order", id: "abc123", attempt: 2 });
-    assert.deepEqual(parseLink([jobLink("job1")]), { kind: "job", id: "job1" });
+    assert.deepEqual(parseLink([jobLink("job1")]), { kind: "job", id: "job1", round: 1 }, "M6: a job link carries its round");
     assert.equal(parseLink(["pf2e-artisans-workshop:order:abc123"]), null, "an order link needs its attempt");
     assert.equal(parseLink(["pf2e-artisans-workshop:other:x", "item:trait:alchemical", 7]), null);
     assert.equal(parseLink(undefined), null);
@@ -59,7 +59,7 @@ test("the activity's own actions: reverse-engineering and graft implanting", () 
     assert.ok(reverse.options.includes("action:reverse-engineer"));
     const graft = craftRollPlan({ item: [], held: [], order: { id: "o1", attempt: 1, craftType: "graft" } });
     assert.ok(graft.options.includes("action:implant-graft"));
-    assert.deepEqual(earnIncomeRollPlan("j1").options, ["action:earn-income", "pf2e-artisans-workshop:job:j1"]);
+    assert.deepEqual(earnIncomeRollPlan("j1").options, ["action:earn-income", "pf2e-artisans-workshop:job:j1:1"]);
 });
 
 test("the unadjusted degree, as pf2e's DegreeOfSuccess computes it", () => {

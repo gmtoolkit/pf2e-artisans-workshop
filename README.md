@@ -112,6 +112,7 @@ npm run harness:live -- --runs 2 --behaviours all --out /tmp/live     # everythi
 npm run harness:live -- --scenarios 3c --runs 1 --behaviours none --canvas
 npm run harness:live -- --scenarios none --behaviours m4-lifecycle,m4-no-gm,m4-cancel,m4-double-delivery,m4-reroll-race,m4-shots,m4-ui --runs 1 --shots /tmp/m4-shots
 npm run harness:live -- --scenarios none --behaviours m5-buy,m5-ally-copy,m5-pick,m5-jobs,m5-etch,m5-upgrade-transfer,m5-precious,m5-scroll,m5-fund,m5-services,m5-ui,m5-shots --runs 1 --shots /tmp/m5-shots
+npm run harness:live -- --scenarios none --behaviours m6-clock,m6-wizard-gm,m6-wizard-players,m6-communal,m6-income,m6-settlement --runs 1
 ```
 
 The M4 behaviours run the order lifecycle with a GM and two players (`m4-lifecycle`), with two players and no GM, the
@@ -127,6 +128,12 @@ Formulas tab as the GM (showing Player One's alchemist) and as Player One, and t
 service, at 1440x900 and 1024x768 in both schemes. A world launched before `module.json` named
 `styles/workshop.css` serves pages without it; the driver then adds it to each page and says so in `results.json`
 (`styleAdded`).
+
+The M6 behaviours (DESIGN 10.12) move the world clock forward (never back), so run them in the dev world only.
+`m6-clock` checks the one prompt per day to the owner's client (the GM's while the player is away, the player's at
+login); `m6-wizard-gm` and `m6-wizard-players` drive the Advance days window step by step, with a GM moving the clock and
+with players only; `m6-communal` gives Player One's alchemist Communal Crafting (marked like M5's items) for Player Two to
+help; `m6-income` pays an Earn Income job from Player Two on two devices; `m6-settlement` caps a job's task level.
 
 Options: `--shots` (where screenshots go), `--url` (default `http://localhost:30000`), `--chromium` (the browser binary; on
 Arch the default is `/usr/lib/chromium/chromium`, behind the `/usr/bin/chromium` launcher
