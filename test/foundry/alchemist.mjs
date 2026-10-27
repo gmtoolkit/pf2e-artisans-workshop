@@ -7,11 +7,14 @@
  * - the `quick-alchemy` `CraftingAbility` with its resource (`craft` takes a vial, and makes nothing at 0);
  * - `system.actions`: a Strike for each weapon, with pf2e's three multiple attack penalty variants, whose `roll` records
  *   what it was given and the roll options the actor had then;
- * - `toggleRollOption(domain, option, itemId, value, suboption)` and `rollOptions`, `applyDamage`, `skills.crafting.roll`;
+ * - `toggleRollOption(domain, option, itemId, value, suboption)` and `rollOptions` as pf2e's RollOption keeps them: on, the
+ *   option and `option:suboption` (the rule's selection, kept while it is off); off, neither; `applyDamage`,
+ *   `skills.crafting.roll`;
  * - items with `sourceId` (from `_stats`, unless the data names one), `level`, `getRollOptions("item")` and `consume()`;
  * - `createEmbeddedDocuments` fires core's `createItem` for each item made, with the creating user's id, as the client that
  *   created them sees it.
  */
+import { isDeepStrictEqual } from "node:util";
 import { world } from "./stubs.mjs";
 import { asCharacter, compendiumItem, predicate } from "./pf2e-crafting.mjs";
 
@@ -23,7 +26,7 @@ export function seedCombatCompendium() {
     world.compendium = {};
     const healing = ["alchemical", "consumable", "elixir", "healing"];
     const elixir = (id, grade, level, formula) => {
-        const item = compendiumItem({ id, name: `Elixir of Life (${grade})`, level, traits: healing });
+        const item = compendiumItem({ id, name: `Elixir of Life (${grade})`, level, traits: healing, description: `<p>@Damage[(${formula})[healing]]</p>` });
         item.system.damage = { formula, kind: "healing", type: "untyped" };
         return item;
     };
@@ -94,13 +97,23 @@ export function asAlchemist(actor, { level = 10, formulas = [], feats = [], vial
         resource: "versatile-vials", craftableItems: [predicate("item:trait:alchemical", "item:trait:consumable")] });
     actor.abilities = { int: { mod: int } };
     actor.rollOptions = {};
+    const selections = {};
     actor.toggleRollOption = async (domain, option, itemId, value, suboption = null) => {
         world.toggles.push([actor.id, domain, option, value, suboption]);
-        (actor.rollOptions[domain] ??= {})[option] = value;
+        const key = `${domain}|${option}`;
+        if (suboption) selections[key] = suboption;
+        const record = (actor.rollOptions[domain] ??= {});
+        for (const name of Object.keys(record)) if (name.startsWith(`${option}:`)) delete record[name];
+        if (value) {
+            record[option] = true;
+            if (selections[key]) record[`${option}:${selections[key]}`] = true;
+        } else delete record[option];
         return value;
     };
+    // pf2e's applyDamage: the token is required (it names the creature after writing the Hit Points).
     actor.applyDamage = async ({ damage, token }) => {
         world.damage.push([actor.id, damage, token?.id ?? null]);
+        token.name.replace(/[<>]/g, "");
         return actor;
     };
     actor.getActiveTokens = () => [];
@@ -133,4 +146,34 @@ export function turnTo(combat, round, turn) {
     const previous = { round: combat.round, turn: combat.turn, combatantId: combat.turns[combat.turn]?.id ?? null };
     Object.assign(combat, { round, turn });
     Hooks.callAll("combatTurnChange", combat, previous, { round, turn, combatantId: combat.turns[turn]?.id ?? null });
+}
+
+/** pf2e's stack test (`PhysicalItemPF2e#isStackableWith`): type and name; held items only with a held stack of quantity 0; then `system` alike but its quantity, equipped state and container. Flags are never compared. */
+export function isStackableWith(stack, source) {
+    if (stack.type !== source.type || stack.name !== source.name) return false;
+    const held = (s) => s?.equipped?.carryType === "held";
+    const a = stack.system;
+    const b = source.system;
+    if (held(a) !== held(b) || (held(a) && (a.quantity ?? 1) !== 0 && (b.quantity ?? 1) !== 0)) return false;
+    const strip = (s) => ({ ...structuredClone(s), quantity: 0, equipped: null, containerId: null });
+    return isDeepStrictEqual(strip(a), strip(b));
+}
+
+/**
+ * pf2e's `ActorPF2e#transferItemToActor` as a trade or a drop on an ally runs it (actor/base.ts): the item's source with a
+ * new id, the quantity given and pf2e's default equipped state (not held), then `inventory.add(..., {stack: true})`, which
+ * adds to the first stack `isStackableWith` accepts or creates the item; the giver's item is deleted or its quantity
+ * lowered. Returns the target's item.
+ */
+export async function transferItem(item, target, quantity = item.quantity) {
+    const source = item.toObject();
+    delete source._id;
+    source.system.quantity = quantity;
+    source.system.equipped = { carryType: "worn", handsHeld: 0 };
+    if (item.quantity - quantity < 1) await item.delete();
+    else await item.update({ "system.quantity": item.quantity - quantity });
+    const stack = target.items.find((i) => isStackableWith(i, source)) ?? null;
+    if (stack) return stack.update({ "system.quantity": stack.quantity + quantity });
+    const [made] = await target.createEmbeddedDocuments("Item", [source]);
+    return made;
 }

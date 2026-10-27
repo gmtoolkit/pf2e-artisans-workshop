@@ -2,7 +2,7 @@
     {{#unless off}}
     {{#if picks.length}}
     <ul class="qa-picks" aria-label="{{localize "pf2e-artisans-workshop.QuickAlchemy.Picked"}}">
-        {{#each picks}}<li><span>{{name}}</span> <button type="button" data-quick="unpick" data-uuid="{{uuid}}" aria-label="{{localize "pf2e-artisans-workshop.QuickAlchemy.Unpick" item=name}}"><i class="fa-solid fa-xmark" inert></i></button></li>{{/each}}
+        {{#each picks}}<li><span>{{name}}</span> <button type="button" data-quick="unpick" data-index="{{index}}" data-uuid="{{uuid}}" aria-label="{{localize "pf2e-artisans-workshop.QuickAlchemy.Unpick" item=name}}"><i class="fa-solid fa-xmark" inert></i></button></li>{{/each}}
     </ul>
     {{else}}
     <p class="qa-hint">{{localize "pf2e-artisans-workshop.QuickAlchemy.PickHint"}}</p>
@@ -21,6 +21,11 @@
     {{#if then}}
     <label class="qa-field">{{localize "pf2e-artisans-workshop.QuickAlchemy.Then"}}
         <select data-quick="then">{{#each then}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
+    </label>
+    {{/if}}
+    {{#if map}}
+    <label class="qa-field">{{localize "pf2e-artisans-workshop.QuickAlchemy.Map"}}
+        <select data-quick="map">{{#each map}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
     </label>
     {{/if}}
     {{#if cost}}<p class="qa-cost"><i class="fa-solid fa-flask" inert></i> {{cost}}</p>{{/if}}

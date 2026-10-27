@@ -327,8 +327,8 @@ test("the HUD palette: a flask button core's togglePalette opens, with Quick Alc
     const [button, palette] = column.children;
     assert.deepEqual([button.dataset.action, button.dataset.palette, button.attributes.type], ["togglePalette", hud.PALETTE, "button"]);
     assert.deepEqual([palette.classList.contains("palette"), palette.dataset.palette], [true, hud.PALETTE]);
-    assert.deepEqual(palette.children.map((e) => e.dataset.pf2eArtisansWorkshopHud), ["quick-alchemy", "quick-vial", "healing-bomb", "strike", "strike", "bandolier"],
-        "a Strike for the Alchemist's Fire and for the vials");
+    assert.deepEqual(palette.children.map((e) => e.dataset.pf2eArtisansWorkshopHud), ["quick-alchemy", "quick-vial", "healing-bomb", "strike", "strike", "strike",
+        "strike", "strike", "strike", "bandolier"], "pf2e's three Strike variants for the Alchemist's Fire and for the vials");
     assert.ok(palette.children.every((e) => e.dataset.action === undefined), "no data-action: the HUD's form never looks for a handler");
     assert.equal(hud.injectPalette({ actor: vera }, html), false, "once: a second render adds nothing");
     // A click on an entry: a quick vial through the module.
@@ -385,8 +385,8 @@ test("the Quick Alchemy and Healing Bomb cards: what was made with its potency a
     await new Promise((resolve) => setTimeout(resolve, 5));
     const healing = rendered.at(-1)[1];
     assert.deepEqual(healing.lines.map((l) => l.text), ["Elixir of Life (Moderate) thrown at Bo, who is healed as though they drank it.",
-        "Each living creature next to the target regains 5 HP. Select yours and apply it."], "without a canvas no neighbours are known");
-    assert.deepEqual(healing.buttons.map((b) => b.op), ["heal-selected"]);
+        lang["pf2e-artisans-workshop.Card.HealingNoneKnown"].replace("{hp}", "5")], "without a canvas no neighbours are known");
+    assert.deepEqual(healing.buttons.map((b) => b.op), [], "no living party member but the target (the fakes have no modeOfBeing)");
     assert.equal(world.collections.ChatMessage.contents.at(-1).flags[MOD].combat.hp, 5);
 });
 
@@ -451,4 +451,166 @@ test("every M8 label is a key in lang/en.json; every M8 refusal has words", () =
         "frequency"]) {
         assert.ok(lang[labels.REFUSAL[code]], code);
     }
+});
+
+/* -------------------------------------------- */
+/*  Second M8 review                             */
+/* -------------------------------------------- */
+
+/** A card's buttons as elements, from the data its template was rendered with. */
+function cardButtons(data) {
+    const html = element("div");
+    for (const b of data.buttons) {
+        const button = element("button");
+        Object.assign(button.dataset, { pf2eArtisansWorkshopOp: b.op, map: String(b.map ?? 0), ...(b.actor ? { actor: b.actor } : {}), ...(b.item ? { item: b.item } : {}),
+            ...(b.token ? { token: b.token } : {}) });
+        button.matches = (s) => s === "button[data-pf2e-artisans-workshop-op]";
+        html.append(button);
+    }
+    return html;
+}
+
+test("Double Brew in the panel: two of the same item, shown with a count; a chip takes one off; both made, one vial each (review fix, 8.3)", async () => {
+    const { app } = await panel.openQuickAlchemy({ actor: vera });
+    app.toggle(items.minor.uuid);
+    app.toggle(items.minor.uuid);
+    await app.renderList();
+    assert.deepEqual(app.picks, [items.minor.uuid, items.minor.uuid], "a picked row picked again adds a second");
+    const row = app.context.options.find((o) => o.uuid === items.minor.uuid);
+    assert.deepEqual([row.picked, row.count], [true, "× 2"]);
+    assert.deepEqual(app.context.picks.map((p) => [p.index, p.name]), [[0, "Elixir of Life (Minor)"], [1, "Elixir of Life (Minor)"]]);
+    assert.equal(app.context.cost, "Costs 2 vials.");
+    app.toggle(items.minor.uuid);
+    assert.deepEqual(app.picks, [items.minor.uuid], "full: a picked row gives one back");
+    app.toggle(items.minor.uuid);
+    app.unpick(1);
+    assert.deepEqual(app.picks, [items.minor.uuid], "a chip takes one off");
+    app.toggle(items.minor.uuid);
+    const before = vera.getResource("versatile-vials").value;
+    const made = await app.create(null);
+    assert.equal(made.ok, true, JSON.stringify(made));
+    assert.deepEqual([vera.items.filter((i) => i.name === "Elixir of Life (Minor)").length, vera.getResource("versatile-vials").value], [2, before - 2]);
+});
+
+test("a throw from the panel or the HUD palette uses the multiple attack penalty variant chosen (review fix, 8.2, 8.4)", async () => {
+    const { app } = await panel.openQuickAlchemy({ actor: vera, bombs: true });
+    assert.ok(app.context.map, "a choice of pf2e's Strike variant");
+    assert.deepEqual(app.context.map.map((m) => [m.value, m.selected]), [["0", true], ["1", false], ["2", false]], "Quick Bomber's panel always throws");
+    app.element.listeners.change[0]({ target: { dataset: { quick: "map" }, value: "2" } });
+    app.toggle(items.fire.uuid);
+    await app.create(null);
+    assert.equal(world.strikes.at(-1).map, 2, "pf2e's third variant");
+    const again = (await panel.openQuickAlchemy({ actor: vera })).app;
+    again.toggle(items.fire.uuid);
+    await again.renderList();
+    assert.equal(again.context.map, null, "held, not thrown: no variant to choose");
+    again.then = "strike";
+    await again.render({ parts: ["plan"] });
+    assert.equal(again.context.map.length, 3);
+    // The palette: one entry per pf2e variant, with pf2e's label.
+    const bomb = (await alchemy.quickAlchemy(vera, { uuid: items.fire.uuid })).items[0].id;
+    const html = hudElement();
+    hud.injectPalette({ actor: vera }, html);
+    const palette = html.querySelector(".col.left").children[1];
+    const fire = palette.children.filter((e) => e.dataset.pf2eArtisansWorkshopHud === "strike" && e.dataset.item === bomb);
+    assert.deepEqual(fire.map((e) => e.dataset.map), ["0", "1", "2"]);
+    assert.equal(fire[1].children[0].children[1].text, " Strike: Alchemist's Fire (Lesser), +5 (MAP -5)");
+    await palette.listeners.click[0]({ target: { closest: () => fire[1] }, preventDefault() {}, stopPropagation() {} });
+    assert.equal(world.strikes.at(-1).map, 1);
+});
+
+test("the Healing Bomb card goes to every owner who must apply it: the target's and each adjacent creature's (review fix, 8.6)", async () => {
+    const rendered = [];
+    world.render = (path, data) => {
+        rendered.push(data);
+        return "<div></div>";
+    };
+    cards.registerCombatCards();
+    setUsers([{ id: "p1", character: vera }, { id: "p2", character: bo }, { id: "p3" }, { id: "gm00000000000000", isGM: true }], "p1");
+    const dee = addDocument("Actor", { name: "Dee", type: "character", ownership: { default: 0, p3: 3 }, items: [] });
+    physicalItems(dee);
+    asCharacter(dee, { level: 5 });
+    dee.modeOfBeing = "living";
+    const boToken = { name: "Bo", actor: bo, document: { uuid: "Scene.s.Token.bo" }, distanceTo: () => 0 };
+    const deeToken = { name: "Dee", actor: dee, document: { uuid: "Scene.s.Token.dee" }, distanceTo: (t) => (t === boToken ? 5 : 99) };
+    bo.getActiveTokens = () => [boToken];
+    globalThis.canvas = { ready: true, grid: { distance: 5 }, tokens: { controlled: [], placeables: [boToken, deeToken] } };
+    const made = await alchemy.healingBomb(vera);
+    const thrown = await alchemy.throwHealingBomb(vera, made.items[0].id, { target: bo.uuid });
+    assert.deepEqual(thrown.adjacent.map((a) => a.name), ["Dee"]);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const message = world.collections.ChatMessage.contents.at(-1);
+    assert.equal(message.flags[MOD].card.kind, "healing-bomb");
+    assert.deepEqual(message.whisper.sort(), ["gm00000000000000", "p1", "p2", "p3"], "the thrower's, the target's and Dee's owners");
+    assert.deepEqual(rendered.at(-1).buttons.map((b) => [b.op, b.actor]), [["heal", dee.uuid]], "no 'selected tokens' fallback beside the canvas's own list");
+});
+
+test("Healing Bomb without a canvas: the creature is picked, the party's living members are offered the healing, and pf2e applies it with no token on the canvas (review fix, 8.6)", async () => {
+    const rendered = [];
+    world.render = (path, data) => {
+        rendered.push(data);
+        return "<div></div>";
+    };
+    cards.registerCombatCards();
+    globalThis.canvas = undefined;
+    setUsers([{ id: "p1", character: vera }, { id: "p2", character: bo }, { id: "p3" }, { id: "gm00000000000000", isGM: true }], "p1");
+    const dee = addDocument("Actor", { name: "Dee", type: "character", ownership: { default: 0, p3: 3 }, items: [] });
+    physicalItems(dee);
+    asCharacter(dee, { level: 5 });
+    for (const a of [vera, bo, dee]) a.modeOfBeing = "living";
+    world.collections.Actor.party.members = [vera, bo, dee];
+    // pf2e's applyDamage: the token is required (it names the creature after the Hit Points are written).
+    dee.applyDamage = async ({ damage, token }) => {
+        world.damage.push([dee.id, damage]);
+        token.name.replace(/[<>]/g, "");
+    };
+    const asked = [];
+    foundry.applications.api.DialogV2.prompt = async (config) => {
+        asked.push(config);
+        return { value: bo.uuid };
+    };
+    const made = await alchemy.healingBomb(vera);
+    // The Bandolier's and the card's Throw pass no target: with none on a canvas, the user picks the creature.
+    const bandolierApp = new bandolier.BandolierApp();
+    const thrown = await bandolierApp.run("throw", { item: made.items[0].id });
+    assert.equal(thrown.ok, true, JSON.stringify(thrown));
+    assert.deepEqual([asked.length, thrown.target.actor, thrown.known], [1, bo.uuid, false]);
+    assert.deepEqual(alchemy.throwCandidates(vera).map((a) => a.name), ["Bo", "Dee", "Vera"], "the party, then the encounter, the thrower last");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const data = rendered.at(-1);
+    assert.deepEqual(data.buttons.map((b) => [b.op, b.actor]), [["heal", vera.uuid], ["heal", dee.uuid]], "the party's living members but the target");
+    const message = world.collections.ChatMessage.contents.at(-1);
+    assert.deepEqual(message.whisper.sort(), ["gm00000000000000", "p1", "p2", "p3"]);
+    // Dee's player applies it from the card, with no canvas: pf2e is given Dee's token without one.
+    world.currentUser = "p3";
+    const html = cardButtons(data);
+    cards.renderCombatCard(message, html);
+    const [veraButton, deeButton] = html.children;
+    assert.deepEqual([veraButton.hidden, deeButton.hidden], [true, false]);
+    await deeButton.listeners.click[0]({ preventDefault() {} });
+    assert.deepEqual(world.damage.at(-1), [dee.id, -5]);
+    assert.equal(deeButton.disabled, true, "applied once");
+    // pf2e failing leaves no record behind: the button can be used again.
+    world.currentUser = "p1";
+    vera.applyDamage = async () => {
+        throw new TypeError("pf2e failed");
+    };
+    const failed = await alchemy.applyHealingBomb(message.id, { actor: vera.uuid, hp: 5 });
+    assert.equal(failed.reason, "apply-failed");
+    assert.equal(vera.flags[MOD]?.healed?.[message.id], undefined);
+});
+
+test("the Quick Alchemy card and the Bandolier name Combine Elixirs' second elixir (review fix, 8.6)", async () => {
+    const rendered = [];
+    world.render = (path, data) => {
+        rendered.push(data);
+        return "<div></div>";
+    };
+    cards.registerCombatCards();
+    const made = await alchemy.quickAlchemy(vera, { uuid: items.minor.uuid, additive: "combine-elixirs", combine: items.minor.uuid });
+    assert.equal(made.ok, true, JSON.stringify(made));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.ok(rendered.at(-1).lines.some((l) => l.text.endsWith("with Elixir of Life (Minor)")), JSON.stringify(rendered.at(-1).lines));
+    const context = await bandolier.bandolierContext(new bandolier.BandolierApp());
+    assert.ok(context.ready.find((r) => r.id === made.items[0].id).additive.endsWith("with Elixir of Life (Minor)"));
 });

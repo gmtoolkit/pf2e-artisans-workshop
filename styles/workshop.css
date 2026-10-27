@@ -972,6 +972,7 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .workshop-quick-alchemy .qa-option .qa-route { font-size: 0.75rem; font-variant-numeric: tabular-nums; }
 .workshop-quick-alchemy .qa-option.active { background: var(--paw-surface-strong); }
 .workshop-quick-alchemy .qa-option.picked { font-weight: 600; box-shadow: inset 3px 0 0 var(--paw-accent); }
+.workshop-quick-alchemy .qa-option .qa-pick-count { font-size: 0.75rem; font-variant-numeric: tabular-nums; padding: 0 0.3rem; border-radius: 3px; background: var(--paw-surface); }
 .workshop-quick-alchemy .qa-option:focus-visible { outline: 2px solid var(--paw-focus); outline-offset: -2px; }
 .workshop-quick-alchemy .qa-picks { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .workshop-quick-alchemy .qa-picks li { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0 0.3rem; background: var(--paw-surface); border-radius: 3px; }

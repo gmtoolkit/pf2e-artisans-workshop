@@ -185,6 +185,11 @@ export const COMBAT_SCENARIOS = {
             await sleep(p.ms ?? 800);
             return { result: plain(result), hp: fromUuidSync(p.actor)?.system?.attributes?.hp?.value ?? null };
         } },
+        seen: { about: "this client: whether chat message params.message is in its log (whispered to this user, or public)", run: async (p) => {
+            await sleep(p.ms ?? 300);
+            const message = game.messages.get(p.message);
+            return { seen: !!message, whisper: plain(message?.whisper ?? null) };
+        } },
         encounter: { about: "GM: an encounter of params.actors (token-less combatants) in that initiative order, started; marked", run: async (p) => {
             const fight = await Combat.implementation.create({ scene: null, active: true, flags: { world: { [MARK]: true } } });
             const actors = p.actors.map((uuid) => fromUuidSync(uuid));

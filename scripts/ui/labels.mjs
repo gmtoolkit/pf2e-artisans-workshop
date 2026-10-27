@@ -242,6 +242,8 @@ export const REFUSAL = Object.freeze({
     "not-healing-bomb": "pf2e-artisans-workshop.Refusal.NotHealingBomb",
     inert: "pf2e-artisans-workshop.Refusal.Inert",
     "no-creature": "pf2e-artisans-workshop.Refusal.NoCreature",
+    "no-token": "pf2e-artisans-workshop.Refusal.NoToken",
+    "apply-failed": "pf2e-artisans-workshop.Refusal.ApplyFailed",
     range: "pf2e-artisans-workshop.Refusal.Range",
     "no-strike": "pf2e-artisans-workshop.Refusal.NoStrike",
     "no-regain": "pf2e-artisans-workshop.Refusal.NoRegain",

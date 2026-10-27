@@ -7,20 +7,24 @@
  * - **Making it** (8.3): `CraftingAbility#craft(uuid, {consume: true, destination: "hand"})`, which takes one versatile vial
  *   through the resource. `craft` checks neither the formula nor the predicate, and pf2e's own chat path crafts for free
  *   at 0 vials, so the gate is here (`brewPlan`): the formula, the item level, the vials, Double Brew's second item, the
- *   additive (one per item, one per round, never on a quick vial). An item that merged into an existing stack (pf2e's
- *   stack test compares only `system` data, 7.1) is split off into an item of its own before it is stamped, so its
- *   potency never mixes with another's. Each item gets its stamp (`flags.MOD.expiry`, 4.12, 8.8) and
- *   `flags.MOD.quick = {source, additive?, combine?, damageType?, material?, at, by}`.
+ *   additive (one per item, one per round in an encounter, never on a quick vial). pf2e is handed the compendium item
+ *   already carrying the module's flags, its stamp (`flags.MOD.expiry`, 4.12, 8.8) and `flags.MOD.quick = {source,
+ *   additive?, combine?, damageType?, material?, at, by}`, so no client (another tab of the same user included) ever sees
+ *   it unstamped, and a tag of its stamp in `system.traits.otherTags` (`quickTag`), so pf2e's stack test, which compares
+ *   only `system` data, never merges it into another stamp's stack, here or in an ally's inventory. An item that still
+ *   merged into an existing stack (7.1) is split off into an item of its own. Combine Elixirs' elixir carries both elixirs:
+ *   their healing summed in `system.damage`, which pf2e's own `consume()` rolls, and both descriptions.
  * - **Quick vials** (8.5): the system cannot craft its own resource item, so the module makes the quick vial: a temporary,
  *   infused copy of the vial item at its current level whose source identity is cleared, since pf2e reads the vial count
  *   from the first item whose source is the Versatile Vial and a matching copy would change it. Free; Abundant Vials'
  *   extra action makes one a turn.
  * - **Quick Bomber** (8.4): the best ready bomb of a family (held, then worn, then stowed; the soonest-expiring infused
  *   first), or one made with Quick Alchemy, then pf2e's Strike (`strikeWith`). One bomb, even with Double Brew.
- * - **Healing Bomb** (8.6): an elixir of life made with Quick Alchemy takes the additive; thrown, it is used through the
- *   system (`item.consume()`, whose healing card the target's owner applies) and a card lists the living creatures
- *   adjacent to the target, each regaining the elixir's number of damage dice in Hit Points, applied by that creature's
- *   owner or a GM, once each.
+ * - **Healing Bomb** (8.6): an elixir of life made with Quick Alchemy takes the additive; thrown (at the user's target, or,
+ *   with none, at a creature picked from the party and the encounter), it is used through the system (`item.consume()`,
+ *   whose healing card the target's owner applies) and a card lists the living creatures adjacent to the target (without a
+ *   canvas, the party's living members), each regaining the elixir's number of damage dice in Hit Points, applied by that
+ *   creature's owner or a GM, once each, through pf2e's `applyDamage` with a token found without the canvas.
  * - **The 10-minute cap** (8.8): an effect created from a Quick Alchemy item (its pf2e origin) is clamped to 10 minutes on
  *   the client that creates it, unless the registry's `uncapped` rule lets the creator's own item outlast it.
  *
@@ -29,11 +33,12 @@
  */
 import { MODULE_ID } from "../constants.mjs";
 import {
-    QUICK_ALCHEMY, VIAL_RESOURCE, additiveSpent, additivesOf, bestOfFamily, brewPlan, cappedDuration, chooseBest, damageDiceCount,
+    QUICK_ALCHEMY, VIAL_RESOURCE, additiveSpent, additivesOf, bestOfFamily, brewPlan, cappedDuration, chooseBest, combinedDamage, damageDiceCount,
     isTurnStamp, mergeSplash, quickChoices, quickStamp, quickenedSpent, splashNumbers, uncapped, vialSplash,
 } from "../logic/alchemy.mjs";
 import { carryOf } from "../logic/consumables.mjs";
 import { familyKey } from "../logic/families.mjs";
+import { hashId } from "../logic/ids.mjs";
 import { heldEffects } from "../logic/registry.mjs";
 import { runRequest } from "./batch.mjs";
 import { catalogue } from "./catalogue.mjs";
@@ -51,6 +56,21 @@ const actorOf = (value) => (typeof value === "string" ? fromUuidSync(value, { st
 
 /** An item's module flags of Quick Alchemy (`flags.MOD.quick`), or null. */
 export const quickOf = (item) => item?.flags?.[MODULE_ID]?.quick ?? null;
+
+/**
+ * The tag that keeps a Quick Alchemy item's stack apart (second M8 review): pf2e's stack test (`isStackableWith`, used when
+ * an item is crafted, traded or dropped on an ally) compares `system` data and never flags, so an item handed to an ally
+ * holding an identical item of another stamp (a morning's Advanced Alchemy, another turn's Quick Alchemy) would merge into
+ * it and follow that stamp. One tag per stamp, in pf2e's own `system.traits.otherTags`: items of one stamp may stack, items
+ * of two never do. pf2e slugs and sorts these tags; this one is a slug already.
+ */
+export function quickTag(stamp) {
+    const combat = stamp?.combat ? [stamp.combat.id, stamp.combat.combatant, stamp.combat.round, stamp.combat.turn] : null;
+    return `${MODULE_ID}-quick-${hashId(JSON.stringify([stamp?.creator ?? null, stamp?.rule ?? null, stamp?.when ?? null, stamp?.quick ?? null, combat, stamp?.at ?? null]))}`;
+}
+
+/** An item's other tags with `tag` added, sorted as pf2e keeps them. */
+const tagged = (tags, tag) => [...new Set([...(Array.isArray(tags) ? tags : []), tag])].sort();
 
 /** pf2e's Quick Alchemy ability of a character, or null. */
 export const quickAbilityOf = (actor) => actor?.crafting?.abilities?.get?.(QUICK_ALCHEMY) ?? null;
@@ -183,18 +203,33 @@ export function readyFacts(actorRef) {
 const busy = new Set();
 
 /**
- * Make one item with pf2e's `craft` and give it its stamp and Quick Alchemy flags (8.3). pf2e adds to an identical stack
- * without waiting for the update, and its stack test reads only `system` data, so an item that merged into a stack is
- * split off into its own (one request: the copy with this item's flags, the stack set back to its earlier quantity),
- * as M7 does with daily preparations (7.1). Returns the item, or null when pf2e made nothing.
+ * Make one item with pf2e's `craft` (8.3). pf2e is handed the compendium item with the module's flags already on it (a
+ * clone, which `craft` turns into the new item's source with `toObject`), so the item is created stamped: no other client,
+ * another tab of the same user included, ever sees it unstamped and stamps it as pf2e's own action's (second M8 review).
+ * Its `system` carries the stamp's tag (`quickTag`) and `system` changes of the additive (Combine Elixirs). pf2e adds to an
+ * identical stack without waiting for the update, so an item that still merged into a stack is split off into its own (one
+ * request: the copy with this item's flags, the stack set back to its earlier quantity), as M7 does with daily
+ * preparations (7.1). Returns the item, or null when pf2e made nothing.
  */
-async function craftOne(actor, ability, uuid, flags) {
-    const before = new Map(physicalOf(actor).map((item) => [item.id, item.quantity ?? 1]));
-    const made = await ability.craft(uuid, { consume: true, destination: "hand" });
+async function craftOne(actor, ability, uuid, { expiry, quick, system = null }) {
+    const tag = quickTag(expiry);
+    const doc = await fromUuid(uuid);
+    if (!doc) return null;
+    const tags = tagged(doc._source?.system?.traits?.otherTags ?? doc.system?.traits?.otherTags, tag);
+    const changes = { flags: { [MODULE_ID]: { expiry, quick } }, system: { ...(system ?? {}), traits: { otherTags: tags } } };
+    const item = typeof doc.clone === "function" ? doc.clone(changes, { keepId: true }) : doc;
+    const before = new Map(physicalOf(actor).map((i) => [i.id, i.quantity ?? 1]));
+    const made = await ability.craft(item, { consume: true, destination: "hand" });
     if (!made) return null;
     const was = before.get(made.id);
     if (was === undefined) {
-        await actor.updateEmbeddedDocuments("Item", [{ _id: made.id, [`flags.${MODULE_ID}.expiry`]: flags.expiry, [`flags.${MODULE_ID}.quick`]: flags.quick }]);
+        // Created with the flags; written after only if this pf2e dropped them.
+        if (!quickOf(made)) {
+            const update = { _id: made.id, [`flags.${MODULE_ID}.expiry`]: expiry, [`flags.${MODULE_ID}.quick`]: quick, "system.traits.otherTags": tags };
+            if (system?.damage) update["system.damage"] = system.damage;
+            if (system?.description) update["system.description.value"] = system.description.value;
+            await actor.updateEmbeddedDocuments("Item", [update]);
+        }
         return actor.items.get(made.id) ?? null;
     }
     await until(() => (actor.items.get(made.id)?.quantity ?? 0) > was);
@@ -204,7 +239,10 @@ async function craftOne(actor, ability, uuid, flags) {
     const copy = stack.toObject();
     copy._id = newId();
     copy.system.quantity = added;
-    copy.flags = { ...(copy.flags ?? {}), [MODULE_ID]: { expiry: flags.expiry, quick: flags.quick } };
+    copy.system.traits = { ...(copy.system.traits ?? {}), otherTags: tagged(copy.system.traits?.otherTags, tag) };
+    if (system?.damage) copy.system.damage = system.damage;
+    if (system?.description) copy.system.description = { ...(copy.system.description ?? {}), ...system.description };
+    copy.flags = { ...(copy.flags ?? {}), [MODULE_ID]: { expiry, quick } };
     const split = await runRequest([
         { op: "createItems", target: actor.uuid, data: [copy] },
         { op: "updateItems", target: actor.uuid, updates: [{ _id: stack.id, "system.quantity": was }] },
@@ -213,10 +251,28 @@ async function craftOne(actor, ability, uuid, flags) {
 }
 
 /**
- * Use Quick Alchemy (8.3, 11.1 macro 12): make `uuid` (and `second` with Double Brew), with an optional `additive` on the
- * first item (Combine Elixirs takes `combine`, the second elixir), held in hand; `then: "strike"` throws the first bomb
- * at once through pf2e's Strike (`map` its multiple attack penalty variant). One vial per consumable, and the additive's
- * own vials, all checked before anything is made. Posts the Quick Alchemy card.
+ * What Combine Elixirs' elixir carries besides the first elixir's own data (8.6: both elixirs
+ * work when it is drunk): the healing of both summed in `system.damage`, which pf2e's own `consume()` rolls from any sheet, the
+ * Bandolier, "Use best consumable" or an ally's inventory, and the second's description after the first's, with its effect
+ * link. Null when the compendium items cannot be read.
+ */
+async function combinedSystem(firstUuid, secondUuid) {
+    const [first, second] = await Promise.all([fromUuid(firstUuid), fromUuid(secondUuid)]);
+    if (!first || !second) return null;
+    const out = {};
+    const damage = combinedDamage(first.system?.damage ?? null, second.system?.damage ?? null);
+    if (damage) out.damage = damage;
+    const more = second.system?.description?.value ?? "";
+    if (more) out.description = { value: `${first.system?.description?.value ?? ""}<hr><h4>${foundry.utils.escapeHTML(second.name ?? "")}</h4>${more}` };
+    return out;
+}
+
+/**
+ * Use Quick Alchemy (8.3, 11.1 macro 12): make `uuid` (and `second` with Double Brew, which may be the same item), with an
+ * optional `additive` on the first item (Combine Elixirs and Balm Bomb take `combine`, their second item: Combine Elixirs'
+ * goes into the first elixir, Balm Bomb's healing elixir is named with the bomb), held in hand; `then: "strike"` throws the
+ * first bomb at once through pf2e's Strike (`map` its multiple attack penalty variant). One vial per consumable, and the
+ * additive's own vials, all checked before anything is made. Posts the Quick Alchemy card.
  *
  * Refused: `combat-off`, `duct-tape`, `no-actor`, `not-owner`, `no-quick-alchemy`, `alchemy-busy`, `cannot-make` (no
  * formula, above the ability's level or not an alchemical consumable), `nothing-picked`, `double-brew`, `additive-unknown`,
@@ -244,18 +300,21 @@ export async function quickAlchemy(actorRef, { uuid, second = null, additive = n
         const plan = brewPlan({ picks, vials: facts.vials?.value ?? 0, brew: facts.features.brew, additive, additives: facts.features.additives,
             additiveSpent: facts.additiveSpent, combine: combine ? choice(combine) : null });
         if (!plan.ok) return refuse(plan.problems[0].reason, { ...plan.problems[0].data, problems: plan.problems });
+        const held = additive ? facts.features.additives.find((a) => a.key === additive) ?? null : null;
+        const partner = held?.combine && combine ? combine : null;
         const made = [];
         for (const [i, pick] of picks.entries()) {
             const expiry = quickStamp({ creator: actor.uuid, cycle: facts.cycle, options: pick.options, enduring: facts.features.enduring, combat: facts.combat,
                 worldTime: game.time.worldTime });
-            const quick = { source: "quick-alchemy", additive: i === 0 ? additive : null, combine: i === 0 && combine ? combine : null, at: game.time.worldTime, by: game.user.id };
-            const item = await craftOne(actor, ability, pick.uuid, { expiry, quick });
+            const quick = { source: "quick-alchemy", additive: i === 0 ? additive : null, combine: i === 0 ? partner : null, at: game.time.worldTime, by: game.user.id };
+            const system = i === 0 && partner && held.combine.merge ? await combinedSystem(pick.uuid, partner) : null;
+            const item = await craftOne(actor, ability, pick.uuid, { expiry, quick, system });
             if (!item) break;
             made.push(item);
         }
         if (!made.length) return refuse("craft-failed");
         // The additive's own vials (Combine Elixirs), read again at write time; and this round's additive spent (8.6).
-        const extra = additive ? facts.features.additives.find((a) => a.key === additive)?.vials ?? 0 : 0;
+        const extra = held?.vials ?? 0;
         if (extra > 0) {
             const now = actor.getResource?.(VIAL_RESOURCE)?.value ?? 0;
             await actor.updateResource(VIAL_RESOURCE, Math.max(0, now - extra));
@@ -264,7 +323,7 @@ export async function quickAlchemy(actorRef, { uuid, second = null, additive = n
             await actor.update({ [`flags.${MODULE_ID}.combat.additive`]: { combat: facts.combat?.id ?? null, round: facts.combat?.round ?? null, at: game.time.worldTime } });
         }
         const items = made.map((item) => ({ id: item.id, uuid: item.uuid, name: item.name, bomb: item.type === "weapon" && traitsOf(item).includes("bomb") }));
-        Hooks.callAll(`${MODULE_ID}.quickAlchemy`, Object.freeze({ actor, items, additive, kind: "quick-alchemy" }));
+        Hooks.callAll(`${MODULE_ID}.quickAlchemy`, Object.freeze({ actor, items, additive, combine: partner, kind: "quick-alchemy" }));
         const result = { ok: true, items, cost: plan.cost };
         if (then === "strike") {
             const bomb = made.find((item) => item.type === "weapon");
@@ -311,14 +370,14 @@ export async function quickVial(actorRef, { damageType = null, material = null, 
     source.system.equipped = { carryType: "held", handsHeld: 1 };
     const traits = new Set(source.system.traits?.value ?? []);
     traits.add("infused");
-    source.system.traits = { ...(source.system.traits ?? {}), value: [...traits].sort() };
     const expiry = quickStamp({ creator: actor.uuid, cycle: statusOf(actor).prepCycle ?? 0, quickVial: true, combat, worldTime: game.time.worldTime });
+    source.system.traits = { ...(source.system.traits ?? {}), value: [...traits].sort(), otherTags: tagged(source.system.traits?.otherTags, quickTag(expiry)) };
     source.flags = { ...(source.flags ?? {}), [MODULE_ID]: { expiry, quick: { source: "quick-vial", damageType, material, quickened: !!quickened, at: game.time.worldTime, by: game.user.id } } };
     const [item] = await actor.createEmbeddedDocuments("Item", [source]);
     if (!item) return refuse("craft-failed");
     if (quickened) await actor.update({ [`flags.${MODULE_ID}.combat.quickened`]: { combat: combat.id, round: combat.round, turn: combat.turn } });
     const items = [{ id: item.id, uuid: item.uuid, name: item.name, bomb: true }];
-    Hooks.callAll(`${MODULE_ID}.quickAlchemy`, Object.freeze({ actor, items, additive: null, kind: "quick-vial" }));
+    Hooks.callAll(`${MODULE_ID}.quickAlchemy`, Object.freeze({ actor, items, additive: null, combine: null, kind: "quick-vial" }));
     const result = { ok: true, items };
     if (then === "strike") result.strike = await strikeWith(actor, item, { map, event });
     return result;
@@ -389,8 +448,7 @@ const tokenOf = (value) => {
 
 /**
  * The living creatures adjacent to a Healing Bomb's target, from the canvas (8.6): tokens within 5 feet of it, other
- * than the target, whose actor is living (pf2e's `modeOfBeing`). Without a canvas none are known: the card then lets
- * each owner apply the healing to their own selected tokens.
+ * than the target, whose actor is living (pf2e's `modeOfBeing`).
  */
 function adjacentLiving(targetToken) {
     if (!targetToken || !canvas?.ready) return [];
@@ -400,13 +458,54 @@ function adjacentLiving(targetToken) {
 }
 
 /**
- * Throw a Healing Bomb (8.6): the elixir the character holds with the additive, at `target` (a token, actor or UUID; by
- * default the user's one target), as an Interact within 20 feet. The target is affected as though it drank the elixir:
- * the item is used through the system (`item.consume()`, its healing card applied by the target's owner); the card lists
- * the living creatures adjacent to the target with the Hit Points each regains. Refused: `combat-off`, `duct-tape`, `no-actor`,
- * `not-owner`, `item-gone`, `not-healing-bomb`, `inert`, `no-creature`, `range`.
+ * Who a Healing Bomb's card offers the adjacent healing to (8.6): with the target's token on the canvas, the living
+ * creatures next to it (`known`); without one (no canvas, or a token-less target) who stands there is not known, so the
+ * party's living members other than the target are listed, each applied by its own owner (second M8 review: the table
+ * without a canvas has no tokens to select).
  */
-export async function throwHealingBomb(actorRef, itemId, { target = null } = {}) {
+function healingNeighbours(targetActor, token) {
+    if (token && canvas?.ready) {
+        return { known: true, list: adjacentLiving(token).map((t) => ({ actor: t.actor.uuid, token: t.document?.uuid ?? null, name: t.name ?? t.actor.name })) };
+    }
+    const members = [...(game.actors?.party?.members ?? [])].filter((a) => a && a !== targetActor && a.modeOfBeing === "living");
+    return { known: false, list: members.map((a) => ({ actor: a.uuid, token: null, name: a.name })) };
+}
+
+/**
+ * The creatures a Healing Bomb may be thrown at when the user has no target on the canvas (8.6, no canvas): the party's
+ * members and the creatures of the thrower's encounter, the thrower last.
+ */
+export function throwCandidates(actor) {
+    const out = [];
+    const add = (a) => {
+        if (a && !out.includes(a)) out.push(a);
+    };
+    for (const member of game.actors?.party?.members ?? []) if (member !== actor) add(member);
+    const fight = combatOf(actor);
+    for (const combatant of game.combats?.get?.(fight?.id)?.combatants ?? []) if (combatant.actor !== actor) add(combatant.actor);
+    add(actor);
+    return out;
+}
+
+/** Ask which creature a Healing Bomb is thrown at (no target on the canvas): the candidates by name. */
+async function askTarget(candidates) {
+    const { askChoice } = await import("../ui/prompts.mjs");
+    const answer = await askChoice({
+        title: "pf2e-artisans-workshop.HealingBomb.Which", label: "pf2e-artisans-workshop.HealingBomb.WhichLabel",
+        options: candidates.map((a) => ({ value: a.uuid, name: a.name })), button: "pf2e-artisans-workshop.HealingBomb.Throw", icon: "fa-solid fa-hand-holding-medical",
+    });
+    return answer?.value ? candidates.find((a) => a.uuid === answer.value) ?? null : null;
+}
+
+/**
+ * Throw a Healing Bomb (8.6): the elixir the character holds with the additive, at `target` (a token, actor or UUID; by
+ * default the user's one target; with none, `choose` asks among the party and the encounter, so a table without a canvas
+ * can throw it), as an Interact within 20 feet. The target is affected as though it drank the elixir: the item is used
+ * through the system (`item.consume()`, its healing card applied by the target's owner); the card lists the living
+ * creatures adjacent to the target (without a canvas, the party's living members) with the Hit Points each regains.
+ * Refused: `combat-off`, `duct-tape`, `no-actor`, `not-owner`, `item-gone`, `not-healing-bomb`, `inert`, `no-creature`, `range`.
+ */
+export async function throwHealingBomb(actorRef, itemId, { target = null, choose = askTarget } = {}) {
     const off = combatRefusal();
     if (off) return off;
     const actor = actorOf(actorRef);
@@ -416,32 +515,56 @@ export async function throwHealingBomb(actorRef, itemId, { target = null } = {})
     if (!item) return refuse("item-gone");
     if (quickOf(item)?.additive !== "healing-bomb") return refuse("not-healing-bomb");
     if (isInert(item)) return refuse("inert");
-    const token = target ? tokenOf(target) : [...(game.user.targets ?? [])][0] ?? null;
-    const targetActor = token?.actor ?? actorOf(target);
-    if (!targetActor) return refuse("no-creature");
+    let token = target ? tokenOf(target) : [...(game.user.targets ?? [])][0] ?? null;
+    let targetActor = token?.actor ?? actorOf(target);
+    if (!targetActor) {
+        const candidates = throwCandidates(actor);
+        targetActor = candidates.length ? await choose(candidates) : null;
+        if (!targetActor) return refuse("no-creature");
+        token = tokenOf(targetActor);
+    }
     const thrower = actor.getActiveTokens?.(true, false)?.[0] ?? null;
     if (thrower && token && (thrower.distanceTo?.(token) ?? 0) > 20) return refuse("range");
     const hp = damageDiceCount(item.system?.damage?.formula ?? "");
-    const adjacent = adjacentLiving(token).map((t) => ({ actor: t.actor.uuid, token: t.document?.uuid ?? null, name: t.name ?? t.actor.name }));
+    const neighbours = healingNeighbours(targetActor, token);
     await item.consume();
-    const card = { kind: "healing-bomb", thrower: actor.uuid, item: item.name, target: { actor: targetActor.uuid, name: token?.name ?? targetActor.name }, hp, adjacent };
+    const card = { kind: "healing-bomb", thrower: actor.uuid, item: item.name, target: { actor: targetActor.uuid, name: token?.name ?? targetActor.name }, hp,
+        adjacent: neighbours.list, known: neighbours.known };
     Hooks.callAll(`${MODULE_ID}.healingBomb`, Object.freeze({ actor, card }));
     return { ok: true, ...card };
 }
 
 /**
+ * The token pf2e's `applyDamage` is given for a healed creature (its `token` is required: pf2e names the creature by it
+ * after the Hit Points are written): the card's, one on the viewed scene, a linked one on any scene (no canvas needed),
+ * else the actor's prototype token.
+ */
+function healTokenOf(actor, tokenRef) {
+    const named = tokenRef ? fromUuidSync(tokenRef, { strict: false }) : null;
+    return named ?? actor.getActiveTokens?.(true, true)?.[0] ?? actor.getDependentTokens?.({ linked: true })?.[0] ?? actor.prototypeToken ?? null;
+}
+
+/**
  * Heal one creature from a Healing Bomb card (8.6): the creature's owner or a GM applies it, through pf2e's own
  * `applyDamage` (negative damage heals), once per card and creature: the healed actor records the card
- * (`flags.MOD.healed.<messageId>`). Refused: `not-owner`, `no-actor`, `already`.
+ * (`flags.MOD.healed.<messageId>`), written first and taken back if pf2e fails. Works without a canvas (`healTokenOf`).
+ * Refused: `not-owner`, `no-actor`, `already`, `no-token`, `apply-failed`.
  */
 export async function applyHealingBomb(messageId, { actor: actorRef, token: tokenRef = null, hp }) {
     const actor = actorOf(actorRef);
     if (!actor) return refuse("no-actor");
     if (!actor.isOwner) return refuse("not-owner");
     if (actor.flags?.[MODULE_ID]?.healed?.[messageId]) return refuse("already");
+    const token = healTokenOf(actor, tokenRef);
+    if (!token) return refuse("no-token");
     await actor.update({ [`flags.${MODULE_ID}.healed.${messageId}`]: stampNow() });
-    const token = tokenRef ? fromUuidSync(tokenRef, { strict: false }) : null;
-    await actor.applyDamage({ damage: -Math.abs(Number(hp) || 0), token: token ?? actor.getActiveTokens?.(true, true)?.[0] ?? null });
+    try {
+        await actor.applyDamage({ damage: -Math.abs(Number(hp) || 0), token });
+    } catch (error) {
+        console.warn(`${MODULE_ID} | pf2e could not apply a Healing Bomb's healing`, error);
+        await actor.update({ [`flags.${MODULE_ID}.healed.${messageId}`]: _del });
+        return refuse("apply-failed");
+    }
     return { ok: true, actor: actor.uuid, hp };
 }
 
@@ -479,13 +602,14 @@ export async function stampSystemQuickAlchemy(item, userId) {
     const actor = item?.parent;
     const ability = quickAbilityOf(actor);
     if (!ability || !actor.isOwner || busy.has(actor.id)) return false;
-    if (stampOf(item) || isInert(item) || item.system?.temporary !== true || item.system?.equipped?.carryType !== "held") return false;
+    if (stampOf(item) || quickOf(item) || isInert(item) || item.system?.temporary !== true || item.system?.equipped?.carryType !== "held") return false;
     if (!traitsOf(item).includes("infused")) return false;
     const options = item.getRollOptions?.("item") ?? [];
     if (!abilityAccepts(ability, options)) return false;
     const expiry = quickStamp({ creator: actor.uuid, cycle: statusOf(actor).prepCycle ?? 0, options, enduring: featuresOf(actor).enduring, combat: combatOf(actor),
         worldTime: game.time.worldTime });
-    await item.update({ [`flags.${MODULE_ID}.expiry`]: expiry, [`flags.${MODULE_ID}.quick`]: { source: "system", additive: null, at: game.time.worldTime, by: game.user.id } });
+    await item.update({ [`flags.${MODULE_ID}.expiry`]: expiry, [`flags.${MODULE_ID}.quick`]: { source: "system", additive: null, at: game.time.worldTime, by: game.user.id },
+        "system.traits.otherTags": tagged(item.system?.traits?.otherTags, quickTag(expiry)) });
     return true;
 }
 

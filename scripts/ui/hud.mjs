@@ -3,7 +3,8 @@
  * column with a `.palette[data-palette="pf2e-artisans-workshop-alchemy"]` beside it, which core's own `togglePalette`
  * action opens and closes. Shown only to an owner of an actor with pf2e's Quick Alchemy, while the combat features run.
  * It is the fallback when the Bandolier is closed: Quick Alchemy (the panel), a quick vial, Healing Bomb, the Bandolier,
- * and a Strike with each ready bomb (pf2e's own Strike).
+ * and, for each ready bomb, a Strike per pf2e Strike variant (pf2e's own Strike, with its label: pf2e does not track the
+ * multiple attack penalty, so the user picks the variant, as on the Bandolier).
  *
  * Null-guarded and tolerant of other HUDs (PF2e HUD, Token Action HUD): nothing happens when the hook's element is not an
  * element, has no left column (another module replaced the HUD), or already has the button (a second render). The
@@ -13,6 +14,7 @@
 import { MODULE_ID } from "../constants.mjs";
 import { healingBomb, quickAbilityOf, quickVial, readyFacts } from "../foundry/alchemy.mjs";
 import { combatOn, strikeWith } from "../foundry/combat.mjs";
+import { strikeButtons } from "./bandolier.mjs";
 import { report } from "./format.mjs";
 
 /** The palette's id (`data-palette`), which core's `togglePalette` reads. */
@@ -75,7 +77,12 @@ export function injectPalette(app, html) {
     if (facts.vials?.item) palette.append(entry(doc, "quick-vial", "fa-solid fa-flask-vial", game.i18n.localize("pf2e-artisans-workshop.Bandolier.QuickVial")));
     if (facts.features.healingBomb && vials > 0) palette.append(entry(doc, "healing-bomb", "fa-solid fa-heart-pulse", game.i18n.localize("pf2e-artisans-workshop.Bandolier.HealingBomb")));
     for (const bomb of facts.ready.filter((r) => r.bomb && !r.healingBomb)) {
-        palette.append(entry(doc, "strike", "fa-solid fa-bomb", game.i18n.format("pf2e-artisans-workshop.Hud.Strike", { item: bomb.name }), { item: bomb.id }));
+        const variants = strikeButtons(actor, actor.items.get(bomb.id) ?? { id: bomb.id });
+        if (!variants.length) palette.append(entry(doc, "strike", "fa-solid fa-bomb", game.i18n.format("pf2e-artisans-workshop.Hud.Strike", { item: bomb.name }), { item: bomb.id, map: "0" }));
+        for (const variant of variants) {
+            palette.append(entry(doc, "strike", "fa-solid fa-bomb", game.i18n.format("pf2e-artisans-workshop.Hud.StrikeVariant", { item: bomb.name, variant: variant.label }),
+                { item: bomb.id, map: String(variant.map) }));
+        }
     }
     palette.append(entry(doc, "bandolier", "fa-solid fa-flask-vial", game.i18n.localize("pf2e-artisans-workshop.Hud.Bandolier")));
     palette.addEventListener("click", (event) => onEntry(actor, event));
@@ -118,7 +125,7 @@ async function onEntry(actor, event) {
     if (op === "healing-bomb") return report(await healingBomb(actor));
     if (op === "strike") {
         const item = actor.items.get(link.dataset.item);
-        return item ? report(await strikeWith(actor, item, { event })) : null;
+        return item ? report(await strikeWith(actor, item, { event, map: Number(link.dataset.map) || 0 })) : null;
     }
     return null;
 }

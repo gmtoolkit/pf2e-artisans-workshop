@@ -3197,9 +3197,16 @@ Bandolier is closed.
 - Creation calls `actor.crafting.abilities.get("quick-alchemy").craft(uuid, {consume: true, destination:
   "hand"})`. `craft()` itself checks neither the formula nor the predicate (verified), so the panel
   gates both, and it refuses at 0 vials (the system chat path crafts for free at 0).
-- **Double Brew** (9th): two picks, one vial per consumable.
-- **Combine Elixirs** (additive): one extra vial; it is the item's one additive (8.6).
+- **Double Brew** (9th): two picks, one vial per consumable; the two may be the same item (two bombs of one kind,
+  two elixirs of life: its most common use).
+- **Combine Elixirs** (additive): one extra vial; it is the item's one additive (8.6). The combined elixir carries
+  both: their healing summed in its `system.damage`, which pf2e's own `consume()` rolls from any sheet, and the second's
+  description (its effect link) after the first's.
+- **Balm Bomb** (additive): one extra vial for a common alchemical healing elixir the alchemist could make, picked with
+  the bomb and named on it and its card.
 - **Healing Bomb** (additive): offered when the pick is an elixir of life (8.6).
+- A pick that ends in a throw (Quick Bomber, "throw it at the target") asks which of pf2e's Strike variants (the
+  multiple attack penalty), which pf2e does not track.
 - **Potency** stamps: start of the creator's next turn; end of the next turn for tools and elixirs with
   Enduring Alchemy; effects capped at 10 minutes (8.8).
 - Keyboard: type to filter, arrows to move, Space to pick, Enter to create, Esc to close.
@@ -3208,7 +3215,8 @@ Bandolier is closed.
 
 One action: draw a bomb or vial, or Quick Alchemy a bomb, then Strike. The panel picks the best ready
 bomb of the chosen family (held, then worn, then stowed; soonest-expiring infused first) or creates one,
-then runs the system Strike against the current target. Only one bomb, even with Double Brew.
+then runs the system Strike against the current target, with the multiple attack penalty variant the user picks (pf2e
+does not track it). Only one bomb, even with Double Brew.
 
 ### 8.5 Quick vials
 
@@ -3228,11 +3236,14 @@ tracked per turn.
   within 20 feet; the target gets the elixir's effect as if it had drunk it, and each adjacent living
   creature regains HP equal to the elixir's number of damage dice (read from the item's own healing
   formula, never hard-coded). The card offers per-creature "apply" buttons; each creature's owner, or a GM,
-  applies it.
+  applies it, and the card is whispered to every one of those owners. Without a canvas (or a target with no token on
+  it) the creature is picked from the party and the encounter, and the card lists the party's living members other
+  than the target, since who stands next to it is not known (As built in M8, second review).
 - **Additives** (Player Core 2 additive trait): only on Quick Alchemy consumables, never quick vials; one
-  per item; at most one per round per actor. The picker lists only additives the registry says fit the
+  per item; at most one per round per actor in an encounter (outside one there are no rounds, and the limit is not
+  enforced: DECISIONS 2026-10-27). The picker lists only additives the registry says fit the
   item. The chosen additive is a flag on the created item; per-Strike effects use the system's own toggles
-  where they exist (OQ-27).
+  where they exist (OQ-27), set only for the Strike that needs them and put back as the player had them.
 
 ### 8.7 Vial gathering
 
@@ -3254,7 +3265,9 @@ tracked per turn.
   responsible client of the creator. (As built in M8: of each holder, as 7.7's expiry is, so an item handed to an ally
   ends on the ally's client; 10.14.)
 - Quick Alchemy consumables: inert at the start of the creator's next turn; tools and elixirs with
-  Enduring Alchemy at the end of the next turn; quick vials at the end of the current turn.
+  Enduring Alchemy at the end of the next turn; quick vials at the end of the current turn. The stamp records whether it
+  was the creator's own turn and, if not, whether the creator was still to act that round, never a turn index to compare
+  later: Foundry renumbers the turns when a combatant is added, removed or re-sorted (second M8 review).
 - Outside combat, Quick Alchemy items expire once world time advances by one round (6 seconds), and at
   combat end (setting).
 - The 10-minute cap: effect items whose origin is a Quick Alchemy item get their duration clamped to 10
@@ -5321,11 +5334,19 @@ the character's Strike variants, `item/physical/document.ts` `isStackableWith`, 
 - **Making it** (8.3): `CraftingAbility#craft(uuid, {consume: true, destination: "hand"})`, which takes one vial through the
   resource. pf2e's own chat path (`createUseActionMessage`) crafts with `consume: !!resource.value`, so for free at 0 vials; the
   module refuses first (`brewPlan`: `no-vials`, `vials` with how many it takes and has, `double-brew`, `nothing-picked`,
-  `cannot-make`, the additive's `additive-unknown`, `additive-fit`, `additive-round`, `combine-pick`, `combine-fit`). An item
-  pf2e merged into a stack (a held one of quantity 0, pf2e's `isStackableWith`) is split off into its own in one request.
-  Each item gets `flags.MOD.expiry` (below) and `flags.MOD.quick = {source: "quick-alchemy", additive, combine, at, by}`; the
-  additive spends the character's additive of the round (`flags.MOD.combat.additive = {combat, round, at}`); Combine Elixirs'
-  extra vial is taken after the craft, the resource read again. Double Brew (`brew {count: 2}`) makes two, one vial each.
+  `cannot-make`, the additive's `additive-unknown`, `additive-fit`, `additive-round`, `combine-pick`, `combine-fit`). pf2e is
+  handed the compendium item already carrying `flags.MOD.expiry` (below) and `flags.MOD.quick = {source: "quick-alchemy",
+  additive, combine, at, by}` (a `clone`, whose `toObject` `craft` makes the item from), so the item is created stamped
+  (second M8 review), and the stamp's tag in pf2e's `system.traits.otherTags` (`quickTag`: one per stamp), so pf2e's stack
+  test, which compares `system` data only, never merges it with another stamp's stack, at the craft or in an ally's
+  inventory after a trade; an item that still merged (a held stack of quantity 0 of the same stamp) is split off into its
+  own in one request. The additive spends the character's additive of the round (`flags.MOD.combat.additive = {combat,
+  round, at}`, counted in an encounter only); the additive's extra vial (Combine Elixirs, Balm Bomb) is taken after the
+  craft, the resource read again. An additive's second item (`additive {combine: {when, level?, merge?}}`, `combineFits`):
+  Combine Elixirs' elixir no higher than the first goes into it (`merge`: `combinedDamage` sums the healing in
+  `system.damage`, and the second's description follows the first's); Balm Bomb's common healing elixir is kept in
+  `quick.combine` and named with the bomb. Double Brew (`brew {count: 2}`) makes two, one vial each, the same item twice
+  included.
 - **pf2e's own Quick Alchemy action** (After the M8 review): what its chat path makes (a new, unstamped, temporary, infused,
   held item its Quick Alchemy can make) is stamped on the creating client like the panel's, `quick.source` "system"; the
   panel's own items are skipped while it makes them.
@@ -5334,24 +5355,34 @@ the character's Strike variants, `item/physical/document.ts` `isStackableWith`, 
   Versatile Vial), one, temporary, infused, held; free; `quick = {source: "quick-vial", damageType, material, quickened}`.
   Abundant Vials (`quickVial {quickened}`): one a turn in an encounter (`flags.MOD.combat.quickened = {combat, round, turn}`).
 - **Strikes** (8.1, 8.4, OQ-27): `strikeWith` finds pf2e's Strike of the item (`actor.system.actions`) and rolls its variant
-  `map` (0, 1 or 2), so the multiple attack penalty, modifiers and cards are pf2e's. First it sets the system toggles: the
-  bomber's `bomber-field-vials` (domain `all`, the damage type as its suboption) for a versatile vial, Advanced Vials'
-  `bomber-advanced-vials` with the material (a resource vial takes one from the chosen bucket, `takeFromBucket`, 7.3), and
-  each additive's own toggle, on for the additive the item carries and off for the others. The toggles are actor-wide and stay
-  set after the roll, since pf2e reads them again for the damage roll from the card.
+  `map` (0, 1 or 2), so the multiple attack penalty, modifiers and cards are pf2e's. First it sets the system toggles the
+  module has a value of its own for (second M8 review): the bomber's `bomber-field-vials` (domain `all`, the damage type as
+  its suboption) for a versatile vial with a type chosen (the Bandolier's, the quick vial's own), Advanced Vials'
+  `bomber-advanced-vials` with a material chosen or taken from a recorded bucket (`takeFromBucket`, 7.3), and the toggle of
+  the additive the item carries. A toggle the module has no value for is the player's, left as pf2e's sheet set it. One the
+  module changes is recorded as the player had it (`flags.MOD.combat.toggled.<domain|option> = {domain, option, on, sub}`)
+  and put back at the next Strike through the module with no value for it; not at once, since pf2e reads the toggles again
+  for the damage roll from the card. While the combat features are off (Duct Tape) nothing is set: "Use best consumable" and
+  `api.alchemy.strike` are a plain pf2e Strike.
 - **Quick Bomber** (8.4, `quickBomber`): with the feat, the best ready bomb of the family (held, then worn, then stowed; the
   soonest-expiring infused first, `chooseBest`), else the best grade it can make, made and thrown; one bomb. A family given by
   UUID is read from the catalogue's facts (After the M8 review).
 - **Healing Bomb** (8.6): the additive's `when` is the elixir of life grades by slug. `healingBomb` makes the best grade with
-  it; `throwHealingBomb` takes the target (a token, actor or UUID, else the user's one target), refuses beyond 20 feet when
-  both tokens are on the canvas, uses the elixir through pf2e (`item.consume()`, whose healing card the target's owner
-  applies), and posts the module's card: the living creatures adjacent to the target on the canvas (within the grid distance,
-  pf2e's `modeOfBeing`), each regaining the elixir's number of damage dice (`damageDiceCount` of its `system.damage.formula`),
-  with an Apply button, and "Apply to my selected tokens" for a table without a canvas. `applyHealingBomb`: the creature's
-  owner or a GM, through pf2e's `applyDamage` with negative damage, once per card and creature (`flags.MOD.healed.<messageId>`
-  on the healed actor, written first).
+  it; `throwHealingBomb` takes the target (a token, actor or UUID, else the user's one target, else one the user picks from
+  the party and the encounter, `throwCandidates`: the Bandolier's and the card's Throw work without a canvas), refuses beyond
+  20 feet when both tokens are on the canvas, uses the elixir through pf2e (`item.consume()`, whose healing card the target's
+  owner applies), and posts the module's card: the living creatures adjacent to the target on the canvas (within the grid
+  distance, pf2e's `modeOfBeing`), or, without the target's token on a canvas, the party's living members other than the
+  target (`known: false`), each regaining the elixir's number of damage dice (`damageDiceCount` of its
+  `system.damage.formula`), with an Apply button. `applyHealingBomb`: the creature's owner or a GM, through pf2e's
+  `applyDamage` with negative damage and a token found without the canvas (the card's, the viewed scene's, a linked one on
+  any scene, else the prototype token; pf2e requires one), once per card and creature (`flags.MOD.healed.<messageId>` on the
+  healed actor, written first and taken back if pf2e fails: `apply-failed`).
 - **Turn expiry** (8.8): a stamp `{creator, cycle, rule: "turn-start" | "turn-end", when: "current" | "next", quick,
-  combat: {id, combatant, round, turn} | null, at?}`. In an encounter the creator is a combatant of, the deadline is a position
+  combat: {id, combatant, round, turn, own, ahead} | null, at?}`: `own`, the creator's own turn; `ahead`, not, and the creator
+  still to act that round (second M8 review: the deadline is read from these and the creator's turn index now, never from
+  the index recorded, which Foundry renumbers when a combatant is added, removed or re-sorted). In an encounter the creator
+  is a combatant of, the deadline is a position
   read from the encounter now (`turnDeadline`, `turnExpired`): the start of the creator's next turn (`turn-start`), the end of
   the current turn (quick vials) or of the next (`turn-end` `next`: tools and elixirs with Enduring Alchemy, `expiryRule
   {rule: "enduring"}`); so skipped turns, several at once or a client that missed the change give the same answer. Outside
@@ -5392,19 +5423,23 @@ the character's Strike variants, `item/physical/document.ts` `isStackableWith`, 
 - **The token HUD palette** (8.2, OQ-33): added in `renderTokenHUD` at once, not after an await: core's `_postRender` runs
   right after the hook and reopens the palette that was open, and does not check that it is there. Only for an owner of an
   actor with Quick Alchemy, only when core's `.col.left` is there (PF2e HUD or Token Action HUD may replace it) and only once
-  per render; entries carry `data-pf2e-artisans-workshop-hud`, never `data-action`, and there is no input for the HUD's
+  per render; a Strike entry for each of pf2e's variants of each ready bomb, with pf2e's label (second M8 review); entries
+  carry `data-pf2e-artisans-workshop-hud`, never `data-action`, and there is no input for the HUD's
   submit-on-change. When the palette was open and is no longer offered (the combat features turned off), an empty hidden pair
   stands in so core's toggle finds what it looks for.
 - **The Quick Alchemy panel** (8.3, 10.9): `QuickAlchemyPanel` with three parts (search, list, plan), so typing renders the
   list and the plan and the search keeps its focus and caret. The list is a listbox of at most 60 matches with a roving tab
   stop; the arrows go from the search into the list and through it, Space picks the focused row (in the search field it types
-  a space), Enter creates (the first match when nothing is picked) and closes, Esc closes. Additives listed are those that fit
-  the first pick, the select disabled once the round's is spent; Combine Elixirs asks for its second elixir; a bomb picked
-  offers "throw it at the target". Its state is its own fields, never ApplicationV2's read-only `state`.
-- **Cards** (10.5, `combat-cards.mjs`): Quick Alchemy (and quick vial): what was made with its potency, the additive, a bomb's
-  splash, a Strike button per variant (Throw for a Healing Bomb); Healing Bomb: the target and an Apply button per adjacent
-  creature, "Apply to my selected tokens"; Vials: +n vials and the new count. Posted from the client that did it, whispered to
-  the character's owners and GMs (or public by `chat.visibility`); buttons a user may not use are hidden on that user's client.
+  a space), Enter creates (the first match when nothing is picked) and closes, Esc closes. With Double Brew a picked row is
+  added again while there is room (a count on the row; the plan's chips take one off each). Additives listed are those that
+  fit the first pick, the select disabled once the round's is spent; Combine Elixirs and Balm Bomb ask for their second
+  item; a bomb picked offers "throw it at the target", and a throw asks which of pf2e's Strike variants. Its state is its
+  own fields, never ApplicationV2's read-only `state`.
+- **Cards** (10.5, `combat-cards.mjs`): Quick Alchemy (and quick vial): what was made with its potency, the additive and its
+  second item, a bomb's splash, a Strike button per variant (Throw for a Healing Bomb); Healing Bomb: the target and an Apply
+  button per creature listed; Vials: +n vials and the new count. Posted from the client that did it, whispered to GMs and the
+  owners of every actor involved (`whisperFor`: the character; for a Healing Bomb also the target and each creature listed,
+  second M8 review), or public by `chat.visibility`; buttons a user may not use are hidden on that user's client.
 - **Keybindings** (10.4): `openBandolier` and `quickAlchemy` (the controlled token's actor, else the user's character), unbound.
 - **Settings** (14.1-14.3): `features.combat`, `features.consumables`, `features.vialGathering` (off), `expiry.quickAlchemyAtCombatEnd`,
   `bandolier.autoOpen` (U) and `bandolier.position` (U, hidden).
@@ -5426,7 +5461,8 @@ the character's Strike variants, `item/physical/document.ts` `isStackableWith`, 
   - `m8-vials` (GM, P1, P2): gathering on; 25 minutes give 6 (Alchemical Expertise) and carry 5; Player One and the GM click
     Gather at once one short of the maximum: the maximum; nothing in an encounter; Improvise Admixture by its degree.
   - `m8-healing-bomb` (GM, P1, P2): the feat given; the best elixir of life with the additive, used through pf2e, the card's
-    5 HP; Player Two applies it once; a second additive this round refused.
+    5 HP; the card reaches Player Two (the target's owner); Player Two applies it once; outside an encounter a second
+    additive is allowed, in one a second the same round is refused.
   - `m8-duct-tape` (GM, P1, P2): Duct Tape on every client (a stand-in when not installed): Quick Alchemy and the Bandolier
     refuse and say why, no turn expiry, Use best consumable works.
   - `m8-use-best` (P1, P2, no GM): the held potion, then the stowed one, then the party view names who holds one.
@@ -5440,19 +5476,47 @@ the character's Strike variants, `item/physical/document.ts` `isStackableWith`, 
   - Quick Bomber by UUID (`api.alchemy.quickBomb({uuid})`, macro 13) read the family from `fromUuidSync`, whose compendium index
     entry keeps the category under `system`, so no held bomb ever matched and every call made a new one with a vial: the
     family comes from the catalogue's facts.
+- **After the second M8 review** (2026-10-27, one pass; the high and medium findings fixed, each with a stub test that fails
+  on the code before it, `test/foundry/combat.test.mjs`, `ui-m8.test.mjs`, `test/logic/alchemy.test.mjs`; DECISIONS
+  2026-10-27):
+  - The Healing Bomb card went to the thrower's owners only, so the owner of a creature next to the target never saw its
+    Apply button: it is whispered to the owners of the thrower, the target and every creature listed (`whisperFor`).
+  - Healing Bomb had no way to work without a canvas: Throw needed a canvas target, "Apply to my selected tokens" needed
+    selected tokens, and `applyHealingBomb` gave pf2e no token, so pf2e threw after writing the Hit Points while the record
+    said applied. Throw now asks which creature (the party and the encounter), the card lists the party's living members
+    when who is adjacent is not known (the "selected tokens" button is gone), pf2e is given a token found without the
+    canvas, and a pf2e failure takes the record back.
+  - Combine Elixirs and Balm Bomb charged their extra vial but the second elixir never did anything: Combine Elixirs' elixir
+    carries both healings in `system.damage` (pf2e's own `consume()` rolls it from any sheet, an ally's included) and both
+    descriptions; Balm Bomb asks for a common healing elixir and names it; the card and the Bandolier name the second item.
+  - The panel could not pick the same item twice with Double Brew (a picked row was unpicked): picks repeat, with a count.
+  - Turn expiry compared the turn index recorded with the creator's index now, which Foundry renumbers when a combatant is
+    added, removed or re-sorted (a deleted enemy kept a quick vial a round too long; a summon ended bombs a turn early): the
+    stamp records `own` and `ahead`.
+  - A Quick Alchemy item handed to an ally merged into the ally's identical stack of another stamp (pf2e's stack test ignores
+    flags): items carry their stamp's tag in `system.traits.otherTags`.
+  - `setStrikeToggles` switched off the field vials, Advanced Vials and additive toggles the player set on pf2e's sheet on
+    every Strike without a module value, Duct Tape included: only the module's own values are set, the player's put back.
+  - Strikes from the panel and the HUD palette always rolled pf2e's first variant: the panel asks which, the palette has one
+    entry per variant.
+  - A second tab of the same user stamped the panel's item as pf2e's own action's (no additive) when its write landed last:
+    pf2e is handed the item with the module's flags already on it.
+  - Outside an encounter one additive a round was measured in world time, so a second Healing Bomb after a fight waited for a
+    GM to move the clock: not enforced outside an encounter.
 
 #### Follow-ups (M8, low)
 
 - Persistent Mutagen's once a day is not counted: every mutagen the creator drinks outlasts the cap.
 - The cap needs the origin item when the effect is made (OQ-19): an effect dragged from a card after the elixir was used up,
   or one with no `system.context.origin.item`, is not capped.
-- Turn expiry reads the creator's turn index now: a combatant added before the creator in the middle of a round shifts it, so
-  an item can end a turn early or late; a combat set back to round 0 keeps its items potent until it is deleted.
+- A combat set back to round 0 keeps its Quick Alchemy items potent until it is deleted; a creator re-sorted past the current
+  turn after making an item (initiative changed mid-round) keeps the `ahead` it had then.
 - A creator whose token is unlinked (a synthetic actor) is not found as a combatant: its items get a round of world time.
 - Advanced Vials' bucket is taken before pf2e's Strike rolls: a Strike cancelled in pf2e's dialog still uses a bucket's vial
   (the next preparation puts the buckets right).
-- An additive's toggle stays on after its Strike (pf2e reads it again for the damage roll); a Strike from the sheet before the
-  next one through the module uses it.
+- A toggle the module set (an additive's, a chosen field-vial type or material) stays set after its Strike (pf2e reads it again
+  for the damage roll) and is put back only at the next Strike through the module: a Strike from pf2e's sheet before then
+  uses it. A toggle the module turned off is restored on, but a toggle that was off keeps the suboption the module chose.
 - Gathering's lock pages (`gather:<actorId>:<worldTime>`) accumulate with M7's (5.3.3 archive).
 - The roster's `consumables` change with every Quick Alchemy item, so an encounter writes a snapshot (debounced) most turns.
 - The panel's list shows no splash numbers (8.8 names the panel and the card; the card and the Bandolier have them).
@@ -5461,14 +5525,51 @@ the character's Strike variants, `item/physical/document.ts` `isStackableWith`, 
 - Extra Vial (OQ-28) is unchecked: the familiar abilities pack was not in the checkout read.
 - The Morning tab's frequencies stay read-only (M7 follow-up); their buttons are the Bandolier's.
 - pf2e's own Quick Alchemy action still crafts for free at 0 vials: the module stamps what it makes but cannot gate its button.
-- Healing Bomb's 20 feet is checked only with both tokens on the canvas; without a canvas no neighbours are known (the card's
-  "Apply to my selected tokens" stands in). The healed actor's record is written before pf2e's `applyDamage`, so a failure
-  there leaves it applied without the healing.
+- Healing Bomb's 20 feet is checked only with both tokens on the canvas; without a canvas no neighbours are known, so the card
+  lists the party's living members (an adjacent creature outside the party, a summon or an NPC ally, gets no button: a GM
+  applies pf2e's own healing to it). Without a canvas pf2e may be given the healed actor's prototype token, so its message's
+  speaker is the applying user's character.
 - Two devices of one user can each make a Quick Alchemy item at the same moment (the busy guard is per client); each spends
   its own vial.
 - `api.alchemy.strike` with an item the character does not have refuses `no-actor`, not `item-gone`.
 - Esc in the panel may also reach core's dismiss key (the panel closes twice, harmlessly).
 - Outside an encounter every Quick Alchemy item lasts one round of world time, Enduring Alchemy's included (8.8's "one round").
+- From the second M8 review (low, not fixed in that pass):
+  - Splash numbers show Expanded Splash's Intelligence and 10 feet, and Directional Bombs' cone, as always on, though both are
+    pf2e toggles the module never sets; with the field discovery the splash shows Intelligence even when the bomb's own is
+    higher (pf2e's `AdjustModifier` upgrade takes the higher). Show them "if chosen" (or set the toggles with the throw) and
+    use `max(base, max(1, Int))`.
+  - The `uncapped` rule exempts every Eternal Elixir elixir the creator drinks (the feat makes one indefinite at a time: a new
+    one ends the previous), and Persistent Mutagen is read only for mutagens the creator made (the feat covers any infused
+    mutagen it drinks) and is not counted once a day.
+  - A quick vial copies the vial item's `system.containerId`: with the vials in a container that stows (an Alchemist's
+    Toolkit), pf2e makes the "held" quick vial stowed, last in `chooseBest`. Set `containerId: null` on the copy.
+  - Advanced Vials offers only adamantine, cold iron and dawnsilver; the feat also allows another precious material the
+    alchemist wears or wields (pf2e's toggle lists them), refused as `bad-choice`.
+  - "Use best" and Quick Bomber rank every turn stamp in an encounter alike (`expirySortKey` -1): a quick vial ending this turn
+    ties with a bomb potent until the next turn's start, and the user is asked. Order turn-end current, turn-start, turn-end
+    next.
+  - Quick Bomber cannot use the free quick vial: with family "vial" and none held it refuses `none`, and the Bandolier's Quick
+    Bomber opens the panel, refused at 0 vials. Fall back to `quickVial(actor, {then: "strike"})` and offer a quick-vial row.
+  - The Bandolier's Quick Bomber always makes a new bomb through the panel (a vial) though 8.4 draws a held one first; route it
+    through `alchemy.quickBomb({uuid, createIfNone: true, map})`.
+  - A quick vial ends at the end of the turn it was thrown in: a damage roll from pf2e's attack card after the turn moved on
+    is cancelled by the inert guard (its origin is the inert vial; under `expiry.action` delete pf2e finds no Strike). Let the
+    guard pass damage rolls (`context.type` "damage-roll") of a Quick Alchemy item of the same encounter.
+  - The Healing Bomb card's Apply shows to the creature's owner and every GM; two near-simultaneous clicks on two clients can
+    both pass the healed check. Show it to the creature's responsible user only, or take a lock page first.
+  - `strikeWith` takes pf2e's Strike variant before setting the toggles and rolls that earlier variant, whose closure (traits,
+    title) may still show the old damage type on the attack card. Set the toggles first, then find the Strike.
+  - If anything in the HUD palette's injection throws after the duplicate check while ours is the open palette, nothing stands
+    in for it and core's `_postRender` throws. Call `keepPaletteSafe` from the hook's catch.
+  - `adjacentLiving` lists hidden tokens and tokens the thrower cannot see; their names are in the card's button labels. Skip
+    hidden tokens (or name them generically for non-owners).
+  - Balm Bomb's elixir is named with the bomb, not applied: the ally's healing on a hit is the table's (pf2e's own elixir).
+    A card button that uses the elixir through pf2e on a hit would complete it.
+  - Combine Elixirs sums the two elixirs' healing only when they are of one type and kind; otherwise the second's healing is
+    only its inline roll in the description.
+  - Pf2e's sheet may drop the stamp tag from `system.traits.otherTags` when a player edits a Quick Alchemy item's other tags
+    there (the tag is not one of pf2e's options); the item may then stack with another stamp's again.
 
 ---
 

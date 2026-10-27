@@ -75,8 +75,10 @@
  * Effect kinds built in M8 (8.3-8.8):
  * - `additive {when, vials?, toggle?, combine?}`: an additive feat (Player Core 2's additive trait); Quick Alchemy items
  *   matching `when` may take it (one per item, one per round); `vials` is the extra versatile vials it costs; `toggle`
- *   `{domain, option}` the pf2e roll option a Strike with the item turns on (OQ-27: the system's own toggles); `combine`
- *   asks for a second elixir (Combine Elixirs).
+ *   `{domain, option}` the pf2e roll option a Strike with the item turns on (OQ-27: the system's own toggles); `combine
+ *   {when, level?, merge?}` asks for a second item matching `when`, with `level: "first"` at most the first item's level,
+ *   and with `merge` made part of the first item (Combine Elixirs; without it the second stays apart: Balm Bomb's healing
+ *   elixir, which an ally gains on a hit).
  * - `expiryRule {rule: "enduring", when}`: Quick Alchemy items matching `when` stay potent until the end of the creator's
  *   next turn (Enduring Alchemy); `expiryRule {rule: "uncapped", when, maxLevel?}`: effects of the creator's own items
  *   matching `when` may outlast Quick Alchemy's 10 minutes (Eternal Elixir, at most half the creator's level; Persistent
@@ -354,7 +356,8 @@ export const REGISTRY = deepFreeze({
     "balm-bomb": {
         uuid: "Compendium.pf2e.feats-srd.Item.t3BjX2tF2WbHM6Fg", type: "feat", book: "Pathfinder Lost Omens Cheliax, Infernal Inheritance", remaster: true, tier: 2,
         effects: [
-            { kind: "additive", when: { all: ["item:trait:bomb"] }, vials: 1 },
+            { kind: "additive", when: { all: ["item:trait:bomb"] }, vials: 1,
+                combine: { when: { all: ["item:trait:elixir", "item:trait:healing", "item:rarity:common"] } } },
         ],
         verified: "pf2e-8.6.1",
     },
@@ -538,7 +541,7 @@ export const REGISTRY = deepFreeze({
     "combine-elixirs": {
         uuid: "Compendium.pf2e.feats-srd.Item.jSkJIWPfSZZzvYzq", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
         effects: [
-            { kind: "additive", when: { all: ["item:trait:elixir"] }, vials: 1, combine: true },
+            { kind: "additive", when: { all: ["item:trait:elixir"] }, vials: 1, combine: { when: { all: ["item:trait:elixir"] }, level: "first", merge: true } },
         ],
         verified: "pf2e-8.6.1",
     },

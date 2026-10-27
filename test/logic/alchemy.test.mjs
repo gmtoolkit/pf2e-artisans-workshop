@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { REGISTRY } from "../../scripts/data/registry.mjs";
 import {
-    ROUND_SECONDS, additiveSpent, additivesFor, additivesOf, bestOfFamily, brewPlan, cappedDuration, chooseBest, comparePosition, damageDiceCount,
+    ROUND_SECONDS, additiveSpent, additivesFor, additivesOf, bestOfFamily, brewPlan, cappedDuration, chooseBest, combineFits, combinedDamage, comparePosition, damageDiceCount,
     expirySortKey, mergeSplash, moveIndex, potencyRule, quickChoices, quickStamp, quickenedSpent, searchChoices, splashNumbers, takeFromBucket,
     turnDeadline, turnExpired, uncapped, vialSplash,
 } from "../../scripts/logic/alchemy.mjs";
@@ -82,8 +82,9 @@ test("one additive a round per character, and Abundant Vials' extra quick vial o
     const combat = { id: "c1", round: 2, turn: 1 };
     assert.equal(additiveSpent({ combat: "c1", round: 2 }, { combat }), true);
     assert.equal(additiveSpent({ combat: "c1", round: 1 }, { combat }), false, "last round's");
-    assert.equal(additiveSpent({ combat: null, at: 100 }, { combat: null, worldTime: 103 }), true, "outside an encounter, a round of world time");
-    assert.equal(additiveSpent({ combat: null, at: 100 }, { combat: null, worldTime: 106 }), false);
+    // Outside an encounter there are no rounds and world time often stands still: not enforced (second M8 review).
+    assert.equal(additiveSpent({ combat: null, at: 100 }, { combat: null, worldTime: 100 }), false, "outside an encounter, never spent");
+    assert.equal(additiveSpent({ combat: "c1", round: 2 }, { combat: null, worldTime: 100 }), false, "an encounter's record, after it");
     assert.equal(additiveSpent(null, { combat }), false);
     assert.equal(quickenedSpent({ combat: "c1", round: 2, turn: 1 }, combat), true);
     assert.equal(quickenedSpent({ combat: "c1", round: 2, turn: 0 }, combat), false);
@@ -212,4 +213,47 @@ test("Advanced Vials: a throw takes one from the chosen bucket, else plain (7.3,
     assert.deepEqual(takeFromBucket({ plain: 2, "cold-iron": 1 }, "dawnsilver"), { buckets: { plain: 1, "cold-iron": 1 }, material: null });
     assert.deepEqual(takeFromBucket({ "cold-iron": 1 }, null), null, "no plain vial and no choice");
     assert.equal(takeFromBucket({}, "cold-iron"), null);
+});
+
+test("where the creator stood decides the deadline, not a turn index the tracker renumbers since (second M8 review, 8.8)", () => {
+    const at = (round, turn) => ({ round, turn });
+    const made = (rule, when, turn, own, ahead) => ({ rule, when, combat: { id: "c", combatant: "alch", round: 1, turn, own, ahead } });
+    // Made on its own turn at index 2; an earlier combatant deleted since: the alchemist is index 1 now.
+    const vial = made("turn-end", "current", 2, true, false);
+    assert.deepEqual(turnDeadline(vial, 1), { round: 1, turn: 1, after: true });
+    assert.equal(turnExpired(vial, { position: at(2, 0), creatorTurn: 1 }), true, "ended with that turn, not a round later");
+    // Made on its own turn at index 2; a summon added ahead since: the alchemist is index 3 now.
+    const bomb = made("turn-start", undefined, 2, true, false);
+    const enduring = made("turn-end", "next", 2, true, false);
+    assert.equal(turnExpired(bomb, { position: at(2, 0), creatorTurn: 3 }), false, "not before its next turn");
+    assert.equal(turnExpired(bomb, { position: at(2, 3), creatorTurn: 3 }), true);
+    assert.equal(turnExpired(enduring, { position: at(2, 3), creatorTurn: 3 }), false);
+    assert.equal(turnExpired(enduring, { position: at(3, 0), creatorTurn: 3 }), true);
+    // Off its turn: still to act this round (ahead), or already acted.
+    assert.deepEqual(turnDeadline(made("turn-start", undefined, 0, false, true), 4), { round: 1, turn: 4, after: false });
+    assert.deepEqual(turnDeadline(made("turn-start", undefined, 3, false, false), 1), { round: 2, turn: 1, after: false });
+    // A stamp written before (no own or ahead) is read from its indexes, as before.
+    assert.deepEqual(turnDeadline(made("turn-start", undefined, 0, undefined, undefined), 2), { round: 1, turn: 2, after: false });
+    const stamped = quickStamp({ creator: "Actor.a", options: [], combat: { id: "c", combatant: "k", round: 1, turn: 2, own: true, ahead: false } });
+    assert.deepEqual(stamped.combat, { id: "c", combatant: "k", round: 1, turn: 2, own: true, ahead: false });
+});
+
+test("an additive's second item: Combine Elixirs' an elixir no higher than the first, Balm Bomb's a common healing elixir; a combined elixir's healing sums both (second M8 review, 8.6)", () => {
+    const additives = additivesOf(["combine-elixirs", "balm-bomb"]);
+    const combine = additives.find((a) => a.key === "combine-elixirs").combine;
+    const balm = additives.find((a) => a.key === "balm-bomb").combine;
+    assert.deepEqual([combine.level, combine.merge, balm.level, balm.merge], ["first", true, null, false]);
+    assert.equal(combineFits(combine, ELIXIRS[0], ELIXIRS[1]), true);
+    assert.equal(combineFits(combine, ELIXIRS[2], ELIXIRS[1]), false, "higher than the first");
+    assert.equal(combineFits(balm, ELIXIRS[3], FIRE[0]), true, "any level the alchemist can make");
+    assert.equal(combineFits(balm, POTION, FIRE[0]), false, "not an alchemical elixir");
+    const uncommon = facts({ uuid: "U0", name: "Rare Tonic", level: 1, traits: ["alchemical", "consumable", "elixir", "healing"], rarity: "uncommon" });
+    assert.equal(combineFits(balm, uncommon, FIRE[0]), false, "a common one");
+    assert.deepEqual(brewPlan({ picks: [FIRE[0]], vials: 3, additive: "balm-bomb", additives, combine: ELIXIRS[0] }), { ok: true, cost: 2, problems: [] });
+    assert.deepEqual(brewPlan({ picks: [FIRE[0]], vials: 3, additive: "balm-bomb", additives }).problems.map((p) => p.reason), ["combine-pick"]);
+    const healing = (formula) => ({ formula, type: "untyped", kind: "healing" });
+    assert.deepEqual(combinedDamage(healing("3d6+6"), healing("1d6")), healing("(3d6+6)+(1d6)"));
+    assert.deepEqual(combinedDamage(null, healing("1d6")), healing("1d6"));
+    assert.equal(combinedDamage(healing("1d6"), null), null);
+    assert.equal(combinedDamage(healing("1d6"), { formula: "1d4", type: "fire", kind: "damage" }), null);
 });

@@ -2,6 +2,32 @@
 
 Newest first.
 
+## 2026-10-27: Combat alchemy after the second M8 review
+
+**Decision:** five rules for combat alchemy (DESIGN 8, 10.14 After the second M8 review):
+
+- One additive a round is enforced only in an encounter. Outside one there are no rounds, so it is not enforced.
+- A Quick Alchemy item carries a tag of its stamp in pf2e's own `system.traits.otherTags`, so pf2e's stack test never merges
+  it with an item of another stamp. The module does not wrap pf2e's `isStackableWith` (P6: no monkey-patching). pf2e is
+  handed the compendium item with the module's flags already on it, so no client ever sees the item unstamped.
+- The module sets a pf2e toggle for a Strike only when it has a value of its own: a field-vial type or material chosen, or
+  the item's additive. Each toggle it changes is put back as the player had it at the next Strike through the module.
+  While Duct Tape is active it sets none.
+- Combine Elixirs' elixir carries both elixirs in its own data: the healing summed in `system.damage` and both
+  descriptions. pf2e's `consume()` then applies both, from any sheet.
+- Without a canvas, Healing Bomb's target is picked from the party and the encounter. The card lists the party's living
+  members other than the target. The card goes to the owners of everyone listed.
+
+**Why:** world time often stands still between scenes, so a world-time round made a second Healing Bomb after a fight wait for
+a GM to move the clock (P2). Only system data survives pf2e's stack test, a trade and a drop on an ally. Switching off a
+toggle the player set on pf2e's sheet changed their Strikes without telling them, and Duct Tape owns combat when it is
+active. An ally drinks a combined elixir from pf2e's sheet, which the module cannot intercept. A table without a canvas has no
+tokens to target or select.
+
+**Consequences:** the tag shows as an item roll option (`item:tag:pf2e-artisans-workshop-quick-<id>`); a toggle the module set
+stays set until its next Strike (pf2e reads it again for the damage roll); an adjacent creature outside the party gets no
+Apply button without a canvas. The live plan `m8-healing-bomb` checks the additive in and out of an encounter.
+
 ## 2026-10-26: Quick Alchemy items expire on their holder's client; pf2e's own Quick Alchemy action is stamped too
 
 **Decision:** turn expiry (DESIGN 8.8) is part of M7's expiry sweep: on core's `combatTurnChange` and when an encounter

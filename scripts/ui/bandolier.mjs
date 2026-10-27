@@ -57,6 +57,16 @@ export function splashText(splash) {
     return parts.join(" · ");
 }
 
+/**
+ * An additive in words, with its second item when it has one (Combine Elixirs' elixir, Balm Bomb's healing elixir, 8.6),
+ * read by UUID from the compendium.
+ */
+export function additiveText(additive, combine = null) {
+    const second = combine ? fromUuidSync(combine, { strict: false })?.name ?? null : null;
+    return second ? fmt("pf2e-artisans-workshop.Bandolier.AdditiveWith", { additive: featName(additive), item: second })
+        : fmt("pf2e-artisans-workshop.Bandolier.Additive", { additive: featName(additive) });
+}
+
 /** pf2e's Strike variants of an item, as buttons: the label pf2e gives each (its modifier and multiple attack penalty). */
 export function strikeButtons(actor, item) {
     const strike = actor?.system?.actions?.find?.((a) => a?.item?.id === item.id && a.type === "strike");
@@ -117,7 +127,7 @@ export async function bandolierContext(app) {
             const item = actor.items.get(r.id);
             return {
                 id: r.id, name: r.name, img: r.img, qty: number(r.qty), potency: potencyText(r.potency), splash: splashText(r.splash),
-                additive: r.additive ? fmt("pf2e-artisans-workshop.Bandolier.Additive", { additive: featName(r.additive) }) : null,
+                additive: r.additive ? additiveText(r.additive, r.quick?.combine ?? null) : null,
                 strikes: r.bomb && !r.healingBomb ? strikeButtons(actor, item) : [],
                 throw: r.healingBomb, use: r.elixir && !r.healingBomb && item?.type === "consumable", quick: !!r.quick,
             };

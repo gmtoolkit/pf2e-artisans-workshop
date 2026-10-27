@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import { FakeCollection, addDocument, coin, installFoundry, setUsers, sharedWorld, world, resetWorld } from "./stubs.mjs";
-import { VIAL_UUID, asAlchemist, encounter, physicalItems, seedCombatCompendium, turnTo } from "./alchemist.mjs";
+import { VIAL_UUID, asAlchemist, encounter, physicalItems, seedCombatCompendium, transferItem, turnTo } from "./alchemist.mjs";
 import { asCharacter } from "./pf2e-crafting.mjs";
 
 installFoundry();
@@ -155,16 +155,17 @@ test("Double Brew: two items, two vials; the second needs a vial of its own (8.3
 });
 
 test("Healing Bomb is an additive on a Quick Alchemy elixir of life only; one additive a round; Combine Elixirs takes a second vial (8.6)", async () => {
+    const fight = encounter("c1", [vera, bo]);
     const hb = await alchemy.healingBomb(vera);
     assert.equal(hb.ok, true, JSON.stringify(hb));
     const elixir = vera.items.get(hb.items[0].id);
     assert.equal(elixir.name, "Elixir of Life (Moderate)", "the best grade it can make");
     assert.equal(quickOf(elixir).additive, "healing-bomb");
-    assert.deepEqual(vera.flags[MOD].combat.additive, { combat: null, round: null, at: 1000 });
+    assert.deepEqual(vera.flags[MOD].combat.additive, { combat: "c1", round: 1, at: 1000 });
     const again = await alchemy.quickAlchemy(vera, { uuid: items.minor.uuid, additive: "combine-elixirs", combine: items.minor.uuid });
     assert.equal(again.reason, "additive-round", "one additive a round");
     assert.equal((await alchemy.quickAlchemy(vera, { uuid: items.minor.uuid, additive: "healing-bomb" })).reason, "additive-round");
-    game.time.worldTime = 1006;
+    turnTo(fight, 2, 0);
     assert.equal((await alchemy.quickAlchemy(vera, { uuid: items.fire.uuid, additive: "healing-bomb" })).reason, "additive-fit", "never on a bomb");
     const before = vialCount(vera);
     const combined = await alchemy.quickAlchemy(vera, { uuid: items.lesser.uuid, additive: "combine-elixirs", combine: items.minor.uuid });
@@ -224,7 +225,7 @@ test("an additive's own pf2e toggle is on for a Strike with its item and off for
     game.time.worldTime = 1010;
     const plain = await alchemy.quickAlchemy(vera, { uuid: items.fire.uuid });
     await combat.strikeWith(vera, vera.items.get(plain.items[0].id));
-    assert.equal(world.strikes.at(-1).options["alchemical-bomb-base-type-damage"]["sticky-bomb"], false);
+    assert.equal(world.strikes.at(-1).options["alchemical-bomb-base-type-damage"]["sticky-bomb"], undefined, "put back as the player had it: off");
 });
 
 test("Quick Bomber draws the held bomb before the worn vial and Strikes; with none of the family it makes one and throws it (8.4)", async () => {
@@ -282,7 +283,7 @@ test("a Healing Bomb is used through the system; each adjacent creature's owner 
     const cards = hooked("healingBomb");
     const made = await alchemy.healingBomb(vera);
     const elixir = vera.items.get(made.items[0].id);
-    assert.equal((await alchemy.throwHealingBomb(vera, made.items[0].id)).reason, "no-creature", "a target first");
+    assert.equal((await alchemy.throwHealingBomb(vera, made.items[0].id, { choose: async () => null })).reason, "no-creature", "a target first, or one picked");
     const thrown = await alchemy.throwHealingBomb(vera, elixir.id, { target: bo.uuid });
     assert.equal(thrown.ok, true, JSON.stringify(thrown));
     assert.deepEqual(world.consumed.at(-1), [vera.id, elixir.id, "Elixir of Life (Moderate)"], "used as if drunk, through pf2e's own consume");
@@ -305,7 +306,7 @@ test("turn expiry: a bomb at the start of the creator's next turn, a quick vial 
     const bomb = vera.items.get((await alchemy.quickAlchemy(vera, { uuid: items.fire.uuid })).items[0].id);
     const elixir = vera.items.get((await alchemy.quickAlchemy(vera, { uuid: items.minor.uuid })).items[0].id);
     const vial = vera.items.get((await alchemy.quickVial(vera)).items[0].id);
-    assert.deepEqual(stampOf(bomb).combat, { id: "c1", combatant: "c1k1", round: 1, turn: 1 });
+    assert.deepEqual(stampOf(bomb).combat, { id: "c1", combatant: "c1k1", round: 1, turn: 1, own: true, ahead: false });
     const inert = () => [bomb, elixir, vial].map((i) => i.flags[MOD]?.inert === true);
     turnTo(fight, 2, 0);
     await expiry.expirySweep();
@@ -489,4 +490,176 @@ test("an effect from a Quick Alchemy item is clamped to 10 minutes as it is crea
     vera.addItem({ type: "feat", name: "persistent-mutagen", sourceId: REGISTRY["persistent-mutagen"].uuid, system: { slug: "persistent-mutagen" } });
     assert.equal(effect(vera), null, "Persistent Mutagen: the creator's own mutagen outlasts the cap");
     assert.deepEqual(effect(bo), { value: 10, unit: "minutes", expiry: "turn-start" }, "an ally drinking it does not");
+});
+
+/* -------------------------------------------- */
+/*  Second M8 review                             */
+/* -------------------------------------------- */
+
+test("Combine Elixirs' elixir carries both elixirs: pf2e's consume rolls both healings; Balm Bomb asks for a common healing elixir and names it (review fix, 8.6)", async () => {
+    const before = vialCount(vera);
+    const combined = await alchemy.quickAlchemy(vera, { uuid: items.lesser.uuid, additive: "combine-elixirs", combine: items.minor.uuid });
+    assert.equal(combined.ok, true, JSON.stringify(combined));
+    const elixir = vera.items.get(combined.items[0].id);
+    assert.deepEqual(elixir.system.damage, { formula: "(3d6+6)+(1d6)", type: "untyped", kind: "healing" },
+        "both elixirs' healing: pf2e's own consume() rolls system.damage, from any sheet");
+    assert.ok(elixir.system.description.value.includes("Elixir of Life (Minor)"), "the second elixir's description, with its effect link, follows the first's");
+    assert.equal(quickOf(elixir).combine, items.minor.uuid);
+    assert.equal(vialCount(vera), before - 2);
+    // Balm Bomb: the bomb's second vial makes a common healing elixir, which is asked for and named with the bomb.
+    vera.addItem({ type: "feat", name: "balm-bomb", sourceId: REGISTRY["balm-bomb"].uuid, system: { slug: "balm-bomb" } });
+    const turn = encounter("c1", [vera, bo]);
+    assert.equal((await alchemy.quickAlchemy(vera, { uuid: items.fire.uuid, additive: "balm-bomb" })).reason, "combine-pick");
+    assert.equal((await alchemy.quickAlchemy(vera, { uuid: items.fire.uuid, additive: "balm-bomb", combine: items.mutagen.uuid })).reason, "combine-fit",
+        "a mutagen has no healing trait");
+    const balm = await alchemy.quickAlchemy(vera, { uuid: items.fire.uuid, additive: "balm-bomb", combine: items.moderate.uuid });
+    assert.equal(balm.ok, true, JSON.stringify(balm));
+    const bomb = vera.items.get(balm.items[0].id);
+    assert.deepEqual([quickOf(bomb).additive, quickOf(bomb).combine, bomb.system.damage ?? null], ["balm-bomb", items.moderate.uuid, null],
+        "named with the bomb, any level it can make; the bomb's own data unchanged");
+    assert.equal(turn.id, "c1");
+});
+
+test("turn expiry reads where the creator stood, not a turn index: a combatant removed before it or added ahead of it changes nothing (review fix, 8.8)", async () => {
+    const cy = addDocument("Actor", { name: "Cy", type: "character", ownership: { default: 0 }, items: [] });
+    const dee = addDocument("Actor", { name: "Dee", type: "character", ownership: { default: 0 }, items: [] });
+    const reorder = (fight, list, current) => {
+        // Foundry keeps the current combatant when the combatants change, and renumbers the turns (combat.mjs #onModifyCombatants).
+        fight.combatants = list;
+        fight.turns = list;
+        fight.turn = list.findIndex((c) => c.id === current);
+    };
+    // An enemy before the alchemist is deleted from the tracker during the alchemist's turn.
+    const one = encounter("c1", [bo, cy, vera]);
+    turnTo(one, 1, 2);
+    const vial = vera.items.get((await alchemy.quickVial(vera)).items[0].id);
+    reorder(one, one.turns.filter((c) => c.actor !== bo), "c1k2");
+    turnTo(one, 2, 0);
+    await expiry.expirySweep();
+    assert.equal(vial.flags[MOD]?.inert, true, "the quick vial ended with the alchemist's turn, not a round later");
+    game.combats.delete("c1");
+    // A summon joins ahead of the alchemist during its turn.
+    const two = encounter("c2", [bo, cy, vera]);
+    turnTo(two, 1, 2);
+    const bomb = vera.items.get((await alchemy.quickAlchemy(vera, { uuid: items.fire.uuid })).items[0].id);
+    const elixir = vera.items.get((await alchemy.quickAlchemy(vera, { uuid: items.minor.uuid })).items[0].id);
+    reorder(two, [{ id: "c2summon", actor: dee, actorId: dee.id, token: null }, ...two.turns], "c2k2");
+    assert.equal(two.turn, 3);
+    turnTo(two, 2, 0);
+    await expiry.expirySweep();
+    assert.deepEqual([bomb.flags[MOD]?.inert, elixir.flags[MOD]?.inert], [undefined, undefined], "potent until the alchemist's next turn");
+    turnTo(two, 2, 3);
+    await expiry.expirySweep();
+    assert.deepEqual([bomb.flags[MOD]?.inert, elixir.flags[MOD]?.inert], [true, undefined], "the bomb at its start");
+    turnTo(two, 3, 0);
+    await expiry.expirySweep();
+    assert.equal(elixir.flags[MOD]?.inert, true, "Enduring Alchemy's elixir at its end");
+});
+
+test("a Quick Alchemy item handed to an ally never merges into the ally's identical stack of another stamp (review fix, 7.7, 8.8)", async () => {
+    encounter("c1", [vera, bo]);
+    const made = await alchemy.quickAlchemy(vera, { uuid: items.fire.uuid });
+    const bomb = vera.items.get(made.items[0].id);
+    // Bo holds this morning's Alchemist's Fire, made by pf2e's daily crafting (temporary, infused) and stamped for the day.
+    const morning = items.fire.toObject();
+    delete morning._id;
+    Object.assign(morning.system, { temporary: true, equipped: { carryType: "worn" } });
+    morning.system.traits.value = [...morning.system.traits.value, "infused"].sort();
+    morning.flags = { [MOD]: { expiry: { creator: vera.uuid, cycle: 0, rule: "prep" } } };
+    const [kept] = await bo.createEmbeddedDocuments("Item", [morning]);
+    await transferItem(bomb, bo);
+    const fires = named(bo, "Alchemist's Fire (Lesser)");
+    assert.equal(fires.length, 2, "two stacks: pf2e's stack test compares system data only");
+    assert.deepEqual([kept.quantity, stampOf(kept).rule], [1, "prep"]);
+    const given = fires.find((i) => i !== kept);
+    assert.deepEqual([given.quantity, stampOf(given).rule, stampOf(given).combat.id], [1, "turn-start", "c1"]);
+    // Two of one stamp still stack (Double Brew's pair handed over one by one).
+    const vial = vera.items.get((await alchemy.quickVial(vera)).items[0].id);
+    assert.ok(vial.system.traits.otherTags.some((t) => t.startsWith(`${MOD}-quick-`)), "a quick vial is tagged too");
+});
+
+test("pf2e's toggles the player set are left alone; the module's own choice is put back afterwards; nothing is set under Duct Tape (review fix, OQ-27)", async () => {
+    const vial = vera.items.find((i) => i.sourceId === VIAL_UUID);
+    // The player chose cold for field vials on pf2e's sheet.
+    await vera.toggleRollOption("all", "bomber-field-vials", null, true, "cold");
+    world.toggles.length = 0;
+    await combat.strikeWith(vera, vial);
+    assert.deepEqual(world.toggles, [], "no value of the module's own: the Strike uses the player's");
+    assert.deepEqual(world.strikes.at(-1).options.all, { "bomber-field-vials": true, "bomber-field-vials:cold": true });
+    const quick = await alchemy.quickVial(vera);
+    await combat.strikeWith(vera, vera.items.get(quick.items[0].id));
+    assert.equal(world.strikes.at(-1).options.all["bomber-field-vials:cold"], true, "a quick vial with no type chosen: the player's too");
+    // A type chosen in the Bandolier is set for its Strike, then the player's comes back at the next Strike without one.
+    await combat.strikeWith(vera, vial, { damageType: "fire" });
+    assert.equal(world.strikes.at(-1).options.all["bomber-field-vials:fire"], true);
+    assert.equal(vera.rollOptions.all["bomber-field-vials:fire"], true, "still on after the roll: pf2e reads it again for the damage");
+    await combat.strikeWith(vera, vial);
+    assert.deepEqual(world.strikes.at(-1).options.all, { "bomber-field-vials": true, "bomber-field-vials:cold": true }, "the player's cold again");
+    assert.deepEqual(vera.flags[MOD].combat.toggled ?? {}, {});
+    // Sticky Bomb turned on on the sheet for a bomb pf2e's own action made stays on.
+    const sticky = REGISTRY["sticky-bomb"].effects.find((e) => e.kind === "additive").toggle;
+    const own = await vera.crafting.abilities.get("quick-alchemy").craft(items.fire.uuid, { consume: true, destination: "hand" });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await vera.toggleRollOption(sticky.domain, sticky.option, null, true);
+    await combat.strikeWith(vera, vera.items.get(own.id));
+    assert.equal(world.strikes.at(-1).options[sticky.domain][sticky.option], true);
+    // Duct Tape: "Use best consumable" still Strikes through pf2e, and the module touches no toggle.
+    game.modules.set(combat.DUCT_TAPE, { id: combat.DUCT_TAPE, active: true });
+    world.toggles.length = 0;
+    const { familyOfItem } = await import("../../scripts/foundry/item-facts.mjs");
+    const used = await consumables.useBest({ family: familyOfItem(vial), actor: vera });
+    assert.equal(used.ok, true, JSON.stringify(used));
+    assert.deepEqual(world.toggles, [], "stepped aside: a plain pf2e Strike");
+});
+
+test("another tab of the same user never stamps the panel's item as pf2e's: it is created stamped, so its additive survives (review fix, 8.8)", async () => {
+    const seen = [];
+    const deferred = [];
+    // Tab B: the same user, its own module state (nothing busy). Its createItem handler sees the new item as created.
+    Hooks.on("createItem", (item, _options, userId) => {
+        if (item.parent !== vera) return;
+        seen.push(structuredClone(item.flags?.[MOD]?.quick ?? null));
+        const update = item.update.bind(item);
+        item.update = async (data) => {
+            deferred.push(data);
+            item.update = update;
+            return item;
+        };
+        alchemy.resetAlchemy();
+        alchemy.stampSystemQuickAlchemy(item, userId);
+    });
+    const made = await alchemy.healingBomb(vera);
+    assert.equal(made.ok, true, JSON.stringify(made));
+    assert.equal(seen[0]?.additive, "healing-bomb", "the flags are there when the item is created");
+    assert.equal(deferred.length, 0, "tab B leaves it alone");
+    const elixir = vera.items.get(made.items[0].id);
+    for (const data of deferred) await elixir.update(data);
+    assert.equal((await alchemy.throwHealingBomb(vera, elixir.id, { target: bo.uuid })).ok, true);
+});
+
+test("outside an encounter one additive a round is not enforced (no rounds, and world time often stands still); in one it is (review fix, 8.6)", async () => {
+    const first = await alchemy.healingBomb(vera);
+    assert.equal(first.ok, true);
+    await alchemy.throwHealingBomb(vera, first.items[0].id, { target: bo.uuid });
+    const second = await alchemy.healingBomb(vera);
+    assert.equal(second.ok, true, `after the fight, a second Healing Bomb at once: ${JSON.stringify(second)}`);
+    encounter("c1", [vera, bo]);
+    assert.equal((await alchemy.healingBomb(vera)).ok, true);
+    assert.equal((await alchemy.healingBomb(vera)).reason, "additive-round", "the same round of an encounter");
+});
+
+test("applying a Healing Bomb without a canvas gives pf2e a token found without one; pf2e failing leaves no record behind (review fix, 8.6)", async () => {
+    // pf2e's applyDamage: the token is required (it names the creature after the Hit Points are written).
+    bo.applyDamage = async ({ damage, token }) => {
+        world.damage.push([bo.id, damage, token.name.replace(/[<>]/g, "")]);
+    };
+    const healed = await as("p2", () => alchemy.applyHealingBomb("m1", { actor: bo.uuid, hp: 5 }));
+    assert.equal(healed.ok, true, JSON.stringify(healed));
+    assert.deepEqual(world.damage.at(-1), [bo.id, -5, "Bo"], "its prototype token, with no canvas and no scene token");
+    bo.applyDamage = async () => {
+        throw new TypeError("pf2e failed");
+    };
+    const failed = await as("p2", () => alchemy.applyHealingBomb("m2", { actor: bo.uuid, hp: 5 }));
+    assert.equal(failed.reason, "apply-failed");
+    assert.equal(bo.flags[MOD]?.healed?.m2, undefined, "the card's button can be used again");
 });

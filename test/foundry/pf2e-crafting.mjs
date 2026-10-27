@@ -12,7 +12,10 @@
  * - `CharacterCrafting#performDailyCrafting`: every daily pool's prepared, unexpended formulas, made at once (nothing, with a
  *   warning, when any pool asks for more than its slots); formulas expended; `flags.pf2e.dailyCraftingComplete` set; items added with stacking that compares only `system` data, so a
  *   new output merges into an identical stack whatever its flags (7.1).
- * - Compendium items (`compendiumItem`) with `toObject`, `getRollOptions("item")`, `slug`, `level`.
+ * - Compendium items (`compendiumItem`) with `toObject`, `getRollOptions("item")`, `slug`, `level`, and Foundry's `clone(data,
+ *   {keepId})` (14.368 `Document#clone`: the source with `data` merged in, below the top level new keys included, as an
+ *   in-memory document of the same pack), which `craft` accepts in place of a UUID as pf2e's does (it makes the new item from
+ *   the item's `toObject`).
  */
 import { world } from "./stubs.mjs";
 
@@ -34,12 +37,27 @@ export function compendiumItem({ id, name, level = 1, type = "consumable", categ
         toObject() {
             return structuredClone({ _id: id, name, type, img: item.img, system: { ...item.system, slug: item.slug }, flags: {} });
         },
+        clone(changes = {}, { keepId = false } = {}) {
+            const source = mergeSource(item.toObject(), structuredClone(changes));
+            if (!keepId) delete source._id;
+            return { ...item, uuid: keepId ? uuid : null, system: source.system, flags: source.flags, toObject: () => structuredClone(source), clone: undefined };
+        },
     };
     world.uuids.set(uuid, item);
     (world.compendium ??= {})[uuid] = item;
     (world.index ??= []).push({ uuid, name, img: item.img, type, system: { level: { value: level }, traits: { value: [...traits], rarity, otherTags },
         category, slug: item.slug, usage: { value: usage }, publication: { title: book }, price: { value: { gp: level }, per: 1 }, material: {} } });
     return item;
+}
+
+/** Foundry's `mergeObject` as `clone` uses it: objects merged, anything else (arrays included) replaced. */
+function mergeSource(target, changes) {
+    for (const [key, value] of Object.entries(changes)) {
+        const plain = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+        if (plain(value) && plain(target[key])) mergeSource(target[key], value);
+        else target[key] = value;
+    }
+    return target;
 }
 
 /** A source an actor's item makes from a compendium item, as `ability.calculateDailyCrafting` and `craft` build it. */
@@ -125,9 +143,9 @@ export class FakeAbility {
         this.preparedFormulaData = formulas.map((f) => ({ ...f }));
     }
 
-    async craft(uuid, { consume = true, destination } = {}) {
-        this.calls.push(["craft", uuid, consume, destination ?? null]);
-        const item = world.compendium[uuid];
+    async craft(itemOrUuid, { consume = true, destination } = {}) {
+        const item = typeof itemOrUuid === "string" ? world.compendium[itemOrUuid] : itemOrUuid;
+        this.calls.push(["craft", typeof itemOrUuid === "string" ? itemOrUuid : itemOrUuid?.uuid ?? null, consume, destination ?? null]);
         if (!item) return null;
         if (this.resource && consume) {
             const value = this.actor.getResource(this.resource)?.value ?? 0;
@@ -210,6 +228,8 @@ export function asCharacter(actor, { level = 5, formulas = [], classDc = null, s
     actor.rules = rules;
     actor.synthetics = { resources: vials ? { versatileVials: { itemUUID: vials.itemUUID } } : {} };
     actor.getResource = (slug) => (slug === "versatile-vials" && vials ? { slug, value: vials.value, max: vials.max, label: "Versatile Vials" } : null);
+    // Every Foundry actor has a prototype token (`name`, `actor`).
+    actor.prototypeToken ??= { name: actor.name, get actor() { return actor; } };
     // pf2e's book is `system.crafting.formulas`; the module appends with `actor.update`, as the crafting tab does.
     const update = actor.update.bind(actor);
     actor.update = async (data, options) => {

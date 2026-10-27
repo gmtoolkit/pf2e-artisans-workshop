@@ -3099,7 +3099,8 @@ async function m8Vials(h, w) {
 /**
  * Healing Bomb (8.6): Player One's bomber gets the feat and throws an elixir of life made with Quick Alchemy at Player
  * Two's hurt fighter: the elixir is used through pf2e (its healing card), the module's card says each living creature
- * adjacent regains 5 HP (Moderate: 5d6+12); Player Two applies it to the fighter once; a second time is refused.
+ * adjacent regains 5 HP (Moderate: 5d6+12) and reaches Player Two; Player Two applies it to the fighter once; a second time
+ * is refused. Outside an encounter a second additive is allowed; in one, a second the same round is refused.
  */
 async function m8HealingBomb(h, w) {
     await m8Reset(h, w);
@@ -3111,13 +3112,21 @@ async function m8HealingBomb(h, w) {
     const card = thrown.messages?.find((m) => m.card?.kind === "healing-bomb");
     h.check("the best elixir of life with the additive, used through pf2e, and the Healing Bomb card with its HP", thrown.made?.ok && thrown.thrown?.ok && thrown.thrown.hp === 5 &&
         !!card && card.combat?.hp === 5 && thrown.messages.some((m) => m.origin && m.card === null), thrown);
+    const seen = await h.step("p2", "m8", "seen", { message: card?.id });
+    h.check("the card reaches Player Two, the target's owner (second M8 review: it went to the thrower's owners only)", seen.seen === true, seen);
     const heal = await h.step("p2", "m8", "heal", { message: card?.id, actor: w.pcs.p2.uuid });
     h.check("Player Two applies it to the fighter", heal.result.ok && heal.hp === Math.min(hurt.max, 10 + 5), heal);
     const again = await h.step("p2", "m8", "heal", { message: card?.id, actor: w.pcs.p2.uuid });
     h.check("once per card and creature", again.result.reason === "already" && again.hp === heal.hp, again);
+    const outside = await h.step("p1", "m8", "quick", { uuid: M8.elixirMinor, additive: "healing-bomb" });
+    h.check("outside an encounter a second additive is not refused (no rounds there, and world time may stand still)", outside.result.ok === true, outside.result);
+    const fight = await h.step("gm", "m8", "encounter", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid] });
+    const first = await h.step("p1", "m8", "quick", { uuid: M8.elixirMinor, additive: "healing-bomb" });
     const additive = await h.step("p1", "m8", "quick", { uuid: M8.elixirMinor, additive: "healing-bomb" });
-    h.check("one additive a round: a second is refused", additive.result.reason === "additive-round", additive.result);
-    return { thrown, heal, again };
+    h.check("in an encounter, one additive a round: a second is refused", first.result.ok === true && additive.result.reason === "additive-round",
+        { first: first.result, additive: additive.result });
+    await h.step("gm", "m8", "end", { combat: fight.id });
+    return { thrown, seen, heal, again, outside, additive };
 }
 
 /**

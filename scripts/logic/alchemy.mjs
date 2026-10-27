@@ -10,9 +10,12 @@
  *   end of the creator's next turn: tools and elixirs with Enduring Alchemy) or `current` (until the end of the creator's
  *   current turn: quick vials);
  * - `quick`: what made it, `quick-alchemy` or `quick-vial`;
- * - `combat`: `{id, combatant, round, turn}` when it was made in a started encounter the creator is in: the encounter,
- *   the creator's combatant, and the encounter's round and turn index at that moment; else null, and `at` (world
- *   seconds) is one round (6 s) after it was made.
+ * - `combat`: `{id, combatant, round, turn, own, ahead}` when it was made in a started encounter the creator is in: the
+ *   encounter, the creator's combatant, the encounter's round and turn index at that moment, whether it was the creator's
+ *   own turn (`own`) and, if not, whether the creator was still to act that round (`ahead`); else null, and `at` (world
+ *   seconds) is one round (6 s) after it was made. `own` and `ahead` are what the deadline is read from: turn indexes
+ *   move when a combatant is added, removed or re-sorted (Foundry keeps the current combatant), so an index recorded then
+ *   cannot be compared with one read now (second M8 review).
  */
 import { familyKey, formulaCoverage } from "./families.mjs";
 import { DEFAULT_RULES } from "./defaults.mjs";
@@ -94,15 +97,45 @@ export function bestOfFamily(choices, family) {
 /* -------------------------------------------- */
 
 /**
- * The additives a character holds (6.11 `additive`): `{key, when, vials, toggle}`. `when` is the items it fits, `vials`
- * the extra versatile vials it costs (Combine Elixirs), `toggle` the pf2e roll option a Strike with the item turns on
- * (OQ-27: the system's own toggles).
+ * The additives a character holds (6.11 `additive`): `{key, when, vials, toggle, combine}`. `when` is the items it fits,
+ * `vials` the extra versatile vials it costs (Combine Elixirs, Balm Bomb), `toggle` the pf2e roll option a Strike with the
+ * item turns on (OQ-27: the system's own toggles), and `combine` the second item the additive puts in (`{when, level,
+ * merge}`, or null): the items that may be it (`when`), whether it may be no higher than the first item's level (`level`
+ * "first", Combine Elixirs), and whether it goes into the first item itself (`merge`: Combine Elixirs' one elixir that is
+ * both) or stays apart (Balm Bomb's elixir, which an ally gains on a hit).
  */
 export function additivesOf(held, rules = DEFAULT_RULES) {
     return heldEffects(held, "additive", rules).map(({ key, effect }) => ({
         key, when: effect.when ?? null, vials: Number.isInteger(effect.vials) ? effect.vials : 0, toggle: effect.toggle ?? null,
-        combine: effect.combine === true,
+        combine: effect.combine && typeof effect.combine === "object"
+            ? { when: effect.combine.when ?? null, level: effect.combine.level ?? null, merge: effect.combine.merge === true }
+            : null,
     }));
+}
+
+/**
+ * Whether a choice may be an additive's second item (`combine`, 8.6): it matches the additive's `when`, and with `level`
+ * "first" its level is at most the first pick's (Combine Elixirs).
+ */
+export function combineFits(combine, choice, first) {
+    if (!combine || !choice) return false;
+    if (!testPredicate(combine.when, asSet(choice.options))) return false;
+    return combine.level !== "first" || (Number.isFinite(choice.level) && choice.level <= (first?.level ?? -1));
+}
+
+/**
+ * The healing (or damage) a combined elixir carries (Combine Elixirs, 8.6: both elixirs work when it is drunk), as
+ * pf2e's consumable `system.damage` `{formula, type, kind}`, which pf2e's own `consume()` rolls: both formulas summed when
+ * they are of one type and kind, the second's when the first has none. Null when nothing changes (the second has none,
+ * or their types differ: the second's own inline roll in the description stands).
+ */
+export function combinedDamage(first, second) {
+    const a = first?.formula ? first : null;
+    const b = second?.formula ? second : null;
+    if (!b) return null;
+    if (!a) return { formula: b.formula, type: b.type ?? null, kind: b.kind ?? null };
+    if ((a.type ?? null) !== (b.type ?? null) || (a.kind ?? null) !== (b.kind ?? null)) return null;
+    return { formula: `(${a.formula})+(${b.formula})`, type: a.type ?? null, kind: a.kind ?? null };
 }
 
 /** The additives that fit an item (its roll options): the picker lists only these (8.6). */
@@ -113,16 +146,17 @@ export function additivesFor(additives, options) {
 
 /**
  * Whether the character's one additive of this round is spent (8.6: at most one per round per actor): `record` is
- * `flags.MOD.combat.additive = {combat, round, at}`. In an encounter it counts for the same encounter and round; outside
- * one, for a round of world time.
+ * `flags.MOD.combat.additive = {combat, round, at}`. In an encounter it counts for the same encounter and round. Outside
+ * one there are no rounds, and world time often stands still between scenes (after a fight, while exploring), so the limit
+ * is not enforced there: a world-time round would wait for a GM to move the clock (second M8 review; DECISIONS
+ * 2026-10-27).
  *
  * @param {{combat?: string|null, round?: number|null, at?: number}|null} record
- * @param {{combat: {id: string, round: number}|null, worldTime: number}} now
+ * @param {{combat: {id: string, round: number}|null, worldTime?: number}} now
  */
-export function additiveSpent(record, { combat = null, worldTime = 0 } = {}) {
-    if (!record || typeof record !== "object") return false;
-    if (combat) return record.combat === combat.id && record.round === combat.round;
-    return !record.combat && Number.isFinite(record.at) && worldTime - record.at < ROUND_SECONDS;
+export function additiveSpent(record, { combat = null } = {}) {
+    if (!record || typeof record !== "object" || !combat) return false;
+    return record.combat === combat.id && record.round === combat.round;
 }
 
 /**
@@ -149,7 +183,7 @@ export function quickenedSpent(record, combat) {
  * @param {string|null} [p.additive]  the additive's key, put on the first pick
  * @param {object[]} [p.additives]    `additivesOf` the character
  * @param {boolean} [p.additiveSpent] whether this round's additive is spent (`additiveSpent`)
- * @param {object|null} [p.combine]   Combine Elixirs' second elixir (a choice)
+ * @param {object|null} [p.combine]   the additive's second item (a choice): Combine Elixirs' elixir, Balm Bomb's healing elixir
  * @returns {{ok: boolean, cost: number, problems: {reason: string, data?: object}[]}}
  */
 export function brewPlan({ picks = [], vials = 0, brew = 1, additive = null, additives = [], additiveSpent: spent = false, combine = null }) {
@@ -166,7 +200,7 @@ export function brewPlan({ picks = [], vials = 0, brew = 1, additive = null, add
         else if (spent) add("additive-round", { additive });
         if (held?.combine) {
             if (!combine) add("combine-pick");
-            else if (!combine.elixir || combine.level > (first?.level ?? -1)) add("combine-fit", { level: first?.level ?? null });
+            else if (!combineFits(held.combine, combine, first)) add("combine-fit", { level: first?.level ?? null });
         }
         cost += held?.vials ?? 0;
     }
@@ -196,14 +230,17 @@ export function potencyRule(options, { quickVial = false, enduring = [] } = {}) 
 }
 
 /**
- * The stamp an item Quick Alchemy makes gets (4.12, 8.8). `combat` is `{id, combatant, round, turn}` of the started
- * encounter the creator is a combatant in, or null: then the item lasts one round of world time (`at`).
+ * The stamp an item Quick Alchemy makes gets (4.12, 8.8). `combat` is `{id, combatant, round, turn, own, ahead}` of the
+ * started encounter the creator is a combatant in (`combatOf`), or null: then the item lasts one round of world time (`at`).
  */
 export function quickStamp({ creator, cycle = 0, options = [], quickVial = false, enduring = [], combat = null, worldTime = 0 }) {
     if (typeof creator !== "string" || !creator) throw new TypeError("a stamp names its creator");
     const stamp = { creator, cycle: Number.isInteger(cycle) ? cycle : 0, ...potencyRule(options, { quickVial, enduring }), quick: quickVial ? "quick-vial" : "quick-alchemy" };
-    if (combat) stamp.combat = { id: combat.id, combatant: combat.combatant, round: combat.round, turn: combat.turn };
-    else {
+    if (combat) {
+        stamp.combat = { id: combat.id, combatant: combat.combatant, round: combat.round, turn: combat.turn };
+        if (typeof combat.own === "boolean") stamp.combat.own = combat.own;
+        if (typeof combat.ahead === "boolean") stamp.combat.ahead = combat.ahead;
+    } else {
         stamp.combat = null;
         stamp.at = worldTime + ROUND_SECONDS;
     }
@@ -224,15 +261,21 @@ export function comparePosition(a, b) {
  * vial made in the creator's own turn, that turn. `after: true` means the item lasts through that turn (it ends when the
  * turn does); `false` that it ends as the turn starts.
  *
+ * Where the creator stood when the item was made is the stamp's `own` and `ahead`, never its turn index: Foundry renumbers
+ * the turns when a combatant ahead of the creator is added, removed or re-sorted, so only the creator's index now is
+ * compared with the encounter's turn now. A stamp without them (written before the second M8 review) is read from its
+ * index, as before.
+ *
  * @returns {{round: number, turn: number, after: boolean} | null}  null when the creator has no turn in the encounter
  */
 export function turnDeadline(stamp, creatorTurn) {
     if (!isTurnStamp(stamp) || !stamp.combat || !Number.isInteger(creatorTurn) || creatorTurn < 0) return null;
     const made = { round: stamp.combat.round, turn: stamp.combat.turn ?? 0 };
-    const ownTurn = made.turn === creatorTurn;
-    const next = made.turn < creatorTurn ? { round: made.round, turn: creatorTurn } : { round: made.round + 1, turn: creatorTurn };
+    const own = typeof stamp.combat.own === "boolean" ? stamp.combat.own : made.turn === creatorTurn;
+    const ahead = typeof stamp.combat.ahead === "boolean" ? stamp.combat.ahead : made.turn < creatorTurn;
+    const next = !own && ahead ? { round: made.round, turn: creatorTurn } : { round: made.round + 1, turn: creatorTurn };
     if (stamp.rule === "turn-start") return { ...next, after: false };
-    if (stamp.when === "current" && ownTurn) return { round: made.round, turn: creatorTurn, after: true };
+    if (stamp.when === "current" && own) return { round: made.round, turn: creatorTurn, after: true };
     return { ...next, after: true };
 }
 
