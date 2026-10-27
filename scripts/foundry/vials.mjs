@@ -18,7 +18,7 @@ import { MODULE_ID } from "../constants.mjs";
 import { VIAL_RESOURCE } from "../logic/alchemy.mjs";
 import { levelDC } from "../logic/dc.mjs";
 import { vialSources } from "../logic/morning.mjs";
-import { hashId, idemKey } from "../logic/ids.mjs";
+import { lockIdOf } from "../logic/locks.mjs";
 import { admixtureVials, gatherOver, gatherRate, regainTo, regains } from "../logic/vials.mjs";
 import { runRequest } from "./batch.mjs";
 import { combatRefusal, inCombat } from "./combat.mjs";
@@ -147,7 +147,7 @@ export async function haversackVial(actorRef) {
 /* -------------------------------------------- */
 
 /** The lock page that lets one device gather a character's vials at one moment of world time. */
-export const gatherLockId = (actorId, worldTime) => hashId(idemKey("gather", actorId, String(worldTime)));
+export const gatherLockId = (actorId, worldTime) => lockIdOf("gather", actorId, String(worldTime));
 
 /**
  * World time moved by `delta` seconds (8.7): each character this tab is responsible for that regains vials, outside an

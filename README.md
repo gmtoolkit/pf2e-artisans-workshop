@@ -468,8 +468,10 @@ module's own functions (`--seeds` runs of orders in every state, every member in
 one Advance days run of `--days` days) and measures again, then copies those records up to `--orders` orders and `--rows`
 ledger rows (default 200 and 2000) and measures a third time: the Workshop's opens and each tab's render as the GM and
 as Player One, what one change to the ledger costs every open window, reconciliation, a ledger write and a deposit, and a
-full Advance days run through the wizard, with CPU profiles of each on the GM's page summed by function and file. Then it
-puts the party back, deletes the copies and the run's chat messages, and resets the shared documents as `harness:live`
+full Advance days run through the wizard, with CPU profiles of each on the GM's page summed by function and file. A fourth
+stage (S3) ends the Earn Income jobs, archives and prunes as a GM's client would once `--later` workshop days (default 90)
+and two real days have passed (DESIGN.md 5.3.3, 5.4), and measures again; every client's automatic housekeeping is paused
+while the stages are staged and measured. Then it puts the party back, deletes the copies and the run's chat messages, and resets the shared documents as `harness:live`
 does; the results are in `<out>/results.json`. Each stage's medians are held to the 50 ms re-render budget of DESIGN.md 15.7
 (every tab's part, a live refresh on the Queue tab, and what one ledger change costs each open window); a miss is a failed
 check and the run exits 1.

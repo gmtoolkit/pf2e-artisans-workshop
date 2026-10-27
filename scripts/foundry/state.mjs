@@ -16,8 +16,9 @@
  * calls `canvas.tokens.cycleTokens`), although the client's copy of the actor has the new ownership.
  *
  * On top of these, "stale": this client processed the results of a request the server refused at its dry run
- * that created or deleted documents on this client only (5.4, As built in M2), or it never heard back about one;
- * its copies may differ from the server's, so it stops writing until reloaded. A lost lock does not do this: in
+ * that created or deleted documents on this client only (5.4, As built in M2), or it never heard back about one,
+ * or its connection dropped at all (As built in M12b, review); its copies may differ from the server's, so it stops
+ * writing until reloaded. A lost lock does not do this: in
  * 14.368 only the world-level operations of a refused request replay, and the lock request's one world-level
  * operation is an update, which a dry run does not commit.
  */
@@ -66,12 +67,16 @@ export function setShared({ ledger = null, strongbox = null, status: next }) {
  * - "refused": the server refused a request at its dry run, and this client replayed a creation or deletion from
  *   it that happened here only (5.4, Dry-run replay);
  * - "disconnected": the connection dropped while a request was out, so its answer is lost (5.4, Answers);
+ * - "dropped": the connection dropped with no request out (`sync.mjs`): broadcasts sent while it was down are lost, so
+ *   this client's copies may be behind the server's, and a request planned from them could name lock pages the pruner has
+ *   since deleted, which the server would no longer refuse (5.4, As built in M12b: Races);
  * - "timeout": no answer came within `ANSWER_LIMIT_MS` (`batch.mjs`).
  * In the last two the request may have applied on the server, or may yet.
  */
 const STALE_CAUSES = Object.freeze({
     refused: { notice: "pf2e-artisans-workshop.Sync.Stale.Refused", log: "the server refused a request that this client had already replayed" },
     disconnected: { notice: "pf2e-artisans-workshop.Sync.Stale.Disconnected", log: "the connection dropped while a request was out, so its answer is lost" },
+    dropped: { notice: "pf2e-artisans-workshop.Sync.Stale.Dropped", log: "the connection dropped, so changes made meanwhile may never have reached this client" },
     timeout: { notice: "pf2e-artisans-workshop.Sync.Stale.Timeout", log: "the server did not answer a request in time" },
 });
 
@@ -82,7 +87,7 @@ export function markStale(cause) {
     if (stale) return;
     stale = true;
     console.warn(`${MODULE_ID} | local copies may differ from the server: ${log}; reload to continue`);
-    ui.notifications.warn(notice, { localize: true, permanent: true });
+    ui.notifications?.warn(notice, { localize: true, permanent: true });   // a drop before `ready` comes before the notifications
 }
 
 /** For tests only: forget everything. */

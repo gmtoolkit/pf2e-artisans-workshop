@@ -25,7 +25,7 @@ import {
     isMissive, markFor, quickDeployLedger, raiseActivated, raiseResistances, settleSubject, stillMagical, subjectProcess, subjectRecord,
 } from "../logic/crafts.mjs";
 import { PC_VERSION, lockOf } from "../logic/downtime.mjs";
-import { hashId } from "../logic/ids.mjs";
+import { lockKeyId } from "../logic/locks.mjs";
 import { WITH_SUBJECT, closedAs } from "../logic/orders.mjs";
 import { pledgedSpell } from "../logic/pledges.mjs";
 import { crafterMarks, investitureExemptions, quickDeployMarks, testPredicate } from "../logic/registry.mjs";
@@ -430,7 +430,7 @@ export async function setSnareMark(actorUuid, slug, key, mark) {
     if (!snareAbilities(actor).some((a) => a.slug === slug)) return refuse("no-pool");
     if (mark && !quickDeployMarks(heldKeysOf(actor)).includes(mark)) return refuse("mark");
     const path = `flags.${MODULE_ID}.quickDeploy.${slug}`;
-    const id = hashId(`snare:${key}`);
+    const id = lockKeyId(`snare:${key}`);
     await actor.update({ [`${path}.${id}`]: mark ? { key, mark } : _del });
     return { ok: true };
 }

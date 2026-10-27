@@ -40,6 +40,7 @@ import * as funds from "../foundry/funds.mjs";
 import * as orders from "../foundry/orders.mjs";
 import { reconciliationReport, bookAdjustment } from "../foundry/reconcile.mjs";
 import { resolvePending } from "../foundry/money.mjs";
+import { archived } from "../foundry/housekeeping.mjs";
 import { members } from "../foundry/roster.mjs";
 import { rulesFromSettings, setting } from "../foundry/settings.mjs";
 import { canWrite, shared, status } from "../foundry/state.mjs";
@@ -119,6 +120,9 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     /** The open window, if any: there is one Workshop per client. */
     static instance = null;
 
+    /** Whether the Funds tab lists the archived ledger (M12b, 5.3.3). */
+    historyShown = false;
+
     static DEFAULT_OPTIONS = {
         id: "pf2e-artisans-workshop",
         classes: ["pf2e-artisans-workshop", "workshop-window"],
@@ -137,6 +141,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             reverse: WorkshopApp.#onReverse,
             take: WorkshopApp.#onTake,
             closeRow: WorkshopApp.#onCloseRow,
+            // M12b (5.3.3): the archived ledger under the Funds tab's.
+            toggleHistory: WorkshopApp.#onToggleHistory,
             adjust: WorkshopApp.#onAdjust,
             clearFilters: WorkshopApp.#onClearFilters,
             moreOrders: WorkshopApp.#onMoreOrders,
@@ -466,8 +472,12 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const rows = records("rows");
         const strongbox = shared().strongbox;
         const ordersById = Object.fromEntries(orders.allOrders().map((order) => [order.id, order]));
+        // M12b (5.3.3): the archived ledger, from the Crafting Log, listed only when asked for.
+        const archivedRows = archived("rows");
+        const history = archivedRows.length ? { rows: archivedRows, shown: this.historyShown,
+            orders: this.historyShown ? Object.fromEntries(archived("orders").map((order) => [order.id, order])) : {} } : null;
         const view = fundsView({
-            rows, actualCp: strongbox ? valueCp(holdingsOf(coinStacks(strongbox))) : 0, orders: ordersById, viewer, nameOf, userName,
+            rows, actualCp: strongbox ? valueCp(holdingsOf(coinStacks(strongbox))) : 0, orders: ordersById, viewer, nameOf, userName, history,
         });
         const acting = this.actingActor();
         const recon = game.user.isGM ? reconciliationReport() : null;
@@ -514,6 +524,12 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
                     ...row, kindLabel: ROW_KIND[row.code] ?? row.kind, amount: row.items ? null : money(row.cp), box: row.box,
                     boxText: row.box ? money(row.box) : null, when: row.at ? when({ real: row.at }) : "",
                 })),
+                history: view.history ? {
+                    ...view.history,
+                    rows: view.history.rows.map((row) => ({
+                        ...row, kindLabel: ROW_KIND[row.code] ?? row.kind, amount: row.items ? null : money(row.cp), when: row.at ? when({ real: row.at }) : "",
+                    })),
+                } : null,
                 withdrawable: acting ? fundWithdrawableCp(rows, acting.uuid) : 0,
                 reconciliation: recon ? {
                     needsHand: recon.needsHand.map((row) => ({ id: row.id, kind: ROW_KIND[row.kind] ?? row.kind, amount: money(row.cp ?? 0), by: userName(row.author) })),
@@ -1032,6 +1048,11 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     static async #onTake() {
         await this.#run(funds.takeAll(), "pf2e-artisans-workshop.Event.Take");
+    }
+
+    static #onToggleHistory() {
+        this.historyShown = !this.historyShown;
+        return this.render({ parts: ["funds"] });
     }
 
     static async #onCloseRow(_event, target) {

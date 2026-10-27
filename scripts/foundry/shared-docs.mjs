@@ -12,6 +12,10 @@
  * - Each carries `flags.MOD.role` ("ledger" or "strongbox") and `flags.MOD.schema`; their ids are kept in the
  *   world setting `docs`. Clients look them up by role; if two exist (two GMs racing), the oldest by
  *   `_stats.createdTime` is used and GMs are told.
+ * - M12b (5.3.3): the Crafting Log, a third document, holds what archiving moves out of the ledger. Only a GM writes it (the
+ *   archive write is the one thing that waits for a GM), every player reads it (OBSERVER), for the Funds tab's history. The
+ *   active GM creates it with the others, and in a world that had them before M12b, at its next check. It is not part of
+ *   "ready": nothing but the archive needs it.
  */
 import { MODULE_ID } from "../constants.mjs";
 import { compareIds } from "../logic/ids.mjs";
@@ -45,6 +49,14 @@ export function locateShared() {
     const strongbox = strongboxes[0] ?? null;
     const ready = writable(ledger) && writable(strongbox);
     return { ledger, strongbox, ready, duplicates: [...ledgers.slice(1), ...strongboxes.slice(1)] };
+}
+
+/**
+ * The Crafting Log (M12b, 5.3.3): the oldest journal with the archive role, or null. GM-owned, readable by every player.
+ * @returns {JournalEntry|null}
+ */
+export function locateArchive() {
+    return withRole(game.journal, "archive")[0] ?? null;
 }
 
 /** The flags every shared document is created with. */
@@ -101,7 +113,21 @@ async function createMissing() {
     }
     await repairOwnership([ledger, strongbox]);
     await recordIds({ ledger, strongbox });
+    await createArchive();
     return { ledger, strongbox };
+}
+
+/**
+ * Create the Crafting Log if it is missing (M12b, 5.3.3): in the module's folder, default ownership OBSERVER, so every
+ * player reads the archived history and only a GM writes it. GM only, from the active GM's check.
+ */
+async function createArchive() {
+    if (locateArchive()) return null;
+    const folder = await ledgerFolder();
+    return JournalEntry.implementation.create({
+        name: game.i18n.localize("pf2e-artisans-workshop.Documents.ArchiveName"), folder: folder.id,
+        ownership: { default: CONST.DOCUMENT_OWNERSHIP_LEVELS.OBSERVER }, flags: createFlags("archive"),
+    });
 }
 
 /** Keep the `docs` setting pointing at the documents in use. */
@@ -137,7 +163,11 @@ export async function gmMaintenance() {
             ui.notifications.info("pf2e-artisans-workshop.Sync.OwnershipRepaired", { format: { name: doc.name } });
         }
     }
-    if (active && found.ledger && found.strongbox) await recordIds(found);
+    if (active && found.ledger && found.strongbox) {
+        await recordIds(found);
+        // M12b: the Crafting Log, in a world whose shared documents came before it.
+        if (!locateArchive()) await createArchive();
+    }
     for (const doc of found.duplicates.filter((d) => !warned.has(d.uuid))) {
         warned.add(doc.uuid);
         ui.notifications.warn("pf2e-artisans-workshop.Sync.Duplicate", { format: { name: doc.name } });

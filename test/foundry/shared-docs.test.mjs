@@ -171,7 +171,12 @@ test("only the active GM creates the shared documents: an assistant turning the 
     resetLease();
     requestLease("gm00000000000000");
     await Promise.all([shared.createShared(), shared.createShared(), sync.refresh()]);
-    assert.deepEqual([game.journal.size, game.actors.size, game.folders.size], [1, 1, 1]);
+    // M12b: the ledger and the Crafting Log, each once.
+    assert.deepEqual([game.journal.size, game.actors.size, game.folders.size], [2, 1, 1]);
+    assert.deepEqual(game.journal.map((j) => j.flags[MOD].role).sort(), ["archive", "ledger"]);
+    const log = shared.locateArchive();
+    assert.equal(log.ownership.default, 2, "every player reads the Crafting Log (OBSERVER); only a GM writes it");
+    assert.equal(log.folder, game.journal.find((j) => j.flags[MOD].role === "ledger").folder, "in the module's folder");
 });
 
 test("deletion guards: players are stopped; a GM is asked; the module's own deletions pass", async () => {

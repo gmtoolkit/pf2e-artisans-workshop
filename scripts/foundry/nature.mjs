@@ -13,6 +13,7 @@
 import { MODULE_ID } from "../constants.mjs";
 import { earmarkInputs, fundSlotLockId, unallocatedCp } from "../logic/funds.mjs";
 import { hashId } from "../logic/ids.mjs";
+import { lockKeyId } from "../logic/locks.mjs";
 import { closedAs } from "../logic/orders.mjs";
 import { seasonLink } from "../logic/rolls.mjs";
 import { allocationsByContributor } from "../logic/split.mjs";
@@ -169,7 +170,7 @@ export async function recordSeasonCheck({ id: orderId, season }, check, actor) {
         await write({ replace: { [`days.${record.id}`]: record } });
         return { ok: true, record };
     }
-    const written = await lockedWrite([hashId(seasonKey(orderId, season))], [], { replace: { [`days.${record.id}`]: record } });
+    const written = await lockedWrite([lockKeyId(seasonKey(orderId, season))], [], { replace: { [`days.${record.id}`]: record } });
     return written.ok ? { ok: true, record } : written;
 }
 
@@ -261,7 +262,7 @@ export async function plantGarden(gardenId) {
     const day = today().day;
     return spend({ kind: "plant", stem: key, cp: garden.seedCostCp, allocations, link: { garden: gardenId, day },
         ledger: { set: { [`gardens.${gardenId}.plantedDay`]: day, [`gardens.${gardenId}.planted`]: stampNow() } },
-        locks: [hashId(key), gardenSlotLockId(gardenId, records("rows"))] });
+        locks: [lockKeyId(key), gardenSlotLockId(gardenId, records("rows"))] });
 }
 
 /** What of a garden's money `actorUuid` may take back (6.16.7): their own remaining allocation; `null` is the party fund's share. */
@@ -345,7 +346,7 @@ export async function harvest(gardenId, actorUuid) {
         garden: gardenId }));
     foundry.utils.setProperty(source, `flags.${MODULE_ID}.produce`, { garden: gardenId, day });
     const result = await runRequest([
-        { op: "lock", ids: [hashId(harvestKey(gardenId, day))] },
+        { op: "lock", ids: [lockKeyId(harvestKey(gardenId, day))] },
         { op: "createItems", target: actor.uuid, data: [source] },
         { op: "ledger", change: { set: { [`gardens.${gardenId}.harvests.${day}`]: { actor: actor.uuid, ...stampNow() } } } },
     ]);

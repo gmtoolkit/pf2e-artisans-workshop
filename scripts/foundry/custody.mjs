@@ -14,7 +14,8 @@
  * collects it; `deliveredSource` drops the earmark on the way.
  */
 import { MODULE_ID } from "../constants.mjs";
-import { hashId, idemKey } from "../logic/ids.mjs";
+import { idemKey } from "../logic/ids.mjs";
+import { lockIdOf } from "../logic/locks.mjs";
 import { stackLockId } from "../logic/lock-first.mjs";
 import { stockMaterial } from "../logic/materials.mjs";
 import { CLOSED } from "../logic/orders.mjs";
@@ -174,7 +175,7 @@ export async function giveBack({ order = null, service = null, line: lineId }) {
     // One give-back per line: a second (a double click, two users at once) loses at this lock.
     const moved = await moveCoins(() => ({
         rows: back.rows, itemUpdates: [{ target: "strongbox", updates: back.updates }], ledger: { set: back.marks },
-        locks: [hashId(idemKey("give-back", holder.id, line.id))],
+        locks: [lockIdOf("give-back", holder.id, line.id)],
     }), {}, back.rows);
     return moved.ok ? { ok: true } : moved;
 }

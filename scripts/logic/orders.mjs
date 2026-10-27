@@ -13,8 +13,9 @@
  */
 import { DEGREE, compareRows, liveRows, requireCp, requireInteger } from "./core.mjs";
 import { DEFAULT_RULES } from "./defaults.mjs";
-import { hashId, idemKey } from "./ids.mjs";
+import { idemKey } from "./ids.mjs";
 import { isPlainObject } from "./keypath.mjs";
+import { lockIdOf } from "./locks.mjs";
 import { extraDayRecord, recordsOf, setupComplete } from "./progress.mjs";
 import { committedFromRows } from "./craft.mjs";
 import { allocationsByContributor, splitProRata } from "./split.mjs";
@@ -134,7 +135,7 @@ export const lastEntry = (order) => logEntries(order).at(-1) ?? null;
  * (a cancel and a finish, two offers to craft), or one planned from a copy that had not seen the last transition yet,
  * only the first lands.
  */
-export const logLockId = (orderId, seq) => hashId(idemKey("log", orderId, seq));
+export const logLockId = (orderId, seq) => lockIdOf("log", orderId, seq);
 
 /**
  * The state a closing transition (`CLOSING`) left the order in, by its log, or null while the order is open. The log

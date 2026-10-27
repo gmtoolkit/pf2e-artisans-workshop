@@ -34,14 +34,16 @@
  * A close by hand or a GM's adjust leaves a move that a resume finishes alone; for one that needs a hand it takes the
  * same mark (with `hand` on its page), so of a late apply request, a close and an adjust exactly one gets past it.
  *
- * Descriptors: `{op: "lock", ids, move?, hand?}`, `{op: "ledger", change: {set, replace, del}}`, `{op: "deleteItems",
+ * Descriptors: `{op: "lock", ids, move?, hand?, keys?}` (`keys`: the idempotency key of an id, when the page's kind must not
+ * depend on this client remembering it, `lockTag`), `{op: "ledger", change: {set, replace, del}}`, `{op: "deleteItems",
  * target, ids}`, `{op: "updateCoins", target, updates: [{id, quantity}]}`, `{op: "createCoins", target, coins:
  * [{denomination, quantity}], lot}`, `{op: "createItems", target, data}`, `{op: "updateItems", target, updates: [{_id,
  * ...}]}` (M5: a target item's new runes, an earmarked item put on the pickup shelf; updates are nested objects, never
  * dotted keys, since a resumable move's page stores them in flags). `target` is "strongbox" or an actor UUID.
  */
 import { stampTime } from "./core.mjs";
-import { hashId, idemKey } from "./ids.mjs";
+import { idemKey } from "./ids.mjs";
+import { lockIdOf } from "./locks.mjs";
 import { PENDING_GRACE_MS } from "./reconcile.mjs";
 
 /** A coin plan (`scripts/logic/coins.mjs`) as descriptors: deletes, then quantity updates, then new stacks. */
@@ -68,7 +70,7 @@ const writesSomething = ({ set = {}, replace = {}, del = [] } = {}) =>
  * the other's quantity; a move planned after the stack changed names a new page.
  */
 export function stackLockId(id, version) {
-    return hashId(idemKey("stack", id, String(version ?? 0)));
+    return lockIdOf("stack", id, String(version ?? 0));
 }
 
 /**
@@ -102,7 +104,7 @@ export const MOVE_VERSION = 1;
  * server lets that request through once (keepId, as for every lock), whoever sends it.
  */
 export function applyMarkId(rowId) {
-    return hashId(idemKey("apply", rowId));
+    return lockIdOf("apply", rowId);
 }
 
 /**
@@ -112,7 +114,7 @@ export function applyMarkId(rowId) {
  * twice"), so of a late apply request, a re-creation and a close exactly one lands.
  */
 export function recreateLockId(rowId) {
-    return hashId(idemKey("recreate", rowId));
+    return lockIdOf("recreate", rowId);
 }
 
 /** The last operation of an apply request: the ledger update that sets the rows to "applied". */
@@ -152,7 +154,10 @@ export function lockFirstBatch({ rowIds = [], lockIds = rowIds, ledger = {}, deb
     if (resume && mark) throw new RangeError("a resumable move's mark is its apply mark");
     const settle = settleOf(rowIds);
     const apply = [
-        ...(resume ? [{ op: "lock", ids: [applyMarkId(rowIds[0])] }] : mark ? [{ op: "lock", ids: [mark] }] : []),
+        // The apply mark says what it guards (its key), so a resume sent from another client's copy tags its page too (5.4,
+        // As built in M12b).
+        ...(resume ? [{ op: "lock", ids: [applyMarkId(rowIds[0])], keys: { [applyMarkId(rowIds[0])]: idemKey("apply", rowIds[0]) } }]
+            : mark ? [{ op: "lock", ids: [mark] }] : []),
         ...debits.flatMap((d) => coinOps(d.target, d.plan, d.target === "strongbox" ? lot : null)),
         ...itemUpdates.map((u) => ({ op: "updateItems", target: u.target, updates: u.updates })),
         ...credits.flatMap((c) => coinOps(c.target, c.plan, c.target === "strongbox" ? lot : null)),

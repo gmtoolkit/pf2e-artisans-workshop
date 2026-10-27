@@ -210,7 +210,7 @@ the GitHub API on 2026-10-27 (pin `pf2e-8.6.1`, dev head `057bd484`): no newer r
 | Per-PC downtime status | Workshop ledger `pcs.<actorId>` | the PC's owner | actor id |
 | Downtime-day record | Workshop ledger `days` | the resolving client: the PC's owner or the wizard runner (9.2) | `<actorId>-<day>`; variant records `<actorId>-<day>-<orderId>` (4.8) |
 | Manual day log | Workshop ledger `meta.manual.<runId>` | the wizard runner (9.2) | random id |
-| Lock page | JournalEntryPage in the Workshop ledger | created first in every batch that moves coins, items or formulas (5.4); pruned when its row is archived | id of what it locks: a row, a strongbox item, a purse coin stack at one version (5.4) |
+| Lock page | JournalEntryPage in the Workshop ledger | created first in every batch that moves coins, items or formulas (5.4); says what it guards (`lock.kind`) and is pruned by the elected client once spent (5.4, As built in M12b) | id of what it locks: a row, a strongbox item, a purse coin stack at one version (5.4) |
 | Earn Income job | Workshop ledger `jobs` | the earner's owner | random id |
 | Roster snapshot | Workshop ledger `roster.<actorId>` | the PC's responsible client | actor id |
 | Standing order | Workshop ledger `standing` | requester, crafter | random id |
@@ -347,7 +347,7 @@ what would unlock it.
 | `gathering` | component found | `gathering` | any member | `variant.quest.components.<id>.found = {by, day}`; nothing else |
 | `gathering` | derived: every component's `found` is set | `check` or `complete` | the crafter's responsible client, when it sees the last mark | status only for `check` (when an assembly check is required); otherwise delivery as at `finish`, in a lock-first batch keyed `assemble:<orderId>:<attempt>` (5.4), so writing it twice is harmless (not `deliver:<orderId>:<attempt>`, the shelf item's claim key, whose page the recipient's delivery takes: M9a live pass) |
 | `rolled` (quest) | settle | `complete` or `failed` | as for any settle | no money rows: success, and failure with a quirk note, deliver; a critical failure fails the order or delivers it cursed by `variants.quests.critFail` (6.16.9) |
-| `complete`, `cancelled` | archive | `archived` | the elected archiver, automatically after the archive age (5.3.3) | moved to an archive page |
+| `complete`, `cancelled` | archive | `archived` | the elected archiver, automatically after the archive age (5.3.3); As built in M12b, the active GM's client, since the Crafting Log is GM-owned | moved to the Crafting Log's page of its world year as it was (its `status` stays `complete` or `cancelled`; leaving the ledger is what `archived` means) |
 
 The user who made the last transition of an order or job (or another owner of the same actor) can undo
 it; a GM can undo the last transition of any order or job. Undo writes reversal rows (4.6) and restores
@@ -589,6 +589,15 @@ rows.<id> = {
   (the fund's side is its order's mirror, `rowLabel`) and names it by direction ("Earmarked from the party fund", "Given
   back to the party fund"); a `shelved` row of an order for the strongbox reads "Put in the strongbox", and item rows show
   no amount.
+- **As built in M12b** (`carryRows`, `scripts/logic/archive.mjs`). A `carry` row is one per actor (and one for the party fund,
+  `actor` null), keyed `carry:<actor UUID or fund>:<run>`, with no order, garden or job: the sums of the archived rows' `box`,
+  `purse` and `alloc` (an archived order's rows net to nothing per contributor, so its `alloc` is the fund's), `share` (the
+  member's net deposits among them, the fund rows `memberBalances` counts: deposits, withdrawals and refunds from the fund, a
+  reversed pair counting nothing), `fundDebits` (the fund rows that took money out, which the fund slot counts, `fundDebitCount`)
+  and `count`. Every run folds the carry rows already there into its own and moves the old ones to the Crafting Log, so the
+  ledger holds one per actor. Readers: the expected coins and the unallocated fund are sums as before; `memberBalances` adds
+  `share` to a member's deposits; `fundSlotLockId` counts `fundDebits` instead of the carry row itself. The Funds tab names a
+  carry row "Carried forward"; it cannot be reversed.
 - **As built in M5 on M4.1** (`purchaseInputs`, `scripts/logic/funds.mjs`; `payPurchase`, `scripts/foundry/purchases.mjs`).
   Every `purchase` (a formula bought, a casting bought, a spell's cost, a formula copy) is paid from a source the user
   picks, as "Fund this order" is. From a purse it is the M2 row (`via: "purse"`). From the party fund the coins leave the
@@ -869,8 +878,8 @@ says so once per session (`scripts/foundry/state.mjs`, `sync.mjs`).
 |---|---|---|---|
 | World settings | world | feature toggles, rules-gap settings, settlement profiles, ids of the shared documents | GM and assistant GMs (`SETTINGS_MODIFY`) |
 | **Workshop ledger** | a JournalEntry created by the module, default ownership OWNER, in a "module data" folder | `meta` (current settlement, manual day log, day offset, archive and migration locks), `orders`, `services`, `rows`, `claims`, `pcs`, `days`, `jobs`, `roster`, `formulas`, `standing`, `gardens`, `afflictionDefs`, `extRuns`, `spends`, `incomes`; and, beside the module's own flags, each extension's store under its own module id (As built in M10, 12.4) | every player |
-| Ledger archive pages | JournalEntryPages inside the ledger | archived orders, rows and day records as flags | every player (page creation needs OWNER of the parent journal, which players have) |
-| Lock pages | JournalEntryPages inside the ledger, `_id` = the id of what they lock (a row, a strongbox item, a purse coin stack at one version, a coin move's apply request, a lost delivery's re-creation) | the lock stamp (`lock`); on a coin move's first row, also the move itself (`move`), for a resume (5.4, As built: Resume); and a lock page may carry `hand: {kind, row}`: an apply mark or re-creation lock taken by a close by hand (`kind` "close", `row` the row closed) or a GM's adjust ("adjust", `row` the adjust row) for a row that needed a hand, so reconciliation knows no request is behind it (5.4, As built: Closing by hand); their existence is the lock | every player |
+| **Crafting Log** (As built in M12b; replaces the ledger's archive pages) | a JournalEntry created by the module beside the ledger, default ownership OBSERVER; one JournalEntryPage per world year | archived orders, rows, day records, claims and Earn Income jobs as flags (`flags.MOD.<collection>.<id>`), as they were in the ledger | a GM (every player reads it) |
+| Lock pages | JournalEntryPages inside the ledger, `_id` = the id of what they lock (a row, a strongbox item, a purse coin stack at one version, a coin move's apply request, a lost delivery's re-creation) | the lock stamp (`lock`), which says what the page guards (`lock.kind`, and `lock.key` for a keyed kind, As built in M12b); on a coin move's first row, also the move itself (`move`), for a resume (5.4, As built: Resume); and a lock page may carry `hand: {kind, row}`: an apply mark or re-creation lock taken by a close by hand (`kind` "close", `row` the row closed) or a GM's adjust ("adjust", `row` the adjust row) for a row that needed a hand, so reconciliation knows no request is behind it (5.4, As built: Closing by hand); their existence is the lock | every player |
 | **Strongbox** | a pf2e `loot` Actor created by the module, then updated to default ownership OWNER (5.2) | escrowed coins, earmarked materials, shelf items | every player |
 | PC actor flags | each character | loadouts, per-character preferences | the PC's owner |
 | Item flags | items | expiry stamps, inert marks, DC stamps, affix records, crafted-by stamp, coatings, affliction run state, components, gift bindings | the item's owner |
@@ -934,6 +943,10 @@ says so once per session (`scripts/foundry/state.mjs`, `sync.mjs`).
   (lock and archive pages), which only the module deletes; its own deletions pass
   `{"pf2e-artisans-workshop": {internal: true}}` in the operation options. A GM's confirmation offers the
   purge, deleting just that document, or cancelling.
+- **As built in M12b**: the active GM's client also creates the Crafting Log (5.3.3, `locateArchive`, role `archive`), in the same
+  folder, default ownership OBSERVER (players read it, only a GM writes it), with the other two and, in a world whose shared
+  documents came before it, at its next check. It is not part of "ready": nothing waits for it but the archive runs. The deletion
+  guards cover it and its pages.
 
 ### 5.3 Partial updates and concurrency
 
@@ -996,6 +1009,74 @@ Archiving is a timer-driven write, so it follows P4:
 As built in M2: archiving is not built yet. It needs the order lifecycle (M4) and the workshop day (M6) to
 know what is old; when it comes it also prunes the stack lock pages of 5.4 (strongbox stacks that are gone,
 purse stack versions that have moved on).
+
+**As built in M12b** (`scripts/logic/archive.mjs`, `scripts/foundry/housekeeping.mjs`; DECISIONS.md 2026-10-27, M12b). The
+M12 performance pass measured that the ledger's lock pages, not its flags, set what every write costs (15.7), so archiving came
+with the pruning of lock pages (5.4, As built in M12b), which needs no GM; what changed from the design above:
+
+- **Where the archive lives: the Crafting Log**, a journal of its own (5.1), not pages of the ledger: a page of the ledger is
+  part of the ledger document, so every write would still carry the archive (the probe of 15.7: 1.3 MB of flags cost 40 ms a
+  write). The active GM creates it with the shared documents (5.2) and, in a world from before M12b, at its next check; default
+  ownership OBSERVER, so every player reads the history and only a GM writes it. **The archive write is the one thing that waits
+  for a GM**: with none online, nothing is archived and the pruning goes on. The elected archiver is the elected client of 5.6
+  when it is a GM's (the active GM's); a player elected prunes only.
+- **What moves** (`planArchive`), past OQ-36's ages: 30 workshop days for orders and jobs, 60 for rows, day records and claims, and
+  never anything written less than a real day ago on the server's clock (`ARCHIVE_THRESHOLDS`). Rows carry no workshop day of
+  their own (a wage's `day` excepted), so a record's day is its stamp's clock day; days logged ahead of the clock can make a record
+  look older than it is, and the real-day floor keeps that from archiving a fresh one. One run moves:
+  - a **closed order** (`complete` or `cancelled`, its last log entry agreeing, so a late write that moved its status keeps it)
+    that holds nothing: every row applied, every contributor's allocation back to nothing, no claim open, no item line not given
+    back or used, nothing of it on the pickup shelf or earmarked in the strongbox; with its rows, claims and day records. Its day is
+    the latest of its close and its rows and days;
+  - an **ended Earn Income job** whose every day with a wage is paid by a live wage row and whose claims are resolved, with its
+    rows, claims and day records (a job still open keeps its wages: the sweep pays what a day record owes from them, 6.10);
+  - the **party fund's own rows** (no order, garden, job or extension `source`), applied, no open claim of the same id, none an
+    order that stays names in its log (its undo reverses them), nor a service's payment (`payment.row`: a cancel refunds it from
+    the live row, 4.5, and services are never archived; M12b review), a reversal only together with the row it reverses;
+  - **day records** of nothing still live and **resolved claims** of nothing still live (a resolved expiry claim, say).
+  Never moved: every PC's latest day record (`resolvedThrough` is derived from them, 4.8, so the pending days stay as they were),
+  an extension run's day records and rows (they say what the run owes, 12.6), gardens, services, standing orders, formula
+  provenance (its `orderId` may name an archived order; nothing reads it back), pcs and the roster. At most `ARCHIVE_RUN_LIMIT`
+  (3000) records go in one run, whole orders and jobs first; the rest wait for the next run, which comes two seconds later.
+- **Carry rows** keep what the live ledger needs: one per actor (4.6, As built in M12b), so the expected strongbox coins, the
+  unallocated fund, the Funds tab's identity (strongbox = fund + earmarked), each member's balance and share of the fund (5.9) and
+  the fund slot's number (5.4, As built in M4.1) are what they were. A run folds the carry rows there into its own, so the ledger
+  keeps one per actor however many runs there were; the folded ones go to the Crafting Log.
+- **One run, one request**: its lock pages, the Crafting Log's pages (the run's own page first, then the page of each world year
+  it adds to, created with `keepId` or updated key by key), then the ledger update that writes the carry rows, deletes what moved
+  (and stubs left by late key-path writes) and records the run (`meta.archive = {runs, through, counts, by, at}`). Its lock pages
+  are the run's slot (`archive:<runs>`, `meta.archive.runs` before it), **the next log slot of every order and job it moves**
+  (`logLockId`, `jobLogLockId`) and **the reversal row id of every fund row it moves that a Funds-tab reversal could still take
+  back** (`reversal:<row>`, a `REVERSIBLE_KINDS` row not reversed; M12b review): of two runs planned from the same copy only one
+  lands, a run and an undo (or any transition) of an order it moves cannot both land, and nor can a run and a reversal of a row it
+  moves. The second matters because a quest completed by its settlement (6.16.9) and an ended job are closed but can be undone,
+  so without it an undo landing first would leave the run deleting a reopened order, and a run landing first a late undo writing
+  into nothing. The third because a reversal's lock request takes its own row id and nothing the run takes: landing after the run,
+  it left the row it reverses in a carry row's `share`, and its own live reversal row out of `memberBalances` (`liveRows` leaves
+  reversals out), so the member kept a share of money already given back (the review's probe: half the fund). The design's
+  `meta.archive` marker as the lock is replaced by the slot page, which the server arbitrates; a run that stops after its lock
+  leaves its slot taken and its records live, and the pruner frees the slot (an "age" kind, 5.4) so a later run repeats the work.
+- **The run's page in the Crafting Log** (`archiveRunPageId(runs, attempt)`, role `archive-run`, hidden from players; M12b review)
+  is what refuses a run planned again from a copy that missed it. The slot is an "age" page, gone 15 minutes after the run, and a
+  GM's client whose copy missed a run (a laptop asleep through it) still reads `meta.archive.runs` as before it: planning the same
+  run again, its request named a slot that no longer existed and landed, re-creating the carry rows the next run had folded (every
+  total counted twice) and setting the run count back. The run's page is created with its id kept and never deleted, so the same
+  run planned again is refused at the server's dry run however late it comes, at no cost to ledger writes (keeping each landed
+  run's slot in the ledger instead would have added a lock page per run for ever, which 15.7 measured as the cost of every write).
+  A run that stops after the Crafting Log write and before its ledger update leaves its page and the run count as they were; its
+  next try, once the pruner frees the slot, takes the next attempt's page (`archiveRunAttempt`: the first attempt this copy of
+  the log does not have). Such a stop also leaves copies of still-live records in the year page until the retry rewrites them
+  (15.7, Follow-ups).
+- **The archived rows' lock pages** (their own, their apply marks and re-creation locks) are deleted right after the run, in a
+  request of their own, not in the same one: a page another client's pruner deleted meanwhile would make the server refuse the
+  whole run at its dry run. Any the request misses are spent pages the pruner takes (a row that is not live).
+- **No reversal of an archived row.** The design wrote a reversal of an archived row into the archive page; the Crafting Log is a
+  GM's to write, and what moves is closed (a closed order's rows were never reversible, 4.6) or old, so archived rows are not
+  reversible: the Funds tab lists them read-only.
+- **The Funds tab's history**: under the ledger, "Show the archived ledger (n)" lists the Crafting Log's rows the same way, newest
+  first (at most 200), marked "archived", their orders named from the archived orders; a folded carry row is not listed
+  (`fundsView`'s `history`, 10.1).
+- **Purge** (5.9) deletes the Crafting Log with the ledger; the deletion guards (5.2) cover it and its pages as they do the ledger.
 
 ### 5.4 Moving coins safely
 
@@ -1114,6 +1195,9 @@ As built in M2 (`scripts/logic/lock-first.mjs`, `scripts/foundry/batch.mjs`, `mo
   coins moved, which nothing retries. Waiting for the late answer completes such a move (behaviour `slow-answer`).
   A client that goes stale says why, one notice per cause (`markStale` in `state.mjs`: a request refused after this
   client replayed it, the connection dropped while a request was out, or no answer in time), and asks for a reload.
+  As built in M12b (review): a drop with no request out makes the client stale too (cause "dropped"), since lock pages
+  are now pruned and a copy that missed broadcasts could otherwise plan a request the server no longer refuses (As built
+  in M12b, Races).
 - **Resume.** A move whose lock request landed and whose apply request never did (the tab closed between the two, or
   the lock request's answer was lost with the connection or never came) leaves its rows pending, its lock held, a
   claim it resolves resolved, and no coins moved; nothing retries it, since the claim sweep sees the claim
@@ -1223,6 +1307,57 @@ As built in M2 (`scripts/logic/lock-first.mjs`, `scripts/foundry/batch.mjs`, `mo
   copies of the four `equipment-srd` coin items with `system.quantity` set; strongbox stacks, change
   included, are flagged `flags.MOD.lot = {row}`. If the coin items failed to load, coin moves are refused
   ("no-coins"); the next check loads them again.
+
+**As built in M12b: lock kinds and pruning** (`scripts/logic/locks.mjs`, `scripts/foundry/housekeeping.mjs`; DECISIONS.md
+2026-10-27, M12b; the 15.7 follow-up and OQ-36). Until M12b no lock page was ever deleted, so every write on the ledger, on the
+server and on every client, paid for every page ever taken (15.7: 202 ms a write with 2209 pages). Two changes:
+
+- **Every page says what it guards.** Its `lock` stamp carries `kind` and, for a keyed kind, `key`, the idempotency key the id is
+  the hash of (`lockTag`, in `toOperations`): `row` (an id the same request writes as a row), `claim` (a claim's), `item` (a
+  strongbox item's), or the key's first segment: `stack` (`stack:<item>:<version>`), `apply`, `recreate`, `log`, `job-log`,
+  `fund-slot`, `fund-return-slot`, `garden-slot`, `days`, `gather`, `cycle`, `prep`, `standing`, `coating`, `afflict`,
+  `assemble`, `setup-hours`, `give-back`, `service`, `archive`, `reversal` (an archive run's guard on a row it moves, 5.3.3) and
+  the rest. Every lock-id factory goes through `lockKeyId`, which
+  hashes as before (the ids do not change) and remembers the key for the page this client then creates; an apply mark carries its
+  key in its descriptor (`keys`), since a resume sends it from another client's copy.
+- **The elected client prunes spent pages** (`pruneVerdict`): a page goes only once it is older than `PRUNE_AGE_MS` (15 minutes,
+  three times `ANSWER_LIMIT_MS`, so no request planned while it mattered can still be on its way) on the server's clock, and only
+  once what it guards says the same on every client. A `row` or `claim` page goes once the row is applied (or gone, archived or
+  never written) and the claim resolved (a formula claim applied): the fast path stops a second move by the row itself. A move's
+  page, its apply mark and its re-creation lock stay while any of its rows is pending, so the resume and a close by hand find
+  them (`move-pending`). An `item` page stays while the item is in the strongbox (a move stopped on it; reconciliation lists it); a
+  `stack` page while the stack is still at the locked version. Slots, logs, a PC's days from a day, a gathering moment, a cycle
+  raised from a number, a give-back, a service's close and an archive run's reversal guard go once old (`age`): the live data
+  names the next one, or no longer has the row to plan from. A `prep` or
+  `standing` page stays while its cycle is the character's current one; a `coating` page while the coating exists (the page is its
+  spent state, 8.10.5); an `afflict` page while the tracker item exists; an order's once-marker while the order is in the ledger.
+  Any other kind stays. Pages from before kinds are worked out from the live data where they can be (a live row's or claim's id,
+  a live row's apply mark or re-creation lock, a page holding a move, a strongbox item, the migration lock), and kept otherwise:
+  a stack lock of an older world cannot be told from a marker that must stay.
+- **When**: a pass (prune, then on a GM's client an archive run, 5.3.3) runs on the elected client (5.6) as the catch-up sweep's
+  last step, every five minutes, and soon after a lock page takes the ledger past `LOCK_PAGE_BOUND` (300, OQ-36's bound on lock
+  pages: a soft one, since a page that still guards something stays whatever the count), at most once a minute. A pass deletes at
+  most 500 pages a request, each checked on this client first (`preflight`: "gone"), with the guards' internal option. Pruning needs
+  no GM; with no GM online the lowest-id connected user prunes.
+- **Races.** A pruned page can be taken again by a request that names it: a request planned while the page mattered. Two ways
+  such a request could reach the server once the page is gone, and what rules each out:
+  - **Slow delivery**: planned while the page mattered and delivered more than 15 minutes later. The answer limit rules it out
+    (the client goes stale at 5 minutes), and so does socket.io: a request emitted while the client already knows it is
+    disconnected is held and sent on reconnection, and Foundry gives up reconnecting after ten tries half a second apart.
+  - **A stale copy** (M12b review): planned now, from a copy that missed what the server broadcast while the connection was down.
+    Before M12b such a request named a page that existed for ever (a log slot, a fund slot, a row's page, an apply mark), so the
+    server refused it; once the page is pruned it lands: a cancel planned from a copy without log entry 3 rewrote `log.3`, and a
+    resume planned from a copy that missed the settle applied a purse move a second time. Foundry 14.368 reloads only a client that
+    was disconnected for 5 s or more, timed from when it noticed the drop (`client/game.mjs`, the "reconnect" handler), so a shorter
+    drop, or a laptop waking from sleep (the drop is noticed on waking and the reconnection takes half a second, though the server
+    had let the client go after its ping timeout), left such a copy writable. **Pruning depends on this: a client whose connection
+    drops at all stops writing until it reloads** (`sync.mjs`, a "disconnect" listener registered at `init`: stale cause "dropped",
+    or "disconnected" when a request was out, `batch.mjs`). A connected client's copy lags the server's only by what is on its way,
+    which arrives in order, long inside the prune age.
+  A move planned from a fresh copy never names a spent page: its rows are new, its stacks are at their current version, its slots
+  are the next ones. The pruner never deletes a page younger than the prune age, so it cannot race a request that is taking one.
+  An archive run also leaves a page that is never pruned (5.3.3, the run's page in the Crafting Log), since a run replayed against
+  a moved-on ledger would count its carry rows twice.
 
 ### 5.5 Claims: effects on documents the actor's user does not own
 
@@ -1415,7 +1550,7 @@ go from actors and their items, world items, users, journal entries and their pa
 messages; the ledger is deleted; the strongbox is deleted only if empty, otherwise it stays an ordinary loot
 actor (5.8); the module-data folder goes if empty; the world settings return to their defaults, except
 `dev`. Stripping inert suffixes comes with the inert marks (M7); flags on unlinked tokens' actor deltas are
-not reached. As built in M4: "Refunds" issues only what no open refund claim of a cancel or a finish already owes for
+not reached. As built in M12b: the Crafting Log (5.3.3) is deleted with the ledger, and both keep their role flags until then. As built in M4: "Refunds" issues only what no open refund claim of a cancel or a finish already owes for
 the same member and allocation (`unclaimedAllocations`), and waits while any refund claim is open, so a contributor
 whose refund was not collected yet is not paid twice.
 
@@ -8261,8 +8396,8 @@ deliberate lock collisions of scenario 7, `resume` and `m6-income`, the dropped 
 
 **Follow-ups:**
 
-- **High: archiving (5.3.3) and the lock pages (5.4) are built in no milestone, and bounding the lock pages is a design call
-  for the author.** Every write's cost grows with the ledger's lock pages and nothing removes them: on main, a plain write took
+- **Done in M12b (the archiving pass, below).** ~~High: archiving (5.3.3) and the lock pages (5.4) are built in no milestone,
+  and bounding the lock pages is a design call for the author.~~ Every write's cost grows with the ledger's lock pages and nothing removes them: on main, a plain write took
   3.5 ms at S0, 60 ms at S1 (479 pages) and 212 ms at S2 (2220), a deposit 50, 365 and 1379 ms, on the server and on every
   client. Archiving as 5.3.3 describes it would not bound them: it goes by age (30 and 60 workshop days), while the cost grows
   with their count from the first weeks. And no pruner can be written safely today, because a lock page carries no kind: its
@@ -8281,8 +8416,7 @@ deliberate lock collisions of scenario 7, `resume` and `m6-income`, the dropped 
   it bounds the Queue.
 **Follow-ups** (low, except the first two, which are the archiving work 5.3.3 already describes):
 
-- Archiving (5.3.3) and with it the pruning of lock pages (5.4) are built in no milestone; until they are, a long campaign's
-  ledger only grows, and every write with it (above). Medium for 1.0: worth a milestone of its own before the listing.
+- ~~Archiving (5.3.3) and with it the pruning of lock pages (5.4) are built in no milestone~~: built in M12b (below).
 - The Queue lists every order ever made, the closed ones until archiving: at 200 orders its render is over budget, and most of
   it is Foundry's work on the DOM. Archiving answers it; a collapsed "Closed" group or paging would until then.
 - An Advance days commit writes each PC's days in its own request, then each earner's wages, then the logged-day mark and the
@@ -8296,6 +8430,90 @@ deliberate lock collisions of scenario 7, `resume` and `m6-income`, the dropped 
   the probe journal above stands in for it. Its copies of S1's records repeat S1's orders (the same items, crafters and
   states, two in three of them open), and a copied order's work days get ids that are not day records (`-p<n>`), so they count
   for the order only.
+
+**The archiving pass (M12b)**, run 2026-10-27 on the dev server (Foundry 14.368, pf2e 8.6.1, no canvas), the M12b branch served
+from main's working tree for the run and then taken back out. `npm run harness:perf` with its defaults and a fourth stage, S3: S2
+after a long campaign has crossed OQ-36's ages, that is the three Earn Income jobs ended, archive runs and one prune pass as the GM's
+client does them, judged 90 workshop days on and two real days later (`--later`, `pageArchive`). Every client's automatic
+housekeeping was paused while a stage was staged and measured, so S2 is the ledger as it was staged (no page pruned) and S3 what
+archiving and pruning leave. Medians of five runs, in ms; the GM's client unless a player is named.
+
+| | S1 | S2 (before archiving) | S3 (after archiving and pruning) |
+|---|---|---|---|
+| Ledger: orders, rows, day records, claims, lock pages | 30, 245, 300, 0, 466 | 200, 2007, 510, 14, 2204 | 141, 715, 205, 28, 6 |
+| Ledger size (JSON; flags alone) | 621 KiB (274 KiB) | 3.2 MiB (1.5 MiB) | 676 KiB (671 KiB) |
+| A plain ledger write, to its answer | 59 | 214 | 28 |
+| A deposit (a lock-first move), to its answer | 364 | 1349 | 174 |
+| What one ledger change costs each open window (GM, Player One, Player Two) | 18, 19, 13 | 20, 20, 14 | 18, 14, 14 |
+| Workshop open: first in the page, then | 106, 22 | 128, 48 | 108, 26 |
+| Queue, Funds, Downtime parts (GM; Player One) | 11, 15, 6; 12, 15, 2 | 18, 31, 9; 13, 28, 4 | 12, 24, 6; 12, 24, 3 |
+| A live refresh on the Queue tab (GM, Player One) | 12, 13 | 13, 14 | 14, 13 |
+| Reconciliation | 0.2 | 1.3 | 0.2 |
+| Advance days, 7 days, 5 PCs: the commit | 1.6 s | 9.7 s | 0.23 s (2 PCs, see below) |
+
+- **The run**: one archive run moved 59 closed orders, 2 ended jobs, 1348 rows and 375 day records into the Crafting Log's page of
+  the first world year in 2.7 s, and deleted the 1374 lock pages of the rows it moved right after; the prune pass then deleted 1008
+  more (pages of rows that stay live, applied and old) in 0.5 s and kept 2: a move left pending on Player Two's client when the
+  harness closed it during S2's measurement (`move-pending`) and that move's purse stack lock (`stack-held`), which the resume then
+  finished at S3 (nothing pending at S3's reconciliation). One job was not archived: its last wage claims were still open (the
+  same closing left them uncollected), as the eligibility asks. 7.4 s for the stage, three job ends included.
+- **What stays**: the 141 open orders (two in three of S2's copies are open) and their 715 rows, the PCs' latest day records and the
+  open job's days, so the flags are 671 KiB against 1.5 MiB: the write is still 7 times S0's, now set by the flags of what is open.
+  Expected and counted coins agreed at every stage (37,993 cp at S3), with no row pending, so the carry rows kept the totals.
+- **The S3 wizard is not S2's**: ending a job clears its earner's activity, so the 7-day commit resolved the two PCs on "other"
+  only (14 day records); its time stands for a ledger of S3's size, not for the same work. S2's commit, 9.7 s, is S2's as before.
+- Every budget check passed at S0 to S3, and the stage's own checks (the runs moved records and left nothing they could move; S3
+  reconciles; fewer orders, rows, day records and lock pages than S2); 54 checks, no console error on any client. The regression
+  plans (scenario 7, `m4-lifecycle`, `m5-fund`, `m6-income`) passed on the same served tree, 41 checks, with the deliberate lock
+  collisions of scenario 7 and `m6-income` as their only console errors.
+
+**The M12b review's re-run**, 2026-10-27, the same way (the review's fixes, 5.3.3 and 5.4 As built in M12b, served from main's
+working tree for the run and then taken back out): S2 at 2220 lock pages, a plain write 204 ms and a deposit 1349 ms, as before.
+One archive run moved 66 closed orders, 2 ended jobs, 1370 rows and 389 day records in 3.6 s (2.7 s before: its lock request now
+also takes the reversal row id of each fund row it moves that could still be reversed, and its Crafting Log write creates the
+run's page), and deleted the 1393 lock pages of the rows it moved; the prune pass, judged two days on, deleted 1137 more, the run's
+reversal guards among them, and kept none. S3: 3 lock pages, 638 KiB, a plain write 28 ms, a deposit 161 ms. 54 checks passed with
+no console error; the regression plans (scenario 7, `m4-lifecycle`, `m5-fund`, `m6-income`) passed, 41 checks, their only console
+errors the deliberate lock collisions of scenario 7 and `m6-income`, as before.
+
+Follow-ups (low):
+
+- **Pages from before kinds** that are not a row's, a claim's, a mark, a move's or the migration lock (stack locks, strongbox stack
+  ids, slots, once-markers) are kept for ever: nothing tells them apart. Only worlds that ran a build before M12b have them (no
+  release yet); a one-time prune by age that a GM confirms would clear them.
+- **Keyed kinds with no rule stay**: `spend`, `income`, `ext-lock`, `snare`, `setup-day`, `event`, `season`, `harvest`, `plant`
+  (each an event that happens rarely), until each gets the rule of what it guards.
+- **A stack lock on an unlinked token's purse** is judged against `game.actors` only, so after 15 minutes it reads as moved on and
+  goes; a move stopped on such a purse then goes the manual way (its resume sees the stack changed) instead of keeping the stack.
+- **Two more pages judged against `game.actors` only** (M12b review). A `coating` page is a contact or ingested coating's only
+  spent marker until the host's responsible client applies the spend claim; on an unlinked token's item the coating id is not in
+  the pruner's list, so the page goes after 15 minutes and `coatingSpent()` is false again: with no GM online to apply the claim, a
+  second creature can be exposed to the same dose. An `afflict` save lock is kept while an actor's items hold its run id, which is
+  false for a victim on an unlinked token and for the native backend, whose item gets a new id (`nativeItem`); the pages go while
+  the affliction runs, and `recordSave`'s data guard limits what a second save can do. Reading tokens' actors too, or keeping a
+  page whose item cannot be found anywhere (keep when unsure), would settle both.
+- **A run's reversal guards stay 15 minutes** (M12b review): they are "age" pages, so a first run over a long backlog adds up to one
+  lock page per reversible fund row it moves (at most `ARCHIVE_RUN_LIMIT`), which every ledger write pays for until the pruner takes
+  them. Later runs move a session's rows at a time.
+- **A run that stops after its Crafting Log write** (M12b review) leaves copies of still-live records in the year page until a
+  retry rewrites them: the Funds tab's history lists those rows a second time meanwhile, and as they were then if the order is
+  later reopened and its rows reversed (`archivedRecords` and `fundsView`'s history do not compare archived ids with live rows;
+  dropping an archived row whose id is live would settle it, the live row being the truth). The run's lock pages on those orders'
+  next log slots also refuse their undo as "taken" until pruned, 15 minutes.
+- **Archive runs announce their carry rows** (M12b review): `ledgerPosted` (12.3) fires for every `rows.<id>` that becomes
+  "applied", carry rows included, so an extension that totals posted income or expenses counts the archived sums again. Leaving
+  kind `carry` out of `ledgerPosted`, or a `ledgerArchived` hook of its own documented in 12.3, would settle it.
+- **Rows carry no workshop day** (a wage's `day` excepted), so a world that logs days far ahead of the clock judges a row's age by
+  its clock day, held back only by the one-real-day floor: a deposit made yesterday can be archived today after a long logged
+  stretch. Stamping the workshop day in `at` would settle it.
+- **The Crafting Log's pages are flags only**: a GM opening the journal sees empty text pages. A short readable summary per run in
+  the page's text would make the log a log.
+- **The history is read in full**: the Funds tab reads every archived row of every page each time it renders (a few ms at S3), and
+  lists at most 200 with no paging; archived orders leave the Queue (their chat cards stay).
+- **One page per world year grows with the year**: a busy year's page can reach a few MB, which only the GM's archive writes and the
+  history reads pay for.
+- The S3 wizard measured less work than S2's (above); a stage that keeps the earners in downtime on another activity would compare
+  like with like.
 
 ---
 
@@ -8543,7 +8761,7 @@ draft; the letters keep the existing milestone numbers stable.
 | M9a | Treasure Vault (Remastered) variants | 6.16 behind their settings: Complex Crafting and Quick Setup (setup, rush, sub-day setups, rushed finishing), crafting with adjustments, downtime events, Critical Crafting, Deconstruct and components, Grow with untended growth and seasons, gardens, bestowed gifts, crafting quests; the one-group-at-a-time notice; harness scenario 13; built, live plans passed (10.17, M9a live pass) | M5 (service orders, materials, Repair), M6 (day resolver, seasons, events), M7 (expiry stamps and the inert guard for produce, components and gifts) |
 | M10 | Extension API | registration, interfaces, hooks, extension store; the separate circus module built against it as acceptance test; built, live plans not yet run (12.6) | M6 |
 | M11 | Integration surface | sheet and party entry points, macros and shelf, keybindings, theming, accessibility pass; built, live plans not yet run (10.18) | M4-M9a |
-| M12 | Hardening | full section 15 matrix, performance, pre-release to a test table by manifest URL; the first pre-release run at a real table hosted on the Forge is the Forge smoke test (15.6); release engineering (the release workflow, packaging and its dry run, the Package Release API step, the churn watch, issue forms, For GMs, CONTRIBUTING, LICENSE and NOTICE) built, not run (16.9) | M10, M11 |
+| M12 | Hardening | full section 15 matrix, performance, pre-release to a test table by manifest URL; the first pre-release run at a real table hosted on the Forge is the Forge smoke test (15.6); release engineering (the release workflow, packaging and its dry run, the Package Release API step, the churn watch, issue forms, For GMs, CONTRIBUTING, LICENSE and NOTICE) built, not run (16.9); M12b: archiving into the Crafting Log and the pruning of lock pages (5.3.3, 5.4, As built in M12b; 15.7, the archiving pass) | M10, M11 |
 | M13 | Listing | author rewrites every string, README and description; sign-off gate passes; notices final (no `AUTHOR-TODO` left, 16.9); release workflow dry run (`npm run release:dry-run`, then the Package Release API's dry run before `FOUNDRY_RELEASE_LIVE`, 16.9); listing submission; 1.0.0; the author's list in 16.9 | M12 |
 
 ### 17.1 Scheduled task: README screenshots
@@ -8703,7 +8921,7 @@ strip, the Party card and the shelf in both schemes into `--shots`.
 | OQ-33 | Do PF2e HUD or Token Action HUD alter the core token HUD's left column? | inject anyway, null-guarded | harness |
 | OQ-34 | How the Forge test will be run (trial world or a Forge-hosted test table) | **Resolved:** no dedicated Forge test; the first pre-release run at a real table hosted on the Forge is the Forge smoke test (15.6, M12) | author decision, 2026-10-25 |
 | OQ-35 | Does the module rely on Paizo's Community Use Policy at all, given it ships only ORC/OGL mechanics and references by UUID? Is "PF2e" in the title acceptable to Paizo? | **Resolved:** the title is "PF2e Artisan's Workshop", with the Community Use Policy notice plus the ORC and OGL notices (16.6) | author decision, 2026-10-25 |
-| OQ-36 | Archive thresholds and the ledger document size at which performance suffers | 30 and 60 workshop days; M12 measured that the lock pages, not the flags, set the cost of every write (59 ms with 474 pages, 202 ms with 2209), so the bound must be on them, and a lock page needs a kind before anything can prune it safely (15.7, Follow-ups) | the author's choice of bound (15.7), archiving (5.3.3), then `npm run harness:perf` |
+| OQ-36 | Archive thresholds and the ledger document size at which performance suffers | **Settled for M12b** (5.3.3, 5.4, 15.7): 30 workshop days for closed orders and ended jobs, 60 for the fund's rows, day records and claims, and a floor of one real day; the bound on lock pages is what is spent and older than 15 minutes (every page now says what it guards), with a soft count of 300 that brings a prune pass forward. M12 measured that lock pages, not flags, set the cost of every write (59 ms with 474 pages, 202 ms with 2209); the archiving pass measured S2 before and after (15.7) | tune with play data from the test table |
 | OQ-37 | Uncommon or rarer items without a formula: Player Core p.237 allows any access; GM Core p.223 requires the formula | Player Core reading: access from a known formula or a registry grant; `rules.uncommonNeedsFormula` off | Paizo errata or author decision |
 | OQ-38 | Does tier-4 legacy content include items that exist only in the PF2e Legacy Data module (different UUIDs)? | **Resolved:** system packs only; items that exist only in the PF2e Legacy Data module are out of scope (1.2, 6.11) | author decision, 2026-10-25 |
 | OQ-39 | Affliction rules gaps: does a virulent critical success reduce the stage at once (as designed) or count as one of the two consecutive successes; does a virulent success that changes nothing repeat the stage's effects (as designed); does the maximum duration start after the onset (as designed, supported by poisons whose onset exceeds their maximum duration)? Affliction Forge reads the virulent critical success the same way | as in 8.10.6 | rules reading by the author |

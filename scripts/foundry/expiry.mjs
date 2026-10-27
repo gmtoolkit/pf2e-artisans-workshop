@@ -30,7 +30,8 @@ import { MODULE_ID } from "../constants.mjs";
 import { ROUND_SECONDS, isTurnStamp } from "../logic/alchemy.mjs";
 import { pcStatusOf } from "../logic/downtime.mjs";
 import { actorIdOf, expiryReason } from "../logic/expiry.mjs";
-import { hashId, idemKey } from "../logic/ids.mjs";
+import { idemKey } from "../logic/ids.mjs";
+import { lockIdOf } from "../logic/locks.mjs";
 import { makeClaim } from "../logic/claims.mjs";
 import { runRequest } from "./batch.mjs";
 import { registerClaimKind } from "./claims.mjs";
@@ -255,7 +256,7 @@ const statusBase = (actorId, stamp) => ({ [`pcs.${actorId}.id`]: actorId, [`pcs.
     [`pcs.${actorId}.at`]: stamp.at });
 
 /** The lock page that lets one client raise a creator's cycle from `from` (7.7). */
-export const cycleLockId = (actorId, from) => hashId(idemKey("cycle", actorId, String(from)));
+export const cycleLockId = (actorId, from) => lockIdOf("cycle", actorId, String(from));
 
 /**
  * Begin a new preparation cycle for `actor` (7.7): `prepCycle` goes up by one, behind the lock page of the cycle it

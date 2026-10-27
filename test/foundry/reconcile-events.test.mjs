@@ -334,6 +334,39 @@ test("the sweep resumes a move whose apply request never landed, coming back by 
     assert.equal(reconcile.reconciliationReport().differenceCp, 0);
 });
 
+test("a dropped connection stops this client writing until it reloads, with or without a request out (5.4, Races)", async (t) => {
+    t.mock.method(console, "warn", () => {});
+    mock.timers.tick(2000);   // let the checks and sweeps the setup scheduled run out
+    await settle();
+    const notices = () => world.notes.filter(([, key]) => String(key).startsWith("pf2e-artisans-workshop.Sync.Stale")).map(([, key]) => key);
+    assert.equal(state.canWrite(), true);
+    // Nothing in flight: a reconnection under Foundry's 5 s, or a laptop waking from sleep, without a reload. What the server
+    // broadcast meanwhile never arrived, so a request planned now could name lock pages the pruner has since deleted.
+    disconnect();
+    assert.equal(state.status(), "stale");
+    assert.deepEqual(notices(), ["pf2e-artisans-workshop.Sync.Stale.Dropped"]);
+    const before = vera.items.contents.map((i) => i.quantity);
+    assert.equal((await money.pledge({ actor: vera, cp: 100, nonce: "after-drop" })).reason, "not-ready", "nothing is planned from its copies");
+    assert.deepEqual(vera.items.contents.map((i) => i.quantity), before);
+
+    // Reloaded. A drop while a request is out says that the change's fate is unknown, once.
+    state.resetState();
+    await sync.refresh();
+    world.notes.length = 0;
+    const real = foundry.documents.modifyBatch;
+    foundry.documents.modifyBatch = () => new Promise(() => {});
+    try {
+        const pending = money.pledge({ actor: vera, cp: 100, nonce: "out" });
+        await settle();
+        disconnect();
+        await pending;
+    } finally {
+        foundry.documents.modifyBatch = real;
+    }
+    assert.equal(state.status(), "stale");
+    assert.deepEqual(notices(), ["pf2e-artisans-workshop.Sync.Stale.Disconnected"]);
+});
+
 /** Two ways a resume fails after the sweep sent it: stopped after its mark, or refused at its dry run. */
 const BROKEN_RESUMES = [
     ["stops part-way", "stopped", () => {   // the purse is emptied between the apply request's first and second operations

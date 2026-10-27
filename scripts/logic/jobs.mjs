@@ -11,7 +11,7 @@
  */
 import { SETTLEMENT_TASK_LEVELS, TASK_LEVEL_MAX, TASK_LEVEL_MIN } from "../data/settlements.mjs";
 import { checkTaskLevel, defaultSettlementProfile, resumeJob } from "./earn-income.mjs";
-import { hashId, idemKey } from "./ids.mjs";
+import { lockIdOf } from "./locks.mjs";
 import { isPlainObject } from "./keypath.mjs";
 
 /** Settlement sizes (GM Core p.53), smallest first. */
@@ -86,7 +86,7 @@ export function jobLog(job) {
 }
 
 /** The lock page of a job's log slot `seq` (as an order's, `logLockId`). */
-export const jobLogLockId = (jobId, seq) => hashId(idemKey("job-log", jobId, seq));
+export const jobLogLockId = (jobId, seq) => lockIdOf("job-log", jobId, seq);
 
 /**
  * The key-path change that applies a transition to a job and logs it: plain values set, objects replaced, `prev` what the

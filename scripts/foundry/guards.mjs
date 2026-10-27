@@ -14,7 +14,8 @@ import { MODULE_ID } from "../constants.mjs";
 import { openPurge } from "./purge.mjs";
 import { roleOf } from "./shared-docs.mjs";
 
-const SHARED_ROLES = new Set(["ledger", "strongbox"]);
+/** M12b: the Crafting Log (5.3.3) is guarded as the ledger is. */
+const SHARED_ROLES = new Set(["ledger", "strongbox", "archive"]);
 
 /** Fresh operation options that let the module's own deletion through its guards. */
 export const internal = () => ({ [MODULE_ID]: { internal: true } });
@@ -38,9 +39,9 @@ export function guardShared(doc, options) {
     return false;
 }
 
-/** Pages of the ledger are module data. */
+/** Pages of the ledger and of the Crafting Log are module data. */
 export function guardPage(page, options) {
-    if (roleOf(page.parent) !== "ledger" || isInternal(options)) return true;
+    if (!["ledger", "archive"].includes(roleOf(page.parent)) || isInternal(options)) return true;
     ui.notifications.warn("pf2e-artisans-workshop.Guard.LedgerPage", { localize: true });
     return false;
 }
