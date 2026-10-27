@@ -46,6 +46,7 @@ const TEMPLATES = Object.freeze({
     card: "modules/pf2e-artisans-workshop/templates/chat/order-card.hbs",
     augment: "modules/pf2e-artisans-workshop/templates/chat/check-augment.hbs",
     summary: "modules/pf2e-artisans-workshop/templates/chat/summary.hbs",
+    morning: "modules/pf2e-artisans-workshop/templates/chat/morning.hbs",
 });
 
 /** The summary line each card kind writes into its message, for the log as its author saw it. */
@@ -130,6 +131,75 @@ export function registerChatHooks() {
     Hooks.on("pf2e-artisans-workshop.formulaAcquired", ({ actor, uuid, route, added }) => {
         if (added) postFormulaCard(actor, uuid, route);
     });
+    // M7: the Morning summary (after a preparation) and the Expiry card (items marked inert), from the client that wrote them.
+    Hooks.on("pf2e-artisans-workshop.morningSummary", ({ actor, result }) => postMorningCard(actor, result));
+    Hooks.on("pf2e-artisans-workshop.itemsExpired", ({ holder, items }) => postExpiryCard(holder, items));
+}
+
+/** Why an item expired, in words (7.7). */
+const EXPIRY_REASON = Object.freeze({
+    cycle: "pf2e-artisans-workshop.Expiry.Reason.Cycle",
+    time: "pf2e-artisans-workshop.Expiry.Reason.Time",
+    day: "pf2e-artisans-workshop.Expiry.Reason.Day",
+});
+
+/** Who a Morning or Expiry card goes to: the actor's owners and GMs, or everyone (`chat.visibility`). */
+function whisperFor(actor) {
+    if (setting("chat.visibility") === "public") return [];
+    return [...new Set([...game.users.filter((u) => u.isGM).map((u) => u.id), ...ownersOf(actor).map((u) => u.id), game.user.id])];
+}
+
+/**
+ * The Morning summary card (10.5, M7): what the preparation made, by item, the DC stamp, the standing orders delivered
+ * and when it all expires. A summary only, from the client that prepared.
+ */
+export async function postMorningCard(actor, result) {
+    try {
+        const counts = new Map();
+        for (const c of result.created ?? []) counts.set(c.name, (counts.get(c.name) ?? 0) + (c.qty ?? 0));
+        const lines = [...counts].map(([item, qty]) => game.i18n.format("pf2e-artisans-workshop.Card.MorningLine", { item, qty: String(qty) }));
+        const notes = [];
+        if (Number.isInteger(result.dc)) notes.push({ icon: "fa-solid fa-stamp", text: game.i18n.format("pf2e-artisans-workshop.Card.MorningDc", { dc: String(result.dc) }) });
+        for (const d of (result.deliveries ?? []).filter((x) => x.ok && x.outcome !== "already" && x.outcome !== "self")) {
+            notes.push({ icon: "fa-solid fa-truck-ramp-box", text: game.i18n.format(d.direct ? "pf2e-artisans-workshop.Card.MorningDelivered" : "pf2e-artisans-workshop.Card.MorningShelved",
+                { item: d.name ?? "", qty: String(d.qty ?? 0), recipient: d.recipient ?? "" }) });
+        }
+        if (lines.length) notes.push({ icon: "fa-solid fa-hourglass-end", text: game.i18n.localize("pf2e-artisans-workshop.Card.MorningExpiry") });
+        const content = await foundry.applications.handlebars.renderTemplate(TEMPLATES.morning, {
+            kind: "morning", heading: game.i18n.localize("pf2e-artisans-workshop.Card.Morning"), img: actor.img ?? null,
+            summary: game.i18n.format(lines.length ? "pf2e-artisans-workshop.Card.Summary.Morning" : "pf2e-artisans-workshop.Card.Summary.MorningNothing", { actor: actor.name }),
+            lines, notes,
+        });
+        return await ChatMessage.implementation.create({
+            content, speaker: ChatMessage.implementation.getSpeaker({ actor }), whisper: whisperFor(actor),
+            flags: { [MODULE_ID]: { card: { kind: "morning", order: null } } },
+        });
+    } catch (error) {
+        console.warn(`${MODULE_ID} | could not post a Morning card`, error);
+        return null;
+    }
+}
+
+/** The Expiry card (10.5, M7): the items a holder lost to expiry in one sweep, whispered to its owners and GMs. */
+export async function postExpiryCard(holder, items) {
+    try {
+        if (!items?.length) return null;
+        const lines = items.map((i) => game.i18n.format("pf2e-artisans-workshop.Card.ExpiryLine", {
+            item: i.name, creator: fromUuidSync(i.creator ?? "", { strict: false })?.name ?? "",
+            why: game.i18n.localize(EXPIRY_REASON[i.reason] ?? EXPIRY_REASON.cycle),
+        }));
+        const content = await foundry.applications.handlebars.renderTemplate(TEMPLATES.morning, {
+            kind: "expiry", heading: game.i18n.localize("pf2e-artisans-workshop.Card.Expiry"), img: null,
+            summary: game.i18n.format("pf2e-artisans-workshop.Card.Summary.Expiry", { holder: holder.name, n: String(items.length) }), lines, notes: [],
+        });
+        return await ChatMessage.implementation.create({
+            content, speaker: ChatMessage.implementation.getSpeaker({ alias: game.i18n.localize("pf2e-artisans-workshop.Window.Title") }),
+            whisper: whisperFor(holder), flags: { [MODULE_ID]: { card: { kind: "expiry", order: null } } },
+        });
+    } catch (error) {
+        console.warn(`${MODULE_ID} | could not post an Expiry card`, error);
+        return null;
+    }
 }
 
 /**

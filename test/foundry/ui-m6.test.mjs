@@ -87,7 +87,7 @@ test("players see their own characters in the Downtime tab, a GM every member; p
     assert.equal(rows[0].locked, "Helping with Striking rune until it is finished or they leave.");
     assert.equal(pendingBadge(), 1);
     const nav = await app._preparePartContext("nav", { ...context, readable: true }, {});
-    assert.deepEqual(nav.badges, { downtime: 1 });
+    assert.deepEqual(nav.badges, { downtime: 1, morning: null }, "the Morning badge (M7) is empty: nobody rested");
     assert.deepEqual(part.downtime.jobs.map((j) => [j.actor, j.actions.roll, j.daysText]), [["Bo", true, "0 days paid, 0 gp in all"]]);
     assert.equal(part.downtime.settlement.capText, "No settlement is set: Earn Income jobs may take any task level.");
     assert.equal(part.downtime.profiles, null, "settlement profiles are a GM's");

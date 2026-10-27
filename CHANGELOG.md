@@ -109,6 +109,22 @@ All notable changes to this module are documented here. The format follows
   Before start, a formula job, an upgrade, a rune or a transfer asks for half of its own Price (what its requirements
   check), not half of the item's; a finished formula job says it went into the book, and an item changed in place says
   so, instead of "On its way".
+- Daily preparations (milestone M7). A Morning tab shows a character's daily sources as pf2e has them: each daily
+  crafting pool (Advanced Alchemy and its other sources with each one's own slots, Talisman Dabbler and Esoterica, the
+  witch's cauldron, gadgets and the rest) with its slots, item level and what is prepared by level; other prepared
+  slots such as snares; versatile vials; daily uses; and the daily features pf2e has no automation for (or that
+  PF2e Dailies handles). "Make daily preparations" prepares through pf2e's own crafting methods: each pool keeps its
+  preparation or takes a saved loadout, which stores item families and makes the best grade the pool allows that day
+  (writing that grade into the book by family when needed); a talisman pool makes the talismans picked from its list
+  without a formula book. Party members' standing orders ("two elixirs every morning") are made too and delivered, into
+  the recipient's inventory when the player owns it, else on the pickup shelf; one that does not fit is left out for
+  the day. Everything made is stamped with its maker's preparation cycle: at the maker's next daily preparations it stops
+  working wherever it is, and Advanced Alchemy items also after 24 hours (marked inert, or deleted by a setting);
+  Food Preservation's designated foods are kept. Talisman Dabbler's talismans use the higher of the maker's class and
+  spell DC. Talismans and spellhearts can be affixed and taken off from the tab, one per item, two on the item a
+  Talismanic Sage treats. Rest for the Night starts a new cycle and prompts each character's own player once, with or
+  without PF2e Dailies; with it, a Workshop row in PF2e Dailies' window picks each pool's loadout, applied when it
+  finishes. Morning and Expiry chat cards say what was made and what stopped working.
 
 ### Changed
 
@@ -118,6 +134,9 @@ All notable changes to this module are documented here. The format follows
   back with "Give the item back".
 
 ### Fixed
+
+- Talismanic Sage was never recognised when affixing (its feat was missing from the rules registry), so a sage could not
+  put a second talisman on an item.
 
 - Storage and sync, from the first live runs: a client stops writing the moment a shared document it uses is
   deleted, or its user loses OWNER on one, even when no update hook reaches it (players without a canvas); ages

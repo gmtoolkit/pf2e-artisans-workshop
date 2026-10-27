@@ -134,6 +134,7 @@ npm run harness:live -- --scenarios 3c --runs 1 --behaviours none --canvas
 npm run harness:live -- --scenarios none --behaviours m4-lifecycle,m4-no-gm,m4-cancel,m4-double-delivery,m4-reroll-race,m4-shots,m4-ui --runs 1 --shots /tmp/m4-shots
 npm run harness:live -- --scenarios none --behaviours m5-buy,m5-ally-copy,m5-pick,m5-jobs,m5-etch,m5-upgrade-transfer,m5-precious,m5-scroll,m5-fund,m5-services,m5-ui,m5-shots --runs 1 --shots /tmp/m5-shots
 npm run harness:live -- --scenarios none --behaviours m6-clock,m6-wizard-gm,m6-wizard-players,m6-communal,m6-income,m6-settlement --runs 1
+npm run harness:live -- --scenarios none --behaviours m7-morning,m7-expiry,m7-rest,m7-dailies,m7-standing,m7-affix,m7-shots --runs 1 --shots /tmp/m7-shots
 ```
 
 The M4 behaviours run the order lifecycle with a GM and two players (`m4-lifecycle`), with two players and no GM, the
@@ -155,6 +156,16 @@ The M6 behaviours (DESIGN 10.12) move the world clock forward (never back), so r
 login); `m6-wizard-gm` and `m6-wizard-players` drive the Advance days window step by step, with a GM moving the clock and
 with players only; `m6-communal` gives Player One's alchemist Communal Crafting (marked like M5's items) for Player Two to
 help; `m6-income` pays an Earn Income job from Player Two on two devices; `m6-settlement` caps a job's task level.
+
+The M7 behaviours (DESIGN 10.13) prepare Player One's bomber (Talisman Dabbler) through pf2e's own crafting methods
+(`m7-morning`: a loadout by family, virtual talismans, the stamps), hand an infused elixir to Player Two and rest
+(`m7-expiry`: it goes inert on Player Two's client; 24 hours later the next batch does too), rest the party with
+pf2e-dailies off (`m7-rest`: one Morning prompt, on the right client) and on (`m7-dailies`: the plan turns pf2e-dailies and
+lib-wrapper on in the world's module configuration, reloads every page, drives pf2e-dailies' own window to choose a
+loadout in the Workshop's row, and puts the configuration back), deliver a standing order with no GM (`m7-standing`),
+affix talismans with and without Talismanic Sage (`m7-affix`), and photograph the Morning tab (`m7-shots`). Items they
+give are marked `flags.world.pf2e-artisans-workshop-m7`; each plan puts the characters' formula books and prepared lists
+back first. `npm run screenshots` also takes `morning.png`, not yet linked here (DESIGN 17.1).
 
 `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN.md 17.1) takes the README's screenshots in the same dev
 world, through the same driver. It copies four fixture actors into a demo party with generic names (Player One plays the

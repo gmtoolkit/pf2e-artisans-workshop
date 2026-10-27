@@ -790,3 +790,66 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 /* The day card (10.5). */
 .pf2e-artisans-workshop-card .card-days { margin: 0.15rem 0 0.3rem; padding-left: 1.1rem; }
 .pf2e-artisans-workshop-card .card-stop { color: var(--paw-warning); }
+
+/* -------------------------------------------- */
+/*  Morning (M7, DESIGN 7.1-7.10)                 */
+/* -------------------------------------------- */
+
+.morning-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.8rem; }
+.morning-toolbar .morning-actor { display: flex; align-items: center; gap: 0.4rem; }
+.morning-toolbar .morning-actor select { max-width: 16rem; }
+.morning-toolbar .morning-cycle { color: var(--color-text-subtle, #555); font-variant-numeric: tabular-nums; }
+.morning-toolbar button { height: auto; min-height: 0; flex: 0 0 auto; }
+.morning-chips,
+.pool-prepared,
+.pool-lines ul,
+.talisman-picker,
+.morning-side ul,
+.morning-problems { list-style: none; margin: 0; padding: 0; }
+.morning-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.morning-chips label { display: inline-flex; align-items: center; gap: 0.3rem; }
+.morning-pools { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6rem; }
+.morning-pool {
+    border: 1px solid var(--paw-line);
+    border-radius: 4px;
+    padding: 0.4rem 0.6rem;
+    background: var(--paw-surface);
+}
+.morning-pool header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 0.8rem; }
+.morning-pool h4 { margin: 0; font-family: var(--serif, var(--font-h2)); font-weight: 700; border: none; }
+.morning-pool .pool-facts { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.morning-pool .label { font-weight: 600; margin-right: 0.3rem; }
+.morning-pool p { margin: 0.25rem 0; }
+.pool-prepared li,
+.pool-lines li,
+.talisman-picker li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.5rem; padding: 0.1rem 0; }
+.pool-prepared li.expended { opacity: 0.65; }
+.pool-prepared img,
+.talisman-picker img { width: 1.5rem; height: 1.5rem; border: none; }
+.morning-pool .entry-name { font-weight: 600; }
+.morning-pool .entry-level,
+.morning-pool .qty { font-variant-numeric: tabular-nums; color: var(--color-text-secondary, inherit); }
+.morning-pool .pool-plan { display: flex; align-items: center; gap: 0.4rem; margin: 0.3rem 0; }
+.morning-pool .pool-plan select { max-width: 18rem; }
+.morning-pool .pool-talismans { border: 1px dashed var(--paw-line); padding: 0.2rem 0.5rem; margin: 0.3rem 0; }
+.morning-pool .talisman-picker label { display: inline-flex; align-items: center; gap: 0.35rem; }
+.morning-pool .badge.request { border-color: var(--paw-escrow); }
+.morning-problems li { color: var(--paw-warning); font-weight: 600; padding: 0.15rem 0; }
+.morning-diff summary { cursor: pointer; font-weight: 600; }
+.morning-columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.8rem; margin-top: 0.6rem; }
+.morning-side section { margin-bottom: 0.6rem; }
+.morning-side li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.5rem; padding: 0.15rem 0; border-bottom: 1px solid var(--paw-surface-strong); }
+.morning-side li.ended { opacity: 0.65; }
+.morning-side button { height: auto; min-height: 0; }
+.morning-side .warn,
+.morning-vials .warn { color: var(--paw-warning); }
+.morning-side .loadout-capture { display: flex; flex-wrap: wrap; align-items: end; gap: 0.4rem; margin-top: 0.3rem; }
+.morning-side .loadout-capture label { display: flex; flex-direction: column; gap: 0.1rem; }
+.morning-side li.affix-host { flex-direction: column; align-items: flex-start; }
+.affix-host.suppressed { border-left: 4px solid var(--paw-crit-failure); padding-left: 0.4rem; }
+.affix-host ul { width: 100%; padding-left: 1rem; }
+.affix-loose select { max-width: 12rem; }
+@container workshop (width >= 1040px) {
+    .morning-pools { grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr)); }
+    .morning-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}

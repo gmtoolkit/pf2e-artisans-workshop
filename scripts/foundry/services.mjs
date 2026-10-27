@@ -221,14 +221,73 @@ async function giveBackAfter(service) {
 }
 
 /** PF2e Talisman Manager owns affixing when it is active (13). */
-const TALISMAN_MANAGER = "pf2e-talisman-manager";
+export const TALISMAN_MANAGER = "pf2e-talisman-manager";
+
+/** Whether PF2e Talisman Manager is active, which owns affixing (13): the module records no affixes then. */
+export const talismanManagerActive = () => game.modules.get(TALISMAN_MANAGER)?.active === true;
+
+/**
+ * Whether a host carries a Talismanic Sage's treatment that still holds (7.4, As built in M7): the host's
+ * `flags.MOD.sage = {by, token}` names the sage and the token of its treatment, and the sage's own `flags.MOD.sageToken`
+ * is that token; treating a new item gives the sage a new token, which ends the old item's treatment wherever it is.
+ */
+export function sageTreated(host) {
+    const mark = host?.flags?.[MODULE_ID]?.sage;
+    if (!mark?.by || !mark.token) return false;
+    const sage = fromUuidSync(mark.by, { strict: false });
+    return sage?.flags?.[MODULE_ID]?.sageToken === mark.token;
+}
+
+/**
+ * Affix a talisman or spellheart to a host on `performer` (7.4; the service of 4.5 and the Morning tab's affix board): a
+ * repair toolkit carried, the affix rule (`affixProblem`: one per host; two on the item a Talismanic Sage has treated),
+ * then `flags.MOD.affix = {host, at, by}` on the talisman. A Talismanic Sage putting a second talisman on an untreated
+ * host treats it now (the feat: "when you Affix a Talisman, you can specially treat one item"), which ends the
+ * treatment of the item treated before. Refusals: `talisman-manager`, `no-item`, `tool`, the affix rule's codes.
+ */
+export async function affixTalisman(performer, talisman, host, { check = null } = {}) {
+    if (talismanManagerActive()) return refuse("talisman-manager");
+    if (!talisman || talisman.parent !== performer || !host || host.parent !== performer) return refuse("no-item");
+    if (!carried(performer, "affix-talisman").includes("repair-toolkit")) return refuse("tool", { tool: "repair-toolkit" });
+    const onHost = performer.items.filter((i) => i.id !== talisman.id && i.flags?.[MODULE_ID]?.affix?.host === host.id).length;
+    const sage = heldKeysOf(performer).includes("talismanic-sage");
+    const treated = sageTreated(host);
+    const treatNow = sage && !treated && onHost >= 1;
+    const problem = affixProblem({
+        talisman: { traits: [...(talisman.traits ?? [])], usage: talisman.system?.usage?.value ?? "", actor: talisman.parent?.uuid },
+        host: { type: host.type, traits: [...(host.traits ?? [])], actor: host.parent?.uuid }, onHost,
+        talismanicSage: treated || treatNow, excludeBombs: setting("rules.talismanHostsExcludeBombs") !== false,
+    });
+    if (problem) return refuse(problem.reason, problem.data ?? {});
+    if (check) {
+        const stop = await check();
+        if (stop) return stop;
+    }
+    const stamp = stampNow();
+    if (treatNow) {
+        const token = newId();
+        await performer.update({ [`flags.${MODULE_ID}.sageToken`]: token });
+        await host.update({ [`flags.${MODULE_ID}.sage`]: { by: performer.uuid, token, at: stamp.at } });
+    }
+    await talisman.update({ [`flags.${MODULE_ID}.affix`]: { host: host.id, at: stamp.at, by: game.user.id } });
+    return { ok: true, treated: treatNow };
+}
+
+/** Take a talisman off its host (7.4): its affix record goes. */
+export async function unaffixTalisman(performer, talisman) {
+    if (talismanManagerActive()) return refuse("talisman-manager");
+    if (!talisman || talisman.parent !== performer) return refuse("no-item");
+    if (!carried(performer, "affix-talisman").includes("repair-toolkit")) return refuse("tool", { tool: "repair-toolkit" });
+    await talisman.update({ [`flags.${MODULE_ID}.affix`]: null });
+    return { ok: true };
+}
 
 async function performAffix(service, performer) {
-    if (game.modules.get(TALISMAN_MANAGER)?.active) return refuse("talisman-manager");
+    if (talismanManagerActive()) return refuse("talisman-manager");
     const talisman = actorOf(service.target);
     if (talisman?.parent !== performer) return refuse("no-item");
-    if (!carried(performer, "affix-talisman").includes("repair-toolkit")) return refuse("tool", { tool: "repair-toolkit" });
     if (service.kind === "unaffix") {
+        if (!carried(performer, "affix-talisman").includes("repair-toolkit")) return refuse("tool", { tool: "repair-toolkit" });
         const closed = await close(service, "done", { item: talisman.name });
         if (!closed.ok) return closed;
         await talisman.update({ [`flags.${MODULE_ID}.affix`]: null });
@@ -236,18 +295,11 @@ async function performAffix(service, performer) {
     }
     const host = actorOf(service.host);
     if (!host) return refuse("no-item");
-    const onHost = performer.items.filter((i) => i.id !== talisman.id && i.flags?.[MODULE_ID]?.affix?.host === host.id).length;
-    const held = heldKeysOf(performer);
-    const problem = affixProblem({
-        talisman: { traits: [...(talisman.traits ?? [])], usage: talisman.system?.usage?.value ?? "", actor: talisman.parent?.uuid },
-        host: { type: host.type, traits: [...(host.traits ?? [])], actor: host.parent?.uuid }, onHost,
-        talismanicSage: held.includes("talismanic-sage"), excludeBombs: setting("rules.talismanHostsExcludeBombs") !== false,
-    });
-    if (problem) return refuse(problem.reason, problem.data ?? {});
-    const closed = await close(service, "done", { item: talisman.name, host: host.name });
-    if (!closed.ok) return closed;
-    await talisman.update({ [`flags.${MODULE_ID}.affix`]: { host: host.id, at: stampNow().at, by: game.user.id } });
-    return { ok: true };
+    // The service closes once (its lock page) before the record is written, as before; a refused rule writes nothing.
+    return affixTalisman(performer, talisman, host, { check: async () => {
+        const closed = await close(service, "done", { item: talisman.name, host: host.name });
+        return closed.ok ? null : closed;
+    } });
 }
 
 async function performIdentify(service, performer, { skipDialog } = {}) {

@@ -117,6 +117,24 @@ export function registerSettings(handlers) {
         scope: "world", config: true, type: Boolean, default: true,
     });
     game.settings.register(MODULE_ID, "settlements", { scope: "world", config: false, type: Object, default: {} });
+    // M7 (DESIGN.md 14.1, 14.2): the Morning tab with loadouts, standing orders and the pf2e-dailies daily; party-wide
+    // expiry of what daily preparations make; and what expiry does to an item (marks it inert, or deletes it).
+    game.settings.register(MODULE_ID, "features.morning", {
+        name: "pf2e-artisans-workshop.Settings.FeaturesMorning.Name",
+        hint: "pf2e-artisans-workshop.Settings.FeaturesMorning.Hint",
+        scope: "world", config: true, type: Boolean, default: true,
+    });
+    game.settings.register(MODULE_ID, "features.expiry", {
+        name: "pf2e-artisans-workshop.Settings.FeaturesExpiry.Name",
+        hint: "pf2e-artisans-workshop.Settings.FeaturesExpiry.Hint",
+        scope: "world", config: true, type: Boolean, default: true,
+    });
+    game.settings.register(MODULE_ID, "expiry.action", {
+        name: "pf2e-artisans-workshop.Settings.ExpiryAction.Name",
+        hint: "pf2e-artisans-workshop.Settings.ExpiryAction.Hint",
+        scope: "world", config: true, type: String, default: "inert",
+        choices: { inert: "pf2e-artisans-workshop.Settings.ExpiryAction.Inert", delete: "pf2e-artisans-workshop.Settings.ExpiryAction.Delete" },
+    });
     game.settings.register(MODULE_ID, "claims.auto", {
         name: "pf2e-artisans-workshop.Settings.AutoClaim.Name",
         hint: "pf2e-artisans-workshop.Settings.AutoClaim.Hint",

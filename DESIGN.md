@@ -794,7 +794,8 @@ garden produce (6.16.7) gets a `world` stamp ending with the harvest day.
 
 `formulas.<actorId>.<hash> = {uuid, route, source, day, rowId?, orderId?, by}`. Routes: `granted`
 (feature or level-up pick), `bought`, `copied-npc`, `copied-ally`, `invented`, `reverse-engineered`,
-`looted`, `family` (written on demand, 6.4), `virtual` (written on demand, 7.4), `unrecorded` (already
+`looted`, `family` (written on demand, 6.4, 7.5), `virtual` (not written since M7: virtual talismans stay out of the book,
+7.4), `unrecorded` (already
 in the book when the module was enabled). The system list itself only ever receives plain `{uuid}`
 entries.
 
@@ -2278,6 +2279,10 @@ daily preparation or Earn Income, beyond what the system's own rule elements alr
     Craft Requirements heading, for `craft`, `formula`, `daily preparations` and `Earn Income`; CI's checkout takes
     all 25 Item packs of `pf2e-8.6.1` and reports 760 candidates, and `--enforce` fails on any. The affliction-parser
     part of the scan arrives with M8a.
+- **As built in M7** (10.13): the kinds `dcStamp`, `dailyGap`, `vialSource` and `expiryRule`; the entries
+  `talismanic-sage` and `munitions-machinist` (off the ignore list, where Talismanic Sage had been put as "combat" and
+  M5's affix rule could therefore never see it); 249 entries and 1202 ignored UUIDs, validated against the pf2e dev head
+  `be4ab21b` checkout.
 - **Follow-ups (M3, low).**
   - The completeness candidates (760 at `pf2e-8.6.1` over all 25 Item packs, mostly equipment and spells mentioning
     daily preparations, and 21 in the packs CI's checkout used to leave out: the Pathfinder Society boons Crafter's
@@ -3019,10 +3024,13 @@ without preparation keep yesterday's infused items expiring on their own clock a
 ### 7.4 Talismans
 
 - **Virtual formula list.** The talisman picker lists all common talismans of the actor's level or
-  lower (Talisman Dabbler) or the common GM Core ones (Talisman Esoterica) from the compendium index.
-  Because pf2e drops prepared formulas that are not in the known list (verified), choosing a talisman
-  writes its UUID into the formula book first, with provenance `virtual`. Only the talismans actually
-  used are written.
+  lower (Talisman Dabbler) or the common GM Core ones (Talisman Esoterica) from the compendium index, up to the pool's
+  own item level (half the character's level) for daily preparation. Nothing is written into the formula book
+  (DECISIONS 2026-10-26: Talisman Dabbler needs no formula book for talismans, Player Core 2). pf2e drops prepared
+  formulas that are not in the known list (verified), so a virtual talisman cannot sit in the pool's prepared list: it is
+  made with `CraftingAbility#craft(uuid, {consume: false})`, which checks neither the book nor the predicate (verified),
+  after `performDailyCrafting()`, and the module counts it against the pool's slots and checks the pool's predicate and
+  item level itself. A talisman the book does hold is prepared through the pool's list as before.
 - **Setup for permanent talismans.** A Talisman Dabbler's knowledge of these formulas counts as having
   the formula, so a downtime talisman order uses the 1-day setup (the `virtual` route, 4.3).
 - **DC stamp.** After `performDailyCrafting()`, the owner client rewrites inline `@Check[...|dc:N]`
@@ -3131,6 +3139,12 @@ Prepare Elemental Medicine, Repurposed Parts, Magical Scrounger (Cobble Together
 magic item of half the actor's level or lower, once per day), Library Robes (re-inscribe the held
 spell at daily preparations for the minimum scroll materials). Each entry creates temporary items with
 an expiry stamp or records a choice; none touches system resources directly.
+
+As built in M7 (10.13): sections 7.1-7.10 are built as written except where 10.13 says otherwise: virtual talismans are
+made with `CraftingAbility#craft` and never written to the book (7.4, DECISIONS 2026-10-26); the cycle goes up only for a
+character with a daily pool or versatile vials (7.7); `atDay` is read against the days logged ahead of the clock; a
+standing order that does not fit is left out for the day (7.6); the gap entries record a tick per cycle and Food
+Preservation's designations, and their item-making flows are follow-ups (10.13, Follow-ups (M7, low)).
 
 ---
 
@@ -4891,6 +4905,214 @@ additions to `communal.mjs`, `orders.mjs`, `rolls.mjs`; Foundry parts in `script
   - Plain words: `Wizard.WageClaim` says "collected by their player's client"; `Downtime.Rule` tells every player to move
     the calendar, which only a GM can; "Next day: N." shows for characters not in downtime with no explanation.
 
+### 10.13 As built in M7
+
+M7 builds daily preparations: the Morning tab, loadouts, standing orders, the talisman lists and the Dabbler DC stamp, affix
+records, party-wide expiry, rest ordering and the pf2e-dailies custom daily (pure parts in `scripts/logic/morning.mjs`,
+`expiry.mjs`, `talismans.mjs`; Foundry parts in `scripts/foundry/morning.mjs`, `expiry.mjs`, `rest.mjs`, `dailies.mjs` and
+additions to `services.mjs`, `formulas.mjs`, `settings.mjs`, `sync.mjs`, `api.mjs`; the window in `scripts/ui/morning.mjs`,
+`templates/workshop/morning.hbs`, the cards in `scripts/ui/chat.mjs` and `templates/chat/morning.hbs`). Unit tests cover the
+pure parts (`test/logic/morning.test.mjs`, `expiry.test.mjs`, `talismans.test.mjs`); stub tests the Foundry and window parts
+over a fake of pf2e's crafting model (`test/foundry/pf2e-crafting.mjs`: `CraftingAbility` and `performDailyCrafting` as the
+pf2e source runs them, including stacking by `system` data only, the unawaited stack update of `craft`, and the refusal of a
+pool beyond its slots; `test/foundry/morning.test.mjs`, `ui-m7.test.mjs`). The live plans are written and not yet run. pf2e
+read: the dev head `be4ab21b` (`src/module/actor/character/crafting/`, `rule-element/crafting-ability.ts`,
+`special-resource.ts`, `scripts/macros/rest-for-the-night.ts`), pf2e-dailies 4.23.1 from its source map.
+
+- **Sources** (7.1, `morningFacts`): every pf2e `CraftingAbility` of the character with `isDailyPrep` is a pool, with its
+  merged slots, item level and batch as pf2e computes them, its prepared formulas (`getPreparedCraftingFormulas`) counted
+  by level, and each source's own numbers from its `CraftingAbility` rule element (`sourcesOf`: the item, its resolved
+  `maxSlots` and `maxItemLevel`), with the source that wins marked (`mergeSources`, the same rule, by max). Prepared
+  abilities that are not daily (snares) are listed read-only. Versatile vials come from the `versatile-vials` resource,
+  which counts (pf2e reads it from the first vial item's quantity); the vial items' total is compared with it and a
+  difference (a second stack, a vial moved by hand) is pointed out; the vial sources the character holds, and whether they
+  regain, come from the registry's `vialSource`. Talisman pools offer their virtual list (`virtualLists` of the registry's
+  `virtualFormulaList`) up to the pool's item level and through its predicate, best first. Frequencies of Improvise
+  Admixture, Fermenting Liquors, Persistent Mutagen and the Alchemist's Haversack are shown read-only; the gap registry's
+  entries (7.10) with their flow.
+- **Preparing** (`planMorning`, `applyMorning`, on the owner's client): each pool keeps its preparation (`keep`: pf2e makes
+  its prepared list as it is), takes a loadout's families (`loadout`) or explicit entries (`set`); the standing orders due
+  are added, and a kept pool with orders or talismans added keeps its current lines pinned to their grades. Each family
+  resolves to the highest grade the pool may make (`resolveEntry`: level at most the pool's `maxItemLevel`, which pf2e
+  caps at the character's level, the pool's own predicate, and a formula: in the book, covered by its family per 6.4, or
+  virtual in a talisman pool; between equal grades the book's first); grades of one family add up, and the batches are
+  counted against the slots (`resolvePools`). A plan the pools cannot hold is refused before anything moves (`plan`, with
+  the problems), so a refused plan changes nothing, not even the cycle. Then: a grade the book lacks but its family covers
+  is appended to the book as the crafting tab does, with provenance `family`; each pool's prepared list is set through
+  `CraftingAbility#setFormulaQuantity` (formulas not in the plan set to 0 first); `CharacterCrafting#performDailyCrafting`
+  makes everything; virtual talismans are made one batch a call with `CraftingAbility#craft(uuid, {consume: false})`.
+  pf2e's `craft` adds to an existing stack without awaiting the update, so the run waits (up to 2 s) until the quantities
+  have landed. When pf2e refuses its daily crafting (a pool beyond its own slots or resource: `dailyCraftingComplete` stays
+  false), nothing is recorded (`system`) and the player may prepare again in the same cycle. Refusals: `not-ready`, `off`,
+  `no-actor`, `not-owner`, `busy`, `prepared` (this cycle's preparations are made), `sheet` (pf2e's own daily crafting ran
+  this cycle from the sheet), `plan`, `system`.
+- **What a run made** (7.1 steps 1-4): the actor's physical items before and after; new ids and quantity increases are
+  the output, matched to their pool and compendium item by pf2e slug (or name) against the pools' unexpended prepared
+  formulas read just before (pf2e's own `calculateDailyCrafting` order); talismans made with `craft` carry theirs from the
+  call. An output that merged into a stack with another stamp (another creator's delivery, an unstamped stack) is split
+  off in one request (the copy created with its own id carrying only this run's flags, the stack set back to its earlier
+  quantity); the rest is stamped in place. Outputs with no known origin are left alone.
+- **Stamps** (4.12, 7.7): `flags.MOD.expiry = {creator, cycle, rule: "prep", pool}`; Advanced Alchemy's also `at`
+  (world time + 86,400 s) and `atDay` (the workshop day + 1). `atDay` is read against the days logged ahead of the clock
+  (`today().manualDay`), not the workshop day: a clock crossing midnight is not 24 hours, and `at` covers the clock.
+- **The preparation cycle** (7.7): `pcs.<actorId>.prepCycle` goes up (`beginCycle`) behind the lock page
+  `cycle:<actorId>:<from>` (hashed), so two devices raise it once, with `cycleKey` (a rest's message id, or
+  `again:<nonce>`) so the same rest raises it once, and one expiry claim (`kind: "expiry"`, keyed
+  `expiry:<creator UUID>:<cycle>`). Only characters with a daily pool or versatile vials get a cycle: nothing else is ever
+  stamped, so a fighter's rest writes nothing. A preparation belongs to the current cycle when a rest began it (state
+  `fresh`); "Prepare for a new day" (`again`) begins a cycle itself and un-expends the pools with
+  `CraftingAbility#updateFormulas` (a downtime day without a rest, 7.2).
+- **Party-wide expiry** (7.7, `expirySweep`): each client marks what expired among the world actors it is responsible for
+  (5.6), and the strongbox's items whose creator it is responsible for (the elected client for a creator that is gone);
+  the expiry claim's applier, on the creator's responsible client, covers the strongbox and the shelf too and resolves the
+  claim. The sweep runs as a step of the catch-up sweep, when the ledger's `pcs`, `claims` or logged days change, when
+  world time moves (debounced 1 s), and when a stamped item arrives. Inert (`expiry.action` `inert`): `flags.MOD.inert =
+  true`, the localized "(inert)" name, the original name and why in `flags.MOD.inertFrom`; under `delete` the item is
+  deleted. One Expiry card per holder per sweep. The `preCreateChatMessage` guard cancels a message whose pf2e origin is an
+  inert item, with a notice (OQ-19: pf2e takes a consumable's quantity before it posts the message, so the guard stops the
+  effect card, not the count). pf2e's own daily crafting from the sheet is stamped too (`stampSheetCrafting`, on the
+  responsible client 1.5 s after `dailyCraftingComplete` turns true): unstamped temporary items whose slug is a daily
+  pool's prepared formula, with the current cycle; the state is then `sheet`.
+- **Food Preservation** (7.7 exception, `expiryRule {rule: "designate"}`): the holder's own stamped alchemical foods can be
+  preserved from the tab, at most as many at a preparation, and preserved at once, as its rank allows (1; 2 expert, 3
+  master, 5 legendary in Crafting or Cooking Lore, `preservationCap`); past the cap the oldest spoils (its exemption ends,
+  so it expires on its stamp). `exempt = {key, n, at}`.
+- **Rest ordering** (7.8, `rest.mjs`): the rest's chat message (`options.restForTheNight`, every client) starts a wait on
+  the rested character's responsible client: without pf2e-dailies `SETTLE_MS` (750 ms) after the actor's last update,
+  `SETTLE_LIMIT_MS` (5 s) at most; with it, until its `rested` flag turns true, `DAILIES_FALLBACK_MS` (5 s) at most. Then
+  the pipeline (`afterRestFor`): a new cycle (none for a character in downtime without a standing routine, 7.2) and one
+  Morning prompt (a notification and the tab's badge, `waitingToPrepare`) for a character with daily sources. A GM resting
+  the party from the party sheet prompts each character's own player. pf2e-dailies' `rested` turning false applies the
+  choice its interface recorded, on the responsible client, one timer per character.
+- **pf2e-dailies** (7.9, `dailies.mjs`): registered at `ready` with `game.dailies.api.registerCustomDailies`, key
+  `pf2e-artisans-workshop.morning` (pf2e-dailies stores it as `module.<key>`); `condition`: the Morning is on and the
+  character has a daily pool or vials; rows: a select per pool (keep, each loadout naming the pool, "prepare in the
+  Workshop later") and a notify row with the standing orders due; no row uses pf2e-dailies' `save` (its flags are keyed by
+  the daily's key, which holds a dot). `process` only writes `flags.MOD.morning.choice = {pools, standing, cycle, at,
+  applied: null}`; nothing is made inside pf2e-dailies' flow. A pool left for later applies nothing (the prompt stands).
+- **Talismans** (7.4): the DC stamp (`dcStamp {pool: "talisman-dabbler", dcs: ["class", "spell"]}`) raises inline
+  `@Check[...|dc:N]` DCs below the higher of the creator's class DC (`actor.classDC`) and spell DCs to it, and records
+  `flags.MOD.dcStamp = {dc, printed, pool, by}`; resolved DCs and higher printed ones are left alone; Talisman Esoterica gets
+  no stamp. The affix board (`affixBoardOf`, macro 18): armor, shields and weapons (bombs out while
+  `talismanHostsExcludeBombs`) with what is affixed, `active`, `suppressed` (more than one; more than two on the treated
+  item) or `empty`, a warning for a host neither worn nor wielded, the loose talismans with "Affix" to a chosen host, and
+  the minutes affixing them takes (`affixMinutes`: 10 each; 1 with Rapid Affixture; four per 10 minutes for a Dabbler;
+  four per minute with Quick Fix). Affixing from the tab and the M5 service share `affixTalisman` (a repair toolkit, the
+  M5 rule). Talismanic Sage: a sage putting a second talisman on an untreated host treats it (`flags.MOD.sage = {by,
+  token}` on the host, `flags.MOD.sageToken` on the sage); treating a new item gives the sage a new token, which ends the
+  old item's treatment wherever it is (`sageTreated`). PF2e Talisman Manager active: the module records no affixes.
+- **Loadouts** (4.11, 7.5): `flags.MOD.loadouts.<id> = {id, v, name, pools: {<slug>: [{family, qty, uuid?, name?}]},
+  talismans: {<slug>: [uuid]}, talismanHosts, vialMaterials}` (`talismans` added to 4.11's shape for the talisman pools),
+  written whole (`_replace`), deleted with `_del`. "Save current as a loadout" captures each pool's prepared formulas by
+  family and the talismans of the last preparation; a loadout's `vialMaterials` (else the vial item's own buckets) are
+  normalized to the resource at each preparation (`syncVials`, 7.3).
+- **Standing orders** (4.11, 7.6): `standing.<id> = {id, v, requester, crafter, recipient, pool, family, uuid, name, qty,
+  fromDay, untilDay, active, last, by, at}`, placed by the requester's owner (the tab asks for an item a member's daily pool
+  prepares now; the API takes any), ended by the requester's or crafter's owners or a GM. A preparation fills the ones due
+  (`standingDue`), each once a cycle (`last.cycle`), at the best grade the pool allows; one that would take the pool past its
+  slots is left out for the day (`standing-slots`), so it never blocks the crafter's own preparation. Its items go behind
+  the lock page `standing:<id>:<crafter id>:<cycle>` in one request with `last`: created on the recipient when this user
+  owns it, else on the pickup shelf in the strongbox (`shelf.claimKey` the same key) for the recipient's client to collect
+  (5.5); only this run's output is handed out, never what a stack held before; the stamp travels with them; a crafter
+  who is its own recipient keeps them.
+- **The Morning tab** (10.1): the character (own; every member for a GM), the cycle's state (icon and word: ready to
+  prepare, prepared, prepared from the sheet), "Make daily preparations", "Prepare for a new day" (confirmed), "Prepare on
+  downtime days" for a character in downtime (`standingRoutine`, 7.2); the standing orders due as chips the crafter may
+  leave out; each pool with its slots, item level, batch, sources, prepared items by level, its plan (keep or a loadout),
+  a talisman pool's picker and DC, and what the plan will make with each line's route; the plan's problems and the diff
+  against the last preparation; vials, other prepared slots, daily uses, other daily features ("done today", handled by
+  PF2e Dailies, or not automated), Food Preservation, loadouts, standing orders, the affix board, what will expire and
+  what is inert. Built only while shown (it reads the catalogue). The tab button's badge counts the user's characters a
+  rest has left waiting (singular key for one). Controls are found again after a render by `pool`, `standing`,
+  `loadout`, `talisman`, `gap` and `morning` (`focus.mjs`).
+- **Cards** (10.5): the Morning summary (what was made, by item; the DC stamp; deliveries; when it all expires), from the
+  client that prepared; the Expiry card (the items a holder lost, with whose and why), from the client that marked them.
+  Both whispered to the actor's owners and GMs (or public by `chat.visibility`).
+- **Settings** (14.1, 14.2): `features.morning` (W, on), `features.expiry` (W, on), `expiry.action` (W, `inert` or
+  `delete`).
+- **API** (11.2): `prep.{open, sources, plan, apply, loadouts, saveLoadout, captureLoadout, deleteLoadout, applyLoadout,
+  standing: {list, place, end}, affixBoard, affix, unaffix, preserve}` and `expiry.{sweep, beginCycle}`. Hooks (12.3):
+  `preparationCompleted` `{actor, cycle, created}` on the client that prepared; `morningSummary`, `itemsExpired` and
+  `morningPrompt` are internal (cards and the window), not public API.
+- **Registry** (6.11): effect kinds `dcStamp`, `dailyGap {flow: note | designate | dailies}`, `vialSource {regain}`,
+  `expiryRule {rule: "designate", when}`; `dailyGap` on Alter Admixture, Natural Mutagen, Herbal Forager, Chrysanthemum
+  Leshy, Imperial Dragon Potion, Practical Magic, Contingency Gadgets, Witch's Bottle, Poisoned Sticks and Stones, Prepare
+  Elemental Medicine and Repurposed Parts (`note`), Food Preservation (`designate`), Ceremonial Knife, Root Magic, Scroll
+  Adept, Scroll Esoterica and Elaborate Scroll Esoterica (`dailies`); `vialSource` on the class's Versatile Vials and
+  Firework Technician (regain), the alchemist archetype, Wandering Chef and Munitions Machinist (no regain); new entries
+  `talismanic-sage` and `munitions-machinist` (off the ignore list): 249 entries, 1202 ignored, validated against the pf2e
+  checkout (`PF2E_SRC=<checkout> npm test`, `validate:registry`).
+- **Live plans** (15.3; `tools/harness/morning-scenarios.mjs`, scenario `m7`; `live-plans.mjs`), to run later:
+  - `m7-morning` (GM, P1): the bomber's pools from pf2e (Advanced Alchemy with its sources, Talisman Dabbler offering common
+    talismans up to level 5), vials; a loadout of Elixir of Life by family prepares Elixir of Life (Moderate) ×2 at level
+    11, infused, stamped with the cycle and 24 hours, written into the book by family; two virtual talismans, none in the
+    book, with the DC stamp only where an inline save exists; a second preparation refused; the GM reads the same.
+  - `m7-expiry` (GM, P1, P2): one infused elixir handed to Player Two; Player One rests (pf2e's own Rest for the Night):
+    the cycle goes up once, keyed by the rest message; Player Two's client marks the elixir inert; the expiry claim is
+    resolved; Player One prepares again, and 24 hours on the clock later those items are inert by time.
+  - `m7-rest` (GM, P1, P2; pf2e-dailies off, the pages reloaded): the GM rests both characters: one Morning prompt, on
+    Player One's client; the alchemist's cycle up once, the fighter's none; with Player One away the GM's client is prompted.
+  - `m7-dailies` (GM, P1; pf2e-dailies and lib-wrapper on in `core.moduleConfiguration`, every page reloaded, put back
+    after): Player One rests: the pipeline waits for `rested`, the cycle goes up once, one prompt; Player One's pf2e-dailies
+    window shows the Workshop's rows, the loadout is chosen and accepted: the choice recorded, applied after `rested`
+    turns false, Elixir of Life (Moderate) made and stamped.
+  - `m7-standing` (P1, P2, no GM): Player Two's standing order for two elixirs; Player One prepares: two on the shelf for
+    Player Two, collected by Player Two's client with Player One's stamp; a new day fills it again, and the first two are
+    inert.
+  - `m7-affix` (GM, P1): leather armor and a repair toolkit; two armor talismans made at preparation; the first affixes,
+    the second is refused; with Talismanic Sage given, the second affixes and treats the armor; a third is refused; the
+    board says the two work.
+  - `m7-shots` (GM, P1, P2): the Morning tab as Player One and the GM, 1440x900 and 1024x768, dark and light, after a
+    standing order and with two talismans picked (`--shots`).
+- **After the M7 review** (one pass; medium findings fixed, each with a test that fails without it):
+  - Talismanic Sage was never recognised by the M5 affix rule: its feat was on the registry's ignore list, so
+    `heldKeysOf` never held it and a sage could not put a second talisman on an item. It is a registry entry now, and the
+    rule allows two on the treated item only.
+  - A standing order that did not fit its pool refused the crafter's whole preparation (`plan`); it is left out for the
+    day instead.
+  - An output split off another creator's stack copied that stack's module flags (a delivery row, an inert mark) onto the
+    new item; the copy carries only this run's.
+  - pf2e refusing its daily crafting (a pool beyond its slots) was recorded as a preparation that made nothing, which then
+    refused the next try as `prepared`; it is refused as `system` and nothing is recorded.
+  - Two characters' pf2e-dailies choices landing within the settle shared one timer, and the first was never applied; one
+    timer per character.
+  - The tab's "Affix" read the host from the button itself (which carries the talisman's id), so it never found the
+    host's select; it reads the talisman's row.
+  - Every Rest for the Night raised a cycle and wrote an expiry claim for every character, fighters included; only
+    characters with daily sources get one.
+
+#### Follow-ups (M7, low)
+
+- No loadout editor in the window: loadouts are saved from the current preparation (with the last talisman picks) or
+  through `api.prep.saveLoadout`; families and quantities are edited only there.
+- The gap entries record a tick per cycle (`note`); the item-making flows of 7.10 (Alter Admixture's swap keeping expiry,
+  Natural Mutagen, Herbal Forager, Chrysanthemum Leshy's tea, Imperial Dragon Potion, Contingency Gadgets, Witch's
+  Bottle, Poisoned Sticks and Stones, Prepare Elemental Medicine, Repurposed Parts) are not built, and Magical Scrounger
+  and Library Robes have no registry entries yet.
+- The Dabbler DC stamp rewrites inline `@Check` DCs only. At pf2e 8.6.1 none of the 41 common talismans of level 5 or
+  lower has an inline save, and Peacemaker (level 6) prints "DC 20" as plain text, which is not rewritten: the stamp starts
+  to matter with the higher talismans a 12th-level or higher Dabbler makes. Show the creator's DC on the card for any
+  talisman with a save.
+- The plan counts batches by the pool's craftable definitions; pf2e's field-discovery and signature-item batch sizes
+  (`#batchSizeFor`) are not read, so the plan can count a field-discovery item's batches differently from pf2e (pf2e's own
+  count applies when it prepares).
+- An output is matched to its pool by pf2e slug or name: the same item prepared in two pools is stamped as the first
+  pool's, so an Advanced Alchemy item could miss its 24 hours or another pool's item gain them.
+- The expiry sweep reads world actors: an unlinked token's items are not swept.
+- A rest waits on the client responsible when its message arrives; if that client leaves before the settle ends, that
+  rest raises no cycle (the next rest or "Prepare for a new day" does).
+- Lock pages `cycle:<actorId>:<n>` and `standing:<id>:<crafter>:<cycle>` and resolved expiry claims accumulate; archive
+  them with old rows (5.3.3).
+- The Morning prompt is a notification and a badge, with no card; the wizard's daily-preparation step (9.2 step 4) is
+  still not built: a downtime day's preparation is made from the tab ("Prepare for a new day").
+- A second stack of vial items is pointed out, not merged (the resource reads the first stack only).
+- Frequencies are shown read-only (their buttons are M8's, with vials).
+- The pf2e-dailies daily is offered to a character with vials and no pool, with no rows to choose.
+- Asking for a standing order from the tab offers only items a member's pool prepares now; the API takes any item.
+- The Morning tab renders on every store change while it is shown, as the Downtime tab does.
+- `stampSheetCrafting` could stamp an unstamped temporary item another character handed over when it shares a slug with
+  one of the holder's daily formulas.
+
 ---
 
 ## 11. Macros and public API
@@ -4955,6 +5177,11 @@ Published at `game.modules.get("pf2e-artisans-workshop").api` in `ready`; the
 As built in M6: `downtime` as listed plus `status(actor)` with its pending days, `setDowntime(on, {actor, notDowntime})`,
 `advanceClockToMatch()`, `settlement()` and `profiles()`; `income.{list, start, roll, reroll, end, undo}`; and a
 `communal` namespace, `{join, leave, roll, accept}` (10.12).
+
+As built in M7: `prep.{open({actor, loadout, apply}), sources(actor), plan(actor, plan), apply(actor, plan), loadouts(actor),
+saveLoadout(actor, loadout), captureLoadout(actor, name), deleteLoadout(actor, id), applyLoadout(actor, id), standing:
+{list(actor), place(opts), end(id)}, affixBoard({actor}), affix({actor, talisman, host}), unaffix({actor, talisman}),
+preserve({actor, items})}` and an `expiry` namespace, `{sweep(), beginCycle(actor)}` (10.13).
 
 ### 11.3 Stability promise
 
@@ -5060,6 +5287,10 @@ decision log; they are proposed because extension modules will need them.
 As built in M6: `downtimeDayStart` and `downtimeDayEnd` fire once per resolved day on the client that writes it, with
 `mode` "wizard", "resolver" or "work" (an order's "Work a day"); the clock writes nothing, so "clock" is not used (10.12).
 
+As built in M7: `preparationCompleted` `{actor, cycle, created}` fires once per preparation on the client that prepared,
+`created` the outputs `[{id, uuid, pool, qty, name}]` (10.13). `morningSummary`, `itemsExpired` and `morningPrompt` also
+fire, for the module's own cards and window; they are internal (prefixed like the public ones, not documented as API).
+
 ### 12.4 Extension data and versioning
 
 - `api.ext.store(moduleId)` returns `get(key)`, `set(key, value)`, `delete(key)` over
@@ -5090,7 +5321,7 @@ All circus numbers, rules and names ship only in that module; nothing in the shi
 
 | Module | Detection | Behaviour |
 |---|---|---|
-| pf2e-dailies | `game.modules.get("pf2e-dailies")?.active`; API `game.dailies.api` | custom daily (7.9); post-rest pipeline waits for its `rested` flag (7.8); its built-in dailies are never duplicated |
+| pf2e-dailies | `game.modules.get("pf2e-dailies")?.active`; API `game.dailies.api` | custom daily (7.9); post-rest pipeline waits for its `rested` flag (7.8); its built-in dailies are never duplicated. As built in M7: registered at `ready` (pf2e-dailies 4.23.1 keeps `registerCustomDailies` at `game.dailies.api`, the module's global name being its id without `pf2e-`), its rows without pf2e-dailies' `save` (10.13) |
 | PF2e Toolbelt | active flag | coexist: its Better Sheet adds sort buttons to the crafting tab, so the strip is appended above without touching formula rows; its Better Merchant services are an ordinary way to buy materials; no API use |
 | PF2e Workbench | active flag | coexist: keep `li.formula-item` markup so its rarity colouring works; respect its chat-card collapse setting |
 | Item Piles | `game.itempiles` | no dependency; materials bought from an Item Piles merchant are ordinary items that can be earmarked; reading merchant prices is OQ-32 |
@@ -5210,7 +5441,8 @@ it has one value) and `variants.complexCrafting`, with their defaults read from 
 GM-only purge menu (5.9). As built in M4: `chat.visibility` (W), `notify.level` (U) and `ui.lastTab` (U, hidden);
 `features.queue`, `features.funds`, `ui.windowSize` and `ui.parchment` are not registered yet. The other settings of 14.1 and 14.3-14.5 are registered by the milestones that
 read them, with the defaults listed here; `strongbox: party` comes with the Funds tab (M4, 4.7). As built in M6: `features.downtime`, `features.income` and the hidden
-`settlements` (the GM's profiles, edited in the Downtime tab); `rules.costOfLiving` is not read yet (10.12).
+`settlements` (the GM's profiles, edited in the Downtime tab); `rules.costOfLiving` is not read yet (10.12). As built in M7:
+`features.morning`, `features.expiry` and `expiry.action` (10.13).
 
 ### 14.4 Treasure Vault (Remastered) variants
 
@@ -5496,6 +5728,12 @@ churn watch come with M8a and the release workflow.
 - As built in M6: scenario `m6` (`tools/harness/downtime-scenarios.mjs`) and the behaviours `m6-clock`, `m6-wizard-gm`,
   `m6-wizard-players`, `m6-communal`, `m6-income` and `m6-settlement`, described in 10.12; not run yet. They move the world
   clock forward only; the prompts are read from the pages' notification log by their keys.
+- As built in M7: scenario `m7` (`tools/harness/morning-scenarios.mjs`) and the behaviours `m7-morning`, `m7-expiry`,
+  `m7-rest`, `m7-dailies`, `m7-standing`, `m7-affix` and `m7-shots`, described in 10.13; not run yet. They are scenario 4
+  of the list above: `m7-rest` with pf2e-dailies off and `m7-dailies` with it on, which the plans switch in the world's
+  `core.moduleConfiguration` (with lib-wrapper) and load by reloading every page, putting it back afterwards. Rest for the
+  Night is pf2e's own action (`game.pf2e.actions.restForTheNight` with `skipDialog`), and pf2e-dailies' window is driven
+  by its own controls.
 - As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
   counts the rows that are new since `purseBefore` by id, not by a server-time cut-off (two devices' estimates of
   the server's time differ by milliseconds, and one real row was left out); the `claim` step reports its own rows
@@ -5689,7 +5927,7 @@ draft; the letters keep the existing milestone numbers stable.
 | M4 | Queue and Funds | Workshop shell, Queue and Funds tabs, order lifecycle, escrow and refunds, pickup shelf, chat cards, request drag and drop; built, with the 5.11 and 6.12 follow-ups (10.10) | M2, M3 |
 | M5 | Formulas | codex, families, provenance, acquisition jobs, picks owed, casting pledges, precious materials, service orders, rune etching, upgrades and transfers; built, live plans run (10.11, M5 live pass) | M4 |
 | M6 | Downtime | per-PC status, clock accrual and prompts, day resolver, Advance days wizard, Communal Crafting helpers, Earn Income jobs, settlement profiles; built, live plans not yet run (10.12) | M4 |
-| M7 | Morning | daily sources panel, loadouts, standing orders, Talisman Dabbler and Esoterica lists, the Dabbler DC stamp, affix records, party-wide expiry, rest ordering, pf2e-dailies custom daily | M5 |
+| M7 | Morning | daily sources panel, loadouts, standing orders, Talisman Dabbler and Esoterica lists, the Dabbler DC stamp, affix records, party-wide expiry, rest ordering, pf2e-dailies custom daily; built, live plans not yet run (10.13) | M5 |
 | M8 | Combat | Bandolier, HUD palette, Quick Alchemy panel, quick vials, Quick Bomber, Healing Bomb, additives, vial gathering, turn expiry, Duct Tape step-aside, Use best consumable | M7 |
 | M8a | Afflictions | 8.10: the affliction rules engine with tests; the parser, `scripts/data/afflictions.mjs` overrides and the corpus check in the validation script; backend detection, the effect backend and the native backend with its constraints and migration; grant flags and the stage guard; exposure and coating-spend claims; coatings and Strike handling; saves (with the source item, for incapacitation), recording and pending state; turn and world-time timing, catch-up and the affliction time function for logged days; the DC stamp at creation; Afflictions drawer and cards; Affliction Forge coexistence and the GM-routed hand-off; harness scenario 12 | M3 (validation script, roll recording), M6 (day resolver for logged days), M7 (creation stamps, infused expiry), M8 (Bandolier entry point) |
 | M9 | Tattoos and remaining crafts | tattoo process and toggle, grafts, spellhearts, fulus, missives, snares and gadgets specifics, spell-supplied items beyond scrolls and wands | M5, M6 |
@@ -5762,6 +6000,12 @@ script is the one place to change for generic icons.
 
 The README puts each caption after its image with a hard line break (a trailing `\`): with a plain newline GitHub
 renders the caption on the image's line, beside the 560 px request form (`test/screenshots.test.mjs` holds it).
+
+**As built in M7.** M7 adds a tab, so the captures are due for a refresh: `npm run screenshots` also takes `morning.png`
+(`NEXT_CAPTURES` in the script: the demo alchemist's Morning tab with two talismans of the Dabbler's picker chosen, dark,
+1440x900), checked and compressed like the rest but not yet linked from the README. After the next run, check it by eye,
+move its entry into `CAPTURES` and add its caption to the README's Screenshots section, which the test then holds. The
+live plan `m7-shots` takes the tab at both sizes and schemes as Player One and the GM into `--shots`.
 
 ---
 

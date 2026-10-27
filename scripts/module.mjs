@@ -2,6 +2,9 @@ import { MODULE_ID } from "./constants.mjs";
 import { publishApi } from "./foundry/api.mjs";
 import { registerFormulaClaims } from "./foundry/formulas.mjs";
 import { registerDowntimeHooks } from "./foundry/downtime.mjs";
+import { registerDailies } from "./foundry/dailies.mjs";
+import { registerExpiryHooks } from "./foundry/expiry.mjs";
+import { registerRestHooks } from "./foundry/rest.mjs";
 import { registerOrderHooks } from "./foundry/orders.mjs";
 import { initSync, readySync } from "./foundry/sync.mjs";
 import { registerChatHooks } from "./ui/chat.mjs";
@@ -49,6 +52,9 @@ Hooks.once("init", () => {
     registerFormulaClaims();
     // M6: the prompt when downtime days accrue (9.1), the day offset frozen once, and the clock's high-water mark.
     registerDowntimeHooks();
+    // M7: party-wide expiry (its claim, deadlines and the inert guard) and the rest ordering of 7.8.
+    registerExpiryHooks();
+    registerRestHooks();
     registerChatHooks();
     registerNotifications();
     registerWindowHooks();
@@ -59,6 +65,8 @@ Hooks.once("ready", async () => {
     await readySync();
     primeNotifications();
     publishApi();
+    // M7 (7.9): the pf2e-dailies custom daily, when pf2e-dailies is active.
+    registerDailies();
     if (isDev()) await loadDevHarness();
 });
 

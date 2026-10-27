@@ -45,6 +45,11 @@ const KINDS = {
     correction: (e) => e.consumable === true,
     repairHp: (e) => Number.isInteger(e.success) && Number.isInteger(e.critSuccess),
     variantOnly: (e) => typeof e.variant === "string" && e.variant in rulesWith({}).variants,
+    // M7 (7.1, 7.4, 7.7, 7.10).
+    dcStamp: (e) => typeof e.pool === "string" && Array.isArray(e.dcs) && e.dcs.every((dc) => ["class", "spell"].includes(dc)),
+    dailyGap: (e) => ["note", "designate", "dailies"].includes(e.flow),
+    vialSource: (e) => typeof e.regain === "boolean",
+    expiryRule: (e) => e.rule === "designate" && typeof e.when === "object",
 };
 
 test("every entry has the schema of scripts/data/registry.mjs, tier 4 exactly for legacy entries", () => {

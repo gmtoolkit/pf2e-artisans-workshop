@@ -58,8 +58,16 @@
  * - `repairHp {success, critSuccess}` (M5): Hit Points a Repair restores are `n + n × rank` on that degree instead of the
  *   Player Core numbers (the Crafter's Eyepiece, which the system's repair macro ignores; 6.13, 6.15 gap 12).
  * - `variantOnly {variant}`: the entry counts only while that variant rule is on.
- * The other kinds of 6.11 (`dcStamp`, `dailyGap`, `vialSource`, `additive`, `expiryRule`, `materialSource`,
- * `gate`, `conflict`, `afflictionModifier`, `delivery`) arrive with the milestones that read them.
+ * Effect kinds built in M7 (7.1, 7.4, 7.7, 7.10):
+ * - `dcStamp {pool, dcs}`: temporary items from that crafting pool take the highest of the creator's DCs named (`class`,
+ *   `spell`) and their own (Talisman Dabbler, 7.4).
+ * - `dailyGap {flow}`: a daily-preparation feature with no rule element (7.10): `note` (the player ticks it off for the day),
+ *   `designate` (Food Preservation), `dailies` (pf2e-dailies automates it; "not automated" without it, 7.9).
+ * - `vialSource {regain}`: a source of versatile vials, and whether it regains vials during the day (7.3, 8.7).
+ * - `expiryRule {rule, when}`: an exception to party-wide expiry (7.7): `designate`, items matching `when` the holder may
+ *   designate to outlast the next preparations.
+ * The other kinds of 6.11 (`additive`, `materialSource`, `gate`, `conflict`, `afflictionModifier`, `delivery`) arrive with
+ * the milestones that read them.
  */
 
 /** Freeze a JSON-compatible value all the way down. */
@@ -180,6 +188,7 @@ export const REGISTRY = deepFreeze({
         uuid: "Compendium.pf2e.feats-srd.Item.CJMkxlxHiHZQYDCz", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
         effects: [
             { kind: "formulaAllowance", on: "gain", count: 4, maxLevel: "level", rarity: ["common"], filter: { all: ["item:trait:alchemical"] } },
+            { kind: "vialSource", regain: false },
         ],
         verified: "pf2e-8.6.1",
     },
@@ -240,7 +249,9 @@ export const REGISTRY = deepFreeze({
     },
     "alter-admixture": {
         uuid: "Compendium.pf2e.feats-srd.Item.1cjjQL0z4ZVrrSAV", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "note" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "annotate-composition": {
@@ -435,7 +446,9 @@ export const REGISTRY = deepFreeze({
     },
     "ceremonial-knife": {
         uuid: "Compendium.pf2e.feats-srd.Item.78pkCdFaY8hI07Lj", type: "feat", book: "Pathfinder Player Core", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "dailies" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "chirurgeon": {
@@ -447,7 +460,9 @@ export const REGISTRY = deepFreeze({
     },
     "chrysanthemum-leshy": {
         uuid: "Compendium.pf2e.heritages.Item.CpjsxaXYjlkCI5nc", type: "heritage", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "note" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "city-scavenger": {
@@ -467,7 +482,9 @@ export const REGISTRY = deepFreeze({
     },
     "contingency-gadgets": {
         uuid: "Compendium.pf2e.feats-srd.Item.4st3fSYSrJrxwHOP", type: "feat", book: "Pathfinder Guns & Gears", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "note" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "cookware": {
@@ -555,7 +572,9 @@ export const REGISTRY = deepFreeze({
     },
     "elaborate-scroll-esoterica": {
         uuid: "Compendium.pf2e.feats-srd.Item.nWd7m0yRcIEVUy7O", type: "feat", book: "Pathfinder Dark Archive (Remastered)", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "dailies" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "elaborate-talisman-esoterica": {
@@ -620,7 +639,9 @@ export const REGISTRY = deepFreeze({
     },
     "firework-technician-dedication": {
         uuid: "Compendium.pf2e.feats-srd.Item.MVbNnjqQOK9d8Ki3", type: "feat", book: "Pathfinder Guns & Gears", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "vialSource", regain: true },
+        ],
         verified: "pf2e-8.6.1",
     },
     "flawless-celestial-shawl": {
@@ -632,7 +653,10 @@ export const REGISTRY = deepFreeze({
     },
     "food-preservation": {
         uuid: "Compendium.pf2e.feats-srd.Item.SeTlSDlaFudKg86x", type: "feat", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "designate" },
+            { kind: "expiryRule", rule: "designate", when: { all: ["item:tag:alchemical-food"] } },
+        ],
         verified: "pf2e-8.6.1",
     },
     "foolproof-instructions": {
@@ -737,7 +761,9 @@ export const REGISTRY = deepFreeze({
     },
     "herbal-forager": {
         uuid: "Compendium.pf2e.feats-srd.Item.0EsMqnrmTEQBG65e", type: "feat", book: "Pathfinder Howl of the Wild", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "note" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "herbalist-dedication": {
@@ -771,7 +797,9 @@ export const REGISTRY = deepFreeze({
     },
     "imperial-dragon-potion": {
         uuid: "Compendium.pf2e.feats-srd.Item.BoLeT3uNl7iikQuI", type: "feat", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "note" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "impossible-snares": {
@@ -975,6 +1003,16 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "munitions-machinist": {
+        uuid: "Compendium.pf2e.feats-srd.Item.lh3STEvbGnP7jVMr", type: "feat", book: "Pathfinder Guns & Gears", remaster: true, tier: 2,
+        effects: [
+            { kind: "vialSource", regain: false },
+        ],
+        relies: [
+            { key: "SpecialResource", match: { slug: "versatile-vials" } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "mutagenist": {
         uuid: "Compendium.pf2e.classfeatures.Item.tvdb1jkjl2bRZjSp", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
         effects: [
@@ -989,7 +1027,9 @@ export const REGISTRY = deepFreeze({
     },
     "natural-mutagen": {
         uuid: "Compendium.pf2e.feats-srd.Item.UBAARc8Zo3Gzfhul", type: "feat", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "note" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "nosois-mask": {
@@ -1120,7 +1160,9 @@ export const REGISTRY = deepFreeze({
     },
     "poisoned-sticks-and-stones": {
         uuid: "Compendium.pf2e.feats-srd.Item.U3YVN5oOd4mf18ry", type: "feat", book: "Pathfinder Battlecry!", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "note" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "poisoner-dedication": {
@@ -1140,6 +1182,7 @@ export const REGISTRY = deepFreeze({
         uuid: "Compendium.pf2e.feats-srd.Item.3jJw8NKK9oM77qVZ", type: "feat", book: "Pathfinder Impossible Magic", remaster: true, tier: 2,
         effects: [
             { kind: "virtualFormulaList", filter: { all: ["item:trait:catalyst"] }, rarity: ["common"], maxLevel: "level" },
+            { kind: "dailyGap", flow: "note" },
         ],
         verified: "pf2e-8.6.1",
     },
@@ -1150,7 +1193,9 @@ export const REGISTRY = deepFreeze({
     },
     "prepare-elemental-medicine": {
         uuid: "Compendium.pf2e.feats-srd.Item.NMbOfl885pn0Yzu9", type: "feat", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 2,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "note" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "preternatural-polish": {
@@ -1226,7 +1271,9 @@ export const REGISTRY = deepFreeze({
     },
     "repurposed-parts": {
         uuid: "Compendium.pf2e.feats-srd.Item.UJcQgQpZRqXBw0Nb", type: "feat", book: "Pathfinder Guns & Gears", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "note" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "research-field": {
@@ -1277,7 +1324,9 @@ export const REGISTRY = deepFreeze({
     },
     "root-magic": {
         uuid: "Compendium.pf2e.feats-srd.Item.22P7IFyhrF7Fbw8B", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "dailies" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "rune-singer": {
@@ -1324,12 +1373,16 @@ export const REGISTRY = deepFreeze({
     },
     "scroll-adept": {
         uuid: "Compendium.pf2e.feats-srd.Item.u5DBg0LrBUKP0JsJ", type: "feat", book: "Pathfinder Player Core", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "dailies" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "scroll-esoterica": {
         uuid: "Compendium.pf2e.feats-srd.Item.OqObuRB8oVSAEKFR", type: "feat", book: "Pathfinder Dark Archive (Remastered)", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "dailies" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "scrounger-dedication": {
@@ -1424,6 +1477,7 @@ export const REGISTRY = deepFreeze({
         effects: [
             { kind: "craftUnlock", category: "talisman" },
             { kind: "virtualFormulaList", filter: { all: ["item:trait:talisman"] }, rarity: ["common"], maxLevel: "level" },
+            { kind: "dcStamp", pool: "talisman-dabbler", dcs: ["class", "spell"] },
         ],
         relies: [
             { key: "CraftingAbility", match: { slug: "talisman-dabbler", maxSlots: 2, isDailyPrep: true, craftableItems: ["item:trait:talisman"] } },
@@ -1438,6 +1492,11 @@ export const REGISTRY = deepFreeze({
         relies: [
             { key: "CraftingAbility", match: { slug: "talisman-esoterica", craftableItems: ["item:trait:talisman"] } },
         ],
+        verified: "pf2e-8.6.1",
+    },
+    "talismanic-sage": {
+        uuid: "Compendium.pf2e.feats-srd.Item.uPikeCzrTrgzEJT8", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [],
         verified: "pf2e-8.6.1",
     },
     "tattoo-artist": {
@@ -1516,7 +1575,9 @@ export const REGISTRY = deepFreeze({
     },
     "versatile-vials": {
         uuid: "Compendium.pf2e.classfeatures.Item.PBQh0amk1FlomV0r", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
-        effects: [],
+        effects: [
+            { kind: "vialSource", regain: true },
+        ],
         relies: [
             { key: "SpecialResource", match: { slug: "versatile-vials" } },
         ],
@@ -1531,6 +1592,7 @@ export const REGISTRY = deepFreeze({
         uuid: "Compendium.pf2e.feats-srd.Item.9dPz3x6uLCFEB3yK", type: "feat", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 2,
         effects: [
             { kind: "toolSubstitution", tools: ["alchemists-lab"], requires: ["cookware"], when: { all: ["item:trait:alchemical", "item:tag:alchemical-food"] } },
+            { kind: "vialSource", regain: false },
         ],
         verified: "pf2e-8.6.1",
     },
@@ -1571,7 +1633,9 @@ export const REGISTRY = deepFreeze({
     },
     "witchs-bottle": {
         uuid: "Compendium.pf2e.feats-srd.Item.oEjRfI4ATIFxDCzL", type: "feat", book: "Pathfinder Player Core", remaster: true, tier: 2,
-        effects: [],
+        effects: [
+            { kind: "dailyGap", flow: "note" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "witchs-broom": {

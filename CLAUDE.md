@@ -42,6 +42,12 @@ M6 is in place: downtime (the Downtime tab, `scripts/ui/downtime.mjs`; the Advan
 `scripts/foundry/downtime.mjs`), Communal Crafting helpers (`scripts/foundry/communal.mjs`), Earn Income jobs and
 settlement profiles (`scripts/logic/jobs.mjs`, `scripts/foundry/jobs.mjs`); DESIGN 10.12 says what was built, and the
 live plans `m6-*` (`tools/harness/downtime-scenarios.mjs`) have not run yet.
+M7 is in place: daily preparations (the Morning tab, `scripts/ui/morning.mjs`; sources, loadouts, standing orders, the
+affix board and preparing through pf2e's `CraftingAbility` methods, `scripts/foundry/morning.mjs`; party-wide expiry by
+preparation cycle, `scripts/foundry/expiry.mjs`; rest ordering with and without pf2e-dailies, `scripts/foundry/rest.mjs`;
+the pf2e-dailies custom daily, `scripts/foundry/dailies.mjs`; pure parts in `scripts/logic/morning.mjs`, `expiry.mjs`,
+`talismans.mjs`); DESIGN 10.13 says what was built, and the live plans `m7-*` (`tools/harness/morning-scenarios.mjs`) have
+not run yet.
 README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
 world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every

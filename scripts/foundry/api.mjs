@@ -1,6 +1,6 @@
 /**
- * The public API (DESIGN.md 11.2), as far as M4-M6 build it: opening the window, the order lifecycle, the funds, formulas
- * (M5), and downtime, Earn Income jobs and Communal Crafting helpers (M6). It is
+ * The public API (DESIGN.md 11.2), as far as M4-M7 build it: opening the window, the order lifecycle, the funds, formulas
+ * (M5), downtime, Earn Income jobs and Communal Crafting helpers (M6), and daily preparations (M7, `prep`). It is
  * published at `game.modules.get("pf2e-artisans-workshop").api` in `ready`, and the `pf2e-artisans-workshop.ready` hook
  * fires right after with the same object. Later milestones add their namespaces; M11 completes the macros of 11.1.
  *
@@ -25,6 +25,8 @@ import { handOver } from "./custody.mjs";
 import * as communal from "./communal.mjs";
 import * as downtime from "./downtime.mjs";
 import * as jobs from "./jobs.mjs";
+import * as morning from "./morning.mjs";
+import { beginCycle, expirySweep } from "./expiry.mjs";
 import { parseActivity } from "../logic/downtime.mjs";
 import { read, records } from "./store.mjs";
 import { status } from "./state.mjs";
@@ -256,6 +258,90 @@ export function buildApi() {
             reroll: (jobId) => jobs.rerollJob(jobId),
             end: (jobId) => jobs.endJob(jobId),
             undo: (jobId) => jobs.undoJob(jobId),
+        },
+        // M7 (11.2, macros 7 and 18): daily preparations, loadouts, standing orders, the affix board, expiry.
+        prep: {
+            open: ({ actor = null, loadout = null, apply = false } = {}) => {
+                const who = resolveActor(actor);
+                if (apply && who) {
+                    const pools = loadout ? Object.fromEntries(Object.keys(morning.loadoutsOf(who)[loadout]?.pools ?? {}).map((slug) => [slug, { mode: "loadout", id: loadout }])) : {};
+                    return morning.applyMorning(who, { pools });
+                }
+                return openWorkshop({ tab: "morning", actor: who ?? null });
+            },
+            sources: async (actor = null) => {
+                const who = resolveActor(actor);
+                if (!who) return null;
+                const facts = await morning.morningFacts(who);
+                return { state: facts.state, cycle: facts.status.prepCycle, vials: facts.vials, gaps: facts.gaps,
+                    pools: facts.pools.map((p) => ({ slug: p.slug, label: p.label, maxSlots: p.maxSlots, maxItemLevel: p.maxItemLevel, used: p.used, byLevel: p.byLevel,
+                        sources: p.sources, offered: p.offered.map((i) => i.uuid) })) };
+            },
+            plan: async (actor = null, plan = {}) => {
+                const who = resolveActor(actor);
+                return who ? morning.planMorning(await morning.morningFacts(who), plan) : null;
+            },
+            apply: (actor = null, plan = {}) => {
+                const who = resolveActor(actor);
+                return who ? morning.applyMorning(who, plan) : Promise.resolve(noActor());
+            },
+            loadouts: (actor = null) => {
+                const who = resolveActor(actor);
+                return who ? Object.values(morning.loadoutsOf(who)) : [];
+            },
+            saveLoadout: (actor, loadout) => {
+                const who = resolveActor(actor);
+                return who ? morning.saveLoadout(who, loadout) : Promise.resolve(noActor());
+            },
+            captureLoadout: (actor, name) => {
+                const who = resolveActor(actor);
+                return who ? morning.captureLoadout(who, name) : Promise.resolve(noActor());
+            },
+            deleteLoadout: (actor, id) => {
+                const who = resolveActor(actor);
+                return who ? morning.deleteLoadout(who, id) : Promise.resolve(noActor());
+            },
+            applyLoadout: (actor, id) => {
+                const who = resolveActor(actor);
+                if (!who) return Promise.resolve(noActor());
+                const loadout = morning.loadoutsOf(who)[id];
+                if (!loadout) return Promise.resolve({ ok: false, reason: "no-loadout" });
+                const slugs = new Set([...Object.keys(loadout.pools ?? {}), ...Object.keys(loadout.talismans ?? {})]);
+                return morning.applyMorning(who, { pools: Object.fromEntries([...slugs].map((slug) => [slug, { mode: "loadout", id }])) });
+            },
+            standing: {
+                list: (actor = null) => morning.standingFor(actor ? [resolveActor(actor)].filter(Boolean) : undefined),
+                place: ({ actor = null, crafter, pool = "advanced-alchemy", uuid, qty = 1, recipient = null, fromDay = null, untilDay = null } = {}) => {
+                    const who = resolveActor(actor);
+                    const maker = resolveActor(crafter);
+                    return who && maker ? morning.placeStanding({ requester: who.uuid, crafter: maker.uuid, pool, uuid, qty, recipient: resolveActor(recipient)?.uuid ?? null,
+                        fromDay, untilDay }) : Promise.resolve(noActor());
+                },
+                end: (id) => morning.endStanding(id),
+            },
+            affixBoard: ({ actor = null } = {}) => {
+                const who = resolveActor(actor);
+                return who ? morning.affixBoardOf(who) : null;
+            },
+            affix: ({ actor = null, talisman, host } = {}) => {
+                const who = resolveActor(actor);
+                return who ? morning.affixOwn(who, talisman, host) : Promise.resolve(noActor());
+            },
+            unaffix: ({ actor = null, talisman } = {}) => {
+                const who = resolveActor(actor);
+                return who ? morning.unaffixOwn(who, talisman) : Promise.resolve(noActor());
+            },
+            preserve: ({ actor = null, items: ids = [] } = {}) => {
+                const who = resolveActor(actor);
+                return who ? morning.preserve(who, ids) : Promise.resolve(noActor());
+            },
+        },
+        expiry: {
+            sweep: () => expirySweep(),
+            beginCycle: (actor = null) => {
+                const who = resolveActor(actor);
+                return who ? beginCycle(who, { reason: "api" }) : Promise.resolve(noActor());
+            },
         },
         communal: {
             join: (order, { actor = null, skill = "crafting" } = {}) => {
