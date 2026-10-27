@@ -284,6 +284,35 @@ test("the clock moving within a day renders nothing; a new day renders the day, 
     assert.deepEqual(parts, ["header", "downtime", "nav"], "Bo has days to resolve: the badge changes too");
 });
 
+test("a live refresh renders the shown tab and leaves the hidden ones stale until shown (M12 performance pass)", async () => {
+    const base = foundry.applications.api.ApplicationV2.prototype;
+    const hadChangeTab = Object.hasOwn(base, "changeTab");
+    if (!hadChangeTab) base.changeTab = function (tab, group) { this.tabGroups[group] = tab; };
+    try {
+        const app = new WorkshopApp();
+        const renders = [];
+        app.rendered = true;
+        app.element = { querySelectorAll: () => [] };
+        app.render = (options) => { renders.push(options.parts); };
+        app.refresh();
+        const [first] = renders;
+        assert.ok(["header", "status", "queue"].every((part) => first.includes(part)), JSON.stringify(first));
+        assert.deepEqual(["funds", "downtime", "formulas", "morning"].filter((part) => first.includes(part)), [], "hidden tabs wait");
+        app.changeTab("funds", "primary");
+        assert.deepEqual(renders.at(-1), ["funds"], "the Funds tab renders as it is shown, since a change came while it was hidden");
+        await app._preparePartContext("funds", { ...(await app._prepareContext({})) }, {});
+        const count = renders.length;
+        app.changeTab("queue", "primary");
+        assert.equal(renders.length, count, "the Queue was rendered by the refresh: nothing to catch up");
+        app.changeTab("funds", "primary");
+        assert.equal(renders.length, count, "the Funds tab was rendered since: nothing to catch up either");
+        app.refresh();
+        assert.ok(renders.at(-1).includes("funds") && !renders.at(-1).includes("queue"), "the refresh follows the shown tab");
+    } finally {
+        if (!hadChangeTab) delete base.changeTab;
+    }
+});
+
 test("typing a job's task level or a settlement's level updates the form in place: no render to swallow the click on Take this job or Save (M6 live pass)", async () => {
     const app = new WorkshopApp();
     const preview = { textContent: "" };

@@ -206,6 +206,9 @@ All notable changes to this module are documented here. The format follows
   watch that reports new pf2e releases, changes to the pf2e code the module relies on and the registry validation against
   them, issue forms, a "For GMs" section in the README, `CONTRIBUTING.md`, and a `NOTICE` file for the Community Use
   Policy, ORC and OGL notices (their licensors' text still to be pasted in by the author).
+- Performance pass (milestone M12, `npm run harness:perf`): stages a long campaign in the dev world (five members, 200 orders,
+  2000 ledger rows, 60 workshop days) and times and profiles the Workshop window, ledger writes, reconciliation and the
+  Advance days wizard.
 
 ### Changed
 
@@ -227,6 +230,12 @@ All notable changes to this module are documented here. The format follows
   Workshop window, not only the main one and the macro shelf; the Downtime tab's activity choice is named by its visible label;
   "Roll Craft check" and "Finish order" with nothing to do say so instead of "That order no longer exists"; the macro shelf
   says "Fund an order" and "Collect waiting items", as the Workshop does.
+- Faster with a long campaign behind it (M12 performance pass): Advance days pays each Earn Income job's wages for the whole
+  span at once, so a week for five characters with three jobs takes 1.6 s instead of 12 s two months into a campaign (and
+  60 days 1.5 s instead of a minute); the Workshop
+  redraws only the tab you are looking at when something changes, reads the ledger once for the whole Queue, and formats
+  amounts and dates without rebuilding a formatter each time. With 200 orders a change now costs each open window about a
+  third of what it did.
 - The "Advance days" macro answers once its wizard is open, so a script that waits on it gets the window, and two quick runs
   no longer open two wizards; the macro shelf's call lines wrap inside their tiles instead of running under the buttons.
 - Live harness (M11): the plans no longer pass on nothing (every rendered core window counted as one a macro opened; a missing

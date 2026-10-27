@@ -2181,7 +2181,11 @@ pledge a casting "offered" (10.11, As built in M5 on M4.1).
     roll, and no day after it); after the records land, `payWage(job, day, {cp})` mints it (the earner's responsible
     client) or files a wage claim (anyone else). A day record whose wage never landed is paid by the earner's
     responsible client at the sweep (`sweepWages`, a sweep step), once, since the wage is keyed by job and day. Cost of
-    living is not built (`rules.costOfLiving` stays off).
+    living is not built (`rules.costOfLiving` stays off). As built in M12 (performance pass, 15.7): a span's wages go out
+    together, `payWages(job, [{day, cp}])` per job: the earner's responsible client mints every unpaid day's row in one
+    lock-first batch (one row and one row lock per day, as before; one purse credit for their sum), and anyone else files
+    the span's wage claims in one write; the sweep pays a job's owed days the same way. A move that is refused or stops
+    pays none of its days then, and the sweep pays them later. `payWage(job, day)` is that for one day.
 
 ### 6.11 Rules registry
 
@@ -4094,7 +4098,8 @@ As built in M6 (`scripts/ui/advance.mjs`, `scripts/foundry/downtime.mjs`; 10.12)
 One ApplicationV2 window built with `HandlebarsApplicationMixin`, split into small PARTS so that a store
 change re-renders only the affected part. Detached-window safe: `element.ownerDocument`, no cross-window
 `instanceof` (use `foundry.utils.isElementInstanceOf`), delegated listeners. Re-renders are debounced
-with `foundry.utils.debounce`, never `requestAnimationFrame`.
+with `foundry.utils.debounce`, never `requestAnimationFrame`. As built in M12 (15.7): a live refresh renders the header,
+the status bar and the shown tab only; a hidden tab is marked stale and renders when it is shown.
 
 | Tab | Players see | GMs additionally see |
 |---|---|---|
@@ -7864,7 +7869,8 @@ check out the same list as `ci.yml`.
   9. Module disabled and re-enabled; purge; migration from a fixture of an older schema.
   10. Accessibility: keyboard-only pass through Queue, request form, Morning and Quick Alchemy; screen
       reader smoke test; contrast check.
-  11. Performance: Queue re-render time with 30 orders and 6 members.
+  11. Performance: Queue re-render time with 30 orders and 6 members. As built in M12: `npm run harness:perf`, at 30 and at 200
+      orders with five members (15.7).
   12. Afflictions:
       a. GM and players: a toxicologist coats a weapon (single action) and Strikes an NPC; the
          initial save is rolled once on the GM's client; stage saves fall at the right turn ends;
@@ -8073,6 +8079,105 @@ module list; which build the Forge's default channel runs.
 There is no dedicated Forge test world. The first pre-release run at a real table hosted on the Forge
 (M12) is the Forge smoke test: before that session the GM installs the pre-release by manifest URL, and
 the items above are checked off during and after it. Anything that fails there blocks M13.
+
+### 15.7 As built in M12: the companions matrix and the performance pass
+
+Run 2026-10-27 on the dev server (Foundry 14.368, pf2e 8.6.1, no canvas), from the M12 branch with main's M11 live pass merged.
+
+**Companions matrix.** The core plans, once with pf2e-dailies, PF2e Toolbelt, PF2e Workbench and Item Piles all off in the
+world's `core.moduleConfiguration` (lib-wrapper and socketlib left on) and once with all four on, every page reloaded after each
+switch; the world had all four on before and was put back exactly. With all four on, a player's page had pf2e-dailies' API
+(with the Workshop's custom daily), Item Piles' API and libWrapper.
+
+| Plan | All four off | All four on |
+|---|---|---|
+| scenario 7 (`modifyBatch` failure, lock races) | pass (11 checks) | pass (11) |
+| `m4-lifecycle` | pass (14) | pass (14) |
+| `m5-fund` | pass (8) | pass (8) |
+| `m6-income` | pass (7) | pass (7) |
+| `m7-morning` | pass (14) | pass (14) |
+| `m8-turn` | pass (7) | pass (7) |
+| `m9a-off` | pass (21) | pass (21) |
+
+The console errors were the same in both runs and the same as the M11 regression run's: the lock collisions scenario 7 and
+`m6-income` cause on purpose, and pf2e's own `Cannot read properties of null (reading 'id')` in `m8-turn` without a canvas.
+Not covered: each companion alone (15.5's middle row), Duct Tape (stand-ins only, as in M8) and a calendar module.
+
+**Performance pass** (`npm run harness:perf`, `tools/harness/perf.mjs`; scenario 11 of 15.3, grown to the size asked of M12).
+Five members (the players' two characters and three copies of fixture actors), then three stages: S0, the world as every plan
+starts it; S1, 30 orders in every state, their money and rolls through the module's own functions, every member in downtime
+(three on Earn Income jobs) and one Advance days run of 60 days; S2, S1's records copied to 200 orders and 2000 rows, with the
+lock pages of the copied rows and the coins they hold. Medians of five runs, in ms; the GM's client unless a player is named.
+"Before" is main at `a447c9b`, "after" the fixes below (served from main's working tree for the run, then taken back out).
+
+| | S0 | S1 before | S1 after | S2 before | S2 after |
+|---|---|---|---|---|---|
+| Ledger: orders, rows, day records, lock pages | 0, 0, 0, 0 | 30, 248, 300, 826 | 30, 248, 300, 474 | 200, 2000, 504, 2600 | 200, 2007, 504, 2209 |
+| Ledger size (JSON; flags alone) | 4 KiB | 893 KiB (277 KiB) | 614 KiB (277 KiB) | 3.8 MiB (1.5 MiB) | 3.1 MiB (1.5 MiB) |
+| Workshop open: first in the page, then | 100, 7 | 100, 39 | 116, 22 | 273, 184 | 173, 88 |
+| Queue part | 1.4 | 17 | 11 | 148 | 57 |
+| Funds part | 1.4 | 23 | 14 | 39 | 27 |
+| Downtime part | 4 | 6 | 8 | 10 | 10 |
+| A live refresh on the Queue tab | 4 | 34 | 19 | 182 | 82 |
+| What one ledger change costs each open window (Player One) | 6 | 46 | 13 | 175 | 62 |
+| Reconciliation (`reconciliationReport`) | 0.0 | 0.2 | 0.2 | 1.6 | 1.0 |
+| A plain ledger write, to its answer | 4 | 90 | 59 | 240 | 202 |
+| A deposit (a lock-first move), to its answer | 45 | 500 | 361 | 1625 | 1329 |
+| Advance days through the wizard, 7 days, 5 PCs, 3 earners: the commit | | 12.0 s | 1.6 s | 39.7 s | 9.5 s |
+| Renders of each open window during that commit | | 39 | 9 to 10 | 55 | 18 to 19 |
+| Advance days of 60 days for the five (S1's staging) | | 62 s | 1.5 s | | |
+
+The wizard's own steps (span to who, who to checks, checks to review) took 53 to 97 ms at every size. Player One's numbers
+match the GM's within a few ms, except that a player's Funds tab has no reconciliation block.
+
+- **Budget.** DESIGN set no number for a re-render; this pass judges by 50 ms (about three frames), as the M12 brief asked.
+  After the fixes S1 is inside it everywhere; at S2 the Funds and Downtime tabs are, the Queue is not (57 ms alone, 82 ms for a
+  refresh with the header), nor is what a change costs a window showing the Queue (62 ms).
+- **Hotspots** (CPU profiles of the GM's page, self time). Before the fixes, at S2: `liveRecords` 31% of a Queue render (each
+  order read every row and day record of the ledger: `orderRows`, `orderDays`), Foundry's `_syncPartState` 26%, `money` and
+  `number` 13% (a new `Intl.NumberFormat` for every amount; `when` made an `Intl.DateTimeFormat` for every row). After them: the
+  Queue render is Foundry's (`_syncPartState` 55%, `#parsePartHTML` 9%: the DOM of 200 order rows, about 8800 elements), and a
+  ledger change costs every client Foundry's re-initialisation of the whole ledger (`_deepClone`, `_initialize`, 15 to 20% of a
+  deposit's CPU on each client) before any of the module's code runs. Opening the window forces a layout in `#syncTooltips`
+  (`clientWidth`), about half of an open's CPU at S2. Reconciliation is never more than 2 ms.
+- **What a write costs is decided by the lock pages.** A throwaway journal entry, one small flag written eight times: 3 ms with
+  nothing else in it, 40 ms with 1.3 MB of flags (4000 row-sized records) and no pages, 177 ms with small flags and 2600 pages
+  shaped like lock pages. The ledger's lock pages (5.4) are never pruned until archiving (5.3.3), which is not built, so every
+  write, on the server and on every client, gets slower for the life of the world: at S1 (60 workshop days of five characters)
+  a write took 25 times what it took on a fresh ledger, 15 times after the fixes. The batched wages (below) took S1's pages
+  from 826 to 474.
+- **OQ-36.** The archive ages (30 and 60 workshop days) cannot be tuned before archiving exists. What the pass shows is that
+  the bound has to be on the lock pages: as long as they live on the ledger, a plain write took 59 ms with 474 of them, 90 ms
+  with 826, 202 ms with 2209 and 240 ms with 2600, whatever the age of the orders. Either archiving prunes lock pages by count as well as by age, or the lock
+  pages move to a journal entry of their own, so that the ledger's updates do not carry them (both are design changes; the
+  author decides).
+
+Fixed in this pass (each with a test that fails without it):
+
+- **The wages of a span** were paid one move per day (`payWage` in a loop): a week of three earners was 21 lock-first batches,
+  each slower as the ledger grew, each re-rendering every open window. Now each job's span is one move (`payWages`, 6.10),
+  and the sweep pays a job's owed days the same way (`test/foundry/downtime.test.mjs`).
+- **A live refresh rendered every tab**, the hidden Queue, Funds and Downtime parts included, on every client after every
+  ledger change. It now renders the header, the status bar and the shown tab; a hidden tab renders when it is shown (10.1;
+  `test/foundry/ui-m6.test.mjs`).
+- **The Queue read the ledger per order**: it now groups the rows and day records by order once per render and reads the rules
+  once (`orderContext` takes them; `test/foundry/ui.test.mjs`).
+- **A formatter per amount**: `number` and `when` keep one `Intl` formatter per interface language (`test/foundry/format.test.mjs`).
+
+**Follow-ups** (low, except the first two, which are the archiving work 5.3.3 already describes):
+
+- Archiving (5.3.3) and with it the pruning of lock pages (5.4) are built in no milestone; until they are, a long campaign's
+  ledger only grows, and every write with it (above). Medium for 1.0: worth a milestone of its own before the listing.
+- The Queue lists every order ever made, the closed ones until archiving: at 200 orders its render is over budget, and most of
+  it is Foundry's work on the DOM. Archiving answers it; a collapsed "Closed" group or paging would until then.
+- An Advance days commit writes each PC's days in its own request, then each earner's wages, then the logged-day mark and the
+  card: 10 requests for five PCs, each a ledger update every client re-initialises. One request for all the PCs' days would
+  shorten it further.
+- Opening the Workshop reads `clientWidth` right after rendering (`#syncTooltips`), which forces a layout of the new DOM in the
+  open's own time.
+- The performance pass cannot profile the server (the dev server runs without an inspector and the pass does not restart it);
+  the probe journal above stands in for it. Its copies of S1's records repeat S1's orders (the same items, crafters and
+  states), and a copied order's work days get ids that are not day records (`-p<n>`), so they count for the order only.
 
 ---
 
@@ -8480,7 +8585,7 @@ strip, the Party card and the shelf in both schemes into `--shots`.
 | OQ-33 | Do PF2e HUD or Token Action HUD alter the core token HUD's left column? | inject anyway, null-guarded | harness |
 | OQ-34 | How the Forge test will be run (trial world or a Forge-hosted test table) | **Resolved:** no dedicated Forge test; the first pre-release run at a real table hosted on the Forge is the Forge smoke test (15.6, M12) | author decision, 2026-10-25 |
 | OQ-35 | Does the module rely on Paizo's Community Use Policy at all, given it ships only ORC/OGL mechanics and references by UUID? Is "PF2e" in the title acceptable to Paizo? | **Resolved:** the title is "PF2e Artisan's Workshop", with the Community Use Policy notice plus the ORC and OGL notices (16.6) | author decision, 2026-10-25 |
-| OQ-36 | Archive thresholds and the ledger document size at which performance suffers | 30 and 60 workshop days | harness scenario 11 |
+| OQ-36 | Archive thresholds and the ledger document size at which performance suffers | 30 and 60 workshop days; M12 measured that the lock pages, not the flags, set the cost of every write (59 ms with 474 pages, 202 ms with 2209), so the bound must be on them (15.7) | archiving (5.3.3), then `npm run harness:perf` |
 | OQ-37 | Uncommon or rarer items without a formula: Player Core p.237 allows any access; GM Core p.223 requires the formula | Player Core reading: access from a known formula or a registry grant; `rules.uncommonNeedsFormula` off | Paizo errata or author decision |
 | OQ-38 | Does tier-4 legacy content include items that exist only in the PF2e Legacy Data module (different UUIDs)? | **Resolved:** system packs only; items that exist only in the PF2e Legacy Data module are out of scope (1.2, 6.11) | author decision, 2026-10-25 |
 | OQ-39 | Affliction rules gaps: does a virulent critical success reduce the stage at once (as designed) or count as one of the two consecutive successes; does a virulent success that changes nothing repeat the stage's effects (as designed); does the maximum duration start after the onset (as designed, supported by poisons whose onset exceeds their maximum duration)? Affliction Forge reads the virulent critical success the same way | as in 8.10.6 | rules reading by the author |

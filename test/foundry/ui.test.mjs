@@ -119,6 +119,33 @@ test("the window's Queue and Funds context, from the ledger", async () => {
     assert.equal(funds.reconciliation, null, "reconciliation is for GMs");
 });
 
+
+test("the Queue reads the ledger's rows once for all its orders, not once per order (M12 performance pass)", async () => {
+    const stamp = { by: "p2", at: { world: 1, real: 1, server: 1, launch: 0 } };
+    const set = {};
+    for (let n = 0; n < 20; n += 1) {
+        const id = `order${String(n).padStart(11, "0")}`;
+        set[`orders.${id}`] = makeOrder({ id, requester: bo.uuid, recipient: { kind: "actor", uuid: bo.uuid },
+            product: { uuid: "U", snapshot: { name: `Elixir ${n}`, img: "e.webp", level: 1, rarity: "common", traits: [], priceCp: 300, per: 1 } }, quantity: 2 }, stamp);
+        for (const part of ["a", "b"]) {
+            const row = { ...makeRow({ kind: "pledge", idem: `pledge:${id}:b:${part}`, cp: 75, actor: bo.uuid, order: id }, stamp), state: "applied" };
+            set[`rows.${row.id}`] = row;
+        }
+    }
+    await write({ set });
+    const flags = docs.ledger.flags[MOD];
+    const reads = { rows: 0, days: 0 };
+    for (const key of ["rows", "days"]) {
+        const target = flags[key] ?? {};
+        flags[key] = new Proxy(target, { ownKeys: (t) => { reads[key] += 1; return Reflect.ownKeys(t); } });
+    }
+    const app = new WorkshopApp();
+    const context = await app._prepareContext({});
+    const queue = await app._preparePartContext("queue", { ...context }, {});
+    assert.equal(queue.orders.length, 20);
+    assert.ok(queue.orders.every((view) => view.progress.pct === 50), "each order still sees its own two pledges");
+    assert.ok(reads.rows <= 2 && reads.days <= 2, `the rows were read ${reads.rows} times and the days ${reads.days} for 20 orders`);
+});
 test("the Actors directory gets one Workshop button while the Workshop is on", () => {
     const appended = [];
     const element = (tag) => ({ tag, classList: { add() {} }, dataset: {}, append: (...children) => appended.push(...children), addEventListener() {} });

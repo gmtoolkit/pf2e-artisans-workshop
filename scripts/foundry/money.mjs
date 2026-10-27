@@ -323,15 +323,19 @@ export function withdraw({ actor, cp, order = null, garden = null, nonce, note =
     return payout({ actor, row: { kind: "withdraw", idem, cp, actor: actor.uuid, order, garden, note }, locks });
 }
 
-/** Coins minted into a purse, for a row given in full: a `wage` (6.10). */
-export function mint({ actor, row, ledger = {} }) {
+/**
+ * Coins minted into a purse, for a row given in full: a `wage` (6.10). `rows` mints several in one move, one purse credit for
+ * their sum (a span of an Earn Income job's days, `payWages`, M12 performance pass); none of them lands unless all do.
+ */
+export function mint({ actor, row = null, rows = row ? [row] : [], ledger = {} }) {
+    const cp = rows.reduce((sum, r) => sum + (r.cp > 0 ? r.cp : 0), 0);
     return moveCoins(() => {
         if (!ownsPurse(actor)) return { refuse: "not-owner" };
-        if (!(row.cp > 0)) return { refuse: "nothing" };
+        if (!rows.length || !rows.every((r) => r.cp > 0)) return { refuse: "nothing" };
         const stacks = freeStacks(actor);
-        const purse = planPurseCredit(stacks, row.cp);
-        return { rows: [row], credits: [{ target: actor.uuid, plan: purse }], locks: purseLockIds(stacks, purse) };
-    }, ledger, [row]);
+        const purse = planPurseCredit(stacks, cp);
+        return { rows, credits: [{ target: actor.uuid, plan: purse }], locks: purseLockIds(stacks, purse) };
+    }, ledger, rows);
 }
 
 /**
