@@ -23,7 +23,8 @@ import {
     asSettled, clockDayOf, componentsOffset, firstOpenDay, helperLockOf, isDayRecord, openDaysThrough, pcStatusOf, PC_VERSION, pendingDays, planDays,
     resolvedThrough, secondsPerDayOf, wageDaysOf, wizardSpan, workshopDay, worldClockOffset,
 } from "../logic/downtime.mjs";
-import { hashId, idemKey } from "../logic/ids.mjs";
+import { hashId } from "../logic/ids.mjs";
+import { lockIdOf } from "../logic/locks.mjs";
 import { subjectLockOf } from "../logic/crafts.mjs";
 import { closedAs } from "../logic/orders.mjs";
 import { postDaysCard } from "../ui/chat.mjs";
@@ -290,7 +291,7 @@ async function writePlan(actor, plan, { extra = {} } = {}) {
     const set = { ...extra, ...moves };
     const ext = await resolvePlan(actor, plan);
     const replace = Object.fromEntries(plan.records.map((record) => [`days.${record.id}`, record]));
-    const lock = hashId(idemKey("days", actor.id, plan.records[0].day));
+    const lock = lockIdOf("days", actor.id, plan.records[0].day);
     const written = await lockedWrite([lock], [], { set, replace, scopes: ext.scopes });
     if (!written.ok) return written;
     // Each job's wages for the span in one move (M12 performance pass): a request per day made a long span slow.

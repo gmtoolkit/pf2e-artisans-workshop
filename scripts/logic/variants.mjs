@@ -19,7 +19,8 @@ import { DEFAULT_RULES } from "./defaults.mjs";
 import {
     gateAvailable, gateFeats, gateLevel, gateProficiency, gateTools, gateTrained,
 } from "./gates.mjs";
-import { hashId, idemKey } from "./ids.mjs";
+import { idemKey } from "./ids.mjs";
+import { lockIdOf } from "./locks.mjs";
 import { incomePerDay } from "./income.mjs";
 import { componentsCp, materialsCp } from "./materials.mjs";
 
@@ -551,7 +552,7 @@ export function gardenRoom(gardens, pcCount, party = null) {
  */
 export function gardenSlotLockId(gardenId, rows) {
     const takenOff = rows.filter((row) => row.garden === gardenId && (row.alloc ?? 0) < 0).length;
-    return hashId(idemKey("garden-slot", gardenId, takenOff));
+    return lockIdOf("garden-slot", gardenId, takenOff);
 }
 
 /** The lock keys of a garden's planting and of a day's harvest (6.16.7). */

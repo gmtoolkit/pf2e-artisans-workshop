@@ -3,7 +3,7 @@
  * a user waits for, profile it, and put the world back as the live harness leaves it.
  *
  *   npm run harness:perf -- [--url http://localhost:30000] [--chromium <browser binary>] [--orders 200] [--rows 2000]
- *                           [--days 60] [--seeds 5] [--runs 5] [--out <dir>] [--canvas] [--headed]
+ *                           [--days 60] [--seeds 5] [--runs 5] [--later 90] [--out <dir>] [--canvas] [--headed]
  *
  * It needs what `npm run harness:live` needs (README, Development) and runs in the dev world only: it resets the world's
  * Workshop data, as every live plan does. Stages, each measured the same way:
@@ -16,6 +16,11 @@
  *   S2  S1 cloned up to `--orders` orders and at least `--rows` rows (`cloneRecords`): each copy of an order brings its rows and
  *       work days under new ids, party-fund rows fill the rest, the strongbox gets the coins the copies hold so reconciliation
  *       still balances, and the lock pages grow in proportion to the rows that moved coins.
+ *   S3  M12b: S2 after a long campaign has crossed OQ-36's archive ages: the Earn Income jobs ended, then archive runs and a
+ *       prune pass as a GM's client does them (`archiveRun`, `pruneLocks`, `scripts/foundry/housekeeping.mjs`), judged
+ *       `--later` workshop days on and two real days later, so every age has passed; then measured as the others.
+ * Every client's automatic housekeeping is paused while a stage is staged and measured (`pauseHousekeeping`), so S2 is measured
+ * as it was staged and only S3's runs archive.
  *
  * Measured at each stage, with the GM and both players online (`measure`): the ledger's size; on the GM's and Player One's
  * clients the Workshop's first and later opens and each part's render (Queue, Funds, Downtime, the header, the status bar),
@@ -362,6 +367,40 @@ async function pageDowntime({ mod, members, days }) {
     return out;
 }
 
+/** This client: hold (or let go) its automatic housekeeping (M12b), so a stage is measured as it was staged. */
+async function pagePause({ mod, paused }) {
+    const { pauseHousekeeping } = await import(`/modules/${mod}/scripts/foundry/housekeeping.mjs`);
+    pauseHousekeeping(paused);
+    return paused;
+}
+
+/**
+ * GM (M12b): a long campaign crosses the archive ages. Every open Earn Income job ends; then archive runs until nothing is left
+ * to move, judged `later` workshop days on and two real days later (OQ-36's ages, and the day of real time nothing younger is
+ * archived before), then one prune pass. Each timed.
+ */
+async function pageArchive({ mod, later }) {
+    const at = `/modules/${mod}/scripts`;
+    const [housekeeping, downtime, jobs, store] = await Promise.all([import(`${at}/foundry/housekeeping.mjs`), import(`${at}/foundry/downtime.mjs`),
+        import(`${at}/foundry/jobs.mjs`), import(`${at}/foundry/store.mjs`)]);
+    const plain = (value) => JSON.parse(JSON.stringify(value ?? null));
+    const ended = [];
+    for (const job of store.records("jobs").filter((j) => j.status === "open")) ended.push(plain(await jobs.endJob(job.id)));
+    const today = downtime.today().day + later;
+    const now = store.serverNow() + 2 * 24 * 60 * 60 * 1000;
+    const runs = [];
+    let t0 = performance.now();
+    for (let i = 0; i < 20; i++) {
+        const run = await housekeeping.archiveRun({ now, today });
+        runs.push({ ...plain(run), ms: Math.round(performance.now() - t0) });
+        t0 = performance.now();
+        if (!run.ok || run.outcome !== "ok" || !run.more) break;
+    }
+    t0 = performance.now();
+    const prune = plain(await housekeeping.pruneLocks({ now }));
+    return { ended, today, runs, prune: { ...prune, ms: Math.round(performance.now() - t0) } };
+}
+
 /** GM: the ledger's module flags and pages, and its size as JSON (what the server stores and sends). */
 async function pageLedger({ mod, flags = false }) {
     const ledger = game.journal.find((j) => j.flags?.[mod]?.role === "ledger");
@@ -636,6 +675,7 @@ async function measure(h, world, { runs, wizard, profile }) {
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     await h.only(["gm", "p1", "p2"]);
     await h.settle("ready");
+    for (const name of ["gm", "p1", "p2"]) await h.evaluate(name, pagePause, { mod: MODULE_ID, paused: true }, "pause housekeeping");
     const out = { ledger: (await h.evaluate("gm", pageLedger, { mod: MODULE_ID }, "ledger size")).size };
     const windowTimes = async (name) => {
         const raw = await h.evaluate(name, pageWindowTimes, { mod: MODULE_ID, runs, parts: PARTS, refresh: REFRESH_PARTS }, "window times");
@@ -730,6 +770,7 @@ async function main() {
             rows: { type: "string", default: "2000" },
             days: { type: "string", default: "60" },
             seeds: { type: "string", default: "5" },
+            later: { type: "string", default: "90" },
             runs: { type: "string", default: "5" },
             out: { type: "string", default: join(tmpdir(), `${MODULE_ID}-perf-${new Date().toISOString().replace(/[:.]/g, "-")}`) },
             headed: { type: "boolean", default: false },
@@ -741,7 +782,7 @@ async function main() {
     const h = new Harness({ url: values.url, executablePath: values.chromium, headed: values.headed, canvas: values.canvas });
     mkdirSync(values.out, { recursive: true });
     const file = join(values.out, "results.json");
-    const report = { url: values.url, started: new Date().toISOString(), options: { orders: n("orders"), rows: n("rows"), days: n("days"), seeds: n("seeds"), runs,
+    const report = { url: values.url, started: new Date().toISOString(), options: { orders: n("orders"), rows: n("rows"), days: n("days"), seeds: n("seeds"), runs, later: n("later"),
         canvas: values.canvas }, budgets: BUDGETS, stages: {} };
     const save = () => writeFileSync(file, JSON.stringify({ ...report, records: h.records, checks: h.checks, console: h.console, stalls: h.stalls }, null, 2));
     await h.start();
@@ -767,6 +808,7 @@ async function main() {
         h.label = "seed";
         await h.only(["gm"]);
         await h.settle("ready");
+        await h.evaluate("gm", pagePause, { mod: MODULE_ID, paused: true }, "pause housekeeping");
         await h.evaluate("gm", pageStore, { mod: MODULE_ID, uuid: LAB }, "lab");
         report.seeds = [];
         for (let i = 0; i < n("seeds"); i++) {
@@ -786,6 +828,7 @@ async function main() {
         h.label = "clone";
         await h.only(["gm"]);
         await h.settle("ready");
+        await h.evaluate("gm", pagePause, { mod: MODULE_ID, paused: true }, "pause housekeeping");
         const ledger = await h.evaluate("gm", pageLedger, { mod: MODULE_ID, flags: true }, "ledger");
         const lockPages = (ledger.pages ?? []).filter((p) => p.flags?.[MODULE_ID]?.lock);
         const plan = cloneRecords(ledger.flags, { orders: n("orders"), rows: n("rows"), pages: lockPages,
@@ -806,6 +849,26 @@ async function main() {
             h.check(`S2: ${who}'s Queue lists one page of the orders, and says so in words`, dom.orderRows < report.stages.S2.ledger.orders &&
                 pageLine(dom.more, dom.orderRows, report.stages.S2.ledger.orders), dom);
         }
+        save();
+
+        // M12b (5.3.3, OQ-36): the long campaign crosses the archive ages; archive and prune, then measure again.
+        h.label = "archive";
+        await h.only(["gm"]);
+        await h.settle("ready");
+        await h.evaluate("gm", pagePause, { mod: MODULE_ID, paused: true }, "pause housekeeping");
+        const wall = Date.now();
+        report.archive = await h.evaluate("gm", pageArchive, { mod: MODULE_ID, later: n("later") }, "archive");
+        report.archive.wallMs = Date.now() - wall;
+        report.archive.ledgerAfter = (await h.evaluate("gm", pageLedger, { mod: MODULE_ID }, "ledger size")).size;
+        h.check("the archive runs moved records and left nothing they could move", (report.archive.runs ?? []).some((r) => r.outcome === "ok") &&
+            report.archive.runs.at(-1)?.ok === true, report.archive.runs);
+        h.label = "S3";
+        report.stages.S3 = await measure(h, world, { runs, wizard: true, profile: false });
+        for (const c of budgetChecks("S3", report.stages.S3)) h.check(c.name, c.ok, c.data);
+        const [s2, s3] = [report.stages.S2.ledger, report.stages.S3.ledger];
+        h.check("S3 still reconciles", report.stages.S3.reconcile.differenceCp === 0 && report.stages.S3.reconcile.pending === 0, report.stages.S3.reconcile);
+        h.check("S3: archiving left fewer orders, rows, day records and lock pages", s3.orders < s2.orders && s3.rows < s2.rows && s3.days < s2.days &&
+            s3.pages < s2.pages, { s2, s3 });
     } catch (error) {
         report.error = error.stack ?? error.message;
         console.log(`! ${error.message}`);

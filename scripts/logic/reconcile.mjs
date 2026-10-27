@@ -162,6 +162,10 @@ export function memberBalances(allRows) {
     for (const row of liveRows(rows).filter((r) => fundRow(r) && r.actor && FUND_SHARE_KINDS.includes(r.kind))) {
         deposits.set(row.actor, (deposits.get(row.actor) ?? 0) + row.alloc);
     }
+    // M12b (5.3.3): an archive run's carry row holds the member's net deposits among the rows it replaced (`share`).
+    for (const row of rows.filter((r) => r.kind === "carry" && fundRow(r) && r.actor && Number.isSafeInteger(r.share))) {
+        deposits.set(row.actor, (deposits.get(row.actor) ?? 0) + row.share);
+    }
     const depositors = [...deposits].filter(([, cp]) => cp > 0).map(([key, cp]) => ({ key, cp }));
     const shareable = Math.max(0, Math.min(fundCp, depositors.reduce((sum, d) => sum + d.cp, 0)));
     for (const { key, cp } of splitProRata(shareable, depositors)) {

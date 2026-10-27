@@ -22,6 +22,7 @@ import { MODULE_ID } from "../constants.mjs";
 import { DEGREE, DEGREE_FROM_OUTCOME } from "../logic/core.mjs";
 import { canDoublePoison, coatingAfterAttack, coatingAfterDamage, deliveryOf, mergeDoublePoison, runnable, stickyDc } from "../logic/affliction.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
+import { lockKeyId } from "../logic/locks.mjs";
 import { makeClaim } from "../logic/claims.mjs";
 import { definitionOf, exposureDc, sourceUuidOf } from "./affliction-defs.mjs";
 import { afflictionsOn, clockNow, expose, exposureMods, isCompendiumSource, snapshotOf } from "./afflictions.mjs";
@@ -41,7 +42,7 @@ const traitsOf = (item) => [...(item?.system?.traits?.value ?? [])];
 export const coatingOf = (item) => item?.flags?.[MODULE_ID]?.coating ?? null;
 
 /** The lock page that spends a contact or ingested coating once (8.10.5). */
-export const coatingLockId = (coatingId, toucher = null) => hashId(toucher ? idemKey("coating", coatingId, hashId(toucher)) : idemKey("coating", coatingId));
+export const coatingLockId = (coatingId, toucher = null) => lockKeyId(toucher ? idemKey("coating", coatingId, hashId(toucher)) : idemKey("coating", coatingId));
 
 /** Whether a coating is spent as far as this client knows: its lock page exists (8.10.5). */
 export function coatingSpent(coating) {

@@ -14,7 +14,7 @@ const { setCoinTemplates } = await import("../../scripts/foundry/coins.mjs");
 const { requestLease, resetLease } = await import("../../scripts/foundry/lease.mjs");
 const money = await import("../../scripts/foundry/money.mjs");
 const purge = await import("../../scripts/foundry/purge.mjs");
-const { createShared, locateShared, resetMaintenance } = await import("../../scripts/foundry/shared-docs.mjs");
+const { createShared, locateArchive, locateShared, resetMaintenance } = await import("../../scripts/foundry/shared-docs.mjs");
 const claimsModule = await import("../../scripts/foundry/claims.mjs");
 const state = await import("../../scripts/foundry/state.mjs");
 const { read, records } = await import("../../scripts/foundry/store.mjs");
@@ -114,9 +114,13 @@ test("the purge reads the balances when it runs, not when the dialog opened", as
 
 test("finishing: flags removed everywhere, the ledger deleted, an empty strongbox deleted, settings reset", async () => {
     await money.payout({ actor: vera, row: { kind: "withdraw", idem: "withdraw:o1:x:1", cp: 700, actor: vera.uuid, order: "o1" } });
+    // M12b: the Crafting Log, created with the ledger in the module's folder, goes with it.
+    const log = locateArchive();
+    assert.ok(log);
     const result = await purge.runPurge({ returns: "keep", settleMs: 0 });
     assert.equal(result, "done");
     assert.equal(game.journal.get(docs.ledger.id), undefined);
+    assert.equal(game.journal.get(log.id), undefined, "the Crafting Log is deleted with it");
     assert.equal(game.actors.get(docs.strongbox.id), undefined);
     assert.equal(vera.flags[MOD], undefined);
     assert.equal(game.settings.get(MOD, "enabled"), false);

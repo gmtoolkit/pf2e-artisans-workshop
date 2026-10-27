@@ -161,6 +161,40 @@
     {{else}}
     <p class="empty">{{localize "pf2e-artisans-workshop.Funds.NoRows"}}</p>
     {{/if}}
+    {{!-- M12b (5.3.3): the archived ledger, from the Crafting Log, read-only --}}
+    {{#if funds.history.count}}
+    <div class="funds-history">
+        <button type="button" data-action="toggleHistory" aria-expanded="{{#if funds.history.shown}}true{{else}}false{{/if}}" aria-controls="pf2e-artisans-workshop-funds-history">
+            {{#if funds.history.shown}}{{localize "pf2e-artisans-workshop.Funds.HideHistory"}}{{else}}{{localize "pf2e-artisans-workshop.Funds.ShowHistory" n=funds.history.count}}{{/if}}</button>
+        <div id="pf2e-artisans-workshop-funds-history">
+        {{#if funds.history.shown}}
+        <p class="hint">{{localize "pf2e-artisans-workshop.Funds.HistoryHint"}}</p>
+        <table class="funds-ledger funds-archived">
+            <thead><tr>
+                <th scope="col">{{localize "pf2e-artisans-workshop.Funds.When"}}</th>
+                <th scope="col">{{localize "pf2e-artisans-workshop.Funds.Entry"}}</th>
+                <th scope="col" class="money">{{localize "pf2e-artisans-workshop.Funds.Amount"}}</th>
+                <th scope="col">{{localize "pf2e-artisans-workshop.Funds.Who"}}</th>
+                <th scope="col" class="low">{{localize "pf2e-artisans-workshop.Funds.Order"}}</th>
+                <th scope="col">{{localize "pf2e-artisans-workshop.Funds.By"}}</th>
+            </tr></thead>
+            <tbody>
+                {{#each funds.history.rows}}
+                <tr data-archived-row-id="{{id}}" class="archived{{#if reversed}} reversed{{/if}}{{#if mine}} mine{{/if}}">
+                    <td class="when">{{when}}</td>
+                    <td>{{localize kindLabel}}{{#if note}} <span class="row-note">{{note}}</span>{{/if}}{{#if reversed}} <span class="reversed-mark">{{localize "pf2e-artisans-workshop.Funds.Reversed"}}</span>{{/if}} <span class="archived-mark">{{localize "pf2e-artisans-workshop.Funds.ArchivedMark"}}</span></td>
+                    <td class="money">{{#if amount}}{{amount}}{{/if}}</td>
+                    <td>{{actor}}</td>
+                    <td class="low">{{order}}</td>
+                    <td>{{author}}</td>
+                </tr>
+                {{/each}}
+            </tbody>
+        </table>
+        {{/if}}
+        </div>
+    </div>
+    {{/if}}
     {{else}}
     <p class="queue-empty">{{localize "pf2e-artisans-workshop.Window.Unavailable"}}</p>
     {{/if}}

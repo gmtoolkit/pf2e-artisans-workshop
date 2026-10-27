@@ -24,6 +24,7 @@ import { REPAIR_CRIT_FAIL_DICE } from "../data/services.mjs";
 import { liveRows } from "../logic/core.mjs";
 import { levelDC } from "../logic/dc.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
+import { lockIdOf } from "../logic/locks.mjs";
 import { repairEyepiece, tools } from "../logic/registry.mjs";
 import { affixProblem, cancelService as cancelRecord, closeService, makeService, offerService, repairResult } from "../logic/services.mjs";
 import { givingBack, heldLines } from "./custody.mjs";
@@ -42,7 +43,7 @@ const actorOf = (uuid) => (typeof uuid === "string" ? fromUuidSync(uuid, { stric
 const owns = (uuid) => actorOf(uuid)?.isOwner === true;
 
 /** The lock page that closes a service once. */
-export const closeLockId = (id) => hashId(idemKey("service", id, "close"));
+export const closeLockId = (id) => lockIdOf("service", id, "close");
 
 /** Every live service record. */
 export const allServices = () => records("services");

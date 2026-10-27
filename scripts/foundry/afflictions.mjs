@@ -31,6 +31,7 @@ import {
     undoManual, waitsBehind,
 } from "../logic/affliction.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
+import { lockKeyId } from "../logic/locks.mjs";
 import { heldEffects } from "../logic/registry.mjs";
 import { backend, definitionOf, exposureDc, sourceUuidOf } from "./affliction-defs.mjs";
 import { runLockFirst, runRequest } from "./batch.mjs";
@@ -635,7 +636,7 @@ export async function recordResult({ victim, runId, seq, degree, messageId, isRe
     if (claim) run.exposures = { ...(run.exposures ?? {}), [claim.id]: { at: dueAt, degree: result.run.saves[seq].degree } };
     const superseded = result.superseded ? [...(victim.items ?? [])].filter((i) => i.flags?.[MODULE_ID]?.affliction?.granted === runId &&
         i.flags[MODULE_ID].affliction.seq === seq).map((i) => i.id) : [];
-    const lockId = hashId(saveLockKey(runId, seq, rolls));
+    const lockId = lockKeyId(saveLockKey(runId, seq, rolls));
     const ledger = claim ? { set: { [`claims.${claim.id}.resolved`]: stampNow(), [`claims.${claim.id}.outcome`]: result.ended ? "unaffected" : "afflicted",
         [`claims.${claim.id}.save`]: { degree: result.run.saves[seq].degree, messageId, rolls: rolls + 1 } } } : null;
     const lock = [{ op: "lock", ids: [lockId] }, ...(ledger ? [{ op: "ledger", change: ledger }] : [])];

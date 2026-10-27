@@ -29,7 +29,8 @@ import { RANK } from "../logic/core.mjs";
 import { familyKey, formulaCoverage } from "../logic/families.mjs";
 import { makeProvenance, provenancePath, virtualLists } from "../logic/codex.mjs";
 import { ADVANCED_POOL, needsSplit, outputsOf, preservationCap, preservePlan, prepStamp, sameStamp, snapshotOf } from "../logic/expiry.mjs";
-import { hashId, idemKey } from "../logic/ids.mjs";
+import { idemKey } from "../logic/ids.mjs";
+import { lockIdOf, lockKeyId } from "../logic/locks.mjs";
 import {
     TALISMAN_POOLS, captureEntries, correctPool, countsByLevel, cycleState, dcStampPools, deliveriesOf, gapEntries, makeLoadout, makeStanding, mergeSources,
     normalizeBuckets, poolCorrections, poolView, preparationDiff, preparedDifferences, resolvePools, standingDue, talismanChoices, talismanPickProblem, talismanPicksOf, vialSources, vialState,
@@ -472,7 +473,7 @@ async function deliverStanding(actor, delivery, cycle) {
     const left = item.quantity - delivery.qty;
     const stamp = stampNow();
     const result = await runRequest([
-        { op: "lock", ids: [hashId(key)] },
+        { op: "lock", ids: [lockKeyId(key)] },
         { op: "ledger", change: { set: { [`standing.${delivery.standing}.last`]: { cycle, day: today().day, qty: delivery.qty, to: direct ? recipient.uuid : "shelf", ...stamp } } } },
         { op: "createItems", target: direct ? recipient.uuid : "strongbox", data: [source] },
         left > 0 ? { op: "updateItems", target: actor.uuid, updates: [{ _id: item.id, "system.quantity": left }] } : { op: "deleteItems", target: actor.uuid, ids: [item.id] },
@@ -519,7 +520,7 @@ function originOf(item, planned) {
 }
 
 /** The lock page of one attempt at a character's preparations in a cycle (7.7): two clients never both prepare it. */
-export const prepLockId = (actorId, cycle, attempt) => hashId(idemKey("prep", actorId, String(cycle), String(attempt)));
+export const prepLockId = (actorId, cycle, attempt) => lockIdOf("prep", actorId, String(cycle), String(attempt));
 
 /** Which attempt at this cycle's preparations comes next: a refused attempt (pf2e's, `system`) moves on to a new lock. */
 function attemptOf(actor, cycle) {

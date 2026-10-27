@@ -12,7 +12,8 @@
  * once. The assembly check settles through the quest row of 4.2.3 and posts no money rows.
  */
 import { MODULE_ID } from "../constants.mjs";
-import { hashId, idemKey } from "../logic/ids.mjs";
+import { hashId } from "../logic/ids.mjs";
+import { lockIdOf } from "../logic/locks.mjs";
 import { closedAs, lastEntry, settlementRecord, transitionChange } from "../logic/orders.mjs";
 import { allFound, assemblyOutcome, makeQuest, questUnderway } from "../logic/variants.mjs";
 import { QUEST_THREATS } from "../data/variants.mjs";
@@ -131,7 +132,7 @@ async function deliver(order, { event, patch = {}, flags = {} }) {
     const change = transitionChange(order, event, { ...patch, status: "complete" }, { rows: outputs.rows.map((row) => hashId(row.idem)) }, stamp);
     const result = await moveCoins(() => ({
         rows: outputs.rows, debits: outputs.debits, items: outputs.items, itemUpdates: outputs.itemUpdates,
-        locks: [change.lock, hashId(idemKey("assemble", order.id, order.attempt)), ...outputs.locks],
+        locks: [change.lock, lockIdOf("assemble", order.id, order.attempt), ...outputs.locks],
         ledger: { set: { ...change.set, ...outputs.marks }, replace: change.replace },
     }), {}, outputs.rows.slice(0, 1));
     return result.ok || result.outcome === "already" ? { ok: true, outcome: result.outcome } : result;

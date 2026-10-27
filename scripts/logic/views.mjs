@@ -426,8 +426,10 @@ function memberRows(balances, unallocatedCp) {
  * @param {(uuid: string|null) => string|null} p.nameOf
  * @param {(userId: string) => string|null} p.userName
  * @param {number} [p.limit]       how many ledger rows to list
+ * @param {{rows: object[], orders?: object, shown?: boolean}|null} [p.history]  the archived rows and orders (M12b, the Crafting
+ *        Log), listed under the ledger, read-only, when `shown`
  */
-export function fundsView({ rows, actualCp, orders = {}, viewer, nameOf, userName, limit = 200 }) {
+export function fundsView({ rows, actualCp, orders = {}, viewer, nameOf, userName, limit = 200, history = null }) {
     const accounts = fundAccounts(rows, orders);
     const expectedCp = accounts.expectedCp;
     const balances = memberBalances(rows);
@@ -437,18 +439,29 @@ export function fundsView({ rows, actualCp, orders = {}, viewer, nameOf, userNam
             order: a.order, cp: a.cp, orderName: a.order ? orders[a.order]?.product?.snapshot?.name ?? null : null,
         })),
     }));
-    const reversed = new Set(rows.filter((r) => r.kind === "reversal" && r.reverses).map((r) => r.reverses));
+    const entry = (row, list, byId) => {
+        const reversed = new Set(list.filter((r) => r.kind === "reversal" && r.reverses).map((r) => r.reverses));
+        return {
+            id: row.id, kind: row.kind, ...pick(rowLabel(row)), cp: row.cp, box: row.box ?? 0,
+            purse: row.purse ?? 0, alloc: row.alloc ?? 0, state: row.state,
+            actor: row.actor ? nameOf(row.actor) : null, order: row.order ? byId[row.order]?.product?.snapshot?.name ?? null : null,
+            author: userName(row.author), mine: row.author === viewer.userId, at: row.at?.real ?? null, note: row.note ?? null,
+            reversed: !!row.reversedBy || reversed.has(row.id), reversal: row.kind === "reversal",
+        };
+    };
     const listed = [...rows].filter((row) => !rowLabel(row).mirror).sort((a, b) => compareRows(b, a));
-    const ledger = listed.slice(0, limit).map((row) => ({
-        id: row.id, kind: row.kind, ...pick(rowLabel(row)), cp: row.cp, box: row.box ?? 0,
-        purse: row.purse ?? 0, alloc: row.alloc ?? 0, state: row.state,
-        actor: row.actor ? nameOf(row.actor) : null, order: row.order ? orders[row.order]?.product?.snapshot?.name ?? null : null,
-        author: userName(row.author), mine: row.author === viewer.userId, at: row.at?.real ?? null, note: row.note ?? null,
-        reversed: !!row.reversedBy || reversed.has(row.id), reversal: row.kind === "reversal",
-        canReverse: canReverse(row, rows, viewer, orders),
-    }));
+    const ledger = listed.slice(0, limit).map((row) => ({ ...entry(row, rows, orders), canReverse: canReverse(row, rows, viewer, orders) }));
+    // M12b (5.3.3): the history the archive runs moved to the Crafting Log, read-only; its orders' names from the archive too.
+    let archivedView = null;
+    if (history) {
+        // A carry row an earlier run left and a later one folded into its own is a summary, not history: not listed.
+        const archivedRows = history.rows.filter((row) => !rowLabel(row).mirror && row.kind !== "carry").sort((a, b) => compareRows(b, a));
+        const byId = { ...(history.orders ?? {}), ...orders };
+        archivedView = { count: archivedRows.length, shown: !!history.shown,
+            rows: history.shown ? archivedRows.slice(0, limit).map((row) => ({ ...entry(row, history.rows, byId), archived: true, canReverse: false })) : [] };
+    }
     return { actualCp, expectedCp, differenceCp: actualCp - expectedCp, fundCp: accounts.unallocatedCp, accounts,
-        members, unassignedCp: balances.unassignedCp, ledger, total: listed.length };
+        members, unassignedCp: balances.unassignedCp, ledger, total: listed.length, history: archivedView };
 }
 
 /**

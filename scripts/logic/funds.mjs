@@ -24,6 +24,7 @@ import { compareRows, liveRows, requireCp } from "./core.mjs";
 import { committedFromRows, expendedFromRows } from "./craft.mjs";
 import { DEFAULT_RULES } from "./defaults.mjs";
 import { hashId, idemKey } from "./ids.mjs";
+import { lockIdOf } from "./locks.mjs";
 import { materialLines, materialsCp } from "./materials.mjs";
 import { CLOSED, escrowCp, lastEntry, withdrawableCp } from "./orders.mjs";
 import { remainingCp } from "./progress.mjs";
@@ -55,8 +56,22 @@ export function unallocatedCp(rows) {
  * Money coming in (a deposit, a share returned) takes no slot and does not move it.
  */
 export function fundSlotLockId(rows) {
-    const debits = rows.filter((row) => isFundRow(row) && (row.alloc ?? 0) < 0).length;
-    return hashId(idemKey("fund-slot", debits));
+    return lockIdOf("fund-slot", fundDebitCount(rows));
+}
+
+/**
+ * The fund slot's number (`fundSlotLockId`): the fund rows that took money out so far, those an archive run carried forward
+ * included (As built in M12b: a `carry` row counts the debits it replaced in `fundDebits`, so the number never goes back to
+ * one a page was taken for, 5.3.3).
+ */
+export function fundDebitCount(rows) {
+    let debits = 0;
+    for (const row of rows) {
+        if (!isFundRow(row)) continue;
+        if (row.kind === "carry") debits += Number.isSafeInteger(row.fundDebits) ? row.fundDebits : 0;
+        else if ((row.alloc ?? 0) < 0) debits += 1;
+    }
+    return debits;
 }
 
 /**
@@ -70,7 +85,7 @@ export function fundSlotLockId(rows) {
 export function returnSlotLockId(order, orderRows) {
     const seq = lastEntry(order)?.seq ?? 0;
     const takenOff = orderRows.filter((row) => row.order === order.id && (row.alloc ?? 0) < 0).length;
-    return hashId(idemKey("fund-return-slot", order.id, seq, takenOff));
+    return lockIdOf("fund-return-slot", order.id, seq, takenOff);
 }
 
 /**

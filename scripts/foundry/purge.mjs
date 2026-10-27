@@ -26,6 +26,7 @@ import { memberBalances, unclaimedAllocations } from "../logic/reconcile.mjs";
 import { runRequest } from "./batch.mjs";
 import { createClaims } from "./claims.mjs";
 import { internal } from "./guards.mjs";
+import { locateArchive } from "./shared-docs.mjs";
 import { withCoinMutex } from "./lease.mjs";
 import { shared } from "./state.mjs";
 import { read, records } from "./store.mjs";
@@ -138,7 +139,8 @@ export async function runPurge({ returns, chat = false, settleMs = PURGE_SETTLE_
     }
     const docs = shared();
     const { ledger, strongbox } = docs;
-    const folderId = ledger?._source.folder ?? null;
+    const archive = locateArchive();   // M12b: the Crafting Log goes with the ledger (5.3.3)
+    const folderId = ledger?._source.folder ?? archive?._source.folder ?? null;
     await game.settings.set(MODULE_ID, "enabled", false);   // before anything goes: every client stops writing
     if (settleMs > 0) await new Promise((resolve) => setTimeout(resolve, settleMs));
     if (returns === "party" && strongbox && ledger && !(await moveToParty(docs))) {
@@ -146,8 +148,9 @@ export async function runPurge({ returns, chat = false, settleMs = PURGE_SETTLE_
         ui.notifications.error("pf2e-artisans-workshop.Purge.MoveStopped", { localize: true });
         return "stopped";
     }
-    await unsetFlags({ chat, ledgerId: ledger?.id ?? null });
+    await unsetFlags({ chat, skip: new Set([ledger?.id, archive?.id].filter(Boolean)) });
     if (ledger) await ledger.delete(internal());
+    if (archive) await archive.delete(internal());
     if (strongbox && strongbox.items.size === 0) await strongbox.delete(internal());
     const inFolder = (doc) => doc._source.folder === folderId;
     const folder = folderId ? game.folders.get(folderId) : null;
@@ -190,21 +193,24 @@ const hasFlags = (doc) => doc.flags?.[MODULE_ID] !== undefined;
 const unset = (doc) => ({ _id: doc.id, [`flags.${MODULE_ID}`]: _del });
 
 /** Remove the module's flags everywhere it writes them (5.9 step 3). */
-async function unsetFlags({ chat, ledgerId }) {
+async function unsetFlags({ chat, skip = new Set() }) {
     const worlds = [
-        [Actor, game.actors], [Item, game.items], [User, game.users], [JournalEntry, game.journal], [Folder, game.folders],
+        [Actor, game.actors], [Item, game.items], [User, game.users], [Folder, game.folders],
         ...(chat ? [[ChatMessage, game.messages]] : []),
     ];
     for (const [cls, collection] of worlds) {
         const updates = collection.filter(hasFlags).map(unset);
         if (updates.length) await cls.implementation.updateDocuments(updates, { diff: false });
     }
+    // The ledger and the Crafting Log are deleted next, pages and all; their role flags find them until then.
+    const journals = game.journal.filter((j) => hasFlags(j) && !skip.has(j.id)).map(unset);
+    if (journals.length) await JournalEntry.implementation.updateDocuments(journals, { diff: false });
     for (const actor of game.actors) {
         const items = actor.items.filter(hasFlags).map(unset);
         if (items.length) await actor.updateEmbeddedDocuments("Item", items, { diff: false });
     }
     for (const journal of game.journal) {
-        if (journal.id === ledgerId) continue;   // deleted next, pages and all
+        if (skip.has(journal.id)) continue;   // deleted next, pages and all
         const pages = journal.pages.filter(hasFlags).map(unset);
         if (pages.length) await journal.updateEmbeddedDocuments("JournalEntryPage", pages, { diff: false });
     }

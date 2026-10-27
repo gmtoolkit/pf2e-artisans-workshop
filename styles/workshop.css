@@ -457,6 +457,10 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .funds-ledger .pending { color: var(--paw-warning); }
 .funds-ledger .row-note { color: var(--color-text-subtle, #555); }
 .funds-ledger button.small { min-height: 1.6rem; padding: 0 0.4rem; }
+/* M12b (5.3.3): the archived ledger, from the Crafting Log. */
+.funds-history { margin-top: 0.5rem; }
+.funds-history > button { width: auto; }
+.funds-ledger .archived-mark { font-size: var(--font-size-11, 0.7rem); color: var(--color-text-subtle, #555); }
 .funds-reconcile { display: flex; flex-direction: column; gap: 0.35rem; align-items: flex-start; }
 
 /* ------------------------------------------------------------------ */

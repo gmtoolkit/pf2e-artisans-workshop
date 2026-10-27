@@ -20,6 +20,7 @@ import {
     isExtensionScope, isKey, KINDS, modifierList, partyLevelOf, pathsOverlap, rollSelectors, RUN_VERSION,
 } from "../logic/extensions.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
+import { lockIdOf } from "../logic/locks.mjs";
 import { checkScopePath, readPath } from "../logic/keypath.mjs";
 import { extLink } from "../logic/rolls.mjs";
 import { planStrongboxCredit, planStrongboxDebit } from "../logic/coins.mjs";
@@ -141,7 +142,7 @@ export function extStore(moduleId) {
         write: ({ set = {}, replace = {}, del = [] } = {}) => write(scoped({ set, replace, del })),
         exclusive: (lockKey, { set = {}, replace = {}, del = [] } = {}) => {
             if (!isKey(lockKey)) return Promise.resolve(refuse("bad-key"));
-            return lockedWrite([hashId(idemKey("ext-lock", moduleId, lockKey))], [], scoped({ set, replace, del }));
+            return lockedWrite([lockIdOf("ext-lock", moduleId, lockKey)], [], scoped({ set, replace, del }));
         },
     });
 }

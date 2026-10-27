@@ -81,7 +81,8 @@ test("a resumable move: its first row's lock page holds the move, and its apply 
         resume: { touched, actor: "Actor.pc" },
     });
     assert.equal(applyMarkId("row1"), hashId("apply:row1"));
-    assert.deepEqual(batch.apply[0], { op: "lock", ids: [applyMarkId("row1")] }, "the mark first, before any coin moves");
+    assert.deepEqual(batch.apply[0], { op: "lock", ids: [applyMarkId("row1")], keys: { [applyMarkId("row1")]: "apply:row1" } },
+        "the mark first, before any coin moves, saying what it guards (M12b), so a resume from another client's copy tags its page too");
     assert.deepEqual(batch.apply.slice(1).map((o) => o.op), ["updateCoins", "createCoins", "ledger"]);
     assert.deepEqual(batch.lock[0].move, { v: MOVE_VERSION, rows: ["row1"], apply: batch.apply.slice(0, -1), touched, actor: "Actor.pc" },
         "the page holds no key path: Foundry would expand `rows.row1.state` in stored flags");

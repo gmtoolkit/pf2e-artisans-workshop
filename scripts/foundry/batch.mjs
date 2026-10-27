@@ -26,6 +26,7 @@
  * operation on the way out.
  */
 import { MODULE_ID } from "../constants.mjs";
+import { lockTag } from "../logic/locks.mjs";
 import { coinItemData } from "./coins.mjs";
 import { announceAfter } from "./events.mjs";
 import { markStale, shared } from "./state.mjs";
@@ -79,27 +80,66 @@ function actorFor(target, strongbox) {
 /**
  * A lock page: empty, named by its own id; its existence is the lock (5.1). The page of a resumable move's first
  * row also holds the move (`lockFirstBatch`), for a resume. A mark taken by a close or an adjust says so (`hand`:
- * `{kind, row}`), so reconciliation knows no apply request is behind it.
+ * `{kind, row}`), so reconciliation knows no apply request is behind it. As built in M12b, the stamp also says what the
+ * page guards (`lock.kind`, and `lock.key` for a keyed kind, `lockTag`), so the pruner can tell when it is spent (5.4).
  */
-function lockPage(id, stamp, move = null, hand = null) {
-    return { _id: id, name: id, type: "text", flags: { [MODULE_ID]: { lock: stamp, ...(move ? { move } : {}), ...(hand ? { hand } : {}) } } };
+function lockPage(id, stamp, tag, move = null, hand = null) {
+    const lock = { ...stamp, ...(tag.kind ? { kind: tag.kind } : {}), ...(tag.key ? { key: tag.key } : {}) };
+    return { _id: id, name: id, type: "text", flags: { [MODULE_ID]: { lock, ...(move ? { move } : {}), ...(hand ? { hand } : {}) } } };
+}
+
+/** The rows and claims a request's ledger changes write, by id: a lock page of the same request for one of them guards it. */
+function writtenIds(descriptors) {
+    const rowIds = new Set();
+    const claimIds = new Set();
+    for (const d of descriptors) {
+        if (d.op !== "ledger") continue;
+        for (const path of [...Object.keys(d.change?.set ?? {}), ...Object.keys(d.change?.replace ?? {})]) {
+            const [collection, id] = path.split(".");
+            if (collection === "rows" && id) rowIds.add(id);
+            if (collection === "claims" && id) claimIds.add(id);
+        }
+    }
+    return { rowIds, claimIds };
 }
 
 /** Foundry operations for the descriptors, in the same order. Throws if a target cannot be found. */
-export function toOperations(descriptors, { ledger, strongbox }) {
+export function toOperations(descriptors, { ledger, strongbox, archive = null }) {
     const stamp = stampNow();
+    const written = writtenIds(descriptors);
+    const tags = (keys) => ({ keys: keys ?? {}, ...written, boxItemIds: new Set(strongbox?.items?.keys?.() ?? []) });
     // An item operation may carry options of its own (M8a: the affliction tracker marks its own writes, 8.10.1), which
     // Foundry passes to the documents' hooks as the operation's options.
-    return descriptors.map((d) => ({ ...toOperation(d, { ledger, strongbox, stamp }), ...(d.options ?? {}) }));
+    return descriptors.map((d) => ({ ...toOperation(d, { ledger, strongbox, archive, stamp, tags }), ...(d.options ?? {}) }));
+}
+
+/** The journal a page descriptor names: the ledger, or the Crafting Log (M12b, 5.3.3). */
+function journalFor(target, { ledger, archive }) {
+    const journal = target === "archive" ? archive : ledger;
+    if (!journal) throw new Error(`${MODULE_ID} | no ${target ?? "ledger"} journal`);
+    return journal;
 }
 
 /** One descriptor as a Foundry operation (`toOperations`). */
-function toOperation(d, { ledger, strongbox, stamp }) {
+function toOperation(d, { ledger, strongbox, archive, stamp, tags }) {
     {
         switch (d.op) {
-            case "lock":
+            case "lock": {
+                const context = tags(d.keys);
                 return { action: "create", documentName: "JournalEntryPage", parent: ledger, keepId: true,
-                    data: d.ids.map((id) => lockPage(id, stamp, d.move && id === d.move.rows[0] ? d.move : null, d.hand ?? null)) };
+                    data: d.ids.map((id) => lockPage(id, stamp, lockTag(id, context), d.move && id === d.move.rows[0] ? d.move : null, d.hand ?? null)) };
+            }
+            // M12b (5.3.3, 5.4): spent lock pages pruned, and the Crafting Log's archive pages written. Only the module deletes
+            // the ledger's pages, so the operation carries the guards' internal option (`guards.mjs`).
+            case "deletePages":
+                return { action: "delete", documentName: "JournalEntryPage", parent: journalFor(d.target, { ledger, archive }), ids: [...d.ids],
+                    [MODULE_ID]: { internal: true } };
+            case "createPages":
+                return { action: "create", documentName: "JournalEntryPage", parent: journalFor(d.target, { ledger, archive }), keepId: true,
+                    data: d.data.map((data) => ({ ...data })) };
+            case "updatePages":
+                return { action: "update", documentName: "JournalEntryPage", parent: journalFor(d.target, { ledger, archive }), diff: false,
+                    updates: d.updates.map((u) => ({ ...u })) };
             case "ledger":
                 return { action: "update", documentName: "JournalEntry", diff: false,
                     updates: [{ _id: ledger.id, ...ledgerChange(d.change) }] };
@@ -134,6 +174,10 @@ const sizeOf = (op) => (op.data ?? op.updates ?? op.ids ?? []).length;
 export function preflight(operations) {
     for (const op of operations) {
         if (op.documentName === "JournalEntryPage" && op.action === "create" && op.data.some((d) => op.parent.pages.has(d._id))) return "locked";
+        if (op.documentName === "JournalEntryPage" && op.action !== "create") {
+            const ids = op.ids ?? op.updates.map((u) => u._id);
+            if (ids.some((id) => !op.parent.pages.has(id))) return "gone";
+        }
         if (op.documentName === "Item" && op.action !== "create") {
             const ids = op.ids ?? op.updates.map((u) => u._id);
             if (ids.some((id) => !op.parent.items.has(id))) return "gone";

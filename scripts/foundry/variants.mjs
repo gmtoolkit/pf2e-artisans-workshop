@@ -18,7 +18,7 @@
 import { MODULE_ID } from "../constants.mjs";
 import { DEGREE, RANK } from "../logic/core.mjs";
 import { makeDespite } from "./rolls.mjs";
-import { hashId, idemKey } from "../logic/ids.mjs";
+import { lockIdOf, lockKeyId } from "../logic/locks.mjs";
 import { closedAs } from "../logic/orders.mjs";
 import { setupDaysDone } from "../logic/progress.mjs";
 import {
@@ -189,7 +189,7 @@ export async function setUpNow(orderId) {
     if (used + hours > SETUP_HOURS_PER_DAY) return refuse("hours", { have: used, max: SETUP_HOURS_PER_DAY });
     const slot = all.filter((d) => d.kind === "setup-hours" && d.actor === crafter.id && d.day === day).length;
     const record = setupHoursRecord({ actorId: crafter.id, day, order, hours, worldTime: game.time.worldTime ?? 0 }, stampNow());
-    const written = await lockedWrite([hashId(idemKey("setup-hours", orderId, order.attempt)), hashId(idemKey("setup-day", crafter.id, day, slot))], [],
+    const written = await lockedWrite([lockIdOf("setup-hours", orderId, order.attempt), lockIdOf("setup-day", crafter.id, day, slot)], [],
         { set: { [`orders.${orderId}.status`]: "check" }, replace: { [`days.${record.id}`]: record } });
     return written.ok ? { ok: true, day, hours } : written;
 }
@@ -267,7 +267,7 @@ export async function rollEvent(orderId, { k = null, auto = false } = {}) {
     }
     const day = today().day;
     const record = eventRecord({ order, k: n, day, roll: roll?.total ?? 0, tableResult }, stampNow());
-    const written = await lockedWrite([hashId(eventKey(orderId, order.attempt, n))], [], { replace: { [`orders.${orderId}.events.${eventSlot(order.attempt, n)}`]: record } });
+    const written = await lockedWrite([lockKeyId(eventKey(orderId, order.attempt, n))], [], { replace: { [`orders.${orderId}.events.${eventSlot(order.attempt, n)}`]: record } });
     if (!written.ok) return written;
     await postEvent(order, record, crafter, { table, drawn, roll });
     return { ok: true, outcome: "ok", k: n, roll: record.roll, tableResult };
