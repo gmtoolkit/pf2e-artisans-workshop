@@ -6948,6 +6948,22 @@ and `spends` are not API (read them through `api.ext`). Internal hooks (11.2, 12
 - `eligible(actor)` is asked on every preview, for every registered activity and PC.
 - The day planner asks `resolve(ctx)` on the client that writes the day: a resolution refused as `taken` has called it for
   nothing (it is pure, so nothing is lost).
+- From the review pass (low, logged, not fixed):
+  - A per-day or per-week income is computed, and `incomeComputed` fires, before the day records are written; a resolution
+    then refused as `taken` has announced a payment that the other client's resolution makes instead.
+  - `perDay` sources are also asked for the day an order's "Work a day" writes for a crafter who is not in downtime.
+  - The Downtime tab offers an Aid only while the aided PC's activity is that activity; a PC whose aided PC has moved on shows
+    its Aid as no option selected until it chooses again.
+  - An extension store's `exclusive` lock pages are never pruned, like the day lock pages (M6 follow-up).
+  - `downtimeDayEnd`'s `notes` is an array for an extension run's last day and the day's result code (a string or null)
+    otherwise.
+
+**Acceptance (12.5).** The circus module was built in its own repository (`pf2e-big-top`, local, branch `main`) against
+this API with this checkout as a development dependency by path, and needed no change to the Workshop: its stub tests run
+it against this branch's real registry, day resolver, ledger, sink and modifier sources over `test/foundry/stubs.mjs`
+(Promote the Circus with an Aid through the resolver, show preparation, purchases as `expense` rows, a trick rolled with
+the Workshop's modifiers and an alchemical item spent through its sink, payouts into the party fund and split with claims,
+two members ending a show at once). Its live harness plan is written and has not run.
 
 ---
 
