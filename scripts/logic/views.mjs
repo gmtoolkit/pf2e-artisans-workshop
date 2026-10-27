@@ -201,10 +201,14 @@ const changedInPlace = (row) => row.kind === "shelved" && Array.isArray(row.item
  * @param {object} order
  * @param {object[]} rows       the order's rows
  * @param {number} shelfCount   the order's items on the pickup shelf now
- * @returns {{state: "delivered"|"arriving"|"shelf"|"strongbox"|"book"|"in-place", to: string|null} | null}
+ * M9a: "ruined", a rushed finish whose flat check ruined the item (6.16.1), made nothing.
+ * @returns {{state: "delivered"|"arriving"|"shelf"|"strongbox"|"book"|"in-place"|"ruined", to: string|null} | null}
  */
 export function deliveryOf(order, rows = [], shelfCount = 0) {
     if (order.status !== "complete") return null;
+    // M9a (6.16.1): a rushed finish's critical failure, under `rushCritFail` "ruined", completes the order and makes nothing;
+    // without this it read "on its way" for good (M9a live pass).
+    if (order.check?.rushFlat?.outcome === "ruined") return { state: "ruined", to: null };
     if (order.product?.type === "formula") return { state: "book", to: order.recipient?.uuid ?? null };
     if (order.recipient?.kind !== "actor") return { state: "strongbox", to: null };
     const live = liveRows(rows).filter((row) => row.order === order.id);

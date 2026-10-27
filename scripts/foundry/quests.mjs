@@ -120,7 +120,9 @@ export async function unmarkFound(orderId, componentId) {
  * Deliver a quest's item (6.16.9): what a finish makes (`finishOutputs`: the item on the pickup shelf for an actor
  * recipient, a gift binding when the order is bestowed), with a quirk or a curse note when the assembly said so, and the
  * order complete, in one lock-first move whose lock request takes the order's log slot and the page of
- * `deliver:<orderId>:<attempt>`, so writing it twice delivers once. No money rows.
+ * `assemble:<orderId>:<attempt>`, so writing it twice delivers once. No money rows. Not `deliver:<orderId>:<attempt>`: that is
+ * the shelf item's claim key, whose page the recipient's delivery takes (`claims.deliver`); taken here, the item stayed on the
+ * shelf for good (M9a live pass).
  */
 async function deliver(order, { event, patch = {}, flags = {} }) {
     const outputs = await finishOutputs(order, { flags });
@@ -129,7 +131,7 @@ async function deliver(order, { event, patch = {}, flags = {} }) {
     const change = transitionChange(order, event, { ...patch, status: "complete" }, { rows: outputs.rows.map((row) => hashId(row.idem)) }, stamp);
     const result = await moveCoins(() => ({
         rows: outputs.rows, debits: outputs.debits, items: outputs.items, itemUpdates: outputs.itemUpdates,
-        locks: [change.lock, hashId(idemKey("deliver", order.id, order.attempt)), ...outputs.locks],
+        locks: [change.lock, hashId(idemKey("assemble", order.id, order.attempt)), ...outputs.locks],
         ledger: { set: { ...change.set, ...outputs.marks }, replace: change.replace },
     }), {}, outputs.rows.slice(0, 1));
     return result.ok || result.outcome === "already" ? { ok: true, outcome: result.outcome } : result;

@@ -232,6 +232,16 @@ test("where a finished item went: delivered, arriving, on the shelf, or kept in 
     assert.deepEqual(orderView(done, { viewer: viewer(), nameOf, shelfCount: 1 }).delivery.state, "shelf");
 });
 
+test("a rushed finish that ruined the item makes nothing, and says so rather than \"on its way\" (M9a live pass)", () => {
+    const ruined = started({ status: "complete", recipient: { kind: "actor", uuid: "Actor.f" },
+        check: { degree: 2, settled: true, rushFlat: { attempt: 1, dc: 4, die: 1, degree: 0, outcome: "ruined" } } });
+    assert.deepEqual(deliveryOf(ruined, [], 0), { state: "ruined", to: null });
+    for (const outcome of ["fine", "quirk", "cursed"]) {
+        const made = { ...ruined, check: { ...ruined.check, rushFlat: { ...ruined.check.rushFlat, outcome } } };
+        assert.deepEqual(deliveryOf(made, [], 1), { state: "shelf", to: "Actor.f" }, outcome);
+    }
+});
+
 test("an order view says what it still needs and who may give the party fund's share back (A, M4.1)", () => {
     const rows = [...earmarkInputs({ orderId: "o1", cp: 1000, nonce: "n" }).map((input, i) => ({ ...makeRow(input, stamp(i + 1)), state: "applied" })),
         row("pledge", 500, { actor: "Actor.a" }, 5)];

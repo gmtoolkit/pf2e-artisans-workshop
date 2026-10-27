@@ -299,3 +299,34 @@ test("M9a's gates and refusals read as sentences; every M9a label is a key; the 
     assert.equal(refusalText({ reason: "over-seed", data: { maxCp: 2000 } }), "That is more than the garden still needs (at most 20 gp).");
     assert.match(readFileSync(join(ROOT, "templates/workshop/downtime.hbs"), "utf8"), /data-op="harvest"/);
 });
+
+/* -------------------------------------------- */
+/*  After the M9a live pass                      */
+/* -------------------------------------------- */
+
+test("a rushed finish whose flat check needed no roll says so, not \"DC -5: -\" (M9a live pass)", async () => {
+    await turnOn("complexCrafting");
+    const product = await productFacts(ELIXIR);
+    const done = (rushFlat) => stored({}, { status: "complete", attempt: 1, setup: { days: 1, hours: 0 }, variant: { complex: { rush: 1, band: 2, quick: false }, rushFinish: true },
+        check: { degree: 3, settled: true, rushFlat: { attempt: 1, ...rushFlat } } });
+    const free = await variantDetail(await done({ dc: -5, die: null, degree: 2, outcome: "fine" }), product);
+    assert.equal(free.complex.flat, "Rushed finish: no flat check needed (its DC was 1 or lower). The item works as it should.");
+    assert.doesNotMatch(free.complex.flat, /-5|: -/);
+    wellWritten(free);
+    const rolled = await variantDetail(await done({ dc: 4, die: 2, degree: 1, outcome: "quirk" }), product);
+    assert.match(rolled.complex.flat, /^Rushed finish, flat check DC 4: 2\. /);
+    wellWritten(rolled);
+});
+
+test("the request form offers no coin stack to deconstruct, only the requester's permanent items with a Price (M9a live pass)", async () => {
+    const { itemChoices } = await import("../../scripts/ui/request.mjs");
+    const item = (name, over = {}) => ({ uuid: `Actor.vera.Item.${name}`, name, type: "equipment", isOfType: (t) => t === "physical", traits: new Set(), flags: {},
+        price: { value: { copperValue: 2000 } }, ...over });
+    const actor = { items: [
+        item("Cloak"), item("Gold Pieces", { type: "treasure", isCoinage: true, system: { category: "coin" }, price: { value: { copperValue: 100 } } }),
+        item("Silver Pieces", { type: "treasure", system: { category: "coin" }, price: { value: { copperValue: 10 } } }),
+        item("Elixir", { traits: new Set(["consumable"]) }), item("Old ring (components)", { flags: { [MOD]: { components: { rawCp: 50 } } } }),
+        item("Ruby", { type: "treasure", system: { category: "gem" }, price: { value: { copperValue: 5000 } } }),
+    ] };
+    assert.deepEqual(itemChoices(actor, "deconstruct", null).map((c) => c.name), ["Cloak", "Ruby"]);
+});

@@ -712,6 +712,24 @@ test("Deconstruct: a ring broken down for a similar item becomes components, and
     assert.deepEqual(records("rows").filter((r) => r.order === boots && r.kind === "commit").map((r) => r.cp), [500], "only the half the credit does not cover");
 });
 
+test("Work a day that settles a Deconstruct, or a failed Craft check, says it settled it, not that the order is closed (M9a live pass)", async () => {
+    await turnOn("deconstruct");
+    const ring = vera.addItem({ type: "equipment", name: "Ring of Warding", sourceId: RING, system: { ...structuredClone(SOURCES[RING].system),
+        equipped: { carryType: "worn", invested: true, inSlot: false } } });
+    const [id] = (await orders.requestOrder({ uuid: RING, requester: vera.uuid, crafter: vera.uuid, craftType: "deconstruct", target: ring.uuid })).orders;
+    await deconstruct.confirmChecklist(id, "workshop");
+    assert.equal((await orders.start(id)).ok, true);
+    await toCheck(id);
+    await recordCheck(id, 2);
+    assert.deepEqual(await orders.workDay(id), { ok: true, day: null, kind: null, status: "complete", settled: true });
+    assert.ok(ring.flags[MOD].components, "the day's settlement made the components");
+    // A Craft check that fails is settled by the next day too; the order is failed, and the day said so.
+    const craft = await started(ELIXIR);
+    await toCheck(craft);
+    await recordCheck(craft, 1);
+    assert.deepEqual(await orders.workDay(craft), { ok: true, day: null, kind: null, status: "failed", settled: true });
+});
+
 test("Deconstruct: a critical failure damages the item; a retry needs a repair or accepts the 5% loss; a raw purpose names no follow-on", async () => {
     await turnOn("deconstruct");
     const ring = vera.addItem({ type: "equipment", name: "Ring of Warding", sourceId: RING, system: structuredClone(SOURCES[RING].system) });
@@ -1020,6 +1038,25 @@ test("a quest under way keeps going once crafting quests are off: its components
     const [later] = (await orders.requestOrder({ uuid: RING, requester: vera.uuid, crafter: vera.uuid, craftType: "quest" })).orders;
     await game.settings.set(MOD, "variants.quests", false);
     assert.equal((await quests.markFound(later, "c1")).reason, "variant-off");
+});
+
+test("a quest's item reaches its recipient from the pickup shelf, with or without an assembly check (M9a live pass)", async () => {
+    await turnOn("quests");
+    for (const encounters of [3, 1]) {
+        const [id] = (await orders.requestOrder({ uuid: RING, requester: vera.uuid, crafter: vera.uuid, craftType: "quest", variant: { quest: { encounters } } })).orders;
+        assert.equal((await orders.start(id)).ok, true);
+        for (let n = 1; n <= encounters; n++) await quests.markFound(id, `c${n}`);
+        await quests.questSweep();
+        if (encounters === 1) {
+            await recordCheck(id, 2);
+            assert.equal((await orders.settle(id)).ok, true);
+        }
+        assert.equal(read(`orders.${id}.status`), "complete", `${encounters} encounters`);
+        // The assembly's own lock is not the delivery's: the shelf item's delivery takes `deliver:<id>:<attempt>`'s page.
+        assert.equal(await claims.sweepClaims({ force: true }), 1, `${encounters} encounters: delivered`);
+        assert.equal(vera.items.filter((i) => i.flags?.[MOD]?.crafted?.order === id).length, 1, `${encounters} encounters: on the recipient`);
+        assert.equal(docs.strongbox.items.filter((i) => i.flags?.[MOD]?.crafted?.order === id).length, 0, `${encounters} encounters: off the shelf`);
+    }
 });
 
 /** A character's downtime activity, or null. */

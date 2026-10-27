@@ -377,6 +377,8 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .order-facts .delivery-book,
 .detail-delivery.delivery-in-place,
 .order-facts .delivery-in-place { color: var(--paw-crit-success); }
+.detail-delivery.delivery-ruined,
+.order-facts .delivery-ruined { color: var(--paw-crit-failure); }
 .detail-work-rule { margin: 0.2rem 0 0.35rem; }
 .detail-days { list-style: none; }
 .detail-list li { display: flex; flex-wrap: wrap; gap: 0.25rem 0.6rem; align-items: center; }

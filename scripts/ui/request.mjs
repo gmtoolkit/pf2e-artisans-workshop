@@ -93,9 +93,11 @@ export function itemChoices(actor, kind, product, { serviceKind = null, source =
     };
     const fits = (i) => i.type === rune.target && usageFits(product.usage, liveItemFacts(i));
     if (kind === "rune-etch") return rune ? items.filter(fits).map(view) : [];
-    // M9a (6.16.5): a permanent item with a Price, not already components.
+    // M9a (6.16.5): a permanent item with a Price, not already components, and not coins (pf2e's `isCoinage`: a treasure of the
+    // coin category), which the form offered (M9a live pass).
     if (kind === "deconstruct") {
-        return items.filter((i) => !traitsOf(i).has("consumable") && (i.price?.value?.copperValue ?? 1) > 0 && !i.flags?.[MODULE_ID]?.components).map(view);
+        const coins = (i) => i.isCoinage === true || (i.type === "treasure" && i.system?.category === "coin");
+        return items.filter((i) => !traitsOf(i).has("consumable") && !coins(i) && (i.price?.value?.copperValue ?? 1) > 0 && !i.flags?.[MODULE_ID]?.components).map(view);
     }
     const runeItem = (i) => isRuneItemOf({ sourceId: i.sourceId ?? i._stats?.compendiumSource ?? null, slug: i.slug ?? null, usage: i.system?.usage?.value ?? null }, product);
     if (kind === "rune-transfer" && source === "pick") return rune ? items.filter((i) => holds(i) || runeItem(i)).map(view) : [];

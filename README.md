@@ -158,7 +158,7 @@ npm run harness:live -- --scenarios none --behaviours m8-hud,m8-bandolier,m8-pan
 npm run harness:live -- --scenarios none --behaviours m8a-cloud,m8a-once,m8a-powerful,m8a-timing,m8a-forge,m8a-backends,m8a-panel,m8a-familiar,m8a-shots --runs 1 --shots /tmp/m8a-shots
 npm run harness:live -- --scenarios none --behaviours m8a-strike --runs 1 --canvas
 npm run harness:live -- --scenarios none --behaviours m9-tattoo,m9-simple,m9-graft,m9-fulu-missive,m9-staff,m9-snares,m9-gadget,m9-shots --runs 1 --shots /tmp/m9-shots
-npm run harness:live -- --scenarios none --behaviours m9a-notice,m9a-complex,m9a-quick-setup,m9a-deconstruct,m9a-grow,m9a-garden,m9a-quest,m9a-adjust,m9a-secret,m9a-shots --runs 1 --shots /tmp/m9a-shots
+npm run harness:live -- --scenarios none --behaviours m9a-notice,m9a-complex,m9a-quick-setup,m9a-deconstruct,m9a-grow,m9a-garden,m9a-quest,m9a-adjust,m9a-secret,m9a-shots,m9a-off --runs 1 --shots /tmp/m9a-shots
 ```
 
 The registry check also reads every pf2e item with stages, onset or a maximum duration as an affliction (`DESIGN.md`
@@ -212,7 +212,10 @@ each plan takes them back and refills the vials first.
 The M9a behaviours (DESIGN 10.17) turn on only the variants each one needs and turn every variant back off first. They
 use Player Two's fighter (master, level 10) as the crafter for Complex Crafting, Quick Setup, Deconstruct and adjustments,
 the legacy alchemist fixture for a rushed finish whose flat check can fail, and the druid fixture, lent to Player One, for
-Grow; `m9a-grow` logs off the GM and logs 100 days in the ledger (it never moves the clock).
+Grow; `m9a-grow` logs off the GM and logs 100 days in the ledger (it never moves the clock). The plans that craft, deconstruct
+or grow fix the die so the order gets where their later checks look. `m9a-off` runs `m4-lifecycle` with every variant off,
+under a write audit on the GM's client, and checks that nothing a variant writes is written and that no tab, request form or
+chat card on any client shows a variant.
 
 `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN.md 17.1) takes the README's screenshots in the same dev
 world, through the same driver. It copies four fixture actors into a demo party with generic names (Player One plays the

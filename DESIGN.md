@@ -322,7 +322,7 @@ what would unlock it.
 | `rolled` (Deconstruct) | settle | `complete` or `failed` | as for any settle | no finishing phase: success writes the components record and, when purpose is `similar` and a `followOn` is named, the follow-on's setup credit (6.16.5) |
 | `accepted` (quest) | start quest | `gathering` | the crafter's owner | no rows; components listed (6.16.9) |
 | `gathering` | component found | `gathering` | any member | `variant.quest.components.<id>.found = {by, day}`; nothing else |
-| `gathering` | derived: every component's `found` is set | `check` or `complete` | the crafter's responsible client, when it sees the last mark | status only for `check` (when an assembly check is required); otherwise delivery as at `finish`, in a lock-first batch keyed `deliver:<orderId>:<attempt>` (5.4), so writing it twice is harmless |
+| `gathering` | derived: every component's `found` is set | `check` or `complete` | the crafter's responsible client, when it sees the last mark | status only for `check` (when an assembly check is required); otherwise delivery as at `finish`, in a lock-first batch keyed `assemble:<orderId>:<attempt>` (5.4), so writing it twice is harmless (not `deliver:<orderId>:<attempt>`, the shelf item's claim key, whose page the recipient's delivery takes: M9a live pass) |
 | `rolled` (quest) | settle | `complete` or `failed` | as for any settle | no money rows: success, and failure with a quirk note, deliver; a critical failure fails the order or delivers it cursed by `variants.quests.critFail` (6.16.9) |
 | `complete`, `cancelled` | archive | `archived` | the elected archiver, automatically after the archive age (5.3.3) | moved to an archive page |
 
@@ -6428,7 +6428,7 @@ additions to `products.mjs`, `orders.mjs`, `rolls.mjs`, `outputs.mjs`, `claims.m
 `request.mjs`, `workshop.mjs`, `downtime.mjs`, `context.mjs`, `chat.mjs`, `labels.mjs`, the Queue, Funds, Downtime, request
 and check-card templates and `styles/workshop.css`). Unit tests cover the variant math (`test/logic/variants.test.mjs`, with
 the book's vectors), stub tests the Foundry and window parts (`test/foundry/m9a.test.mjs`, `ui-m9a.test.mjs`,
-`harness-m9a.test.mjs`); the live plans have not run yet (below). Every number was checked against TV-R pp.157-175 on AoN and
+`harness-m9a.test.mjs`); the live plans passed their first live pass (M9a live pass, below). Every number was checked against TV-R pp.157-175 on AoN and
 the pf2e 8.6.1 compendium (Deconstruct, Grow, Quick Setup, the GM Screen's "Downtime Events" page).
 
 - **Off costs nothing.** While a variant is off its kinds are refused (`variant-off`), the request drops its fields, its
@@ -6487,7 +6487,7 @@ the pf2e 8.6.1 compendium (Deconstruct, Grow, Quick Setup, the GM Screen's "Down
   The Funds tab lists the party's gifts with their Price.
 - **Quests** (6.16.9): `craftType: "quest"`, quantity 1, no coins and no downtime activity; it starts in `gathering`; any member
   marks a component found; the crafter's responsible client moves it on once all are found, to `check` when an assembly check
-  is needed, else delivered behind the order's log slot and `deliver:<id>:<attempt>`, so it leaves `gathering` once. The
+  is needed, else delivered behind the order's log slot and `assemble:<id>:<attempt>`, so it leaves `gathering` once. The
   assembly's failure delivers with a quirk, its critical failure destroys it or curses it by `quests.critFail`. The Queue
   shows the equivalent cost against treasure, the per-encounter reduction and the Table 5-3 budget.
 - **Settings** (14.4): every key of the table, registered with its default; the public API's `variants` namespace (11.2).
@@ -6515,11 +6515,12 @@ the pf2e 8.6.1 compendium (Deconstruct, Grow, Quick Setup, the GM Screen's "Down
   - The 10% a critical failure ruins of a components line stayed on the item, so it came back whole on a cancel; now taken off
     the item's credit in the same request (6.16.5).
 - **Live plans** (15.3 scenario 13; `tools/harness/variant-scenarios.mjs`, scenario `m9a`, with M9's `m9` steps; `live-plans.mjs`),
-  to run later:
+  first run in the M9a live pass (below):
   - `m9a-notice` (GM, P1): Complex Crafting then Grow: the GM is told once, Player One is not, Settings shows the notice.
   - `m9a-complex` (GM, P2): Player Two's fighter rushes a Cloak of Feline Rest without its formula to 1 day at +5 DC and rushes a
     finishing day (flat DC at most 1: no die); the legacy alchemist fixture rushes Alchemist's Fire (Lesser) to 4 hours (Set up
-    now refused, Work a day records it), rushes a finishing day and rolls the DC 4 flat check once.
+    now refused, Work a day records it), rushes a finishing day and rolls the DC 4 flat check once (at a natural 1 since the M9a
+    live pass: ruined, the order complete with nothing made, the Queue saying so).
   - `m9a-quick-setup` (GM, P2): with Quick Setup the cloak takes 4 hours, which Set up now refuses (no adventuring-day setup);
     Player Two's fighter subsists in downtime; a batch of Alchemist's Fire (Lesser) takes 2 hours; the day is resolved as
     subsistence and Set up now records the hours on the same day under their own key.
@@ -6536,6 +6537,98 @@ the pf2e 8.6.1 compendium (Deconstruct, Grow, Quick Setup, the GM Screen's "Down
   - `m9a-secret` (GM, P1, P2): a special Elixir of Life (Minor) rolled blind: both players read "rolled (secret)", the GM the
     degree; revealed, the players read it too.
   - `m9a-shots` (GM, P2): the Queue's Complex Crafting detail and the Funds tab's garden, 1440x900 and 1024x768, dark and light.
+  - `m9a-off` (GM, P1, P2; added in the M9a live pass): every variant off, M4's lifecycle at a fixed die under a write audit on
+    the GM's client: no variant data written; no variant button, section, field or words in the Queue, Funds and Downtime tabs,
+    the request form (nor a variant kind) or the lifecycle's chat cards, on any of the three clients; no notice in Settings.
+
+#### M9a live pass (2026-10-27, Foundry 14.368, pf2e 8.6.1, no canvas)
+
+One pass at `1b26ae3` (M0-M9a), then once more after the fixes below:
+
+- **Audit first.** Before the first run, every plan was read for a branch that passes on nothing. Five did: `m9a-complex`
+  checked the fighter's rushed finishing only `if` the cloak's check succeeded and the alchemist's only `if` the fire's did;
+  `m9a-deconstruct` passed a failed check ("a failure leaves the cloak as it was") and skipped every components check;
+  `m9a-grow` returned before the season checks on a failed check; `m9a-adjust` returned before the delivery on one; and
+  `m9a-secret` never checked that the players cannot read the blind card. Each crafting plan now rolls at a fixed die (`M9_FACE`,
+  or `degree: 2` for the Deconstruct, whose components are worth 75% on a success and 80% on a critical success) and checks the
+  order got where its later checks look; `m9a-secret` checks the card's content is hidden from both players (the roller too) and
+  shown to the GM. A new plan, `m9a-off`, answers "nothing of a variant while every variant is off": M4's lifecycle at a fixed
+  die under a write audit on the GM's client (which sees every client's writes), then the Queue, Funds and Downtime tabs, the
+  request form and the lifecycle's chat cards on all three clients searched for variant markers and words (15.3). The new tests
+  (`harness-m9a.test.mjs`, "After the M9a live pass") run the plans over a fake harness and fail on the plans as they were.
+- **First run** (`--runs 1`): `m9a-notice`, `-deconstruct`, `-grow`, `-garden`, `-secret` and `-shots` passed. The rest failed on
+  the harness and on one module bug: `m9a-complex`'s alchemist and `m9a-quick-setup`'s batch were held back by G7 (no
+  alchemist's lab; the plans now put one in the strongbox); `m9a-adjust` was refused `not-owner` (Player One named Player Two's
+  fighter as the crafter, which only the crafter's owner may; the fighter now accepts it in `run`); `m9a-off`'s audit flagged an
+  order's own empty `checklist` record and "Something else" (a variant string an activity shares), and read earlier plans'
+  cards in the chat log (the audit now flags only the variant checklist keys, drops strings another key shares, and reads only
+  the cards posted since it began); and `m9a-quest` found the quest's cloak still on the pickup shelf after Player One's
+  collect (fixed below).
+- **Final run** (`--runs 1`, after the fixes): all eleven M9a plans pass, 94 checks: `m9a-notice` 5, `-complex` 15, `-quick-setup`
+  6, `-deconstruct` 11 (components worth 15 gp at a plain success), `-grow` 10, `-garden` 7, `-quest` 5 (one cloak on Player One's
+  alchemist), `-adjust` 5, `-secret` 7, `-shots` 2 and `-off` 21 (46 writes audited, none a variant's; no marker or variant word
+  on any client). `m9a-complex` failed once in that run on its own check (a natural 1 on the alchemist's flat check: below) and
+  passed when run again with the fixed plan. The notifications are the GM's one `Settings.Variants.Mixed`, Player One's one
+  `Variant.Grow.SeasonDue` with its actor and item, and the order cards' status notes.
+- **Regression** (`--runs 1`, no canvas): scenario 7, `m4-lifecycle`, `m9-tattoo`, `m8-turn`, `m7-morning` and `m6-income` pass,
+  before and after the fixes (in the final run `m7-morning` and `m6-income` could not start: an "Assistant GM" session the
+  harness had not opened was connected, so `only` never saw the users it wanted; both passed when run again with no one else
+  on). Console errors are the classes 5.4 and 15.3 expect: core's "The _id [...] already exists" toast for the loser of a lock
+  race (scenario 7, `m6-income`'s second device, and `m9a-garden`'s two harvests at the same moment, with
+  "A parent Document provided to the database operation must be a Document instance" from the same refused request), scenario
+  7's injected "does not exist", and pf2e's page error at an encounter's deletion without a canvas (`m8-turn`). No slow server
+  answers.
+- **Found and fixed** (each with a test that fails without it):
+  - *A crafting quest's item never reached its recipient* (high; `m9a-quest`). The assembly's lock-first move took the page of
+    `deliver:<id>:<attempt>`, which is also the shelf item's claim key, whose page the recipient's delivery takes: every
+    delivery lost its lock (`conflict`, `locked`) and the cloak stayed on the shelf for good. The assembly now takes
+    `assemble:<id>:<attempt>` (4.2.3, 6.16.9; `m9a.test.mjs`).
+  - *"Work a day" warned after doing its job* (medium; the hands-on pass). The day that settles a Deconstruct (straight to
+    `complete`) or a failed Craft check (`failed`) wrote no day record, so `workDay` answered "The order is Complete, so that
+    cannot be done now."; it now reports the settlement for any outcome (`m9a.test.mjs`).
+  - *A ruined rushed finish read "On its way to ...'s inventory."* for good (medium; `m9a-complex` rolled a natural 1). Under
+    `rushCritFail` "ruined" the order completes and makes nothing (as built), but `deliveryOf` waited for a shelf item; it now
+    says "Ruined in the rushed finish: nothing was made." (`views.test.mjs`). The plan wanted `failed` there, against 10.17; it
+    now checks the order completes with nothing made, and fixes that flat check's die at 1 so the path is taken every run.
+  - *"Rushed finish, flat check DC -5: -."* (medium; the hands-on pass): a flat check of DC 1 or lower rolls no die, and the
+    detail printed the negative DC and a dash; it now reads "Rushed finish: no flat check needed (its DC was 1 or lower)."
+    (`ui-m9a.test.mjs`).
+  - *The request form offered coin stacks to deconstruct* (medium; the hands-on pass): Gold, Silver and Copper Pieces were
+    listed beside the cloak. pf2e's coins (`isCoinage`, a treasure of the coin category) are left out (`ui-m9a.test.mjs`); the
+    gate is a follow-up.
+- **Hands-on pass** (a scratch Playwright script, no canvas, the GM and both players online; real clicks, selects and keys in
+  the windows; setup through the harness: the fighter given a Cloak of Feline Rest without its formula, an alchemist's lab in
+  the strongbox, the die fixed on the roller's page):
+  - *Settings.* The GM opens Game Settings, Configure Settings, the module's category, ticks "Variant: Complex Crafting" and
+    saves (later "Variant: Deconstruct", then "Variant: Critical Crafting" and "Critical Crafting: secret checks"); each reads
+    back on.
+  - *Complex Crafting: file and rush.* Player Two opens the Workshop from the Actors directory, clicks Request, types "Cloak of
+    Feline Rest", picks it and names their fighter as the crafter ("Who can make it": "no formula (2 setup days)"), and files
+    it. The detail's Complex Crafting section says "Setup: 2 days" with "Rush the setup"; the dialog offers "Setup: 2 days" and
+    "Setup: 1 day, rushed 1 day (DC +5)" ("Each day rushed raises the DC by 5."); after the choice the section says the rushed
+    setup. Fund this order (Fill the shortfall, 10 gp), Start: "SETUP 0/1", the DC frozen at 20 (+5). Work a day, Roll (pf2e's
+    check dialog, Roll (+19): a critical success), Work a day (finishing, "8 gp per day", 2 gp left), "Rush the finishing" ("The
+    crafter is rushing the finishing: each day takes twice as much off, and a flat check follows the finish.", Stop rushing),
+    Work a day, Finish: complete, "Delivered to Fixture 6: Fighter crafter's inventory.", "What it cost: Paid 10 gp up front; 2
+    work days covered 10 gp; paid 0 gp to finish; 10 gp spent in all." The flat check line read "Rushed finish, flat check DC
+    -5: -." (fixed above).
+  - *Deconstruct.* Player Two's request form now offers "Deconstruct"; its item list held the cloak, an Artisan's Toolkit and
+    Gold, Silver and Copper Pieces (coins fixed above); purpose "raw materials for any item" or "a new, similar item". Filed with
+    the fighter as crafter; the detail asks for the workshop ("The crafter has not confirmed the workshop.", 8 of 9 met);
+    "Confirm the workshop", Start (1 day, Price 0 gp, DC 15), Work a day, Roll (a success), Work a day: the order complete, the
+    cloak on the fighter renamed "Cloak of Feline Rest (components)", inert, worth 10 gp raw; the Deconstruct card "Cloak of
+    Feline Rest is now components: ...", whispered to the GMs and Player Two. The settling Work a day warned "The order is
+    Complete, so that cannot be done now." (fixed above).
+  - *Secret roll.* Player Two requests an Elixir of Life (Minor) with "Special item" ticked in the request form and funds it;
+    Player One accepts, starts, works and rolls (pf2e's dialog). Player One, the roller, and Player Two read in chat "Player One
+    privately rolled some dice", "???", and the Workshop's line "rolled (secret)"; the Queue says "Check: rolled (secret)" and the
+    detail "rolled (secret)" (Player One also has "Reveal and settle"); the GM reads "Craft DC 15, Result: Critical Success by
+    +19", "Check: Critical Success" and "Rolled in secret: the players see the result once it is settled or revealed." The GM
+    clicks Reveal: both players' Queue and augment line say "Critical Success"; pf2e's card stays "???" to them (Follow-ups).
+  No raw key, unfilled placeholder, `undefined` or `NaN` in any window, dialog, card or notification the script read on any
+  client, but core's no-canvas toast below. Saving Configure Settings without a canvas also saves core's performance mode
+  (and Workbench's damage-roll setting), whose `onChange` throws without a canvas ("Cannot read properties of undefined
+  (reading 'renderer')") and asks to reload; none of the module's settings needs a reload, and the script answered No.
 
 #### Follow-ups (M9a, low)
 
@@ -6552,8 +6645,8 @@ the pf2e 8.6.1 compendium (Deconstruct, Grow, Quick Setup, the GM Screen's "Down
 - The pf2e compendium's Deconstruct and Grow actions carry no `rare` trait, though the book calls them rare.
 - A precious material stock line is not ruined by a critical failure (since M5); components are.
 - Event and rushed-finish cards are plain roll cards with a flavour line; the GM Screen link is in the Queue only.
-- The author of a blind roll records its check from a message whose content they cannot see; the live plan checks it.
-- The live plans have not run.
+- The author of a blind roll records its check from a message whose content they cannot see (confirmed live: `m9a-secret`
+  and the hands-on pass, M9a live pass).
 - From the second review (low, logged, not fixed):
   - The crafter's curse is lifted only by a Craft order's critical success (not Deconstruct, quest assembly or season checks, which
     it also penalises), and by one rolled with Nature or Arcana (not a Crafting check); lift it on any critical success of a check
@@ -6578,6 +6671,19 @@ the pf2e 8.6.1 compendium (Deconstruct, Grow, Quick Setup, the GM Screen's "Down
     time it is switched, dropping seasons due and not yet rolled.
   - Undoing a Deconstruct's critical-failure settlement leaves the damage on the item (`flags.MOD.deconstructDamage`), so a new
     order for it inherits damage the undone check no longer says it took.
+- From the M9a live pass (low, logged, not fixed):
+  - The Deconstruct gates (`deconstructGates`) do not refuse a coin stack; only the request form's list leaves coins out now, so
+    `api.orders.request` can still file one. Carry `coin` in the item facts and refuse it as D3.
+  - A Deconstruct's detail and the request form's "Who can make it" carry Craft-only text: "Per extra day 6 gp", the Work days
+    rule about extra days, "0 days at 8 gp", and "What it cost: ... 0 work days covered 0 gp".
+  - Counts not made singular: the check augment's "1 more days to pay nothing more" and the Funds tab's "1 of 1 gardens" (the
+    class of "1 orders filed.", M9 live pass).
+  - Before a secret check settles, the players' Queue shows the rate it implies ("10 gp per day" for an alchemist whose plain
+    rate is 8 gp), so a critical success shows through (the second review's `perDayCp` item, seen live).
+  - After a GM reveals a secret check, pf2e's own card stays "???" to the players; only the Workshop's augment line and the Queue
+    say the degree.
+  - "Rush the finishing" is offered from the start, during the setup days, before there is a check; it is harmless (the toggle
+    only counts in finishing days) but reads as if the finish could be rushed now.
 
 ---
 
@@ -7271,10 +7377,18 @@ read fully, 110 overridden, 5 ignored, none failing (10.15); `spells` and `besti
   `expended` on an entry and a slot an earlier run deployed came back spent.
 - As built in M9a: scenario `m9a` (`tools/harness/variant-scenarios.mjs`, using M9's `m9` steps to file and work orders) and the
   behaviours `m9a-notice`, `m9a-complex`, `m9a-quick-setup`, `m9a-deconstruct`, `m9a-grow`, `m9a-garden`, `m9a-quest`,
-  `m9a-adjust`, `m9a-secret` and `m9a-shots`, described in 10.17; not run yet. They are scenario 13 of the list above. The two
+  `m9a-adjust`, `m9a-secret`, `m9a-shots` and (from the M9a live pass) `m9a-off`, described in 10.17; first run in the M9a live
+  pass (10.17). They are scenario 13 of the list above. The two
   player characters are fixtures 3 and 6; the legacy alchemist (14) rolls the rushed finish's flat check, which the master
   fighter cannot fail, and the druid (15) is lent to Player One for the Grow plan, so its season check has an owner online
-  with no GM; `reset` turns every variant setting back to its default and gives the druid back.
+  with no GM; `reset` turns every variant setting back to its default and gives the druid back. As built in the M9a live pass:
+  `roll` takes `params.face`, or `params.degree` (`faceFor`: the face that aims the total 4 above the DC for a success, from the
+  crafter's statistic, off the natural 1 and 20), and every plan that crafts, deconstructs or grows fixes the die and checks
+  the order reached the state its later checks need; M4's `roll` takes `params.face` too. `audit` hooks every create and
+  update of journal entries and pages, actors, items, chat messages and settings on one client (the GM's, which sees every
+  client's writes) and flags the key paths only a variant writes (`VARIANT_WRITE`), a variant setting and a variant card;
+  `markers` opens each tab of the Workshop and the request form and reads the variant markers (buttons, sections, fields) and
+  any variant string that no other key shares, there and in the chat cards posted since the audit began.
 - As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
   counts the rows that are new since `purseBefore` by id, not by a server-time cut-off (two devices' estimates of
   the server's time differ by milliseconds, and one real row was left out); the `claim` step reports its own rows
@@ -7472,7 +7586,7 @@ draft; the letters keep the existing milestone numbers stable.
 | M8 | Combat | Bandolier, HUD palette, Quick Alchemy panel, quick vials, Quick Bomber, Healing Bomb, additives, vial gathering, turn expiry, Duct Tape step-aside, Use best consumable; built, first live pass run (10.14) | M7 |
 | M8a | Afflictions | 8.10: the affliction rules engine with tests; the parser, `scripts/data/afflictions.mjs` overrides and the corpus check in the validation script; backend detection, the effect backend and the native backend with its constraints and migration; grant flags and the stage guard; exposure and coating-spend claims; coatings and Strike handling; saves (with the source item, for incapacitation), recording and pending state; turn and world-time timing, catch-up and the affliction time function for logged days; the DC stamp at creation; Afflictions drawer and cards; Affliction Forge coexistence and the GM-routed hand-off; harness scenario 12; built, first live pass run (10.15) | M3 (validation script, roll recording), M6 (day resolver for logged days), M7 (creation stamps, infused expiry), M8 (Bandolier entry point) |
 | M9 | Tattoos and remaining crafts | tattoo process and toggle, grafts, spellhearts, fulus, missives, snares and gadgets specifics, spell-supplied items beyond scrolls and wands; harness scenario 14; built, first live pass run (10.16) | M5, M6 |
-| M9a | Treasure Vault (Remastered) variants | 6.16 behind their settings: Complex Crafting and Quick Setup (setup, rush, sub-day setups, rushed finishing), crafting with adjustments, downtime events, Critical Crafting, Deconstruct and components, Grow with untended growth and seasons, gardens, bestowed gifts, crafting quests; the one-group-at-a-time notice; harness scenario 13; built, live plans not yet run (10.17) | M5 (service orders, materials, Repair), M6 (day resolver, seasons, events), M7 (expiry stamps and the inert guard for produce, components and gifts) |
+| M9a | Treasure Vault (Remastered) variants | 6.16 behind their settings: Complex Crafting and Quick Setup (setup, rush, sub-day setups, rushed finishing), crafting with adjustments, downtime events, Critical Crafting, Deconstruct and components, Grow with untended growth and seasons, gardens, bestowed gifts, crafting quests; the one-group-at-a-time notice; harness scenario 13; built, live plans passed (10.17, M9a live pass) | M5 (service orders, materials, Repair), M6 (day resolver, seasons, events), M7 (expiry stamps and the inert guard for produce, components and gifts) |
 | M10 | Extension API | registration, interfaces, hooks, extension store; the separate circus module built against it as acceptance test | M6 |
 | M11 | Integration surface | sheet and party entry points, macros and shelf, keybindings, theming, accessibility pass | M4-M9a |
 | M12 | Hardening | full section 15 matrix, performance, pre-release to a test table by manifest URL; the first pre-release run at a real table hosted on the Forge is the Forge smoke test (15.6) | M10, M11 |

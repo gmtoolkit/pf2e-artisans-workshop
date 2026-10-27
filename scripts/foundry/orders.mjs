@@ -364,7 +364,9 @@ export async function workDay(id) {
     if (!result.ok) return result;
     const record = result.records?.[0];
     const status = read(`orders.${id}.status`);
-    if (!record && wasRolled && status === "finishing") return { ok: true, day: null, kind: null, status, settled: true };
+    // The day settled the check (4.2.3): to finishing, or straight to complete (a Deconstruct) or failed (M9a live pass: not
+    // "the order is Complete, so that cannot be done now" after the click did what it should).
+    if (!record && wasRolled && status !== "rolled" && read(`orders.${id}.check.settled`) === true) return { ok: true, day: null, kind: null, status, settled: true };
     if (!record) return refuse(WORK_STOPS[result.stop?.reason] ?? "state", { status });
     return { ok: true, day: record.day, kind: record.kind, status };
 }

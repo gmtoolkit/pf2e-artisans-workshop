@@ -1488,12 +1488,13 @@ function leftToPay(order) {
  * onto the pickup shelf, and delivery by the recipient's client. With `gm`, the GM is online throughout; without, no GM
  * is, and Player Two is offline at the finish, so the item waits on the shelf until Player Two's login sweep takes it.
  */
-async function m4Lifecycle(h, w, { gm }) {
+async function m4Lifecycle(h, w, { gm, face = null, online: onOnline = null }) {
     await resetWorld(h, w);
     await h.evaluate("gm", pageStoreItem, { mod: MOD, uuid: LAB }, "an alchemist's lab in the strongbox");
     const online = gm ? ["gm", "p1", "p2"] : ["p1", "p2"];
     await h.only(online);
     await h.settle("ready");
+    if (onOnline) await onOnline();
     const filed = await h.step("p2", "m4", "request", { product: ELIXIR, quantity: 2 });
     h.check("the request is filed as one order of two", filed.ok === true && !!filed.order, filed);
     const id = filed.order;
@@ -1505,11 +1506,12 @@ async function m4Lifecycle(h, w, { gm }) {
     h.check("every gate passes and the order starts (P1)", start.ok === true, start);
     const setup = await h.step("p1", "m4", "work", { order: id, until: "check" });
     h.check("setup days move the order to its check", setup.order?.status === "check", setup.order);
-    const rolled = await h.step("p1", "m4", "roll", { order: id });
+    const rolled = await h.step("p1", "m4", "roll", { order: id, face });
     h.check("the Craft check is rolled through the wrapper and recorded", rolled.recorded === true, rolled);
     const worked = await h.step("p1", "m4", "work", { order: id });
     const success = worked.order?.check?.degree >= 2;
     h.check("the next day settles the check (4.2.3)", worked.order?.check?.settled === true && worked.order?.settlement?.attempt === 1, worked.order);
+    if (Number.isInteger(face)) h.check("at the fixed die the check succeeds", success, worked.order?.check);
     if (!success) {
         h.check("a failed check leaves the order failed with its materials released", worked.order?.status === "failed", worked.order);
         return { id, worked };
@@ -3948,6 +3950,9 @@ export const M9A = Object.freeze({
     alchemicalCrafting: "Compendium.pf2e.feats-srd.Item.is3Oz9wt11lNq62K", // Alchemical Crafting, skill feat 1 (a fighter's alchemist's fire)
 });
 
+/** The die of the legacy alchemist's rushed-finish flat check in `m9a-complex`: a natural 1, a critical failure (ruined). */
+export const M9A_FLAT_FACE = 1;
+
 /** The keys of the notes the M9a plans read from the pages' notification logs. */
 const MIXED_KEY = "pf2e-artisans-workshop.Settings.Variants.Mixed";
 const SEASON_KEY = "pf2e-artisans-workshop.Variant.Grow.SeasonDue";
@@ -3995,12 +4000,13 @@ async function m9aNotice(h, w) {
  * check, one finishing day is rushed and the finish's flat check (DC 10 + 1 - 16) cannot fail, so no die is rolled. Then the
  * legacy alchemist fixture (expert, level 3) rushes Alchemist's Fire (Lesser) to 4 hours, which takes its downtime day on the
  * order (only Quick Setup's 2-hour consumable setup fits into an adventuring day, TV-R p.159), so Set up now is refused and
- * Work a day records the setup; then it rushes a finishing day: its flat check is DC 4, rolled once, and the outcome follows
- * the die.
+ * Work a day records the setup; then it rushes a finishing day: its flat check is DC 4, rolled once, at a natural 1 (M9a live
+ * pass): ruined, so the order completes with nothing made, and the Queue says so. Both Craft checks roll at `M9_FACE`.
  */
 async function m9aComplex(h, w) {
     const alchemist = fixtureOf(h, w, "legacy-alchemist-3");
     await m9aReset(h, w, { actors: [alchemist], on: { "variants.complexCrafting": true } });
+    await h.evaluate("gm", pageStoreItem, { mod: MOD, uuid: LAB }, "an alchemist's lab in the strongbox (G7 for the alchemist's fire)");
     const fighter = w.pcs.p2.uuid;
     await h.step("gm", "m9a", "forget", { actor: fighter, uuids: [M9A.cloak] });
     await h.only(["gm", "p2"]);
@@ -4008,10 +4014,11 @@ async function m9aComplex(h, w) {
     const filed = await h.step("p2", "m9", "request", { uuid: M9A.cloak, requester: fighter, crafter: fighter });
     const rushed = await h.step("p2", "m9a", "rush", { order: filed.order, rush: 1 });
     h.check("the crafter chooses one rushed day before the start", rushed.result?.ok === true && rushed.order.variant.rushRequest === 1, rushed);
-    const run = await h.step("p2", "m9", "run", { order: filed.order, crafter: fighter, payer: fighter, pledge: 1000, finish: false });
+    const run = await h.step("p2", "m9", "run", { order: filed.order, crafter: fighter, payer: fighter, pledge: 1000, finish: false, face: M9_FACE });
     const started = await h.step("p2", "m9a", "order", { order: filed.order });
     h.check("frozen at the start: 1 setup day, one day rushed, +5 DC", started.setup?.days === 1 && started.variant.complex?.rush === 1 && started.dc?.adjust === 5 &&
         started.days.filter((d) => d.kind === "setup").length === 1, started);
+    h.check("the cloak's check succeeds at the fixed die: finishing", started.status === "finishing", started);
     const out = { run, started };
     if (started.status === "finishing") {
         const on = await h.step("p2", "m9a", "rushFinish", { order: filed.order, on: true });
@@ -4035,17 +4042,28 @@ async function m9aComplex(h, w) {
     const now = await h.step("gm", "m9a", "work", { order: fire.order, count: 1, while: ["setup"] });
     h.check("Work a day: the crafter's own day record is the setup-hours record, and the order is at its check", now.order.status === "check" &&
         now.order.days.some((d) => d.kind === "setup-hours" && d.hours === 4 && !d.id.endsWith(`-${fire.order}`)), now);
-    await h.step("gm", "m9a", "roll", { order: fire.order });
+    await h.step("gm", "m9a", "roll", { order: fire.order, face: M9_FACE });
     const settled = await h.step("gm", "m9a", "work", { order: fire.order, count: 1 });
     out.fire = settled.order;
+    h.check("the fire's check succeeds at the fixed die: finishing", settled.order.status === "finishing", settled.order);
     if (settled.order.status !== "finishing") return out;
     await h.step("gm", "m9a", "rushFinish", { order: fire.order, on: true });
     await h.step("gm", "m9a", "work", { order: fire.order, count: 1, while: ["finishing"] });
-    const done = await h.step("gm", "m9a", "finish", { order: fire.order, payer: w.pcs.p1.uuid });
+    // The flat check's die fixed at 1 (M9a live pass): a critical failure, the path a random die rarely takes (the fighter's covers
+    // "fine", a die of 2 or 3 "quirk"; the stub tests cover all three).
+    const done = await h.step("gm", "m9a", "finish", { order: fire.order, payer: w.pcs.p1.uuid, face: M9A_FLAT_FACE });
     const flat = done.order.check?.rushFlat;
     h.check("the flat check: DC 10 + 1 - 7 = 4, one d20, its card posted once", flat?.dc === 4 && Number.isInteger(flat.die) && done.order.flatCards === 1, done.order);
-    h.check("the outcome follows the die: fine on a success, a quirk on a failure, ruined on a critical failure", flat && ((flat.degree >= 2) === (flat.outcome === "fine")) &&
-        (flat.degree !== 0 || done.order.status === "failed"), flat);
+    // A critical failure under `rushCritFail` "ruined" (the default) completes the order and makes nothing (6.16.1, 10.17); the
+    // plan wanted "failed" until the M9a live pass rolled a 1.
+    const made = await h.step("gm", "m9a", "items", { actor: alchemist, order: fire.order, ms: 1500 });
+    const count = (made.items?.length ?? 0) + (done.order.shelf?.length ?? 0);
+    h.check("the outcome follows the die: fine on a success, a quirk on a failure, ruined (complete, nothing made) on a critical failure", !!flat &&
+        done.order.status === "complete" && (flat.degree >= 2) === (flat.outcome === "fine") && (flat.degree !== 1 || flat.outcome === "quirk") &&
+        (flat.degree === 0 ? flat.outcome === "ruined" && count === 0 : count === 1), { flat, status: done.order.status, made: made.items, shelf: done.order.shelf });
+    const seen = await h.step("gm", "m9a", "view", { order: fire.order, ms: 500 });
+    h.check("at a natural 1 the item is ruined, and the Queue says nothing was made (not \"on its way\")", flat?.die === 1 && flat.outcome === "ruined" &&
+        seen.deliveryState === "ruined" && typeof seen.delivery === "string" && !seen.delivery.includes("pf2e-artisans-workshop."), { flat, seen });
     out.fire = done.order;
     await checkStatuses(h);
     return out;
@@ -4060,6 +4078,7 @@ async function m9aComplex(h, w) {
  */
 async function m9aQuickSetup(h, w) {
     await m9aReset(h, w, { on: { "variants.complexCrafting": true } });
+    await h.evaluate("gm", pageStoreItem, { mod: MOD, uuid: LAB }, "an alchemist's lab in the strongbox (G7 for the alchemist's fire)");
     const fighter = w.pcs.p2.uuid;
     await h.step("gm", "m9", "give", { actor: fighter, uuid: M9A.quickSetup });
     await h.step("gm", "m9", "give", { actor: fighter, uuid: M9A.alchemicalCrafting });
@@ -4118,13 +4137,12 @@ async function m9aDeconstruct(h, w) {
     const begun = await h.step("p2", "m9a", "start", { order: filed.order, crafter: fighter });
     h.check("1 day, no Price", begun.start?.ok === true && begun.order.priceCp === 0 && begun.order.setup?.days === 1, begun);
     await h.step("p2", "m9a", "work", { order: filed.order, count: 2, while: ["setup"] });
-    await h.step("p2", "m9a", "roll", { order: filed.order });
+    const rolled = await h.step("p2", "m9a", "roll", { order: filed.order, degree: 2 });
     const settled = await h.step("p2", "m9a", "work", { order: filed.order, count: 1 });
-    const out = { settled: settled.order };
-    if (settled.order.status !== "complete") {
-        h.check("a failure leaves the cloak as it was (a critical failure damages it)", ["failed", "rolled"].includes(settled.order.status), settled.order);
-        return out;
-    }
+    const out = { rolled, settled: settled.order };
+    h.check("a success at the die aimed for one: the Deconstruct completes", settled.order.check?.degree === 2 && settled.order.status === "complete",
+        { face: rolled.face, order: settled.order });
+    if (settled.order.status !== "complete") return out;
     const made = await h.step("p2", "m9a", "items", { ms: 1000 });
     const components = made.items.find((i) => i.components?.purpose === "similar");
     h.check("the cloak is now components worth 75% of 20 gp, inert", components?.components.valueCp === 1500 && components.inert === true, made);
@@ -4155,9 +4173,10 @@ async function m9aGrow(h, w) {
     await h.settle("ready");
     const filed = await h.step("p1", "m9", "request", { uuid: M9A.tinderbox, requester: druid, crafter: druid, craftType: "grow" });
     await h.step("p1", "m9a", "checklist", { order: filed.order, key: "grow-tools" });
-    const run = await h.step("p1", "m9", "run", { order: filed.order, crafter: druid, payer: w.pcs.p1.uuid, pledge: 1000, finish: false });
+    const run = await h.step("p1", "m9", "run", { order: filed.order, crafter: druid, payer: w.pcs.p1.uuid, pledge: 1000, finish: false, face: M9_FACE });
     const grown = await h.step("p1", "m9a", "order", { order: filed.order });
     h.check("Grow: Nature, 4 setup days", grown.skill === "nature" && grown.setup?.days === 4 && grown.days.filter((d) => d.kind === "setup").length === 4, { run, grown });
+    h.check("the Grow check succeeds at the fixed die: finishing", grown.status === "finishing", grown);
     if (grown.status !== "finishing") return { grown };
     const left = await h.step("p1", "m9a", "untended", { order: filed.order, on: true });
     h.check("left untended", left.result?.ok === true && left.order.variant.grow?.mode === "untended", left);
@@ -4252,12 +4271,14 @@ async function m9aAdjust(h, w) {
     const fighter = w.pcs.p2.uuid;
     await h.only(["gm", "p1", "p2"]);
     await h.settle("ready");
-    const filed = await h.step("p1", "m9", "request", { uuid: M9A.breastplate, requester: w.pcs.p1.uuid, crafter: fighter, recipient: w.pcs.p1.uuid,
+    // Player One names no crafter (only a crafter's owner may, `not-owner`); Player Two's fighter accepts it in `run`.
+    const filed = await h.step("p1", "m9", "request", { uuid: M9A.breastplate, requester: w.pcs.p1.uuid, recipient: w.pcs.p1.uuid,
         variant: { adjustments: [M9A.latches] } });
     h.check("one order with the adjustment", filed.ok === true && !!filed.order, filed);
     await h.step("p2", "m5", "seen", { path: `orders.${filed.order}.status` });
-    const run = await h.step("p2", "m9", "run", { order: filed.order, crafter: fighter, payer: fighter, pledge: 600 });
+    const run = await h.step("p2", "m9", "run", { order: filed.order, crafter: fighter, payer: fighter, pledge: 600, face: M9_FACE });
     h.check("one Price for both: 12 gp", run.order?.priceCp === 1200, run.order);
+    h.check("the breastplate is crafted at the fixed die", run.order?.status === "complete", run);
     if (run.order?.status !== "complete") return { run };
     await h.step("p1", "m9", "collect", {});
     const items = await h.step("p1", "m9a", "items", { order: filed.order, ms: 1500 });
@@ -4288,6 +4309,8 @@ async function m9aSecret(h, w) {
     h.check("the check is recorded, secret", rolled.recorded === true, rolled);
     const views = Object.fromEntries(await Promise.all(["gm", "p1", "p2"].map(async (c) => [c, await h.step(c, "m9a", "view", { order: filed.order, ms: 1000 })])));
     h.check("rolled blind", views.gm.blind === true, views);
+    h.check("the card's content is hidden from both players, the roller too, and shown to the GM", views.p1.visible === false && views.p2.visible === false &&
+        views.gm.visible === true, views);
     h.check("both players read \"rolled (secret)\"; the GM reads the degree", views.p1.secretCheck && views.p2.secretCheck && !views.gm.secretCheck &&
         views.gm.checkText !== views.p2.checkText, views);
     const revealed = await h.step("gm", "m9a", "reveal", { order: filed.order });
@@ -4321,8 +4344,42 @@ async function m9aShots(h, w) {
         await h.step("p2", "m5", "close", {});
     }
     await h.step("p2", "m4", "theme", { scheme: "dark" });
-    h.check("the window opened every time", opened.every((o) => o.open), opened);
-    return { opened, shots: h.shots.filter((s) => s.label === h.label).map((s) => s.file) };
+    h.check("the window opened every time", opened.length === 8 && opened.every((o) => o.open), opened);
+    const shown = await h.step("p2", "m9a", "markers", { order: filed.order, tabs: ["queue", "funds"] });
+    h.check("the Queue shows the order's Complex Crafting section and the Funds tab its garden", shown.tabs?.queue?.markers?.includes(".detail-variants") &&
+        shown.tabs.funds?.markers?.includes("[data-action=\"variant\"]"), shown);
+    return { opened, shown, shots: h.shots.filter((s) => s.label === h.label).map((s) => s.file) };
+}
+
+/**
+ * 13i. Off costs nothing (6.16, M9a live pass): with every variant off, M4's lifecycle (the GM and both players online, the die
+ * fixed so that it runs to the delivery) writes nothing only a variant writes, by a write audit on the GM's client, which sees
+ * every change any client makes; and no tab of the Workshop, request form or chat log on any of the three clients shows a
+ * variant's button, section, field or words, nor does the request form offer a variant's kind; Settings shows no notice.
+ */
+async function m9aOff(h, w) {
+    await m9aReset(h, w);
+    const off = await h.step("gm", "m9a", "variants", {});
+    h.check("every variant is off", Array.isArray(off.groups) && off.groups.length === 0 && off.mixed === false, off);
+    let since = 0;
+    const life = await m4Lifecycle(h, w, { gm: true, face: M9_FACE, online: async () => {
+        since = (await h.step("gm", "m9a", "audit", { start: true })).at ?? 0;
+    } });
+    const audit = await h.step("gm", "m9a", "audit", {});
+    h.check("the audit saw the lifecycle's writes, the ledger's orders among them", audit.running === true && audit.writes >= 10 &&
+        audit.keys?.some((k) => k.includes(".orders.")), { writes: audit.writes, byHook: audit.byHook });
+    h.check("no write only a variant makes", Array.isArray(audit.flagged) && audit.flagged.length === 0, audit.flagged);
+    const shown = {};
+    for (const client of ["gm", "p1", "p2"]) shown[client] = await h.step(client, "m9a", "markers", { order: life?.id ?? null, product: ELIXIR, since: since - 2000 });
+    const clean = (part) => !!part && Array.isArray(part.markers) && part.markers.length === 0 && Array.isArray(part.words) && part.words.length === 0;
+    h.check("no variant button, section, field or words in any tab, the request form or the chat log, on any client", Object.values(shown).every((v) =>
+        v.texts > 20 && ["queue", "funds", "downtime"].every((tab) => v.tabs?.[tab]?.open && clean(v.tabs[tab])) && v.request?.open && clean(v.request) &&
+        v.chat?.cards > 0 && clean(v.chat)), shown);
+    h.check("the request form offers no variant kind", Object.values(shown).every((v) => v.request?.kinds?.length > 0 &&
+        !v.request.kinds.some((k) => ["deconstruct", "grow", "quest"].includes(k))), Object.fromEntries(Object.entries(shown).map(([c, v]) => [c, v.request?.kinds])));
+    const notice = await h.step("gm", "m9a", "notice", {});
+    h.check("Settings shows no notice", notice.notice === null, notice);
+    return { life, audit: { writes: audit.writes, byHook: audit.byHook, flagged: audit.flagged }, shown };
 }
 
 Object.assign(BEHAVIOURS, {
@@ -4336,4 +4393,5 @@ Object.assign(BEHAVIOURS, {
     "m9a-adjust": m9aAdjust,
     "m9a-secret": m9aSecret,
     "m9a-shots": m9aShots,
+    "m9a-off": m9aOff,
 });

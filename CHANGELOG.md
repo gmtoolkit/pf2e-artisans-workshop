@@ -205,6 +205,19 @@ All notable changes to this module are documented here. The format follows
   failed check no longer passes them with every check after the finish skipped; the staff, gadget and missive plans check
   a refusal or the second half too; healing is recorded on the tattoo and not on the first item found, and snares an
   earlier run deployed are prepared ready again.
+- A crafting quest's item now reaches its recipient: the assembly took the lock its own pickup-shelf delivery needed, so the
+  item stayed on the shelf for good.
+- "Work a day" that settles a Deconstruct, or a Craft check that failed, no longer warns that the order is complete (or
+  failed) and "cannot be done now" after doing what it should.
+- A rushed finish whose flat check needed no roll reads "no flat check needed", not "flat check DC -5: -".
+- A rushed finish that ruined the item no longer reads "On its way to ...'s inventory." for good: the Queue says nothing was
+  made.
+- The request form no longer offers coin stacks to deconstruct.
+- Live harness (M9a): the plans that craft, deconstruct or grow roll at a fixed die (or the face that lands the degree they
+  check) and check the order got there, and the rushed finish's flat check rolls a natural 1 so the ruined path is checked;
+  the Complex Crafting and Quick Setup plans put an alchemist's lab in the strongbox, the adjustment plan lets the crafter's
+  owner accept the order, and the secret-roll plan checks the card's content is hidden from the players. A new plan, `m9a-off`, runs the M4 lifecycle with every variant off under a write audit and checks that
+  no variant data is written and nothing of a variant shows in any tab, the request form or the chat log.
 
 - Storage and sync, from the first live runs: a client stops writing the moment a shared document it uses is
   deleted, or its user loses OWNER on one, even when no update hook reaches it (players without a canvas); ages

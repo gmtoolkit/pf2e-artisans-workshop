@@ -127,8 +127,10 @@ async function complexView(order, product, crafterOwned, rules) {
     }
     const flat = order.check?.rushFlat;
     if (flat) {
-        out.flat = fmt("pf2e-artisans-workshop.Variant.Rush.Result", { dc: number(flat.dc), die: flat.die === null ? "-" : number(flat.die),
-            outcome: loc(ITEM_OUTCOME[flat.outcome] ?? ITEM_OUTCOME.fine) });
+        // A DC of 1 or lower rolls no die (6.16.1): said in words, not as "DC -5: -" (M9a live pass).
+        const outcome = loc(ITEM_OUTCOME[flat.outcome] ?? ITEM_OUTCOME.fine);
+        out.flat = flat.die === null ? fmt("pf2e-artisans-workshop.Variant.Rush.NoRoll", { outcome })
+            : fmt("pf2e-artisans-workshop.Variant.Rush.Result", { dc: number(flat.dc), die: number(flat.die), outcome });
     }
     return out;
 }

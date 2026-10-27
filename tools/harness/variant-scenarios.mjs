@@ -26,6 +26,9 @@ import { shared } from "../../scripts/foundry/state.mjs";
 import { read, records, stampNow, write } from "../../scripts/foundry/store.mjs";
 import * as variants from "../../scripts/foundry/variants.mjs";
 import { orderContext } from "../../scripts/ui/context.mjs";
+import { openRequestForm } from "../../scripts/ui/request.mjs";
+import { openWorkshop, WorkshopApp } from "../../scripts/ui/workshop.mjs";
+import { withDie } from "./craft-scenarios.mjs";
 
 /** Where a fixture's ownership is kept while it is lent to a player. */
 const LENT = `${MODULE_ID}-m9a-lent`;
@@ -71,6 +74,54 @@ const itemBrief = (item) => ({
 
 /** Whether a step gave the item or an M9a order changed it. */
 const isM9a = (item) => item.flags?.world?.[`${MODULE_ID}-m9a`] || item.flags?.[MODULE_ID]?.components || item.flags?.[MODULE_ID]?.produce || item.flags?.[MODULE_ID]?.curse;
+
+/**
+ * The d20 face that lands `degree` on an order's check (M9a live pass): the total aimed 4 above the DC for a success, 14 above
+ * for a critical success, 5 below for a failure, 14 below for a critical failure, from the crafter's statistic, kept off a
+ * natural 1 or 20. The plan still checks the degree the roll got.
+ */
+export function faceFor(order, actor, degree) {
+    const mod = actor?.getStatistic?.(order.skill ?? "crafting")?.mod ?? actor?.skills?.[order.skill ?? "crafting"]?.mod ?? 0;
+    const aim = { 0: -14, 1: -5, 2: 4, 3: 14 }[degree] ?? 4;
+    return Math.min(19, Math.max(2, (order.dc?.final ?? 0) + aim - mod));
+}
+
+/**
+ * What a write audit flags (M9a live pass, 6.16 "Off costs nothing"): a ledger path, item flag or chat flag that only a variant
+ * writes. An order's empty `variant`, `events` and `checklist` records are part of every order (4.2.1), as are G9's checklist
+ * keys of its Craft Requirements; M9's `variant.process`, `variant.tradition` and `variant.replaces` are not M9a's.
+ */
+export const VARIANT_WRITE = new RegExp([
+    "(^|\\.)variant\\.(complex|rushRequest|rushFinish|special|adjust|adjusted|adjustments|deconstruct|grow|quest|bestow)(\\.|$)",
+    "(^|\\.)check\\.(critical|rushFlat|secret|revealed)(\\.|$)", "(^|\\.)orders\\.[^.]+\\.events\\.", "(^|\\.)orders\\.[^.]+\\.checklist\\.(workshop|similar|grow-tools)(\\.|$)",
+    "(^|\\.)orders\\.[^.]+\\.variantNote(\\.|$)", "(^|\\.)gardens(\\.|$)", "(^|\\.)dc\\.adjust(\\.|$)", "(^|\\.)setup\\.hours(\\.|$)",
+    `(^|\\.)flags\\.${MODULE_ID}\\.(components|inert|inertFrom|produce|gift|curse|quirk|appliedTo|deconstructDamage|rushFlat|event|season|harvest)(\\.|$)`,
+].join("|"));
+
+/** A key path as it would be stored: Foundry's `==` (replace) and `-=` (delete) prefixes taken off each segment. */
+export const storedPath = (key) => key.split(".").map((part) => part.replace(/^(==|-=)/, "")).join(".");
+
+/** Where a write audit keeps its hooks and what it saw, on this page. */
+const AUDIT = Symbol.for(`${MODULE_ID}-m9a-audit`);
+const AUDITED = ["JournalEntry", "JournalEntryPage", "Actor", "Item", "ChatMessage", "Setting"];
+
+/** The variant markers in a part of the page (M9a live pass): buttons, sections, request fields, a card's secret line. */
+const MARKERS = ["[data-action=\"variant\"]", ".detail-variants", ".detail-variant-line", ".request-adjustments", "[name=\"purpose\"]", "[name=\"encounters\"]",
+    "[name=\"differentLocations\"]", "[name=\"adjustment\"]", "[name=\"special\"]", "[name=\"bestow\"]", "[name=\"giver\"]"];
+const markersIn = (el) => (el ? MARKERS.filter((sel) => el.querySelector(sel)) : null);
+
+/**
+ * Every English string of a `Variant.*` or `Settings.Variants.*` key, cut at its placeholders, of 12 characters or more, that no
+ * other key's string contains ("Something else" is an activity too).
+ */
+function variantTexts() {
+    const root = game.i18n.translations?.[MODULE_ID] ?? {};
+    const strings = (obj) => Object.values(foundry.utils.flattenObject(obj ?? {})).filter((v) => typeof v === "string");
+    const others = strings({ ...root, Variant: null, Settings: { ...(root.Settings ?? {}), Variants: null } });
+    const fragments = strings({ Variant: root.Variant, Settings: { Variants: root.Settings?.Variants } }).flatMap((v) => v.split(/\{[^}]*\}/))
+        .map((t) => t.trim()).filter((t) => t.length >= 12 && !others.some((o) => o.includes(t)));
+    return [...new Set(fragments)];
+}
 
 export const VARIANT_SCENARIOS = {
     m9a: {
@@ -145,29 +196,34 @@ export const VARIANT_SCENARIOS = {
             }
             return { results: out, order: brief(p.order) };
         } },
-        roll: { about: "the crafter's owner: roll params.order's check without the dialog; wait until it is recorded", run: async (p) => {
-            const result = plain(await rollCraft(p.order, { skipDialog: true }));
-            await waitFor(() => read(`orders.${p.order}.status`) === "rolled", 10000);
-            return { result, order: brief(p.order) };
-        } },
+        roll: { about: "the crafter's owner: roll params.order's check without the dialog, the die at params.face (or the face that lands params.degree); wait until it is recorded",
+            run: async (p) => {
+                const order = read(`orders.${p.order}`);
+                const face = Number.isInteger(p.degree) && order ? faceFor(order, fromUuidSync(order.crafter), p.degree) : p.face;
+                const result = plain(await withDie(face, () => rollCraft(p.order, { skipDialog: true })));
+                await waitFor(() => read(`orders.${p.order}.status`) === "rolled", 10000);
+                return { result, face: face ?? null, order: brief(p.order) };
+            } },
         rushFinish: { about: "the crafter's owner: rush params.order's finishing (params.on)", run: async (p) => ({ result: plain(await variants.setRushFinish(p.order, p.on !== false)),
             order: brief(p.order) }) },
-        finish: { about: "the crafter's owner: pledge what is left of params.order from params.payer, then finish it", run: async (p) => {
-            const order = read(`orders.${p.order}`);
-            const escrow = records("rows").filter((r) => r.order === p.order).reduce((s, r) => s + (r.alloc ?? 0), 0);
-            const left = Math.max(0, order.priceCp - order.upfrontCp - escrow);
-            const pledge = left > 0 ? plain(await orders.pledgeTo(p.order, p.payer, left)) : null;
-            return { pledge, result: plain(await orders.finish(p.order)), order: brief(p.order) };
-        } },
+        finish: { about: "the crafter's owner: pledge what is left of params.order from params.payer, then finish it (a rushed finish's flat check at params.face)",
+            run: async (p) => {
+                const order = read(`orders.${p.order}`);
+                const escrow = records("rows").filter((r) => r.order === p.order).reduce((s, r) => s + (r.alloc ?? 0), 0);
+                const left = Math.max(0, order.priceCp - order.upfrontCp - escrow);
+                const pledge = left > 0 ? plain(await orders.pledgeTo(p.order, p.payer, left)) : null;
+                return { pledge, result: plain(await withDie(p.face, () => orders.finish(p.order))), order: brief(p.order) };
+            } },
         special: { about: "the requester's or crafter's owner: mark params.order special (params.on)", run: async (p) => plain(await variants.setSpecial(p.order, p.on !== false)) },
-        view: { about: "any client, after params.ms: params.order's check as this user's Queue shows it, and its last check card", run: async (p) => {
+        view: { about: "any client, after params.ms: params.order's check and delivery as this user's Queue shows them, and its last check card", run: async (p) => {
             await sleep(p.ms ?? 0);
             const order = read(`orders.${p.order}`);
             const context = order ? await orderContext(order) : null;
             const link = `:order:${p.order}:`;
             const message = game.messages.contents.filter((m) => m.flags?.pf2e?.context?.options?.some?.((o) => typeof o === "string" && o.includes(link))).at(-1) ?? null;
             return { checkText: context?.checkText ?? null, secretCheck: !!context?.secretCheck, blind: message?.blind ?? null,
-                visible: message ? message.isContentVisible : null, user: game.user.name };
+                visible: message ? message.isContentVisible : null, user: game.user.name, delivery: context?.deliveryText ?? null,
+                deliveryState: context?.deliveryState ?? null };
         } },
         reveal: { about: "GM: reveal params.order's secret check", run: async (p) => ({ result: plain(await variants.revealCheck(p.order)), order: brief(p.order) }) },
         checklist: { about: "the crafter's owner: confirm params.key (workshop, grow-tools, similar) on params.order", run: async (p) =>
@@ -219,5 +275,59 @@ export const VARIANT_SCENARIOS = {
         harvest: { about: "any member: harvest garden params.garden onto the user's character", run: async (p) => plain(await nature.harvest(p.garden, actorOf(p).uuid)) },
         found: { about: "any member: mark component params.component of quest params.order found by the user's character", run: async (p) =>
             plain(await quests.markFound(p.order, p.component, { actor: game.user.character?.uuid ?? null })) },
+        audit: { about: "any client: start a write audit (params.start), or stop it and return what it saw: every ledger, actor, item, chat message and setting change as key paths, the variant ones apart",
+            run: async (p) => {
+                const running = globalThis[AUDIT];
+                if (running) for (const [hook, id] of running.hooks) Hooks.off(hook, id);
+                delete globalThis[AUDIT];
+                if (p.start) {
+                    const seen = [];
+                    const hooks = [];
+                    const record = (hook, doc, data, userId) => seen.push({ hook, doc: doc?.uuid ?? null, user: userId ?? null, setting: doc?.key ?? null,
+                        card: doc?.flags?.[MODULE_ID]?.card?.kind ?? null, keys: Object.keys(foundry.utils.flattenObject(plain(data))).map(storedPath) });
+                    for (const name of AUDITED) {
+                        hooks.push([`create${name}`, Hooks.on(`create${name}`, (doc, options, userId) => record(`create${name}`, doc, doc.toObject(), userId))]);
+                        hooks.push([`update${name}`, Hooks.on(`update${name}`, (doc, changed, options, userId) => record(`update${name}`, doc, changed, userId))]);
+                    }
+                    globalThis[AUDIT] = { seen, hooks };
+                    return { started: true, at: Date.now() };
+                }
+                const seen = running?.seen ?? [];
+                const VARIANT_CARDS = ["event", "season", "harvest", "deconstruct", "quest", "rush-flat"];
+                const flagged = seen.flatMap((s) => [
+                    ...s.keys.filter((k) => VARIANT_WRITE.test(k)).map((key) => ({ hook: s.hook, doc: s.doc, key })),
+                    ...(s.setting && /\.variants\./.test(s.setting) ? [{ hook: s.hook, doc: s.doc, key: s.setting }] : []),
+                    ...(VARIANT_CARDS.includes(s.card) ? [{ hook: s.hook, doc: s.doc, key: `card:${s.card}` }] : []),
+                ]);
+                return { running: !!running, writes: seen.length, byHook: Object.fromEntries(AUDITED.flatMap((n) => [`create${n}`, `update${n}`])
+                    .map((hook) => [hook, seen.filter((s) => s.hook === hook).length])), flagged, keys: [...new Set(seen.flatMap((s) => s.keys))].slice(0, 400) };
+            } },
+        markers: { about: "any client: open the Workshop on each tab (the Queue on params.order) and the request form for params.product; the variant markers and words each shows, and those of the chat cards posted since params.since",
+            run: async (p) => {
+                const texts = variantTexts();
+                const wordsIn = (el) => (el ? texts.filter((t) => el.innerText.includes(t)) : null);
+                const out = { tabs: {}, texts: texts.length };
+                await WorkshopApp.instance?.close({ animate: false });
+                await waitFor(() => !WorkshopApp.instance, 3000);
+                for (const tab of p.tabs ?? ["queue", "funds", "downtime"]) {
+                    const app = await openWorkshop({ tab, order: tab === "queue" ? p.order ?? null : null });
+                    await sleep(p.ms ?? 1200);
+                    out.tabs[tab] = { open: !!app.element?.isConnected, markers: markersIn(app.element), words: wordsIn(app.element) };
+                }
+                if (p.product) {
+                    await openRequestForm({ uuid: p.product, parent: WorkshopApp.instance });
+                    const find = () => [...foundry.applications.instances.values()].find((app) => app.id.startsWith(`${MODULE_ID}-request-`) && app.rendered);
+                    const form = await waitFor(find, 5000);
+                    await sleep(p.ms ?? 1200);
+                    out.request = { open: !!form, markers: markersIn(form?.element), words: wordsIn(form?.element),
+                        kinds: [...(form?.element?.querySelectorAll("select[name=kind] option") ?? [])].map((o) => o.value) };
+                    await form?.close({ animate: false });
+                }
+                const cards = [...document.querySelectorAll("#chat .chat-message[data-message-id]")]
+                    .filter((li) => (game.messages.get(li.dataset.messageId)?.timestamp ?? 0) >= (p.since ?? 0));
+                out.chat = { cards: cards.length, markers: [...new Set(cards.flatMap((li) => markersIn(li)))], words: [...new Set(cards.flatMap((li) => wordsIn(li)))] };
+                await WorkshopApp.instance?.close({ animate: false });
+                return out;
+            } },
     },
 };

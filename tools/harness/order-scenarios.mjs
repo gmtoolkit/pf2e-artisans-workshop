@@ -24,6 +24,7 @@ import { shared, status } from "../../scripts/foundry/state.mjs";
 import { newId, read, records, stampNow, write } from "../../scripts/foundry/store.mjs";
 import { openWorkshop, WorkshopApp } from "../../scripts/ui/workshop.mjs";
 import { parseLink } from "../../scripts/logic/rolls.mjs";
+import { withDie } from "./craft-scenarios.mjs";
 
 const purseCp = (actor) => valueCp(holdingsOf(coinStacks(actor)));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -81,11 +82,12 @@ export const ORDER_SCENARIOS = {
             }
             return { results, order: brief(p.order) };
         } },
-        roll: { about: "the crafter's owner: roll params.order's Craft check (no dialog); wait until it is recorded", run: async (p) => {
-            const result = await rollCraft(p.order, { skipDialog: true });
-            const recorded = await waitFor(() => read(`orders.${p.order}.status`) === "rolled");
-            return { result: plain(result), recorded: !!recorded, order: brief(p.order) };
-        } },
+        roll: { about: "the crafter's owner: roll params.order's Craft check (no dialog; the die at params.face when given); wait until it is recorded",
+            run: async (p) => {
+                const result = await withDie(p.face, () => rollCraft(p.order, { skipDialog: true }));
+                const recorded = await waitFor(() => read(`orders.${p.order}.status`) === "rolled");
+                return { result: plain(result), recorded: !!recorded, order: brief(p.order) };
+            } },
         reroll: { about: "the message's author or a GM: reroll params.order's last check message with a Hero Point (params.resource)", run: async (p) => {
             const message = linkedMessage(p.order);
             await game.pf2e.Check.rerollFromMessage(message, p.resource === "none" ? { keep: "new" } : { resource: p.resource ?? "hero-points" });

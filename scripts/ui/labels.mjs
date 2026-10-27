@@ -419,6 +419,8 @@ export const DELIVERY = Object.freeze({
     // M5 on M4.1: a formula job's formula goes into a book, and an item changed where it was never goes anywhere.
     book: "pf2e-artisans-workshop.Delivery.Book",
     "in-place": "pf2e-artisans-workshop.Delivery.InPlace",
+    // M9a (6.16.1): a rushed finish that ruined the item made nothing.
+    ruined: "pf2e-artisans-workshop.Delivery.Ruined",
 });
 
 /** Formula routes (4.3). */

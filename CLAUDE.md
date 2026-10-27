@@ -71,7 +71,7 @@ M9a is in place: every Treasure Vault (Remastered) crafting variant behind its o
 Crafting and Quick Setup, adjustments, downtime events, Critical Crafting, Deconstruct, Grow, gardens, bestowed gifts, crafting
 quests; pure parts in `scripts/logic/variants.mjs` and `scripts/data/variants.mjs`; `scripts/foundry/variants.mjs`,
 `deconstruct.mjs`, `nature.mjs`, `quests.mjs`; the window's parts in `scripts/ui/variants.mjs`); DESIGN 10.17 says what was
-built, and the live plans `m9a-*` (`tools/harness/variant-scenarios.mjs`) have not run yet.
+built, and the live plans `m9a-*` (`tools/harness/variant-scenarios.mjs`) passed their first live pass (10.17, M9a live pass).
 README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
 world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every
