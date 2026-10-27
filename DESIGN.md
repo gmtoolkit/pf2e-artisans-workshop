@@ -5440,7 +5440,8 @@ URL. Nothing is listed on foundryvtt.com until the whole scope in section 1 is d
   registered with the Package Release API, and keep their version-specific manifest URL, so the
   test-table build of M12 can ship before the author's rewrite in M13. Then stamp `version`,
   `manifest` and `download` into `module.json`; zip only the shipped files (`module.json`, `scripts/`,
-  `templates/`, `styles/`, `lang/`, `LICENSE`, `README.md`, `CHANGELOG.md`); upload `module.json` and
+  `templates/`, `styles/`, `lang/`, `LICENSE`, `README.md`, `CHANGELOG.md`), never `docs/` (the package description
+  and the README screenshots of 17.1); upload `module.json` and
   `module.zip`; then, for stable releases only, register the release with the Package Release API.
   Actions are pinned by commit SHA.
 
@@ -5485,9 +5486,10 @@ machine-drafted placeholders; the author rewrites all of them before listing.
 
 ### 16.5 No AI assets
 
-The repository contains no images, audio or fonts. Icons are Font Awesome classes (bundled with Foundry
+The repository contains no images, audio or fonts, except the README's screenshots of the module's own window
+(17.1), which never ship. Icons are Font Awesome classes (bundled with Foundry
 v14), Foundry core icons or pf2e system icon paths; item images come from the compendium. A CI check
-fails if any image, audio or font file appears outside an empty allowlist.
+fails if any image, audio or font file appears outside an empty allowlist and the screenshots' folder.
 
 `tools/check-assets.mjs` looks at every file git would track: media by extension (images including SVG
 and SVGZ, audio, video, fonts), media under another name by its leading bytes, and any file that is not
@@ -5495,7 +5497,9 @@ UTF-8 text at all. In the files that ship or are published (the release zip of 1
 description and `macros/`) it also fails media embedded as a `data:` URI of a media type, any base64
 `data:` URI (a font or image declared as `application/*`), or inline `<svg>`; files that never ship, such
 as this one and the tests, may name those patterns. The allowlist is a constant in that script; adding a
-path to it needs a `DECISIONS.md` entry.
+path to it needs a `DECISIONS.md` entry. In `docs/screenshots/` it allows a `.png` file directly in the folder whose
+leading bytes are a PNG and that weighs at most 400 KiB (`SCREENSHOT_MAX_BYTES`); any other file there, and an image
+anywhere else, fails as before (`test/check-assets.test.mjs`).
 
 ### 16.6 Licences and notices
 
@@ -5566,6 +5570,44 @@ draft; the letters keep the existing milestone numbers stable.
 - **Open question for the author:** pf2e item icons appear in the captures. They come from the pf2e system,
   which uses Paizo material under its own agreement; other pf2e modules show them in their READMEs. Accept that,
   or stage the demo orders with items whose icons are generic.
+
+**As built (first pass, 2026-10-26).** `npm run screenshots` (`tools/harness/screenshots.mjs`) uses the live driver
+(`run-live.mjs`, its `screenshot` now able to crop to an element) and `live-plans.mjs`'s preparation and reset. The demo
+party is four copies of fixture actors (the bomber alchemist, the fighter crafter, the wizard, the druid grower) named
+Ilsa Marrow, Doran Vell, Wren Ashdown and Tamsin Reed, marked `flags.world.pf2e-artisans-workshop-demo`, with their own
+purses and empty formula books. For the run they are the party's members and Player One's and Player Two's characters;
+what the party and the users had is kept on the party's `flags.world`, so a run that stops half-way is undone by the
+next. Each staging step runs on the client of the user who would take it at a table (Player One crafts as Ilsa, Player
+Two pays as Doran, the GM plays the other two), through the module's own functions, and the demo's Craft checks roll a
+fixed 12, so every run stages the same: an order requested and unfunded; one accepted and part-funded from a purse and
+the party fund; one in setup; one finishing after its check and two days of work on the rest; one complete and
+delivered; 100 gp added to the party fund, 39 gp of it still unallocated; three formulas, bought from the fund, taken for
+an owed pick and copied from an NPC. It captures as Player One at 1440x900, cropped to the window's element with
+everything beside it hidden: `queue.png` (the finishing order's detail), `request-form.png`, `funds.png` and
+`formulas.png` in the dark theme, `queue-light.png` (the complete order's cost summary) in the light one. Each capture is
+checked for raw i18n keys, the fixture actors' and the imported character's names, and boxes that overflow, then
+compressed with ImageMagick when it is installed (the light theme's parchment needs 256 colours to stay under 400 KiB).
+At the end the module is switched off, the party and the users get their own back, the demo actors and the run's chat
+messages are deleted, and the shared documents are reset as `harness:live` leaves them. README's Screenshots section
+links the five with draft captions (the same text as `CAPTURES`, which a test holds them to); tests in
+`test/screenshots.test.mjs` and `test/check-assets.test.mjs`. No release workflow exists yet; 16.2's zip list leaves
+`docs/` out. The first captures were taken from the checkout the dev server runs (main at a87dd5c: M5 on M4.1), so
+they show no Downtime tab; refresh them once M6's live plans have run. The icon question above stands: the alchemical
+items show pf2e system icons, Healing Potion (Lesser) and Mistform Elixir (Moderate) Foundry core ones; `ITEMS` in the
+script is the one place to change for generic icons.
+
+**Follow-ups seen in the first captures** (all low, all in the window's layout or wording):
+
+- Formulas tab, "Learn a formula": at the default window width the routes table squeezes its Route column to a word per
+  line ("no formula (2 setup days)") while the Cost column's hint takes the room (`formulas.png`).
+- Header: "Acting as" wraps onto two lines beside a character name with its level, "Ilsa Marrow (level 11)" (every
+  capture).
+- Order detail: "Setup 1 of 1 days" (a plural with one; `queue.png`, `queue-light.png`).
+- Light theme: the order detail's labels (`.detail-facts dt`) carry a 1px black text shadow (computed
+  `rgb(0, 0, 0) 1px 1px 0px`, from outside the module's stylesheet) that reads as smudged on the parchment
+  (`queue-light.png`); `text-shadow: none` on them would fix it.
+- "Spent, by source" lists its sources in no fixed order: two runs of the same staging showed the party fund and Wren
+  Ashdown in either order.
 
 ---
 

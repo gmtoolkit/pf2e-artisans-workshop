@@ -64,6 +64,10 @@ All notable changes to this module are documented here. The format follows
   transferred between items, and items upgraded to a stronger grade at the Price difference, with the item handed over
   to the strongbox when the crafter does not hold it and returned with the change. Repair, affixing and removing talismans, Identify
   Alchemy and formula copies are service orders any member can ask for and perform.
+- README screenshots (`npm run screenshots`): a demo party staged in a dev world, and the Workshop window captured
+  cropped to its frame (the Queue with an order's detail, the request form, Funds, Formulas, and the Queue in the light
+  theme) into `docs/screenshots/`, the only place the asset check allows images; the world is put back afterwards. They
+  are not part of the release.
 - Fund accounting (M4.1, from the first hands-on session). The Funds tab shows the strongbox as the party fund's
   unallocated money plus what is earmarked for orders, each order's earmarked money by source (the party fund or a
   member) and what it spent. "Add to party fund" puts coins in unallocated; "Fund this order" takes a source, the party

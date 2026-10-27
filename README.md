@@ -33,6 +33,26 @@ specification is `DESIGN.md`; decisions land in `DECISIONS.md`.
 Alchemy is the first crafting journey, not the only one: magic items and runes,
 talismans, tattoos and snares are in scope.
 
+## Screenshots
+
+A demo party in a test world, taken by `npm run screenshots` (see Development). The wording in the window is draft
+until 1.0: every string is rewritten before the first release, and these captures are taken again then.
+
+![The Queue](docs/screenshots/queue.png)
+*The Queue: every order with its state and progress, and the detail of one in its last days of work.*
+
+![The request form](docs/screenshots/request-form.png)
+*The request form: who in the party can make the item, how, and what it needs up front.*
+
+![Funds](docs/screenshots/funds.png)
+*Funds: the strongbox as the party fund, unallocated and earmarked per order, with each member's share.*
+
+![Formulas](docs/screenshots/formulas.png)
+*Formulas: a character's book by family, where each formula came from, and the ways to learn another.*
+
+![The Queue in the light theme](docs/screenshots/queue-light.png)
+*The Queue in the light theme, with a finished order's cost summary.*
+
 ## Compatibility
 
 Targets the latest Foundry VTT release and the latest PF2e system release, Remaster
@@ -49,11 +69,12 @@ npm ci
 npm run lint             # ESLint (DESIGN.md 15.1), then tools/check-source.mjs
 npm test                 # node --test over test/
 npm run check:manifest   # module.json against the manifest policy (DESIGN.md 3.1, 16.3)
-npm run check:assets     # no images, audio, video or fonts (DESIGN.md 16.5)
+npm run check:assets     # no images, audio, video or fonts but the README screenshots (DESIGN.md 16.5)
 npm run check:strings    # strings still waiting for the author's sign-off (DESIGN.md 16.4)
 npm run check:strings:enforce   # the same, failing if any is left (stable releases)
 npm run signoff -- --keys <key> [<key> ...]   # sign off strings the author has rewritten
 npm run harness:live     # the sync scenarios in a running dev world (below)
+npm run screenshots      # the README screenshots, from a running dev world (below)
 npm run validate:registry -- --pf2e <checkout>   # the rules registry against a pf2e checkout
 ```
 
@@ -134,6 +155,18 @@ The M6 behaviours (DESIGN 10.12) move the world clock forward (never back), so r
 login); `m6-wizard-gm` and `m6-wizard-players` drive the Advance days window step by step, with a GM moving the clock and
 with players only; `m6-communal` gives Player One's alchemist Communal Crafting (marked like M5's items) for Player Two to
 help; `m6-income` pays an Earn Income job from Player Two on two devices; `m6-settlement` caps a job's task level.
+
+`npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN.md 17.1) takes the README's screenshots in the same dev
+world, through the same driver. It copies four fixture actors into a demo party with generic names (Player One plays the
+alchemist, Player Two the fighter), makes them the party and the players' characters, stages orders in every state, money
+in the party fund and three formulas, and captures the Workshop window cropped to its frame as Player One at 1440x900:
+the Queue with an order's detail, the request form, Funds and Formulas in the dark theme, and the Queue in the light one.
+Each capture is checked for raw i18n keys, fixture names and overflowing boxes, compressed with ImageMagick's `magick`
+when it is installed (to 256 colours only if it would be over 400 KiB), and written to `docs/screenshots/` (`--out` for
+elsewhere; `--results` for the run's JSON). Then it gives the party and the users their own characters back, deletes the
+demo actors and the run's chat messages, and resets the shared documents as `harness:live` does. The captures show the
+checkout the server runs. `docs/screenshots/` is the only place the asset check allows images (PNG, at most 400 KiB
+each), and the release zip leaves `docs/` out.
 
 Options: `--shots` (where screenshots go), `--url` (default `http://localhost:30000`), `--chromium` (the browser binary; on
 Arch the default is `/usr/lib/chromium/chromium`, behind the `/usr/bin/chromium` launcher

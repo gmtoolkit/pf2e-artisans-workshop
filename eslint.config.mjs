@@ -299,7 +299,7 @@ export default [
         // (`page.evaluate`), so it sees both Node's globals and the Foundry ones above. Those functions are not part
         // of the module (it never loads these files); one drops a page's connection on purpose, through its socket,
         // to check what the module does then (the `resume` behaviour).
-        files: ["tools/harness/run-live.mjs", "tools/harness/live-plans.mjs"],
+        files: ["tools/harness/run-live.mjs", "tools/harness/live-plans.mjs", "tools/harness/screenshots.mjs"],
         languageOptions: { globals: readonly(NODE_GLOBALS) },
         rules: { "workshop/no-game-socket": "off" },
     },

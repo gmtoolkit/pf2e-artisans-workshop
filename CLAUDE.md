@@ -42,6 +42,8 @@ M6 is in place: downtime (the Downtime tab, `scripts/ui/downtime.mjs`; the Advan
 `scripts/foundry/downtime.mjs`), Communal Crafting helpers (`scripts/foundry/communal.mjs`), Earn Income jobs and
 settlement profiles (`scripts/logic/jobs.mjs`, `scripts/foundry/jobs.mjs`); DESIGN 10.12 says what was built, and the
 live plans `m6-*` (`tools/harness/downtime-scenarios.mjs`) have not run yet.
+README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
+world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every
 decision made so far, newest first; read it before proposing a design change.
 
