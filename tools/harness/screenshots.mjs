@@ -114,20 +114,19 @@ export const CAPTURES = Object.freeze([
         caption: "The Queue in the light theme, with a finished order's cost summary." },
     { file: "tattoo.png", scheme: "dark", view: "queue", order: "tattoo", scroll: ".detail-requirements",
         caption: "A tattoo in the Queue: made on its subject, who agrees from here and sits for it in downtime before the work can start." },
-]);
-
-/**
- * Captures taken and written beside `CAPTURES` but not yet linked from the README (17.1 "refreshed whenever a milestone adds
- * a tab"): a new tab's capture goes here first. After a run, check the file by eye, move its entry into `CAPTURES` and add
- * its caption to the README's Screenshots section, which `test/screenshots.test.mjs` then holds to it. M11 adds the macro
- * shelf and the Crafting tab strip (not a tab, but the two new places a player sees the Workshop).
- */
-export const NEXT_CAPTURES = Object.freeze([
     { file: "macro-shelf.png", scheme: "dark", view: "shelf",
         caption: "The macro shelf: every Workshop macro with what it calls, to run, drag onto the hotbar or add to it from the keyboard." },
     { file: "sheet-strip.png", scheme: "dark", view: "strip",
         caption: "The character sheet's Crafting tab with the Workshop's strip at its top: the character's jobs and what waits on them." },
 ]);
+
+/**
+ * Captures taken and written beside `CAPTURES` but not yet linked from the README (17.1 "refreshed whenever a milestone adds
+ * a tab"): a new tab's capture goes here first. After a run, check the file by eye, move its entry into `CAPTURES` and add
+ * its caption to the README's Screenshots section, which `test/screenshots.test.mjs` then holds to it. M11's macro shelf and
+ * Crafting tab strip moved to `CAPTURES` after the M11 live pass; none waits now.
+ */
+export const NEXT_CAPTURES = Object.freeze([]);
 
 /** Names that must never appear in a capture: the fixture actors' labels and the character imported into the dev world. */
 export const BANNED_NAMES = Object.freeze(["Fixture"]);

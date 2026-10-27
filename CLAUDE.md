@@ -82,7 +82,7 @@ the Actors directory's context menu and the Open Workshop keybinding, `scripts/u
 `scripts/logic/macros.mjs`, run through `api.macros.run`, the macro shelf and the hotbar drop, `scripts/ui/macros.mjs`, and the
 copy-paste macros in `macros/`, written by `npm run macros`; Parchment and the window's remembered size, `scripts/ui/theme.mjs`;
 the accessibility and contrast pass); DESIGN 10.18 says what was built, and the live plans `m11-*`
-(`tools/harness/integration-scenarios.mjs`) have not run yet.
+(`tools/harness/integration-scenarios.mjs`) passed their first live pass, with and without a canvas (10.18, M11 live pass).
 README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
 world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every

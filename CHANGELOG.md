@@ -220,6 +220,13 @@ All notable changes to this module are documented here. The format follows
   Workshop window, not only the main one and the macro shelf; the Downtime tab's activity choice is named by its visible label;
   "Roll Craft check" and "Finish order" with nothing to do say so instead of "That order no longer exists"; the macro shelf
   says "Fund an order" and "Collect waiting items", as the Workshop does.
+- The "Advance days" macro answers once its wizard is open, so a script that waits on it gets the window, and two quick runs
+  no longer open two wizards; the macro shelf's call lines wrap inside their tiles instead of running under the buttons.
+- Live harness (M11): the plans no longer pass on nothing (every rendered core window counted as one a macro opened; a missing
+  Overview, Workbench's colours, the shelf's contrast and the scheme went unchecked); the keyboard walkthrough runs as the GM
+  too and checks that no key reaches Foundry's pause, view or token selection, with a canvas against a scene with tokens; the
+  context-menu plan needs a canvas (pf2e's directory menu fails without one); the driver no longer adds the module's
+  stylesheet a second time (Foundry 14 imports module styles in a `<style>` element).
 
 - Talismanic Sage was never recognised when affixing (its feat was missing from the rules registry), so a sage could not
   put a second talisman on an item.

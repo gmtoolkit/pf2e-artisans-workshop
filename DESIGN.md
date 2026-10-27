@@ -6701,7 +6701,7 @@ M11 builds the integration surface of 10.4, 11.1 and 10.9: the sheet and party e
 the keybinding, the theming pass and the accessibility pass, and fixes the UI lows of M4-M9a that were cheap and safe. Unit
 tests over pure parts (`test/logic/macros.test.mjs`), stub tests over a small DOM and a faithful ApplicationV2
 (`test/foundry/dom.mjs`, `test/foundry/ui-m11.test.mjs`), the stylesheet's contrast (`test/theme.test.mjs`) and the
-copy-paste macros (`test/macros.test.mjs`); live plans `m11-*` written, not yet run.
+copy-paste macros (`test/macros.test.mjs`); live plans `m11-*`, which passed their first live pass (M11 live pass, below).
 
 - **Character sheet** (`scripts/ui/entry.mjs`): a "Workshop" header button through `getCharacterSheetPF2eHeaderButtons`
   (pf2e 8.6.1's sheets are Application V1) and the same control through `getHeaderControlsCharacterSheetPF2e` (the hook an
@@ -6784,9 +6784,10 @@ copy-paste macros (`test/macros.test.mjs`); live plans `m11-*` written, not yet 
   the Workshop), `m11-keyboard` (a keyboard-only walkthrough: the keybinding, the tabs by arrows, the row's tab stop, the detail
   by Enter, Tab trapped in the medium tier, Escape back to the row, the Macros button and Add to hotbar by Tab and Enter, and an
   audit of names, tab indexes and tab lists), `m11-themes` (no text below its contrast in the dark and light schemes and with
-  Parchment) and `m11-shots` (the strip, the card and the shelf, dark and light). None has run yet.
-- **Screenshots** (17.1): `macro-shelf.png` and `sheet-strip.png` wait in `NEXT_CAPTURES` (`screenshots.mjs` opens the shelf
-  from the status bar and the demo alchemist's sheet on its Crafting tab), to be checked by eye and linked after the next run.
+  Parchment) and `m11-shots` (the strip, the card and the shelf, dark and light). The M11 live pass added `m11-keyboard-gm` and
+  made `m11-context` need `--canvas` (below).
+- **Screenshots** (17.1): `macro-shelf.png` and `sheet-strip.png` (`screenshots.mjs` opens the shelf from the status bar and the
+  demo alchemist's sheet on its Crafting tab) were checked by eye and linked from the README in the M11 live pass.
 - **After the M11 review** (each with a test in `test/foundry/ui-m11.test.mjs` or `ui-m8.test.mjs` that fails without it):
   - *Keys stop at the module's windows.* Core's `KeyboardManager` listens on the browser window and runs a keybinding
     whenever focus is not in a field (`hasFocus`: an input, a select, a text area, editable content or a button inside a
@@ -6829,6 +6830,84 @@ copy-paste macros (`test/macros.test.mjs`); live plans `m11-*` written, not yet 
   - The live plan `m11-keyboard` checks that the keybinding lands on the active tab and the Macros button on the first
     tile's Run with no Tab press, and that focus stays on the tile's Add to hotbar after it; the audit reads a several-id
     `aria-labelledby`.
+
+#### M11 live pass (2026-10-27, Foundry 14.368, pf2e 8.6.1, PF2e Toolbelt 3.59.2, PF2e Workbench 7.7.5, with and without a canvas)
+
+One pass at `a6ccd82` (M0-M11), then again after the fixes below:
+
+- **Audit first.** Before the first run every M11 plan was read for a check that passes on nothing; eight did. `m11-macros`
+  counted every rendered ApplicationV2 as a window a macro opened, and core's interface (the hotbar, the sidebar, the players
+  list: eighteen instances on a page without a canvas) is ApplicationV2, so "opened what asks" and "the windows that ask"
+  could not fail; only the module's windows and core's dialogs count now (`moduleWindows`), and the notifications are also
+  searched for an unfilled `{placeholder}`, `undefined` or `NaN`. `m11-party` skipped every card check when the GM had no
+  Overview (pf2e hides it only from players). `m11-companions` read Workbench's rarity classes and never checked them, and
+  passed a missing card; it now checks both, the card on the GM's sheet. `m11-sheet` took "Orders for this character: 1" as
+  "nothing waiting". `m11-keys` could pass on a Workshop already open, and its click at (5, 300) lands on the scene controls;
+  it closes the window and blurs focus first. `m11-themes` never opened the shelf it said it audited, nor checked the scheme
+  took; `m11-shots` passed a capture with no card. The keyboard walkthrough ran only as Player One without a canvas: it now
+  runs as the GM too (`m11-keyboard-gm`, Space on the row instead of Enter) and checks that the pause, the view, the
+  controlled tokens and their places are as before (`table`); with `--canvas` it stages `m8`'s marked arena with both
+  characters' tokens and, once the Workshop is closed, shows the same Tab and Space do reach core (a token controlled, the
+  game paused and unpaused), so "unchanged" can fail. The tests (`harness-m11.test.mjs`, "the M11 live pass") run the plans
+  over a fake harness and fail on the plans as they were.
+- **First run** (no canvas, Toolbelt and Workbench active): `m11-sheet`, `-party` and `-keys` passed. The rest failed on the
+  plans and on one module bug, each found by an audited check: Workbench never coloured a formula (below, a Workbench bug;
+  the plan now turns its feats colours on too and puts the companions' settings back); `m11-context`'s right-click landed off
+  the screen (the sidebar starts collapsed, 48 px wide, and the party's entry is pf2e's folder of its members: the plan
+  expands the sidebar and right-clicks the party's header); `m11-shelf`'s drop on slot 5 hit the Workshop (1060 x 780 at
+  1440 x 900 covers the hotbar's middle; the plan moves both windows up first); `m11-macros` found "Advance days" opened no
+  window, which then showed up under the next macro's run (fixed below); both keyboard walkthroughs assumed the window opens
+  on the Queue, but it opens on the last tab (`ui.lastTab`), so ArrowDown named the wrong tab and every later check failed
+  in a cascade (the plan arrows its way to the Queue); `m11-themes` flagged every light-scheme text at 1.1:1 to 2.8:1
+  against black: core's light theme lays `ui/parchment.jpg` under a transparent colour, so the audit's walk went on to the
+  body, black without a canvas (the audit now takes an image background's mean colour, `imageColours`).
+- **Second run** (no canvas): ten of eleven pass, 103 checks; `m11-context` opened no menu at all. pf2e 8.6.1's Request Trade
+  entry reads `canvas.tokens.controlled` while core decides which entries to show, throws (a page error), and core renders
+  no directory menu for any actor at a table without a canvas. The plan needs `--canvas` now and says it was skipped
+  without one (follow-up: pf2e's).
+- **Final runs**, all eleven M11 plans each: with `--canvas` (Toolbelt and Workbench active) all pass, 109 checks;
+  without a canvas, Toolbelt and Workbench disabled in the world's module configuration (and turned back on afterwards),
+  all pass, 102 checks (`m11-context` skipped). With the canvas, Player One's and the GM's walkthroughs left the pause, the
+  view (pivot 800, 600), the controlled tokens (none) and the tokens' places as they were; outside the Workshop the same
+  Tab controlled a token and moved the view to it, and the GM's Space paused and unpaused. The context menu read "Edit,
+  Item Piles: Request Trade, Open Workshop" on the party and "Edit, Export Data, Import Data, Item Piles: Request Trade, Open
+  Workshop" on Player One's alchemist, each opening the Workshop. Notifications: "X is on your hotbar in slot n." for each
+  drop or Add to hotbar, and the refusals of the catalogue run in words ("There are no days to resolve.", "That character
+  does not have the feat for it." twice, "The vials are full." with a canvas). No raw key, unfilled placeholder or page
+  error of the module's; no slow server answer.
+- **Regression** (`--runs 1`, no canvas, after the fixes): scenario 7, `m9a-off`, `m8-turn`, `m7-morning`, `m6-income`,
+  `m5-fund` and `m4-lifecycle` pass, 82 checks. Console errors are the classes 5.4 and 15.3 expect: core's "The _id [...]
+  already exists" for the loser of a lock race (scenario 7, `m6-income`'s second device), scenario 7's injected "does not
+  exist", and pf2e's page error at an encounter's deletion without a canvas (`m8-turn`).
+- **Found and fixed** (each with a test that fails without it):
+  - *"Advance days" answered before its wizard existed* (medium; `m11-macros`). `openAdvance` rendered the wizard without
+    waiting, so `api.macros.run("advance-days")` resolved with an unrendered window, a caller closing windows after it
+    missed it, and a second quick run found no instance to close and rendered another window under the same id. It awaits
+    the render now (`ui-m11.test.mjs`, a render that takes a turn of the event loop).
+  - *The shelf's call line ran out of its tile* (medium; the shots and the hands-on pass). Core's `code` is an inline block
+    with `white-space: nowrap` (and `word-break: keep-all`), so `overflow-wrap: anywhere` never applied and a long call ran
+    under the buttons or past the tile's edge. The line is a block that wraps (`theme.test.mjs`).
+  - *The driver gave every page the stylesheet twice* (harness). Foundry 14.368 loads system and module styles as `@import`
+    rules in a `<style>` element (`templates/views/layouts/main.hbs`), not `<link>`s, so `ensureStyles` found no link and added
+    one, and every run reported `styleAdded` for every client (10.10's "world launched before `module.json` named it" was this
+    misreading). It reads the page's style sheets and their imports now (`styleLoaded`); the last runs added nothing.
+- **Hands-on pass** (a scratch Playwright script, `--canvas`, the GM and Player One online, real clicks and keys as Player One;
+  setup through the harness: an alchemist's lab in the strongbox, the alchemist's Elixir of Life (Minor) at its Craft check):
+  a click on the Actors tab expands the sidebar; a click on the alchemist's name opens its sheet, whose header holds one
+  "Workshop" button, which opens the Workshop acting as the alchemist on the Queue; the Crafting tab shows the strip first
+  ("Crafting: 1", "Waiting on your roll or settlement: 1", "Orders for this character: 1", Workshop, Request, Morning): its
+  Workshop opens the window acting as the alchemist with focus inside, Request opens the request form with the alchemist as
+  requester, Morning opens the Morning tab; the party's sheet (pf2e's file button in the directory) has one header button and
+  the card after the summary ("Open orders 1, Waiting for a crafter 0, Being crafted 1, Complete 0, On the shelf for you 0,
+  Strongbox 1 gp 5 sp"), whose Workshop opens the window; right-clicks on the party's header and the alchemist's name show
+  "Open Workshop", each opening the window; Alt+Shift+W (bound for the pass) opens it with focus inside; the status bar's
+  Macros opens the shelf, the Workshop minimised by a double click on its title, the "Post queue summary" tile dragged onto
+  the first slot the windows leave visible (slot 1) makes the flagged world script macro, and a click on the slot whispers
+  the queue card to Player One ("Open orders: 1 ... #1 Elixir of Life (Minor) x 1 ... Ready to roll"). No raw key,
+  placeholder, `undefined` or `NaN` in any window, strip, card or menu; the module's stylesheet came from Foundry, not the
+  harness. Only core's no-GPU warnings in the console.
+- **Screenshots** (`npm run screenshots`): all thirteen captures taken again and opened; the shelf's call lines wrap, and
+  `macro-shelf.png` and `sheet-strip.png` moved from `NEXT_CAPTURES` to `CAPTURES` and the README.
 
 #### Follow-ups (M11, low)
 
@@ -6886,9 +6965,8 @@ copy-paste macros (`test/macros.test.mjs`); live plans `m11-*` written, not yet 
   - The prompts (`prompts.mjs`, core's DialogV2) carry no module class, so Parchment never reaches them; they keep the
     application scheme even when opened from a Parchment window.
   - Not verified: PF2e HUD and Token Action HUD are not installed in the dev world and no source is on disk, so whether their
-    hotbar or HUD replacements take the shelf's drop or show its macros is untested (13). The M11 live plans run without
-    `--canvas`, so `m11-keyboard` never sees core's pause, pan or token cycling: run it once with `--canvas` as the GM and
-    check that `game.paused` and `canvas.stage.pivot` are unchanged after Space, the arrows and Tab in the Workshop.
+    hotbar or HUD replacements take the shelf's drop or show its macros is untested (13). (The keyboard walkthrough with
+    `--canvas` as the GM, checking the pause, the view and the tokens: done in the M11 live pass, `m11-keyboard-gm`.)
   - A refill of the strip or the card gives focus back by its button's `data-pf2e-artisans-workshop-entry`; pf2e's own
     refocus after a sheet render (`_render`, by `data-property` or `data-refocus`) cannot, so a full sheet render still drops
     focus from our buttons to the sheet.
@@ -6896,6 +6974,26 @@ copy-paste macros (`test/macros.test.mjs`); live plans `m11-*` written, not yet 
     browsers (the focus fix-up rule), so a keyboard user who runs a tile lands on the page. Keep focus there (mark it busy
     with `aria-disabled` instead, or focus it again once enabled). Tab, Space and Enter stopping at the module's windows also
     means a GM cannot pause with Space while focus is inside one (core's own windows behave the same only when they are forms).
+- From the M11 live pass (low, logged, not fixed):
+  - Without a canvas, pf2e 8.6.1's Actors directory shows no context menu for any actor: its Request Trade entry's visibility
+    reads `canvas.tokens.controlled` (undefined without a canvas) and throws, so core renders nothing, "Open Workshop"
+    included. The directory's header button and the sheets' buttons still open the Workshop. pf2e's to fix; `m11-context`
+    runs with `--canvas` only.
+  - PF2e Workbench 7.7.5's "player crafting rarity colour" does nothing on its own: its `renderActorSheet` hook is registered
+    only while one of its other sheet settings is on (the condition leaves `playerCraftingRarityColour` out). Workbench's to
+    fix; `m11-companions` turns the feats' colours on with it.
+  - At 1440 x 900 the Workshop at its default size (1060 x 780) covers the hotbar's middle slots, so a shelf tile cannot be
+    dropped there without moving or minimising the window first (Add to hotbar needs neither). Open the shelf beside the
+    hotbar's free slots, or say in the shelf's intro that the window can be minimised.
+  - The alchemist's own order shows three times in its strip ("Crafting: 1", "Waiting on your roll or settlement: 1",
+    "Orders for this character: 1"), all the same order filed for itself; "for this character" could leave out orders the
+    character also crafts.
+  - The character sheet's "Workshop" header button is core's V1 `<a class="header-button">` with no `href`, so the keyboard
+    never reaches it; the strip's Workshop button is the keyboard's way in.
+  - The screenshot check's overflow test skips an element whose overflow is visible (`overflowX !== "visible"`), which is
+    how a call line running out of its shelf tile looks; compare each text element's right edge with its tile's instead.
+  - `sheet-strip.png` crops to the whole Crafting pane, so a third of it is the sheet's empty parchment; crop to the strip
+    and the first formula list.
 
 ---
 
