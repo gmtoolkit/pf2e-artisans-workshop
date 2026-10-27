@@ -31,7 +31,8 @@ import { isEnabled } from "../foundry/settings.mjs";
 import { refusalText } from "./format.mjs";
 import { formulasOn } from "./formulas.mjs";
 import { askChoice } from "./prompts.mjs";
-import { themeClasses } from "./theme.mjs";
+import { focusState, keepControlKeys, restoreFocus } from "./focus.mjs";
+import { withTheme } from "./theme.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -104,7 +105,7 @@ async function interactive(api, entry, args) {
             if (!actor) return refuse("no-actor");
             // The crafter's one finishable order opens on its detail, where Finish asks where any shortfall comes from.
             const candidates = finishableOrders(queueOrder(allOrders()), actor.uuid);
-            if (!candidates.length) return refuse("no-order");
+            if (!candidates.length) return refuse("nothing-to-finish", { actor: actor.name });
             if (candidates.length === 1) return openWorkshop({ tab: "queue", order: candidates[0].id, actor: actor.uuid });
             return openWorkshop({ tab: "queue", filter: "mine", actor: actor.uuid });
         }
@@ -255,7 +256,7 @@ export class MacroShelf extends HandlebarsApplicationMixin(ApplicationV2) {
     static PARTS = { body: { template: "modules/pf2e-artisans-workshop/templates/macros/shelf.hbs", scrollable: [".macro-shelf"] } };
 
     constructor(options = {}) {
-        super({ ...options, classes: [...(options.classes ?? []), ...themeClasses()] });
+        super(withTheme(options));
     }
 
     async _prepareContext(options) {
@@ -280,6 +281,30 @@ export class MacroShelf extends HandlebarsApplicationMixin(ApplicationV2) {
     _onFirstRender(context, options) {
         super._onFirstRender?.(context, options);
         MacroShelf.instance = this;
+        // M11 review: Tab, Space and Enter belong to the focused control, never to core's keybindings.
+        this.element.addEventListener("keydown", keepControlKeys);
+    }
+
+    /**
+     * Before the shelf is replaced (Add to hotbar renders it again for the tile's badge): the focused button, told apart by
+     * its tile (M11 review: core gives focus back only to an element with an id or a name, and the tiles' have neither).
+     */
+    _preSyncPartState(partId, newElement, priorElement, state) {
+        super._preSyncPartState(partId, newElement, priorElement, state);
+        state.workshopFocus = focusState(priorElement);
+    }
+
+    /** After: the same tile's button has focus again (10.9: a re-render never steals focus). */
+    _syncPartState(partId, newElement, priorElement, state) {
+        super._syncPartState(partId, newElement, priorElement, state);
+        restoreFocus(newElement, state.workshopFocus);
+    }
+
+    /** Put keyboard focus on the first tile's Run button (opened from the keyboard, M11 review). */
+    focusWindow() {
+        const target = this.element?.querySelector("[data-macro] [data-action='run']");
+        target?.focus({ preventScroll: true });
+        return !!target;
     }
 
     async _onRender(context, options) {
@@ -325,15 +350,19 @@ export class MacroShelf extends HandlebarsApplicationMixin(ApplicationV2) {
     }
 }
 
-/** Open the shelf; from a window (`parent`), as its child, so it opens in the browser window that one is in (10.1). */
-export async function openShelf({ parent = null } = {}) {
-    if (MacroShelf.instance?.rendered) {
-        MacroShelf.instance.bringToFront?.();
-        return MacroShelf.instance;
+/**
+ * Open the shelf; from a window (`parent`), as its child, so it opens in the browser window that one is in (10.1). `focus`
+ * (the status bar's Macros button) puts keyboard focus on its first tile (M11 review).
+ */
+export async function openShelf({ parent = null, focus = false } = {}) {
+    let app = MacroShelf.instance;
+    if (app?.rendered) app.bringToFront?.();
+    else {
+        app = new MacroShelf();
+        if (parent?.renderChild) await parent.renderChild(app);
+        else await app.render({ force: true });
     }
-    const app = new MacroShelf();
-    if (parent?.renderChild) await parent.renderChild(app);
-    else await app.render({ force: true });
+    if (focus && app.rendered) app.focusWindow();
     return app;
 }
 

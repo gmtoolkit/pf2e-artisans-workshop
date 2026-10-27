@@ -38,6 +38,7 @@ import { subjectTypeOf } from "../logic/crafts.mjs";
 import { adjustmentFits } from "../logic/variants.mjs";
 import { showDcs } from "./context.mjs";
 import { focusState, restoreFocus } from "./focus.mjs";
+import { withTheme } from "./theme.mjs";
 import { gateText, money, number, report } from "./format.mjs";
 import { CRAFT_TYPE, ROUTE, SERVICE } from "./labels.mjs";
 
@@ -153,7 +154,7 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
     #focusSearch = false;
 
     constructor({ uuid = null, requester = null, kind = null, focusSearch = false, ...options } = {}) {
-        super(options);
+        super(withTheme(options));
         this.#focusSearch = focusSearch && !uuid;
         const choices = actingChoices();
         this.draft.uuid = uuid;

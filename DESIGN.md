@@ -6787,6 +6787,48 @@ copy-paste macros (`test/macros.test.mjs`); live plans `m11-*` written, not yet 
   Parchment) and `m11-shots` (the strip, the card and the shelf, dark and light). None has run yet.
 - **Screenshots** (17.1): `macro-shelf.png` and `sheet-strip.png` wait in `NEXT_CAPTURES` (`screenshots.mjs` opens the shelf
   from the status bar and the demo alchemist's sheet on its Crafting tab), to be checked by eye and linked after the next run.
+- **After the M11 review** (each with a test in `test/foundry/ui-m11.test.mjs` or `ui-m8.test.mjs` that fails without it):
+  - *Keys stop at the module's windows.* Core's `KeyboardManager` listens on the browser window and runs a keybinding
+    whenever focus is not in a field (`hasFocus`: an input, a select, a text area, editable content or a button inside a
+    form). An order row (`li`), a tab or a button of a formless window is none of these, so Space on a focused row also
+    paused the game for a GM (and broadcast it), an arrow panned the canvas, and Tab (core's `cycleView`) cycled the
+    controlled token, recentred the view and cancelled the browser's own focus move, which also changed the actor that
+    `actorFor` resolves for macros. Every key the Workshop answers (the rows' arrows, Home, End, Enter and Space, the trapped
+    Tab, the tabs' arrows, Escape) is now consumed (`consumeKey`: no default and no propagation), and so are the Quick Alchemy
+    panel's list keys. Tab, Space and Enter on any control of a formless module window (the Workshop, the shelf, the Advance
+    days wizard, the Afflictions window, the Bandolier, the Quick Alchemy panel) stop at the window (`keepControlKeys`),
+    unless Ctrl, Alt or Meta is held; other keys stay core's. The request form is a `form`, which core already treats as a
+    field, and the HUD palette already stopped its Enter and Space (`onEntry`).
+  - *The master switch renders the open sheets again.* `renderEntrySheets` (`settings.mjs`) renders every open character
+    and party sheet in `ui.windows`, for `features.sheetEntryPoints` as before and now when the Workshop's status crosses
+    "disabled" either way, so a sheet open at the switch loses (or gains) its header button, strip and card at once instead
+    of keeping live buttons and a strip saying "No Workshop jobs right now".
+  - *Windows opened from the keyboard take focus.* `openWorkshop({focus: true})` (and `WorkshopApp#show`) focuses the open
+    order's detail, else the active tab, after the render; the keybinding, the strip's and the card's buttons and the
+    directory's context menu use it. `openShelf({focus: true})` focuses the first tile's Run; the status bar's Macros button
+    uses it. Core focuses only an `[autofocus]` element on a first render, and a raised window not at all.
+  - *Focus survives the shelf's and the sheet entries' refreshes.* The shelf keeps the focused control across a render
+    (`_preSyncPartState`/`_syncPartState` with `focusState`/`restoreFocus`, a tile's buttons told apart by its `data-macro`,
+    now one of `focus.mjs`'s scope attributes), so Add to hotbar leaves focus on that tile's button. The strip and the card
+    note which of their buttons had focus before a refill and give it back to the new one (the first of theirs if it is
+    gone); focus elsewhere is left alone (10.9: live updates never steal focus).
+  - *Macro refusals that fit.* Roll Craft check without an order, when the actor has none waiting for its check, refuses
+    `no-check-order` ("{actor} has no order waiting for its Craft check.") and Finish order without an order and nothing
+    finishable `nothing-to-finish` ("{actor} has no order ready to finish."), not `no-order` ("That order no longer
+    exists."), since the user named no order. `refusalText` passes `data.actor` (a name).
+  - *Label in name* (WCAG 2.5.3): each PC's activity select in the Downtime tab is named by `aria-labelledby` from its
+    visible label and the PC's visible name ("Spending days on Bo"), not by an `aria-label` sentence that did not contain the
+    label ("What Bo spends the days on", now gone).
+  - *The window's words for money.* The shelf shows macro 3 as "Fund an order" and macro 6 as "Collect waiting items", the
+    Workshop's own "Fund this order" and "Collect waiting items", not "Pledge" (the money word M4.1 retired) and "Take
+    deliveries"; ids, API names and the copy-paste files are unchanged (11.1).
+  - *Parchment on every window.* The request form, the Advance days wizard, the Afflictions window, the Bandolier and the
+    Quick Alchemy panel take Parchment's classes in their constructors (`withTheme`), as the Workshop and the shelf did, so a
+    window opened while Parchment is on has it, not only one open when the setting changed. The prompts (DialogV2) carry
+    no module class and keep the application scheme (Follow-ups).
+  - The live plan `m11-keyboard` checks that the keybinding lands on the active tab and the Macros button on the first
+    tile's Run with no Tab press, and that focus stays on the tile's Add to hotbar after it; the audit reads a several-id
+    `aria-labelledby`.
 
 #### Follow-ups (M11, low)
 
@@ -6802,6 +6844,58 @@ copy-paste macros (`test/macros.test.mjs`); live plans `m11-*` written, not yet 
 - Parchment's background and colours are fixed light: a dark sheet look (pf2e has none) is not offered.
 - The Settings tab of 10.1 (with its data tools, among them releasing a stuck log slot, 10.10 Follow-ups) is not built.
 - `ui.lastTab` is still written on every tab change, one user-document write each (M4 follow-up).
+- From the M11 review (low, logged, not fixed; the mediums are fixed above):
+  - Every party actor gets the card, the context-menu entry and the header button, not only the Workshop's party
+    (`game.actors.party`): pf2e 8.6.1 supports several parties, and an inactive party's sheet shows the active party's
+    orders, shelf and strongbox as if they were its own. With the members setting "party", add them only for
+    `actor === game.actors.party`.
+  - The strip's facts are `li.strip-fact` in `ul.strip-facts`, though 10.18, the `entry.mjs` header and the M11 commit say
+    the strip holds no `li`. Harmless with today's selectors (pf2e's `li.formula-item`, `li[data-item-id]`, `li[data-uuid]`,
+    `ul[data-loot] li[data-item-id]`, `.item-list .item`; Toolbelt 3.59.2's `.known-formulas > header`; Workbench 7.7.5's
+    `.formula-item`), but the claim should read "no `li.formula-item`, no `data-item-*` or `data-uuid`", or the facts be
+    `span`s. The list's `aria-label` repeats the section's heading; drop it.
+  - The party card's heading id is fixed (`pf2e-artisans-workshop-party-card-heading`), so two open party sheets repeat an id
+    and `aria-labelledby` may name the other card: add the party's id. The shelf's rules (`.macro-tiles`, `.macro-tile`,
+    `.macro-shelf`) are global class names; scope them under `.macro-shelf-window`.
+  - "Add to hotbar" and `api.macros.toHotbar` write to a locked hotbar; core's drop refuses with `HOTBAR.IsLocked`. Refuse
+    `hotbar-locked` while `ui.hotbar?.locked`.
+  - After a tile is dragged onto the hotbar the open shelf is not rendered again, so its "On your hotbar" badge waits for the
+    next render; Add to hotbar on a tile already on the hotbar puts the same macro in another free slot instead of saying
+    which slot holds it (`outcome: "already"`).
+  - The fund prompt's refusals are reported twice when the Fund an order macro runs it (`fundPrompt`'s `#run` reports, then
+    `reportRun`): mark the result reported or return null from that branch.
+  - Hints and tiles that say more than happens: Healing Bomb's hint says it throws the bomb, which it does only with
+    `target`; Request item's says the form opens unless everything is given, but a `uuid` alone files the order (the 11.1
+    follow-up above); the Advance days tile and `macros/advance-days.js` say "Runs api.downtime.advance(...)" while Run opens
+    the wizard; Collect waiting items documents an `actor` that `funds.claimAll` ignores.
+  - Macro arguments are shown without their types or allowed values ("null means not given"); `order` is the internal id the
+    Workshop never shows (its rows say "#12"); `amount`, `route`, `damageType`, `then`, `tab` and `filter` take values only 11.1
+    lists; every tile shows its raw `api.x.y({...})` line to every player. Note each argument in the catalogue and the file
+    comment, accept "#12" or 12 for `order`, and fold the code line into a `<details>`.
+  - With the Workshop switched off, a macro refuses `not-ready` ("The Workshop's shared data is not available right now.")
+    rather than saying it is switched off (`Window.Banner.Disabled`'s wording); `macroCommand` writes
+    `?.api?.macros.run(`, which throws a TypeError against an API without `macros`: write `?.api?.macros?.run(` and
+    regenerate `macros/`.
+  - A detached Workshop never updates its tab tooltips on a resize: `_onPosition` returns before `#syncTooltips` while
+    `this.window.windowId` is set. Only the size saving should skip.
+  - Counts of one still missed: "1 Workshop deliveries or payments are waiting" (`Claims.Waiting`), "regained 1 vials"
+    (`Card.Summary.Vials`), "1 formulas" (`Formulas.Total`), "1 batches" and "of 1 batches" (`Morning.SourceSlots`, `Slots`,
+    `Planned`). Add the One keys and the counts-of-one test.
+  - Unmet requirements are read as "Not met" twice (the list's `aria-label` and each item's hidden prefix): keep one. The
+    Queue's order list opens `<ol class="order-list">` and closes `</ul>` (`queue.hbs`, since M4).
+  - The prompts (`prompts.mjs`, core's DialogV2) carry no module class, so Parchment never reaches them; they keep the
+    application scheme even when opened from a Parchment window.
+  - Not verified: PF2e HUD and Token Action HUD are not installed in the dev world and no source is on disk, so whether their
+    hotbar or HUD replacements take the shelf's drop or show its macros is untested (13). The M11 live plans run without
+    `--canvas`, so `m11-keyboard` never sees core's pause, pan or token cycling: run it once with `--canvas` as the GM and
+    check that `game.paused` and `canvas.stage.pivot` are unchanged after Space, the arrows and Tab in the Workshop.
+  - A refill of the strip or the card gives focus back by its button's `data-pf2e-artisans-workshop-entry`; pf2e's own
+    refocus after a sheet render (`_render`, by `data-property` or `data-refocus`) cannot, so a full sheet render still drops
+    focus from our buttons to the sheet.
+  - The shelf's Run disables its button while the macro runs; a focused button that becomes disabled loses focus in current
+    browsers (the focus fix-up rule), so a keyboard user who runs a tile lands on the page. Keep focus there (mark it busy
+    with `aria-disabled` instead, or focus it again once enabled). Tab, Space and Enter stopping at the module's windows also
+    means a GM cannot pause with Space while focus is inside one (core's own windows behave the same only when they are forms).
 
 ---
 
@@ -6871,6 +6965,10 @@ defaults shown, reports a refusal or "Already done.", and without a required arg
 | 21 | `apply-poison` | `afflictions.applyPoison({poison*: null, weapon*: null, actor: null})` | asks which poison, then which item to coat |
 | 22 | `expose` | `afflictions.expose({item*: null, targets: "targeted", delivery: null, dc: null})` | asks which of the actor's items |
 | 23 | `roll-pending` | `afflictions.rollPending({actor: null})` | |
+
+After the M11 review the shelf shows macro 3 as "Fund an order" and macro 6 as "Collect waiting items", the Workshop's own
+words (DECISIONS, M4.1: "pledge" was retired as a money word); the ids and calls above are unchanged. Roll Craft check without
+an order and nothing waiting refuses `no-check-order`, Finish order with nothing finishable `nothing-to-finish` (10.18).
 
 Arguments a member takes beyond these pass through (`skipDialog`, `map`). A macro whose feature is off (14.1; combat's also
 while Duct Tape is active) refuses `macro-off`; the shelf leaves it out.
@@ -7284,7 +7382,7 @@ the active GM's; refused coating of a weapon it coats; not run against the real 
 | SpazzMods PF2e Earn Income | active flag | warning against paying the same job in both modules |
 | PF2e Downtime Tracker, Rutz's PF2e Days | active flags | coexist; Rutz's Days moves the world clock, which our accrual simply sees |
 | pf2e-kingmaker-tools | none | no integration; camping and cooking are out of scope |
-| PF2e HUD, Token Action HUD | none | must not collide with the token HUD palette (OQ-33). As built in M8: the palette is added only when core's left column is there and only once, never with `data-action` entries or inputs (10.14); live check `m8-hud` (with `--canvas`) |
+| PF2e HUD, Token Action HUD | none | must not collide with the token HUD palette (OQ-33). As built in M8: the palette is added only when core's left column is there and only once, never with `data-action` entries or inputs (10.14); live check `m8-hud` (with `--canvas`). Not verified in M11: neither is installed in the dev world, so whether their hotbar or HUD replacements take the macro shelf's drop or show its macros is untested (10.18 Follow-ups) |
 
 ---
 

@@ -112,6 +112,9 @@ export const REFUSAL = Object.freeze({
     "no-script": "pf2e-artisans-workshop.Refusal.NoScript",
     "hotbar-full": "pf2e-artisans-workshop.Refusal.HotbarFull",
     "no-card": "pf2e-artisans-workshop.Refusal.NoCard",
+    // M11 review: Roll Craft check and Finish order without an order, when the actor has none waiting (`data.actor`, a name).
+    "no-check-order": "pf2e-artisans-workshop.Refusal.NoCheckOrder",
+    "nothing-to-finish": "pf2e-artisans-workshop.Refusal.NothingToFinish",
     state: "pf2e-artisans-workshop.Refusal.State",
     gates: "pf2e-artisans-workshop.Refusal.Gates",
     quantity: "pf2e-artisans-workshop.Refusal.Quantity",

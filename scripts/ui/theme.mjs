@@ -22,6 +22,13 @@ export function parchmentOn() {
 /** The classes a module window adds for its theme: Parchment's, or none (the application scheme applies). */
 export const themeClasses = () => (parchmentOn() ? ["themed", "theme-light", "paw-parchment"] : []);
 
+/**
+ * A module window's constructor options with its theme's classes (M11 review): every window of the module opens with
+ * Parchment while the setting is on, as `applyParchment` gives it to the open ones. Core concatenates `classes` with the
+ * class's own.
+ */
+export const withTheme = (options = {}) => ({ ...options, classes: [...(options.classes ?? []), ...themeClasses()] });
+
 /** Whole pixels between `low` and `high`. */
 const clamp = (value, low, high) => Math.round(Math.min(Math.max(value, low), high));
 

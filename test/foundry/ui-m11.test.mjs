@@ -373,7 +373,9 @@ test("a run reports what came of it: a refusal as its sentence, a step already t
 test("a run without a required argument asks instead: Finish opens the one finishable order, Pledge the open orders, Earn Income the Downtime tab", async () => {
     const calls = [];
     const api = { orders: { finish: (args) => calls.push(["finish", args]) }, funds: { pledge: (args) => calls.push(["pledge", args]) } };
-    assert.equal((await macros.runMacro(api, "finish-order", {})).reason, "no-order", "nothing to finish");
+    // M11 review: not "no-order" ("That order no longer exists."), since the user named no order.
+    assert.equal((await macros.runMacro(api, "finish-order", {})).reason, "nothing-to-finish", "nothing to finish");
+    assert.deepEqual(world.notes.at(-1), ["warn", "Bo has no order ready to finish.", undefined]);
     await addOrder("o1", { crafter: bo.uuid, status: "finishing" });
     await macros.runMacro(api, "finish-order", {});
     assert.equal(WorkshopApp.instance.selected, "o1", "its detail, where Finish asks where any shortfall comes from");
@@ -397,7 +399,10 @@ test("Roll Craft check without an order rolls the actor's oldest order waiting f
     await addOrder("o2", { crafter: bo.uuid, status: "check" }, 2);
     const api = buildApi();
     const none = addDocument("Actor", { name: "Eve", type: "character", ownership: { default: 3 } });
-    assert.equal((await api.orders.rollCheck({ actor: none })).reason, "no-order", "Eve crafts nothing");
+    assert.equal((await api.orders.rollCheck({ actor: none })).reason, "no-check-order", "Eve crafts nothing");
+    // M11 review: the macro says so in words that fit, not "That order no longer exists.".
+    await macros.runMacro(api, "roll-craft", { actor: none });
+    assert.deepEqual(world.notes.at(-1), ["warn", "Eve has no order waiting for its Craft check.", undefined]);
     const tried = await api.orders.rollCheck({ actor: bo }).catch((error) => ({ threw: error }));
     assert.notEqual(tried?.reason, "no-order", "Bo's order waiting for its check was taken up");
     const wizard = await macros.runMacro(api, "advance-days", { days: 3 });
@@ -551,12 +556,188 @@ test("counts of one read as one: setup days, castings, Crafts, minutes, gardens,
     assert.match(readFileSync(join(ROOT, "templates/workshop/queue.hbs"), "utf8"), /\{\{#if \(eq setup\.days 1\)\}\}/);
 });
 
-test("unmet requirements say so to a screen reader; each PC's activity select names the PC; the Start/End downtime button has no aria-pressed", () => {
+test("unmet requirements say so to a screen reader; each PC's activity select names the PC after its visible label; the Start/End downtime button has no aria-pressed", () => {
     const queue = readFileSync(join(ROOT, "templates/workshop/queue.hbs"), "utf8");
     assert.match(queue, /<ul class="detail-gates unmet" aria-label="\{\{localize 'pf2e-artisans-workshop\.Detail\.NotMet'\}\}">/);
     assert.match(queue, /<span class="sr-only">\{\{localize "pf2e-artisans-workshop\.Detail\.NotMetPrefix"\}\}<\/span>/);
     const downtime = readFileSync(join(ROOT, "templates/workshop/downtime.hbs"), "utf8");
-    assert.match(downtime, /name="dtActivity"[^>]*aria-label="\{\{localize 'pf2e-artisans-workshop\.Downtime\.ActivityOf' name=name\}\}"/);
+    // M11 review (WCAG 2.5.3, label in name): the select's name is its visible label, then the PC's visible name
+    // ("Spending days on Bo"), not a different sentence that hides the words a voice-control user reads on screen.
+    assert.match(downtime, /<strong class="pc-name" id="pf2e-artisans-workshop-dt-name-\{\{@index\}\}">\{\{name\}\}<\/strong>/);
+    assert.match(downtime, /<span class="label" id="pf2e-artisans-workshop-dt-activity-\{\{@index\}\}">\{\{localize "pf2e-artisans-workshop\.Downtime\.Activity"\}\}<\/span>/);
+    assert.match(downtime, /name="dtActivity"[^>]*aria-labelledby="pf2e-artisans-workshop-dt-activity-\{\{@index\}\} pf2e-artisans-workshop-dt-name-\{\{@index\}\}"/);
+    assert.doesNotMatch(downtime, /name="dtActivity"[^>]*aria-label=/);
     assert.doesNotMatch(downtime, /data-op="toggle"[^>]*aria-pressed/);
     assert.doesNotMatch(downtime, /class="pc-pending" role="status"/);
+});
+
+/* -------------------------------------------- */
+/*  The M11 review's fixes                       */
+/* -------------------------------------------- */
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+/** Press `key` on `el` with a spy for `stopPropagation`: whether the key stopped at our window, and whether its default went. */
+function press(el, key, init = {}) {
+    let stopped = false;
+    const event = el.dispatch("keydown", { key, shiftKey: false, ...init, stopPropagation() { stopped = true; } });
+    return { stopped, prevented: event.defaultPrevented };
+}
+
+test("M11 review: a key the Workshop answers stops at its window, so core's keybindings never pause the game, pan the canvas or cycle the token", async () => {
+    await addOrder("o1");
+    await addOrder("o2", {}, 2);
+    const app = new WorkshopApp();
+    await app.render({ force: true });
+    const nav = build(doc, ["nav.tabs.workshop-tabs", ["button", { type: "button", "data-tab": "queue" }], ["button", { type: "button", "data-tab": "funds" }]]);
+    const list = build(doc, ["ol.order-list", ["li.order-row", { "data-order-id": "o1", tabindex: "0" }], ["li.order-row", { "data-order-id": "o2", tabindex: "-1" }]]);
+    const detail = build(doc, ["aside.order-detail", { tabindex: "-1" }, ["button.a", { type: "button" }], ["button.c", { type: "button" }]]);
+    const plain = build(doc, ["button.plain", { type: "button" }]);
+    app.element.append(nav, list, detail, plain);
+    app.element.clientWidth = 900;
+    const [first, second] = list.children;
+    // Core's KeyboardManager listens on the browser window and treats a row, a tab or a button outside a form as no field.
+    assert.deepEqual(press(first, "ArrowDown"), { stopped: true, prevented: true }, "a row's arrow moves the tab stop, not the canvas");
+    assert.equal(doc.activeElement, second);
+    assert.equal(press(second, "Home").stopped, true);
+    assert.equal(press(first, " ").stopped, true, "Space opens the detail; it never pauses the game");
+    await tick();
+    assert.equal(press(nav.children[0], "ArrowRight").stopped, true, "a tab's arrow");
+    assert.equal(app.tabGroups.primary, "funds");
+    const c = detail.querySelector("button.c");
+    c.focus();
+    assert.deepEqual(press(c, "Tab"), { stopped: true, prevented: true }, "the trapped Tab never cycles the controlled token");
+    // Tab, Space and Enter on any control of the window belong to that control (the browser's own step, its press).
+    app.element.clientWidth = 1200;
+    assert.deepEqual(press(plain, "Tab"), { stopped: true, prevented: false }, "the browser's own Tab, kept from core");
+    assert.equal(press(plain, " ").stopped, true);
+    assert.equal(press(plain, "Enter").stopped, true);
+    assert.equal(press(plain, "ArrowDown").stopped, false, "an arrow nothing here answers stays core's");
+    assert.equal(press(plain, " ", { ctrlKey: true }).stopped, false, "nor a key with a modifier");
+    await app.close();
+});
+
+test("M11 review: switching the Workshop off or on renders the open character and party sheets again, so their entries follow the master switch", () => {
+    const rendered = [];
+    const sheet = (actor, open = true) => ({ actor, rendered: open, render: (force) => rendered.push([actor.name, force]) });
+    ui.windows = { 1: sheet(bo), 2: sheet(game.actors.party), 3: { actor: { name: "Npc", type: "npc" }, rendered: true, render: () => rendered.push(["Npc"]) }, 4: sheet(cy, false) };
+    ui.actors = { render: () => rendered.push(["directory"]) };
+    try {
+        Hooks.callAll("pf2e-artisans-workshop.status", "ready");
+        assert.deepEqual(rendered, [], "the first status only sets where it starts");
+        Hooks.callAll("pf2e-artisans-workshop.status", "disabled");
+        assert.deepEqual(rendered, [["directory"], ["Bo", false], ["Heroes", false]], "off: the open sheets render without their header button, strip and card");
+        rendered.length = 0;
+        Hooks.callAll("pf2e-artisans-workshop.status", "disabled");
+        assert.deepEqual(rendered, [], "no change, no render");
+        Hooks.callAll("pf2e-artisans-workshop.status", "ready");
+        assert.deepEqual(rendered, [["directory"], ["Bo", false], ["Heroes", false]], "on again: they come back");
+    } finally {
+        delete ui.windows;
+        delete ui.actors;
+    }
+});
+
+test("M11 review: opened from the keyboard, the Workshop and the shelf take focus (the keybinding, a sheet entry, the status bar's Macros button)", async () => {
+    const elsewhere = build(doc, ["button.elsewhere", { type: "button" }]);
+    doc.body.append(elsewhere);
+    const app = new WorkshopApp();
+    await app.render({ force: true });
+    app.element.append(build(doc, ["nav.tabs.workshop-tabs", ["button", { type: "button", "data-tab": "queue" }], ["button", { type: "button", "data-tab": "funds" }]]));
+    elsewhere.focus();
+    keybindings.find((k) => k.id === "openWorkshop").config.onDown();
+    await tick();
+    assert.ok(app.element.contains(doc.activeElement), "focus is in the Workshop, not where the key was pressed");
+    assert.equal(doc.activeElement.dataset.tab, app.tabGroups.primary, "on the active tab");
+    elsewhere.focus();
+    const { sheet, html } = characterSheet(bo);
+    Hooks.callAll("renderCharacterSheetPF2e", sheet, html);
+    html.querySelector("[data-pf2e-artisans-workshop-entry='open']").click();
+    await tick();
+    assert.ok(app.element.contains(doc.activeElement), "the strip's Workshop button");
+    html.remove();
+    const shelf = await macros.openShelf();
+    shelf.element.append(build(doc, ["section.macro-shelf", ["li.macro-tile", { "data-macro": "open-workshop" },
+        ["button", { type: "button", "data-action": "run" }], ["button", { type: "button", "data-action": "hotbar" }]]]));
+    elsewhere.focus();
+    await WorkshopApp.DEFAULT_OPTIONS.actions.macros.call(app);
+    assert.ok(shelf.element.contains(doc.activeElement), "the Macros button puts focus in the shelf");
+    assert.equal(doc.activeElement.dataset.action, "run", "on the first tile's Run");
+    await shelf.close();
+    await app.close();
+    elsewhere.remove();
+});
+
+test("M11 review: Add to hotbar renders the shelf again with focus still on that tile's button", async () => {
+    const shelf = await macros.openShelf();
+    const tiles = () => ["section.macro-shelf", ...["pledge", "roll-craft"].map((id) => ["li.macro-tile", { "data-macro": id },
+        ["button", { type: "button", "data-action": "run" }], ["button", { type: "button", "data-action": "hotbar" }]])];
+    const prior = build(doc, tiles());
+    shelf.element.append(prior);
+    prior.querySelector("[data-macro='roll-craft'] [data-action='hotbar']").focus();
+    // What HandlebarsApplicationMixin does with a part: state before, the new element in, state after.
+    const next = build(doc, tiles());
+    const state = {};
+    shelf._preSyncPartState("body", next, prior, state);
+    prior.remove();
+    shelf.element.append(next);
+    shelf._syncPartState("body", next, prior, state);
+    assert.ok(next.contains(doc.activeElement), "focus is in the new shelf, not on a button that is gone");
+    assert.deepEqual([doc.activeElement.dataset.action, doc.activeElement.closest("[data-macro]").dataset.macro], ["hotbar", "roll-craft"], "the same tile's button");
+    // The shelf's Tab, Space and Enter stay its own too.
+    assert.equal(press(doc.activeElement, "Tab").stopped, true);
+    assert.equal(press(doc.activeElement, " ").stopped, true);
+    await shelf.close();
+});
+
+test("M11 review: a live refresh of the strip or the card keeps focus on the button that had it", async () => {
+    const { sheet, html } = characterSheet(bo);
+    Hooks.callAll("renderCharacterSheetPF2e", sheet, html);
+    const strip = html.querySelector(".pf2e-artisans-workshop-strip");
+    strip.querySelector("[data-pf2e-artisans-workshop-entry='request']").focus();
+    await addOrder("o1", { crafter: bo.uuid, status: "check" });
+    entry.refreshEntries();
+    assert.match(strip.textContent, /Crafting: 1/, "refilled");
+    assert.equal(doc.activeElement.isConnected, true, "not a button that is gone");
+    assert.ok(strip.contains(doc.activeElement));
+    assert.equal(doc.activeElement.getAttribute("data-pf2e-artisans-workshop-entry"), "request");
+    const party = partySheet();
+    Hooks.callAll("renderPartySheetPF2e", party.sheet, party.html);
+    const card = party.html.querySelector(".pf2e-artisans-workshop-party-card");
+    card.querySelector("[data-pf2e-artisans-workshop-entry='open']").focus();
+    await addOrder("o2", {}, 2);
+    entry.refreshEntries();
+    assert.equal(card.querySelectorAll("dd")[0].textContent, "2");
+    assert.ok(card.contains(doc.activeElement) && doc.activeElement.isConnected, "the card's Workshop button has it again");
+    const elsewhere = build(doc, ["button.elsewhere", { type: "button" }]);
+    doc.body.append(elsewhere);
+    elsewhere.focus();
+    entry.refreshEntries();
+    assert.equal(doc.activeElement, elsewhere, "focus elsewhere is left alone");
+    for (const el of [html, party.html, elsewhere]) el.remove();
+});
+
+test("M11 review: with Parchment on, every module window opens with it, not only the Workshop and the shelf", async () => {
+    const { RequestForm } = await import("../../scripts/ui/request.mjs");
+    const { AfflictionsApp } = await import("../../scripts/ui/afflictions.mjs");
+    const { BandolierApp } = await import("../../scripts/ui/bandolier.mjs");
+    const { QuickAlchemyPanel } = await import("../../scripts/ui/alchemy-panel.mjs");
+    const windows = () => [new RequestForm(), new AdvanceDaysApp(), new AfflictionsApp(), new BandolierApp(), new QuickAlchemyPanel(), new macros.MacroShelf(), new WorkshopApp()];
+    await game.settings.set(MOD, "ui.parchment", true);
+    try {
+        for (const app of windows()) {
+            assert.ok(["themed", "theme-light", "paw-parchment"].every((c) => app.options.classes.includes(c)), app.constructor.name);
+            assert.ok(app.options.classes.includes("pf2e-artisans-workshop"), `${app.constructor.name} keeps its own classes`);
+        }
+    } finally {
+        await game.settings.set(MOD, "ui.parchment", false);
+    }
+    assert.ok(windows().every((app) => !app.options.classes.includes("paw-parchment")), "off: the application scheme");
+});
+
+test("M11 review: the shelf uses the window's words for money, never the retired 'pledge'", () => {
+    const shelfText = Object.entries(lang).filter(([key]) => key.startsWith("pf2e-artisans-workshop.Macro."));
+    assert.deepEqual(shelfText.filter(([, text]) => /pledg/i.test(text)).map(([key]) => key), []);
+    assert.equal(lang["pf2e-artisans-workshop.Macro.Pledge.Name"], "Fund an order", "the window's Fund this order");
+    assert.equal(lang["pf2e-artisans-workshop.Macro.TakeDeliveries.Name"], lang["pf2e-artisans-workshop.Action.CollectAll"]);
 });

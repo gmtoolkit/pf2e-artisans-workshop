@@ -2,6 +2,35 @@
 
 Newest first.
 
+## 2026-10-27: The integration surface after the M11 review
+
+**Decision:** five rules for the module's windows and entry points, found reviewing M11:
+
+- A key a module window answers stops there. The keys the Workshop and the Quick Alchemy panel handle themselves (a row's
+  or a tab's arrows, Home, End, Enter, Space, the trapped Tab, Escape) are consumed: no default and no propagation. Tab,
+  Space and Enter on any control of a formless module window stop at the window too. Other keys, and keys with Ctrl, Alt or
+  Meta, stay core's.
+- A window opened from the keyboard takes focus: the keybinding, the sheet entries' buttons and the context menu put it on
+  the Workshop's active tab (or the open detail), the status bar's Macros button on the shelf's first tile.
+- The sheet entry points follow the master switch as they follow `features.sheetEntryPoints`: either change renders the
+  open character and party sheets again.
+- A macro refuses with a reason about what the user asked, not about an order they never named (`no-check-order`,
+  `nothing-to-finish`).
+- The shelf uses the Workshop's own words for its macros' names ("Fund an order", "Collect waiting items"); the ids and API
+  names keep theirs.
+
+**Why:** core's keyboard manager listens on the browser window and treats any focused element that is not a field (an
+order row, a tab, a button outside a form) as no focus, so a GM's Space on a row paused the game for everyone, an arrow
+panned the canvas, and Tab cycled the controlled token and cancelled the focus move. Core focuses only an `[autofocus]`
+element on a first render. DESIGN 10.18 says the sheet additions follow the master switch, and 10.9 that live updates never
+steal focus. "Pledge" was retired as a money word in M4.1.
+
+**Consequences:** DESIGN 10.18 (After the M11 review, and the lows in its follow-ups), 11.1 (as built), 13 (PF2e HUD and
+Token Action HUD not verified). New helpers `keepControlKeys` and `consumeKey` (`focus.mjs`), `withTheme` (`theme.mjs`),
+`renderEntrySheets` (`settings.mjs`); `openWorkshop`, `WorkshopApp#show` and `openShelf` take `focus`. New refusal codes
+`no-check-order` and `nothing-to-finish`; the string `Downtime.ActivityOf` is gone (the select is named by its label and
+the PC's name).
+
 ## 2026-10-27: The integration surface as built (M11)
 
 **Decision:** six rules settled while building DESIGN 10.4, 10.9 and 11.1 (10.18):

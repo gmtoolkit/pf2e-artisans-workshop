@@ -28,7 +28,8 @@ import { shared } from "../foundry/state.mjs";
 import { read, write } from "../foundry/store.mjs";
 import { rerenderShown } from "./chat.mjs";
 import { whisperFor } from "./combat-cards.mjs";
-import { focusState, restoreFocus } from "./focus.mjs";
+import { focusState, keepControlKeys, restoreFocus } from "./focus.mjs";
+import { withTheme } from "./theme.mjs";
 import { number, report } from "./format.mjs";
 import { askChoice, confirm } from "./prompts.mjs";
 
@@ -212,6 +213,11 @@ export class AfflictionsApp extends HandlebarsApplicationMixin(ApplicationV2) {
         body: { template: "modules/pf2e-artisans-workshop/templates/afflictions/drawer.hbs", scrollable: [""] },
     };
 
+    /** Parchment's classes while the setting is on (M11 review). */
+    constructor(options = {}) {
+        super(withTheme(options));
+    }
+
     /** Re-render after changes stop for a moment (10.1). */
     refresh = foundry.utils.debounce(() => {
         if (this.rendered) this.render({ parts: ["body"] });
@@ -226,6 +232,8 @@ export class AfflictionsApp extends HandlebarsApplicationMixin(ApplicationV2) {
         super._onFirstRender?.(context, options);
         AfflictionsApp.instance = this;
         this.element.addEventListener("click", (event) => this.#onClick(event));
+        // M11 review: Tab, Space and Enter belong to the focused control, never to core's keybindings (token cycling, pause).
+        this.element.addEventListener("keydown", keepControlKeys);
     }
 
     _preSyncPartState(partId, newElement, priorElement, state) {

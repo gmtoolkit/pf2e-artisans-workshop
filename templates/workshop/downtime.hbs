@@ -21,7 +21,7 @@
         <li class="downtime-pc{{#if pending}} has-pending{{/if}}" data-actor="{{uuid}}">
             {{#if img}}<img src="{{img}}" alt="">{{/if}}
             <div class="pc-main">
-                <strong class="pc-name">{{name}}</strong>
+                <strong class="pc-name" id="pf2e-artisans-workshop-dt-name-{{@index}}">{{name}}</strong>
                 <span class="pc-state">
                     {{#if inDowntime}}<span class="chip on"><i class="fa-solid fa-mug-hot" inert></i> {{localize "pf2e-artisans-workshop.Downtime.In"}}</span>{{#if sinceText}} <span class="since">{{sinceText}}</span>{{/if}}
                     {{else}}<span class="chip off"><i class="fa-solid fa-person-hiking" inert></i> {{localize "pf2e-artisans-workshop.Downtime.Out"}}</span>{{/if}}
@@ -33,8 +33,8 @@
             <div class="pc-activity">
                 {{#if activityOptions}}
                 <label>
-                    <span class="label">{{localize "pf2e-artisans-workshop.Downtime.Activity"}}</span>
-                    <select name="dtActivity" data-actor="{{uuid}}" aria-label="{{localize 'pf2e-artisans-workshop.Downtime.ActivityOf' name=name}}" {{#if locked}}disabled{{/if}}>
+                    <span class="label" id="pf2e-artisans-workshop-dt-activity-{{@index}}">{{localize "pf2e-artisans-workshop.Downtime.Activity"}}</span>
+                    <select name="dtActivity" data-actor="{{uuid}}" aria-labelledby="pf2e-artisans-workshop-dt-activity-{{@index}} pf2e-artisans-workshop-dt-name-{{@index}}" {{#if locked}}disabled{{/if}}>
                         {{#each activityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
                     </select>
                 </label>

@@ -4651,8 +4651,9 @@ async function m11Keyboard(h, w) {
     await page.mouse.click(5, 300);
     await page.keyboard.press("Alt+Shift+KeyW");
     await sleep(1500);
-    const toTabs = await pressUntil(h, "p1", "Tab", (f) => f.inWorkshop && f.tab, 250);
-    h.check("Tab reaches the Workshop's tabs", toTabs.inWorkshop && !!toTabs.tab, toTabs);
+    // M11 review: the keybinding puts focus in the window, on its active tab; no Tab press is needed to get there.
+    const toTabs = await h.step("p1", "m11", "focus", {});
+    h.check("the keybinding puts focus on the Workshop's active tab", toTabs.inWorkshop && toTabs.tab === toTabs.currentTab, toTabs);
     await page.keyboard.press("ArrowDown");
     await sleep(600);
     const funds = await h.step("p1", "m11", "focus", {});
@@ -4683,12 +4684,16 @@ async function m11Keyboard(h, w) {
     h.check("Tab reaches the status bar's Macros button", toMacros.action === "macros", toMacros);
     await page.keyboard.press("Enter");
     await sleep(1500);
-    const toHotbar = await pressUntil(h, "p1", "Tab", (f) => f.inShelf && f.action === "hotbar", 40);
+    const inShelf = await h.step("p1", "m11", "focus", {});
+    h.check("Enter on Macros puts focus on the shelf's first tile (M11 review)", inShelf.inShelf && inShelf.action === "run", inShelf);
+    const toHotbar = await pressUntil(h, "p1", "Tab", (f) => f.inShelf && f.action === "hotbar", 4);
     h.check("Tab reaches a tile's Add to hotbar in the shelf", toHotbar.inShelf && toHotbar.action === "hotbar", toHotbar);
     await page.keyboard.press("Enter");
     await sleep(1500);
     const hotbar = await h.step("p1", "m11", "hotbar", {});
     h.check("Enter on Add to hotbar puts the macro on the hotbar, no drag needed", hotbar.macros.length === 1 && hotbar.slots.length === 1, hotbar);
+    const kept = await h.step("p1", "m11", "focus", {});
+    h.check("focus stays on that tile's Add to hotbar as the shelf renders again (M11 review)", kept.inShelf && kept.action === "hotbar" && kept.macro === toHotbar.macro, kept);
     const audit = await h.step("p1", "m11", "audit", {});
     h.check("the Workshop and the shelf: no control without a name, no positive tab index, no tab outside its tablist",
         ["workshop", "shelf"].every((k) => audit[k] && audit[k].unnamed.length === 0 && audit[k].positive.length === 0 && audit[k].looseTabs === 0), audit);

@@ -45,7 +45,7 @@ import { rulesFromSettings, setting } from "../foundry/settings.mjs";
 import { canWrite, shared, status } from "../foundry/state.mjs";
 import { read, records } from "../foundry/store.mjs";
 import { orderContext } from "./context.mjs";
-import { focusState, focusablesIn, restoreFocus, tierOf, trapStep } from "./focus.mjs";
+import { consumeKey, focusState, focusablesIn, keepControlKeys, restoreFocus, tierOf, trapStep } from "./focus.mjs";
 import { money, nameOf, number, report, sourceName, userName, when } from "./format.mjs";
 import { EVENT, ROW_KIND, STATUS } from "./labels.mjs";
 import { askMoney, confirm } from "./prompts.mjs";
@@ -479,6 +479,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.element.addEventListener("change", (event) => this.#onChange(event));
         this.element.addEventListener("input", (event) => this.#onInput(event));
         this.element.addEventListener("keydown", (event) => this.#onKeydown(event));
+        // M11 review: Tab, Space and Enter belong to the focused control, never to core's keybindings (token cycling, pause).
+        this.element.addEventListener("keydown", keepControlKeys);
         this.element.addEventListener("click", (event) => this.#onRowClick(event));
         this.element.addEventListener("focusin", (event) => this.#onFocusIn(event));
         // `toggle` does not bubble: listen in the capture phase.
@@ -598,8 +600,11 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         if (setting("ui.lastTab") !== tab) game.settings.set(MODULE_ID, "ui.lastTab", tab);
     }
 
-    /** Open the window on a tab, and optionally on an order's detail. */
-    async show({ tab = null, order = null } = {}) {
+    /**
+     * Open the window on a tab, and optionally on an order's detail. `focus` (M11 review: the keybinding and the sheet
+     * entries) moves keyboard focus into it, as core does only for an `[autofocus]` element on the first render.
+     */
+    async show({ tab = null, order = null, focus = false } = {}) {
         if (order) {
             this.selected = order;
             tab ??= "queue";
@@ -607,7 +612,17 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         if (tab && WorkshopApp.TABS.primary.tabs.some((t) => t.id === tab)) this.tabGroups.primary = tab;
         await this.render({ force: true });
         if (this.rendered && tab) this.#syncTabs();
+        if (this.rendered && focus) this.focusWindow();
         return this;
+    }
+
+    /** Put keyboard focus in the window: on the open order's detail, else on the active tab (10.9). */
+    focusWindow() {
+        const element = this.element;
+        const target = (this.selected && element?.querySelector(".order-detail"))
+            || element?.querySelector(`.workshop-tabs [data-tab="${this.tabGroups.primary}"]`) || element?.querySelector(".workshop-tabs [data-tab]");
+        target?.focus({ preventScroll: true });
+        return !!target;
     }
 
     /* -------------------------------------------- */
@@ -685,7 +700,9 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     /**
      * Keyboard (10.3, 10.9): a roving tabindex over the order rows (Up and Down, Home and End move; Enter or Space opens the
-     * detail); Escape closes the detail and returns focus to its row; Left and Right move between the tabs.
+     * detail); Escape closes the detail and returns focus to its row; Left and Right move between the tabs. A key answered
+     * here stops at the window (M11 review): core would pan the canvas on an arrow, pause the game on Space, cycle the
+     * controlled token on Tab, since none of these controls is a field to it.
      */
     #onKeydown(event) {
         const row = event.target.closest?.(".order-row");
@@ -694,14 +711,14 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             const index = rows.indexOf(row);
             const move = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: rows.length - 1 }[event.key];
             if (move !== undefined) {
-                event.preventDefault();
+                consumeKey(event);
                 const next = rows[Math.max(0, Math.min(rows.length - 1, move))];
                 this.#makeTabStop(next);
                 next.focus();
                 return;
             }
             if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
+                consumeKey(event);
                 this.#select(row.dataset.orderId);
                 return;
             }
@@ -712,20 +729,19 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         if (event.key === "Tab" && detail && tierOf(this.element.clientWidth) !== "wide") {
             const next = trapStep(focusablesIn(detail), event.target, event.shiftKey);
             if (next) {
-                event.preventDefault();
+                consumeKey(event);
                 next.focus();
                 return;
             }
         }
         if (event.key === "Escape" && this.selected && event.target.closest?.(".order-detail")) {
-            event.preventDefault();
-            event.stopPropagation();
+            consumeKey(event);
             this.#closeDetail();
             return;
         }
         const tab = event.target.closest?.(".workshop-tabs [data-tab]");
         if (tab && ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)) {
-            event.preventDefault();
+            consumeKey(event);
             const tabs = [...this.element.querySelectorAll(".workshop-tabs [data-tab]")];
             const step = event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1;
             const next = tabs[(tabs.indexOf(tab) + step + tabs.length) % tabs.length];
@@ -1043,7 +1059,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     /** The status bar's Macros button (M11, 10.2): the macro shelf, in the window the Workshop is in. */
     static async #onMacros() {
         const { openShelf } = await import("./macros.mjs");
-        return openShelf({ parent: this });
+        return openShelf({ parent: this, focus: true });
     }
 
     /** The header's pending affliction saves (M8a, 10.2): open the Afflictions window. */
@@ -1069,13 +1085,13 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
 /**
  * Open the Workshop (11.1 `api.ui.open`): on a tab, on an order's detail, as a character (`actor`, a UUID or document),
- * with a Queue filter.
+ * with a Queue filter; `focus` puts keyboard focus in it (the keybinding, the sheet entries, the context menu).
  */
-export async function openWorkshop({ tab = null, order = null, actor = null, filter = null } = {}) {
+export async function openWorkshop({ tab = null, order = null, actor = null, filter = null, focus = false } = {}) {
     const app = WorkshopApp.instance ?? new WorkshopApp();
     if (actor) app.acting = typeof actor === "string" ? actor : actor.uuid;
     if (filter && ["mine", "open", "blocked", "all"].includes(filter)) app.filters = { ...app.filters, scope: filter };
-    return app.show({ tab, order });
+    return app.show({ tab, order, focus });
 }
 
 /** Hooks that re-render the open window when the shared state changes (10.1). */

@@ -144,7 +144,8 @@ export function buildApi() {
                 const who = resolveActor(actor);
                 if (!who) return Promise.resolve(noActor());
                 const next = nextCheckOrder(queueOrder(records("orders")), who.uuid);
-                return next ? orders.roll(next.id, { skipDialog }) : Promise.resolve({ ok: false, reason: "no-order" });
+                // M11 review: not "no-order" ("That order no longer exists."), since no order was named.
+                return next ? orders.roll(next.id, { skipDialog }) : Promise.resolve({ ok: false, reason: "no-check-order", data: { actor: who.name } });
             },
             settle: (id) => orders.settle(id),
             pause: (id) => orders.pause(id),

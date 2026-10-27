@@ -71,8 +71,10 @@ function backgroundOf(element) {
  */
 function audit(root) {
     if (!root) return null;
-    const name = (el) => (el.getAttribute("aria-label") || el.getAttribute("aria-labelledby") && root.ownerDocument.getElementById(el.getAttribute("aria-labelledby"))?.textContent
-        || el.textContent || el.getAttribute("title") || (el.labels?.[0]?.textContent) || "").trim();
+    // `aria-labelledby` may name several elements (the Downtime tab's activity select: its label, then the PC's name).
+    const labelledBy = (el) => (el.getAttribute("aria-labelledby") ?? "").split(/\s+/).filter(Boolean)
+        .map((id) => root.ownerDocument.getElementById(id)?.textContent?.trim() ?? "").filter(Boolean).join(" ");
+    const name = (el) => (el.getAttribute("aria-label") || labelledBy(el) || el.textContent || el.getAttribute("title") || (el.labels?.[0]?.textContent) || "").trim();
     const visible = (el) => el.getClientRects().length > 0 && el.ownerDocument.defaultView.getComputedStyle(el).visibility !== "hidden";
     const unnamed = [...root.querySelectorAll("button, a[href], input:not([type=hidden]), select, textarea, [role=tab]")]
         .filter((el) => visible(el) && !name(el) && !el.closest("label")?.textContent?.trim())
@@ -246,6 +248,7 @@ export const INTEGRATION_SCENARIOS = {
             return plain({
                 tag: active?.tagName ?? null, inWorkshop: !!app?.element?.contains(active), inDetail: !!active?.closest?.(".order-detail"),
                 inShelf: !!MacroShelf.instance?.element?.contains(active), tab: active?.dataset?.tab ?? null, action: active?.dataset?.action ?? null,
+                macro: active?.closest?.("[data-macro]")?.dataset.macro ?? null,
                 op: active?.dataset?.op ?? null, orderId: active?.closest?.("[data-order-id]")?.dataset.orderId ?? null, label: active?.getAttribute?.("aria-label") ?? null,
                 text: active?.textContent?.trim().slice(0, 40) ?? null, width: app?.element?.clientWidth ?? null, selected: app?.selected ?? null,
                 currentTab: app?.tabGroups?.primary ?? null, detailOpen: !!app?.element?.querySelector(".order-detail"),

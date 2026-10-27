@@ -259,6 +259,7 @@ export function faithfulApplicationV2(doc) {
         }
         renderChild(app) { this.children.push(app); return app.render({ force: true }); }
         bringToFront() {}
+        changeTab(tab, group) { this.tabGroups[group] = tab; }
         async render(options = {}) {
             const first = this.#state !== 2;
             this.context = await this._prepareContext(options);

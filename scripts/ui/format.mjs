@@ -126,6 +126,8 @@ export function refusalText(result) {
         count: String(data.count ?? ""), day: String(data.day ?? ""), reasons: (data.reasons ?? []).map((r) => loc(HELPER_REASON[r] ?? REFUSAL.other)).join(" "),
         // M8: vials an action needs and has, an item or choice it names.
         n: String(data.n ?? ""), have: String(data.have ?? ""), item: String(data.item ?? ""),
+        // M11 review: the character a macro ran for.
+        actor: String(data.actor ?? ""),
     });
 }
 

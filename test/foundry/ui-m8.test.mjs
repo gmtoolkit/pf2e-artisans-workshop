@@ -309,6 +309,32 @@ test("the panel works from the keyboard: the arrows go into and through the list
     assert.equal(again.state, -1, "Esc closes");
 });
 
+test("M11 review: a key the panel answers on its list stops at the panel, so core never pans the canvas or pauses the game; Tab stays the browser's", async () => {
+    const { app } = await panel.openQuickAlchemy({ actor: vera });
+    const [keydown, keepKeys] = app.element.listeners.keydown;
+    const spied = (key, target) => {
+        const event = keyEvent(key, target);
+        event.stopped = false;
+        event.stopPropagation = () => { event.stopped = true; };
+        return event;
+    };
+    const option = (i) => ({ dataset: { quick: "option", uuid: app.visible[i].uuid } });
+    const down = spied("ArrowDown", option(0));
+    keydown(down);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(down.stopped, true, "a row's arrow moves the list, not the canvas");
+    const space = spied(" ", option(1));
+    keydown(space);
+    assert.equal(space.stopped, true, "Space picks the row; it never pauses the game");
+    const tab = spied("Tab", option(1));
+    keydown(tab);
+    assert.equal(tab.stopped, false, "the panel's own handler leaves Tab");
+    assert.equal(typeof keepKeys, "function", "a second listener keeps Tab, Space and Enter from core's keybindings");
+    keepKeys(tab);
+    assert.equal(tab.stopped, true);
+    await app.close();
+});
+
 test("Enter with nothing picked creates the list's first match; Quick Bomber's panel lists bombs and throws the one it makes (8.3, 8.4)", async () => {
     const { app } = await panel.openQuickAlchemy({ actor: vera, bombs: true });
     assert.deepEqual(app.context.options.map((o) => o.name), ["Alchemist's Fire (Lesser)"]);

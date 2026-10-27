@@ -22,7 +22,8 @@ import { inertFlag } from "../foundry/item-facts.mjs";
 import { isResponsibleFor } from "../foundry/responsible.mjs";
 import { setting } from "../foundry/settings.mjs";
 import { gatherReagents, haversackVial, improviseAdmixture, vialFacts } from "../foundry/vials.mjs";
-import { focusState, restoreFocus } from "./focus.mjs";
+import { focusState, keepControlKeys, restoreFocus } from "./focus.mjs";
+import { withTheme } from "./theme.mjs";
 import { featName, number, report } from "./format.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -182,7 +183,7 @@ export class BandolierApp extends HandlebarsApplicationMixin(ApplicationV2) {
     material = null;
 
     constructor(options = {}) {
-        super(foundry.utils.mergeObject({ position: startPosition() }, options));
+        super(foundry.utils.mergeObject({ position: startPosition() }, withTheme(options)));
     }
 
     /** Re-render after changes stop for a moment (10.1). */
@@ -206,6 +207,8 @@ export class BandolierApp extends HandlebarsApplicationMixin(ApplicationV2) {
         BandolierApp.instance = this;
         this.element.addEventListener("click", (event) => this.#onClick(event));
         this.element.addEventListener("change", (event) => this.#onChange(event));
+        // M11 review: Tab, Space and Enter belong to the focused control, never to core's keybindings (token cycling, pause).
+        this.element.addEventListener("keydown", keepControlKeys);
     }
 
     _onPosition(position) {

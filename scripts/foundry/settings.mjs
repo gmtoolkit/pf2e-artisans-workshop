@@ -136,6 +136,21 @@ export const AFFLICTION_SETTINGS = Object.freeze([
 ]);
 
 /**
+ * Render the open character and party sheets again (Application V1 in pf2e 8.6.1, in `ui.windows`), so the sheet entry
+ * points (10.4) come or go with `features.sheetEntryPoints` and, after the M11 review, with the master switch: a sheet open
+ * when the Workshop is switched off keeps no header button, Crafting tab strip or Party card.
+ */
+export function renderEntrySheets() {
+    let count = 0;
+    for (const app of Object.values(ui.windows ?? {})) {
+        if (!["character", "party"].includes(app?.actor?.type) || !app.rendered) continue;
+        app.render(false);
+        count++;
+    }
+    return count;
+}
+
+/**
  * Register every M2 setting. `handlers` are the sync's reactions: `enabled(value, userId)` when the master
  * switch changes and `docs()` when the shared documents' ids change.
  */
@@ -181,12 +196,8 @@ export function registerSettings(handlers) {
         name: "pf2e-artisans-workshop.Settings.FeaturesSheetEntryPoints.Name",
         hint: "pf2e-artisans-workshop.Settings.FeaturesSheetEntryPoints.Hint",
         scope: "world", config: true, type: Boolean, default: true,
-        // The open character and party sheets (Application V1 in pf2e 8.6.1, in `ui.windows`) render again with or without them.
-        onChange: () => {
-            for (const app of Object.values(ui.windows ?? {})) {
-                if (["character", "party"].includes(app?.actor?.type) && app.rendered) app.render(false);
-            }
-        },
+        // The open character and party sheets render again with or without them.
+        onChange: () => renderEntrySheets(),
     });
     game.settings.register(MODULE_ID, "ui.parchment", {
         name: "pf2e-artisans-workshop.Settings.Parchment.Name",

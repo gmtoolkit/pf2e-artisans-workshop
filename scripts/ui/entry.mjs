@@ -20,8 +20,11 @@
  *   (`getActorContextOptions`); a member's opens the Workshop acting as that character.
  * - **Keybinding**: "Open Workshop", unbound by default (the Bandolier's and Quick Alchemy's are M8's, `combat-entry.mjs`).
  *
- * The strip and the card are told again whenever the ledger or the strongbox changes, in place, without a sheet render.
- * The sheet additions follow the world setting `features.sheetEntryPoints` (14.1); the directory's follow the master switch.
+ * The strip and the card are told again whenever the ledger or the strongbox changes, in place, without a sheet render;
+ * a button of theirs that had focus has it again (M11 review, 10.9: live updates never steal focus). The sheet additions
+ * follow the world setting `features.sheetEntryPoints` (14.1) and the master switch: either change renders the open sheets
+ * again (M11 review). The directory's follow the master switch. A button that opens a window from these puts keyboard focus
+ * in it (M11 review), as does the keybinding.
  */
 import { MODULE_ID } from "../constants.mjs";
 import { partyCardView, stripView } from "../logic/entry.mjs";
@@ -32,7 +35,7 @@ import { downtimeOn, pendingOf } from "../foundry/downtime.mjs";
 import { morningOn, waitingToPrepare } from "../foundry/morning.mjs";
 import { actingChoices, allOrders } from "../foundry/orders.mjs";
 import { members } from "../foundry/roster.mjs";
-import { isEnabled, setting } from "../foundry/settings.mjs";
+import { isEnabled, renderEntrySheets, setting } from "../foundry/settings.mjs";
 import { shared, status } from "../foundry/state.mjs";
 import { money, number } from "./format.mjs";
 import { openWorkshop } from "./workshop.mjs";
@@ -131,6 +134,19 @@ function stripFacts(actor) {
     return stripView(ready ? allOrders() : [], actor.uuid, { shelf: ready ? shelfItemsFor(actor.uuid).length : 0, pendingDays, morningWaiting });
 }
 
+/** Which of our buttons in `container` has focus (its entry attribute), or null. */
+function focusedEntry(container) {
+    const active = container.ownerDocument?.activeElement;
+    return active && active !== container && container.contains(active) ? active.getAttribute?.(ENTRY_ATTR) ?? null : null;
+}
+
+/** Give focus back to the button of `op` in a refilled container (the first of ours if it is gone), without scrolling. */
+function refocusEntry(container, op) {
+    if (!op) return;
+    const button = container.querySelector(`[${ENTRY_ATTR}="${op}"]`) ?? container.querySelector(`[${ENTRY_ATTR}]`);
+    button?.focus({ preventScroll: true });
+}
+
 /** Fill a strip element (new or live) for `actor`. */
 function fillStrip(strip, actor) {
     const doc = strip.ownerDocument;
@@ -148,15 +164,17 @@ function fillStrip(strip, actor) {
         make(doc, "span", { text: loc("pf2e-artisans-workshop.Entry.Strip.Heading") })]);
     const actions = make(doc, "div", { classes: ["strip-actions"] }, [
         entryButton(doc, "open", "fa-solid fa-up-right-from-square", "pf2e-artisans-workshop.Entry.Button",
-            () => openWorkshop({ tab: "queue", actor: actor.uuid }), fmt("pf2e-artisans-workshop.Entry.OpenAs", { name: actor.name })),
+            () => openWorkshop({ tab: "queue", actor: actor.uuid, focus: true }), fmt("pf2e-artisans-workshop.Entry.OpenAs", { name: actor.name })),
         entryButton(doc, "request", "fa-solid fa-plus", "pf2e-artisans-workshop.Queue.Request", async () => {
             const { openRequestForm } = await import("./request.mjs");
             openRequestForm({ requester: actor.uuid });
         }),
         morningOn() ? entryButton(doc, "morning", "fa-solid fa-sun", "pf2e-artisans-workshop.Window.Tab.Morning",
-            () => openWorkshop({ tab: "morning", actor: actor.uuid })) : null,
+            () => openWorkshop({ tab: "morning", actor: actor.uuid, focus: true })) : null,
     ]);
+    const focused = focusedEntry(strip);
     strip.replaceChildren(heading, make(doc, "ul", { classes: ["strip-facts"], attrs: { "aria-label": loc("pf2e-artisans-workshop.Entry.Strip.Heading") } }, facts), actions);
+    refocusEntry(strip, focused);
     return strip;
 }
 
@@ -202,11 +220,13 @@ function fillCard(card) {
     const header = make(doc, "header", { classes: ["card-heading"] }, [
         icon(doc, "fa-solid fa-hammer"),
         make(doc, "h3", { attrs: { id: `${MODULE_ID}-party-card-heading` }, text: loc("pf2e-artisans-workshop.Window.Title") }),
-        entryButton(doc, "open", "fa-solid fa-up-right-from-square", "pf2e-artisans-workshop.Entry.Button", () => openWorkshop({ tab: "queue" }),
+        entryButton(doc, "open", "fa-solid fa-up-right-from-square", "pf2e-artisans-workshop.Entry.Button", () => openWorkshop({ tab: "queue", focus: true }),
             loc("pf2e-artisans-workshop.Entry.Tooltip")),
     ]);
     const body = ready ? facts : make(doc, "p", { classes: ["hint"], text: loc("pf2e-artisans-workshop.Window.Banner.Disabled") });
+    const focused = focusedEntry(card);
     card.replaceChildren(header, body);
+    refocusEntry(card, focused);
     return card;
 }
 
@@ -293,7 +313,7 @@ export function addContextOption(_app, options) {
         },
         onClick: (_event, li) => {
             const actor = actorOfEntry(li);
-            return openWorkshop({ tab: "queue", actor: actor && actor.type !== "party" ? actor.uuid : null });
+            return openWorkshop({ tab: "queue", actor: actor && actor.type !== "party" ? actor.uuid : null, focus: true });
         },
     });
     return true;
@@ -336,11 +356,15 @@ function guarded(name, fn) {
 /** Register the entry points, at `init`. */
 export function registerEntryPoints() {
     Hooks.on("renderActorDirectory", (_app, html) => addDirectoryButton(html));
-    // The button shows only while the Workshop is switched on, so the directory follows the master switch.
+    // The button shows only while the Workshop is switched on, so the directory follows the master switch; so do the open
+    // character and party sheets' header buttons, strips and cards (M11 review, 10.18), which their render adds or leaves out.
     let last = null;
     Hooks.on("pf2e-artisans-workshop.status", (now) => {
         const on = now !== "disabled";
-        if (on !== last && last !== null) ui.actors?.render();
+        if (on !== last && last !== null) {
+            ui.actors?.render();
+            renderEntrySheets();
+        }
         last = on;
         refreshSoon();
     });
@@ -369,7 +393,8 @@ export function registerEntryPoints() {
         name: "pf2e-artisans-workshop.Keybinding.Workshop", hint: "pf2e-artisans-workshop.Keybinding.WorkshopHint", editable: [],
         onDown: () => {
             if (!isEnabled()) return false;
-            openWorkshop({});
+            // Focus goes into the window (M11 review): a keyboard user lands on its active tab, not where they were.
+            openWorkshop({ focus: true });
             return true;
         },
     });

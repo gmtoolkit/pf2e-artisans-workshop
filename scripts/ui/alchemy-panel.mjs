@@ -16,7 +16,8 @@
 import { additivesFor, brewPlan, combineFits, moveIndex, searchChoices } from "../logic/alchemy.mjs";
 import { alchemyFacts, quickAbilityOf, quickAlchemy } from "../foundry/alchemy.mjs";
 import { combatOffReason } from "../foundry/combat.mjs";
-import { focusState, restoreFocus } from "./focus.mjs";
+import { consumeKey, focusState, keepControlKeys, restoreFocus } from "./focus.mjs";
+import { withTheme } from "./theme.mjs";
 import { featName, number, refusalText, report } from "./format.mjs";
 import { OFF_TEXT } from "./bandolier.mjs";
 
@@ -59,6 +60,11 @@ export class QuickAlchemyPanel extends HandlebarsApplicationMixin(ApplicationV2)
         plan: { template: T("quick-alchemy-plan") },
     };
 
+    /** Parchment's classes while the setting is on (M11 review). */
+    constructor(options = {}) {
+        super(withTheme(options));
+    }
+
     /**
      * The character (a UUID), the search, the list's active row, the picks (UUIDs, a UUID twice for two of one item), the
      * additive, its second item, what then, and the Strike variant of a throw (0, 1 or 2: pf2e's multiple attack penalty).
@@ -97,6 +103,8 @@ export class QuickAlchemyPanel extends HandlebarsApplicationMixin(ApplicationV2)
         this.element.addEventListener("input", (event) => this.#onInput(event));
         this.element.addEventListener("change", (event) => this.#onChange(event));
         this.element.addEventListener("keydown", (event) => this.#onKeydown(event));
+        // M11 review: Tab, Space and Enter belong to the focused control, never to core's keybindings.
+        this.element.addEventListener("keydown", keepControlKeys);
         this.element.addEventListener("click", (event) => this.#onClick(event));
     }
 
@@ -196,25 +204,25 @@ export class QuickAlchemyPanel extends HandlebarsApplicationMixin(ApplicationV2)
         const inSearch = target?.dataset?.quick === "search";
         const inList = target?.dataset?.quick === "option";
         if (event.key === "Escape") {
-            event.preventDefault();
-            event.stopPropagation();
+            consumeKey(event);
             this.close();
             return;
         }
+        // A key answered here stops at the panel (M11 review): on a list row core would pan the canvas or pause the game.
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             if (!inSearch && !inList) return;
-            event.preventDefault();
+            consumeKey(event);
             // From the search field the first arrow goes into the list, onto its active row.
             this.move(inSearch ? 0 : event.key === "ArrowDown" ? 1 : -1);
             return;
         }
         if (event.key === " " && inList) {
-            event.preventDefault();
+            consumeKey(event);
             this.toggle(target.dataset.uuid);
             return;
         }
         if (event.key === "Enter" && (inSearch || inList)) {
-            event.preventDefault();
+            consumeKey(event);
             // Enter with nothing picked creates the item the list shows first (or has focus on).
             if (!this.picks.length && this.visible[this.active]) this.picks = [this.visible[this.active].uuid];
             this.create(null);

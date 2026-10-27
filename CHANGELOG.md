@@ -197,7 +197,8 @@ All notable changes to this module are documented here. The format follows
   Copy-paste macros live in `macros/`. A keybinding opens the Workshop. A "Parchment look" setting gives the windows the pf2e
   sheet's parchment in either colour scheme, and the Workshop opens at the size it was last given. The order rows have a
   right-click menu, the order detail keeps keyboard focus inside it while it covers the list, and the light theme's focus
-  ring and chat cards keep their contrast.
+  ring and chat cards keep their contrast. A window opened from the keyboard (the keybinding, the sheet's and the card's
+  buttons, the Macros button) puts focus in it, and focus stays where it was when the shelf, the strip or the card update.
 
 ### Changed
 
@@ -212,6 +213,13 @@ All notable changes to this module are documented here. The format follows
   DC column from players who may not see DCs; a finished order's check card no longer offers "0 more days"; "Acting as" stays
   on one line; the formula routes table keeps its Route column readable; the order detail's labels lose a stray text shadow in
   the light theme; unmet requirements say so to screen readers.
+- Keys pressed on the Workshop's order rows and tabs, in the Quick Alchemy panel's list, and Tab, Space and Enter anywhere in
+  the module's windows no longer also reach Foundry's own shortcuts: Space no longer pauses the game for a GM, the arrows no
+  longer pan the canvas and Tab no longer cycles the selected token.
+- Switching the Workshop off or on updates open character and party sheets at once; the Parchment look applies to every
+  Workshop window, not only the main one and the macro shelf; the Downtime tab's activity choice is named by its visible label;
+  "Roll Craft check" and "Finish order" with nothing to do say so instead of "That order no longer exists"; the macro shelf
+  says "Fund an order" and "Collect waiting items", as the Workshop does.
 
 - Talismanic Sage was never recognised when affixing (its feat was missing from the rules registry), so a sage could not
   put a second talisman on an item.

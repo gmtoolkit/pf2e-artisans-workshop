@@ -1972,13 +1972,13 @@
   "pf2e-artisans-workshop.Macro.OpenWorkshop.Hint": "Opens the Workshop on a tab, as a character, with a Queue filter.",
   "pf2e-artisans-workshop.Macro.RequestItem.Name": "Request item",
   "pf2e-artisans-workshop.Macro.RequestItem.Hint": "Asks the party for an item; opens the request form unless the item and everything else is given.",
-  "pf2e-artisans-workshop.Macro.Pledge.Name": "Pledge",
-  "pf2e-artisans-workshop.Macro.Pledge.Hint": "Puts money from a purse toward an order; without an order and an amount it opens the order's funding or the open orders.",
+  "pf2e-artisans-workshop.Macro.Pledge.Name": "Fund an order",
+  "pf2e-artisans-workshop.Macro.Pledge.Hint": "Funds an order from a purse; without an order and an amount it opens the order's funding or the open orders.",
   "pf2e-artisans-workshop.Macro.RollCraft.Name": "Roll Craft check",
   "pf2e-artisans-workshop.Macro.RollCraft.Hint": "Rolls the Craft check of an order; without one, the character's next order waiting for its check.",
   "pf2e-artisans-workshop.Macro.FinishOrder.Name": "Finish order",
   "pf2e-artisans-workshop.Macro.FinishOrder.Hint": "Pays what is left and finishes an order; without one, opens the character's order that can finish.",
-  "pf2e-artisans-workshop.Macro.TakeDeliveries.Name": "Take deliveries",
+  "pf2e-artisans-workshop.Macro.TakeDeliveries.Name": "Collect waiting items",
   "pf2e-artisans-workshop.Macro.TakeDeliveries.Hint": "Collects everything waiting on the pickup shelf for your characters.",
   "pf2e-artisans-workshop.Macro.Morning.Name": "Morning preparations",
   "pf2e-artisans-workshop.Macro.Morning.Hint": "Opens the Morning tab for a character, or applies a saved loadout.",
@@ -2019,6 +2019,8 @@
   "pf2e-artisans-workshop.Refusal.MacroError": "The macro stopped with an error; the console has the details.",
   "pf2e-artisans-workshop.Refusal.NoScript": "Your role cannot make script macros.",
   "pf2e-artisans-workshop.Refusal.HotbarFull": "Your hotbar has no free slot.",
+  "pf2e-artisans-workshop.Refusal.NoCheckOrder": "{actor} has no order waiting for its Craft check.",
+  "pf2e-artisans-workshop.Refusal.NothingToFinish": "{actor} has no order ready to finish.",
   "pf2e-artisans-workshop.Refusal.NoCard": "The summary could not be posted.",
   "pf2e-artisans-workshop.Card.Queue": "Workshop queue",
   "pf2e-artisans-workshop.Card.Summary.Queue": "Open orders: {open}. Requested: {requested}; being crafted: {working}; complete: {complete}.",
@@ -2042,6 +2044,5 @@
   "pf2e-artisans-workshop.Morning.Affix.MinutesOne": "Affixing the loose talismans takes about 1 minute of your preparations.",
   "pf2e-artisans-workshop.Variant.Garden.LimitOne": "{n} of 1 garden",
   "pf2e-artisans-workshop.Request.DaysAtOne": "1 day at {perDay}",
-  "pf2e-artisans-workshop.Request.FiledOne": "1 order filed.",
-  "pf2e-artisans-workshop.Downtime.ActivityOf": "What {name} spends the days on"
+  "pf2e-artisans-workshop.Request.FiledOne": "1 order filed."
 }

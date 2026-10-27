@@ -37,7 +37,8 @@ import { read } from "../foundry/store.mjs";
 import { activityOptions } from "./downtime.mjs";
 import { dayLines, extActivityName, jobName, orderName, spanText, stopText } from "./days.mjs";
 import { rollActivity } from "../foundry/extensions.mjs";
-import { focusState, restoreFocus } from "./focus.mjs";
+import { focusState, keepControlKeys, restoreFocus } from "./focus.mjs";
+import { withTheme } from "./theme.mjs";
 import { money, number, refusalText, report } from "./format.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -80,7 +81,7 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
      * @param {string|null} [options.actor]   the PC the resolver is for
      */
     constructor({ mode = "advance", actor = null, count = 1, advanceClock = false, ...options } = {}) {
-        super(options);
+        super(withTheme(options));
         // Not `state`: that is ApplicationV2's render state, a getter with no setter (Foundry 14). `count` and `advanceClock`
         // prefill the first step (M11: the "Advance days" macro's `days` and `advanceClock`, 11.1); moving the clock stays a GM's.
         this.wizard = {
@@ -274,6 +275,8 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.element.addEventListener("input", (event) => {
             if (event.target?.name === "count") this.fieldChanged(event.target);
         });
+        // M11 review: Tab, Space and Enter belong to the focused control, never to core's keybindings (token cycling, pause).
+        this.element.addEventListener("keydown", keepControlKeys);
         this.element.addEventListener("keydown", (event) => {
             // Enter in the number of days goes on, as in a form.
             if (event.key !== "Enter" || event.target?.name !== "count") return;
