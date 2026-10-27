@@ -24,6 +24,7 @@ import {
     resolvedThrough, secondsPerDayOf, wageDaysOf, wizardSpan, workshopDay, worldClockOffset,
 } from "../logic/downtime.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
+import { subjectLockOf } from "../logic/crafts.mjs";
 import { closedAs } from "../logic/orders.mjs";
 import { postDaysCard } from "../ui/chat.mjs";
 import { lockedWrite } from "./money.mjs";
@@ -175,7 +176,8 @@ const statusBase = (actor, stamp) => ({ [`pcs.${actor.id}.id`]: actor.id, [`pcs.
 
 /**
  * Put a PC in downtime or take it out (4.8), as its owner. In: its downtime starts after today. Out: refused as `helping`
- * while the PC is a Communal Crafting helper (6.7: helpers stay for the whole Craft; leave the order first); with days
+ * while the PC is a Communal Crafting helper (6.7: helpers stay for the whole Craft; leave the order first), as `subject`
+ * (M9) while it sits for a tattoo or graft (6.14); with days
  * still pending, refused as `days-pending` (with the count) unless `notDowntime`, which records the pending span as one
  * "not downtime" record, with no effects; resolve them first otherwise.
  */
@@ -193,6 +195,9 @@ export async function setDowntime(actorUuid, on, { notDowntime = false } = {}) {
     if (!status.inDowntime) return { ok: true, outcome: "already" };
     const lock = helperLockOf(records("orders"), actor.id);
     if (lock) return refuse("helping", { order: lock });
+    // M9 (6.14): a tattoo's or graft's subject sits for it until it is done, or withdraws its consent before it starts.
+    const subject = subjectLockOf(records("orders"), actor.uuid);
+    if (subject) return refuse("subject", { order: subject });
     const pending = pendingOf(actor);
     if (pending.count > 0 && !notDowntime) return refuse("days-pending", { count: pending.count });
     const off = { ...statusBase(actor, stamp), [`pcs.${actor.id}.inDowntime`]: false };

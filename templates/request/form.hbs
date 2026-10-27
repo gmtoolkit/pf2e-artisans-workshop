@@ -54,7 +54,7 @@
         {{/if}}
         {{/unless}}
     </fieldset>
-    {{#unless single}}
+    {{#unless (or single subjectType)}}
     <div class="form-group">
         <label for="{{formId}}-quantity">{{localize "pf2e-artisans-workshop.Request.Quantity"}}</label>
         <input type="number" name="quantity" id="{{formId}}-quantity" min="1" step="1" value="{{state.quantity}}">
@@ -105,12 +105,32 @@
         <p class="hint">{{localize "pf2e-artisans-workshop.Request.PerformerHint"}}</p>
     </div>
     {{else}}
+    {{#if subjectType}}
+    {{!-- M9 (6.14): a tattoo or graft is made on its subject, who receives it --}}
+    <div class="form-group">
+        <label for="{{formId}}-subject">{{localize "pf2e-artisans-workshop.Request.Subject"}}</label>
+        <select name="subject" id="{{formId}}-subject">
+            {{#each subjects}}<option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{name}}</option>{{/each}}
+        </select>
+        <p class="hint">{{localize "pf2e-artisans-workshop.Request.SubjectHint"}}</p>
+    </div>
+    {{#if replaceable.length}}
+    <div class="form-group">
+        <label for="{{formId}}-replaces">{{localize "pf2e-artisans-workshop.Request.Replaces"}}</label>
+        <select name="replaces" id="{{formId}}-replaces">
+            <option value="">{{localize "pf2e-artisans-workshop.Request.ReplacesNone"}}</option>
+            {{#each replaceable}}<option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{name}}</option>{{/each}}
+        </select>
+    </div>
+    {{/if}}
+    {{else}}
     <div class="form-group">
         <label for="{{formId}}-recipient">{{localize "pf2e-artisans-workshop.Request.Recipient"}}</label>
         <select name="recipient" id="{{formId}}-recipient">
             {{#each recipients}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{#if name}}{{name}}{{else}}{{localize label}}{{/if}}</option>{{/each}}
         </select>
     </div>
+    {{/if}}
     <div class="form-group">
         <label for="{{formId}}-crafter">{{localize "pf2e-artisans-workshop.Request.Crafter"}}</label>
         <select name="crafter" id="{{formId}}-crafter">

@@ -23,6 +23,7 @@ import { compareIds } from "../logic/ids.mjs";
 import { registerBatchWatcher } from "./batch.mjs";
 import { sweepWages } from "./downtime.mjs";
 import { expirySweep } from "./expiry.mjs";
+import { subjectSweep } from "./crafts.mjs";
 import { sweepClaims, sweepDeliveries } from "./claims.mjs";
 import { resumeFormulaClaims } from "./formulas.mjs";
 import { loadCoinTemplates } from "./coins.mjs";
@@ -204,6 +205,8 @@ const SWEEP_STEPS = [
     ["orders", () => sweepOrderRepairs()],
     // M7: party-wide expiry (7.7): items the actors this tab is responsible for hold, and its share of the strongbox.
     ["expiry", () => expirySweep()],
+    // M9: tattoos whose healing ended and inactive grafts, on their subject's responsible client (6.14).
+    ["subjects", () => subjectSweep()],
     ["resume", async () => sweepAgainIn("resume", (await resumeStalled()).dueInMs)],
     ["pending rows", () => sweepAgainIn("pending rows", reportOwnPending().dueInMs)],
 ];

@@ -15,7 +15,7 @@
  */
 import { FEAT, RANK, asSet } from "../logic/core.mjs";
 import { helperEligibility, joinHelper, leaveHelper, relevantSkills } from "../logic/communal.mjs";
-import { helperLockOf, PC_VERSION } from "../logic/downtime.mjs";
+import { lockOf, PC_VERSION } from "../logic/downtime.mjs";
 import { closedAs } from "../logic/orders.mjs";
 import { nextDayOf, statusOf, today } from "./downtime.mjs";
 import { featKeysOf, ranksOf } from "./registry.mjs";
@@ -51,7 +51,8 @@ export function eligibility(order, actor, skill) {
     const crafter = actorOf(order.crafter);
     const crafterHasFeat = asSet(featsOf(crafter)).has(FEAT.communalCrafting);
     const helperFeats = featsOf(actor);
-    const lock = helperLockOf(records("orders"), actor.id);
+    // M9: a subject sitting for a tattoo or graft is locked as a helper is (6.14).
+    const lock = lockOf(records("orders"), actor.id, actor.uuid);
     const others = Object.entries(order.helpers ?? {}).filter(([id, h]) => id !== actor.id && h.leftDay == null).length;
     const result = helperEligibility({
         helper: { isPC: actor.type === "character", feats: helperFeats, ranks: ranksOf(actor) },

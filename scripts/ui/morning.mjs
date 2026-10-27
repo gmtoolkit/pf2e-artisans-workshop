@@ -10,7 +10,7 @@
  *   stamp, and what the plan makes (each grade with its route), with problems and the diff against the last preparation.
  * - **Standing orders due** (7.6), as chips the crafter may leave out; the standing orders the character asked for or
  *   receives, with "End" and "Ask for a standing order".
- * - **Vials** (7.3), other prepared slots (snares, read-only), frequencies, the gap registry entries (7.10) with their
+ * - **Vials** (7.3), other prepared slots (snares, with their quick-deploy ledger, M9), frequencies, the gap registry entries (7.10) with their
  *   ticks, Food Preservation's designations, loadouts (save the current preparation, apply one, delete), the affix board
  *   (7.4) and what the character holds that will expire (7.7).
  *
@@ -19,6 +19,7 @@
  */
 import { familyBaseName } from "../logic/families.mjs";
 import { MAX_QTY } from "../logic/morning.mjs";
+import { deploySnare, setSnareMark } from "../foundry/crafts.mjs";
 import { members } from "../foundry/roster.mjs";
 import {
     affixBoardOf, affixOwn, applyMorning, captureLoadout, dailiesActive, deleteLoadout, endStanding, markGap, morningFacts, morningOn, placeStanding,
@@ -200,8 +201,10 @@ export async function morningContext(app) {
                 text: fmt("pf2e-artisans-workshop.Morning.StandingDue", { qty: number(s.qty), item: s.name || s.family, requester: nameOf(s.requester), recipient: nameOf(s.recipient) }) })),
             placed,
             vials,
-            slots: facts.slots.map((s) => ({ label: s.label, slots: s.maxSlots === null ? null : number(s.maxSlots),
-                byLevel: s.byLevel.map((b) => fmt("pf2e-artisans-workshop.Morning.ByLevel", { level: String(b.level), n: number(b.count) })) })),
+            slots: facts.slots.map((s) => ({ slug: s.slug, label: s.label, slots: s.maxSlots === null ? null : number(s.maxSlots),
+                byLevel: s.byLevel.map((b) => fmt("pf2e-artisans-workshop.Morning.ByLevel", { level: String(b.level), n: number(b.count) })),
+                // M9 (7.1): the quick-deploy ledger: each prepared snare ready or deployed, giant and broad ones at two slots.
+                ledger: s.ledger ? ledgerView(s.ledger, actor.isOwner) : null })),
             frequencies: facts.frequencies.map((f) => ({ name: f.name, text: fmt("pf2e-artisans-workshop.Morning.Frequency", { value: number(f.value), max: number(f.max) }) })),
             gaps,
             preservable: preservable(actor).map((item) => ({ id: item.id, name: item.name, preserved: !!stampOf(item).exempt })),
@@ -219,6 +222,22 @@ export async function morningContext(app) {
                 due: !!expiredWhy(item) })),
             inert: held.filter((item) => isInert(item)).map((item) => ({ id: item.id, name: item.name })),
         },
+    };
+}
+
+/** A prepared snare pool's quick-deploy ledger as the tab shows it (7.1, M9). */
+function ledgerView(ledger, owner) {
+    const markOptions = (current) => [null, ...ledger.allowed].map((mark) => ({ value: mark ?? "", selected: (current ?? null) === mark,
+        label: loc(mark === "giant" ? "pf2e-artisans-workshop.Morning.Snare.Mark.Giant" : mark === "broad" ? "pf2e-artisans-workshop.Morning.Snare.Mark.Broad"
+            : "pf2e-artisans-workshop.Morning.Snare.Mark.Plain") }));
+    return {
+        used: fmt("pf2e-artisans-workshop.Morning.Snare.Used", { used: number(ledger.used), max: ledger.max === null ? "-" : number(ledger.max) }),
+        over: ledger.over ? fmt("pf2e-artisans-workshop.Morning.Snare.Over", { n: number(ledger.over) }) : null,
+        deployed: fmt("pf2e-artisans-workshop.Morning.Snare.Deployed", { deployed: number(ledger.deployed), ready: number(ledger.ready) }),
+        canMark: owner && ledger.allowed.length > 0,
+        entries: ledger.entries.map((e) => ({ key: e.key, index: e.index, name: e.name ?? "", deployed: e.deployed, cost: e.cost > 1 ? fmt("pf2e-artisans-workshop.Morning.Snare.Cost", { n: number(e.cost) }) : null,
+            state: loc(e.deployed ? "pf2e-artisans-workshop.Morning.Snare.IsDeployed" : "pf2e-artisans-workshop.Morning.Snare.Ready"),
+            marks: markOptions(e.mark), canDeploy: owner && !e.deployed })),
     };
 }
 
@@ -262,6 +281,12 @@ export function onMorningChange(app, target) {
     }
     if (field === "loadoutName") {
         state.loadoutName = target.value;
+        return false;
+    }
+    if (field === "snareMark") {
+        // M9 (7.1): a giant or broad quick-deploy snare costs two slots; the mark is the owner's own flag.
+        const actor = morningActor(app);
+        if (actor) setSnareMark(actor.uuid, target.dataset.pool, target.dataset.key, target.value || null).then(report);
         return false;
     }
     return false;
@@ -340,6 +365,7 @@ export async function onMorningOp(app, target) {
             return report(await affixOwn(actor, target.dataset.talisman, host));
         }
         case "unaffix": return report(await unaffixOwn(actor, target.dataset.talisman));
+        case "deploy": return report(await deploySnare(actor.uuid, target.dataset.pool, Number(target.dataset.index)));
         default: return null;
     }
 }

@@ -17,6 +17,7 @@ import { wageKey, wageSeq } from "./earn-income.mjs";
 import { hashId } from "./ids.mjs";
 import { CLOSED, DAY_VERSION, workDayRecord } from "./orders.mjs";
 import { remainingCp, setupComplete } from "./progress.mjs";
+import { subjectLockOf } from "./crafts.mjs";
 
 /** Seconds in a day of the core calendar. */
 export const SECONDS_PER_DAY = 86400;
@@ -27,11 +28,12 @@ export const PC_VERSION = 1;
 /**
  * Activities a PC's downtime day can be spent on (4.8). M6 resolves `craft` (an order the PC crafts), `help` (an order
  * the PC helps with, 6.7) and `earn` (an Earn Income job); the others are recorded as the day's activity and change
- * nothing else (`formula` is an acquisition that takes a day, `ext` an extension's, M10).
+ * nothing else (`formula` is an acquisition that takes a day, `ext` an extension's, M10). M9 adds `subject`: the days a
+ * tattoo's or graft's subject sits for it (6.14).
  */
-export const ACTIVITY_KINDS = Object.freeze(["craft", "help", "earn", "formula", "subsist", "retrain", "prep-only", "other", "ext"]);
+export const ACTIVITY_KINDS = Object.freeze(["craft", "help", "earn", "subject", "formula", "subsist", "retrain", "prep-only", "other", "ext"]);
 /** Activities that name an order or a job (`ref`). */
-export const REF_KINDS = Object.freeze(["craft", "help", "earn"]);
+export const REF_KINDS = Object.freeze(["craft", "help", "earn", "subject"]);
 
 /* -------------------------------------------- */
 /*  The workshop day                             */
@@ -177,6 +179,17 @@ export function helperLockOf(orders, actorId) {
     return null;
 }
 
+/**
+ * The order a PC is locked to (M9): as a Communal Crafting helper (`helperLockOf`), else as the subject of a tattoo or
+ * graft that needs it present (`subjectLockOf`, 6.14). Null otherwise.
+ */
+export function lockOf(orders, actorId, actorUuid) {
+    return helperLockOf(orders, actorId) ?? (actorUuid ? subjectLockOf(orders, actorUuid) : null);
+}
+
+/** Whether an activity is the one a PC's lock asks for: helping on, or sitting for, that order. */
+const lockActivity = (activity, lock) => (activity?.kind === "help" || activity?.kind === "subject") && activity.ref === lock;
+
 /* -------------------------------------------- */
 /*  The day planner                              */
 /* -------------------------------------------- */
@@ -193,6 +206,7 @@ export function notDowntimeRecord(actorId, from, to, stamp) {
  * at the first day the activity cannot go on, and that day and the rest stay pending:
  * - `locked`: the PC is a Communal Crafting helper on another order (6.7) and must leave it first; a helper's days are
  *   never "not downtime" either, since their share is in the crafter's days (6.7: helpers stay for the whole activity);
+ * - `sitting` (M9): likewise a tattoo's or graft's subject, locked to the order it consented to (6.14);
  * - `no-order`, `order-state`: the order is gone, closed, not the PC's to craft, or in a state that takes no days
  *   (accepted, paused, failed);
  * - `check`: the Craft check is due (the order reached `check`, here or earlier in the span, or its day records already
@@ -201,6 +215,7 @@ export function notDowntimeRecord(actorId, from, to, stamp) {
  *   no day is ever written at a degree a reroll could still replace (6.2.3);
  * - `paid-off`: the check settled as a success and nothing is left to take off: finish the order;
  * - `not-helping`: the PC is not (or no longer) a helper on that order;
+ * - `not-subject` (M9): the PC is not the consenting subject of that order, or the order is over;
  * - `no-job`, `job-ended`: the job is gone, not the PC's, ended, or fired before this day;
  * - `income-check`: the job's Earn Income check is due (6.10: rolled after the first day; every day pays its result).
  *
@@ -234,9 +249,11 @@ export function planDays({ actorId, actorUuid, days, activity, orders = [], jobs
         out.stop = { day, reason, ...data };
         return out;
     };
-    const lock = helperLockOf(orders, actorId);
+    const lock = lockOf(orders, actorId, actorUuid);
+    // A helper is "locked"; a tattoo's or graft's subject (M9) is "sitting", so each is told in its own words.
+    const locked = lock && !helperLockOf(orders, actorId) ? "sitting" : "locked";
     if (!activity) {
-        if (lock) return stop(days[0], "locked", { ref: lock });
+        if (lock) return stop(days[0], locked, { ref: lock });
         out.records.push(notDowntimeRecord(actorId, days[0], days.at(-1), stamp));
         return out;
     }
@@ -250,7 +267,7 @@ export function planDays({ actorId, actorUuid, days, activity, orders = [], jobs
     };
     const all = [...records];
     for (const day of days) {
-        if (lock && !(activity.kind === "help" && activity.ref === lock)) return stop(day, "locked", { ref: lock });
+        if (lock && !lockActivity(activity, lock)) return stop(day, locked, { ref: lock });
         const base = {
             id: `${actorId}-${day}`, v: DAY_VERSION, actor: actorId, day, toDay: day,
             activity: { kind: activity.kind, ref: activity.ref ?? null }, rows: [], result: null, ...stamp,
@@ -284,6 +301,13 @@ export function planDays({ actorId, actorUuid, days, activity, orders = [], jobs
                 return stop(day, "not-helping", { ref: activity.ref });
             }
             record = { ...base, order: order.id, result: "help" };
+        } else if (activity.kind === "subject") {
+            // M9 (6.14): a day the subject sits for its tattoo or graft; nothing else happens on it.
+            const order = orderMap.get(activity.ref);
+            if (!order || order.target !== actorUuid || !order.subject?.consented || CLOSED.includes(order.status)) {
+                return stop(day, "not-subject", { ref: activity.ref });
+            }
+            record = { ...base, order: order.id, result: "subject" };
         } else if (activity.kind === "earn") {
             const job = jobMap.get(activity.ref);
             if (!job || job.actor !== actorUuid) return stop(day, "no-job", { ref: activity.ref });

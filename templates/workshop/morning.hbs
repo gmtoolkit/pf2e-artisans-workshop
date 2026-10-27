@@ -126,7 +126,24 @@
             {{#if slots.length}}
             <section class="morning-slots">
                 <h3>{{localize "pf2e-artisans-workshop.Morning.OtherSlots"}}</h3>
-                <ul>{{#each slots}}<li><strong>{{label}}</strong>{{#if slots}} · {{localize "pf2e-artisans-workshop.Morning.SourceSlots" n=slots}}{{/if}} {{#each byLevel}}<span class="chip">{{this}}</span>{{/each}}</li>{{/each}}</ul>
+                <ul>{{#each slots}}<li><strong>{{label}}</strong>{{#if slots}} · {{localize "pf2e-artisans-workshop.Morning.SourceSlots" n=slots}}{{/if}} {{#each byLevel}}<span class="chip">{{this}}</span>{{/each}}
+                    {{#with ledger}}
+                    <p class="snare-ledger"><span class="chip"><i class="fa-solid fa-boxes-stacked" inert></i> {{used}}</span> <span class="chip"><i class="fa-solid fa-person-running" inert></i> {{deployed}}</span>{{#if over}} <span class="chip warn"><i class="fa-solid fa-triangle-exclamation" inert></i> {{over}}</span>{{/if}}</p>
+                    {{#if entries.length}}
+                    <ul class="snare-entries">
+                        {{#each entries}}
+                        <li class="{{#if deployed}}expended{{/if}}">
+                            <span class="entry-name">{{name}}</span> <span class="chip">{{state}}</span>{{#if cost}} <span class="chip">{{cost}}</span>{{/if}}
+                            {{#if ../canMark}}<select data-morning="snareMark" data-pool="{{../../slug}}" data-key="{{key}}" aria-label="{{localize 'pf2e-artisans-workshop.Morning.Snare.MarkLabel'}}">
+                                {{#each marks}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+                            </select>{{/if}}
+                            {{#if canDeploy}}<button type="button" class="small" data-action="morning" data-op="deploy" data-pool="{{../../slug}}" data-index="{{index}}"><i class="fa-solid fa-person-running" inert></i>{{localize "pf2e-artisans-workshop.Morning.Snare.Deploy"}}</button>{{/if}}
+                        </li>
+                        {{/each}}
+                    </ul>
+                    {{/if}}
+                    {{/with}}
+                </li>{{/each}}</ul>
             </section>
             {{/if}}
             {{#if frequencies.length}}

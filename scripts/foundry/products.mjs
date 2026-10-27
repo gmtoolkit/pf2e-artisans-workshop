@@ -11,6 +11,10 @@
  * rune's Price, or the difference to the rune it upgrades, from pf2e's rune items) and a rune transferred between items
  * (6.13), a spell-supplied item with its casting pledges (6.9), and the precious-material share of the up-front materials
  * from the stock earmarked to the order (6.6).
+ *
+ * M9 adds tattoos and grafts (6.14: the subject's consent and presence as G10, one at a time as G11, Medicine for a graft,
+ * an upgrade of a tattoo or graft the subject has at the Price difference), the spells an item's own description asks for
+ * (`spellNeeds`, 6.9), the crafter's spellcasting traditions, and a fulu's tradition (G12 until one is known).
  */
 import { MODULE_ID } from "../constants.mjs";
 import { batchMax } from "../logic/batches.mjs";
@@ -21,8 +25,11 @@ import { familyKey, formulaCoverage } from "../logic/families.mjs";
 import { craftRoute, formulaJobPlan, formulaOrderGates } from "../logic/formula-jobs.mjs";
 import { craftGates } from "../logic/gates.mjs";
 import { materialsCp, orderPrecious, runeLevelProblem } from "../logic/materials.mjs";
-import { CLOSED, TARGETED, escrowCp } from "../logic/orders.mjs";
+import { CLOSED, TARGETED, WITH_SUBJECT, escrowCp } from "../logic/orders.mjs";
 import { castingsOf, spellGate, spellSupply } from "../logic/pledges.mjs";
+import { spellNeedsOf } from "../logic/spell-lists.mjs";
+import { busyWith, fuluTradition, subjectCustody, subjectProcess } from "../logic/crafts.mjs";
+import { lockOf, pcStatusOf } from "../logic/downtime.mjs";
 import {
     batchMultiplier, consumableFix, craftOptions, heldKeys, routeInputs, tools, unlocks,
 } from "../logic/registry.mjs";
@@ -32,7 +39,7 @@ import {
 import { catalogue } from "./catalogue.mjs";
 import { heldKeysOf, ranksOf, toolKeysOf } from "./registry.mjs";
 import { shared } from "./state.mjs";
-import { records } from "./store.mjs";
+import { read, records } from "./store.mjs";
 
 const facts = new Map();
 
@@ -53,7 +60,8 @@ const unitPriceCp = (item) => Math.round((item.price?.value?.copperValue ?? 0) /
 /**
  * Plain facts about a physical item by UUID, or null if it is not one: `{uuid, name, img, type, slug, level, rarity,
  * traits, category, priceCp, per, options, isArtifact, consumableFix, book, usage, spellcasting, material, magical,
- * runes, isSpecific}`. `priceCp` is the prepared item's Price for `per` items.
+ * runes, isSpecific, spellNeeds}`. `priceCp` is the prepared item's Price for `per` items; `spellNeeds` (M9) the spells its
+ * description asks a Craft to supply (`spellNeedsOf`).
  */
 export async function productFacts(uuid) {
     if (facts.has(uuid)) return facts.get(uuid);
@@ -69,6 +77,7 @@ export async function productFacts(uuid) {
         book: item.system?.publication?.title ?? null, usage: item.system?.usage?.value ?? null, spellcasting: spellcastingOf(uuid),
         material: { type: item.system?.material?.type ?? null, grade: item.system?.material?.grade ?? null }, magical: isMagical({ traits }),
         runes: item.system?.runes ? structuredClone(item.system.runes) : null, isSpecific: !!item.isSpecific,
+        spellNeeds: spellNeedsOf({ html: item.system?.description?.value ?? "", traits, name: doc.name ?? item.name, spellcasting: spellcastingOf(uuid) }),
     });
     facts.set(uuid, result);
     return result;
@@ -127,7 +136,18 @@ async function runePriceCp(rune) {
     return item ? item.priceCp : null;
 }
 
-/** The crafter's facts for the gates and the plan: level, ranks, registry keys, tools and known formulas. */
+/** The magic traditions of an actor's spellcasting entries (pf2e's `actor.spellcasting.regular`), M9 (a fulu's, 6.14). */
+export function traditionsOf(actor) {
+    let entries;
+    try {
+        entries = [...(actor?.spellcasting?.regular ?? [])];
+    } catch {
+        entries = [];
+    }
+    return [...new Set(entries.map((entry) => entry?.tradition).filter((t) => typeof t === "string" && t))].sort();
+}
+
+/** The crafter's facts for the gates and the plan: level, ranks, registry keys, tools, known formulas and traditions. */
 export function crafterFacts(actor) {
     const held = heldKeysOf(actor);
     return {
@@ -136,8 +156,12 @@ export function crafterFacts(actor) {
         formulas: (actor.system?.crafting?.formulas ?? []).map((formula) => formula.uuid),
         free: actor.flags?.pf2e?.freeCrafting === true,
         items: actor.items ?? [],
+        traditions: traditionsOf(actor),
     };
 }
+
+/** The skill an order rolls (M9): Medicine for a graft (Howl of the Wild p.97), else its own (Crafting by default). */
+export const skillFor = (order) => (order?.craftType === "graft" ? "medicine" : order?.skill ?? "crafting");
 
 /** Registry keys of the gear in the strongbox, which counts for tools wherever the crafter is (G7). */
 function strongboxToolKeys() {
@@ -287,10 +311,25 @@ async function changePlan(order, product) {
 }
 
 /**
+ * The upgrade of a tattoo or graft its subject has (6.14: "an order on an existing tattoo, cost = Price difference"; Howl
+ * of the Wild p.97): the item `variant.replaces` names, on the subject, of the product's family and a lower level. A
+ * refusal names what is wrong (`no-target`, `not-upgrade`, `no-price`).
+ */
+function replacePlan(order, product) {
+    const old = liveItemFacts(fromUuidSync(order.variant?.replaces ?? "", { strict: false }));
+    if (!old || old.actorUuid !== order.target) return { ok: false, reason: "no-target" };
+    const sourceName = old.sourceId ? fromUuidSync(old.sourceId, { strict: false })?.name : null;
+    const sameFamily = familyKey({ ...product }) === familyKey({ name: sourceName ?? old.name, type: old.type, category: product.category });
+    if (!sameFamily || product.level <= old.level) return { ok: false, reason: "not-upgrade" };
+    const diff = priceDifferenceCp(old.priceCp, Math.round(product.priceCp / product.per));
+    return diff === null ? { ok: false, reason: "no-price" } : { ok: true, unitCp: diff, level: product.level, rarity: product.rarity, target: old };
+}
+
+/**
  * The plan an order would freeze at start (6.2.2) for this crafter: Price and up-front half, setup and DC, the batch
  * limit and route, or a refusal (`quantity`, `no-price`, and for an order that changes an item `no-target`, `no-source`,
  * `target-stack`, `not-upgrade`, `not-rune`, `wrong-item`, `grade-rune-level`, `rune-unsupported`, `not-stronger`,
- * `has-rune`, `not-there`, `occupied`).
+ * `has-rune`, `not-there`, `occupied`). M9: a tattoo or graft makes one, or upgrades the one its subject has.
  */
 export async function planFor(order, crafter, product, rules) {
     if (order.product?.type === "formula") return formulaPlan(order, crafter, product);
@@ -298,8 +337,11 @@ export async function planFor(order, crafter, product, rules) {
     const route = await routeFor(crafter, product, rules);
     const options = craftOptions({ item: product.options, held: crafter.held, route, craftType });
     const targeted = TARGETED.includes(craftType);
-    const max = targeted ? 1 : batchMax({ ...product, per: product.per },
-        { multiplier: batchMultiplier(crafter.held, options, rules), pledgedCastings: ["probe", "preview"].includes(order.id) ? 4 : castingsOf(order) }, rules);
+    const subject = WITH_SUBJECT.includes(craftType);
+    // A scroll batch is held to the castings pledged by G9; before any are pledged its plan is the order's own quantity.
+    const pledged = ["probe", "preview"].includes(order.id) ? 4 : Math.max(castingsOf(order), order.quantity ?? 1);
+    const max = targeted || subject ? 1 : batchMax({ ...product, per: product.per },
+        { multiplier: batchMultiplier(crafter.held, options, rules), pledgedCastings: pledged }, rules);
     if (!Number.isInteger(order.quantity) || order.quantity < 1 || order.quantity > max) {
         return { ok: false, reason: "quantity", data: { max }, route, batchMax: max };
     }
@@ -314,6 +356,11 @@ export async function planFor(order, crafter, product, rules) {
         cost = change.unitCp === 0 && craftType === "rune-transfer"
             ? { ok: true, priceCp: 0, upfrontCp: 0, listPriceCp: 0, free: false }
             : craftCost({ unitPriceCp: change.unitCp, quantity: 1, free: crafter.free });
+    } else if (subject && order.variant?.replaces) {
+        change = replacePlan(order, product);
+        if (!change.ok) return { ...change, route, batchMax: max };
+        ({ level, rarity } = change);
+        cost = craftCost({ unitPriceCp: change.unitCp, quantity: 1, free: crafter.free });
     } else {
         cost = craftCost({ unitPriceCp: product.priceCp, per: product.per, quantity: order.quantity, free: crafter.free });
     }
@@ -334,14 +381,14 @@ export async function planFor(order, crafter, product, rules) {
 export async function planEstimate(order, rules) {
     if (Number.isInteger(order?.priceCp)) return null;
     const crafter = order.crafter ? fromUuidSync(order.crafter, { strict: false }) : null;
-    if (!crafter && !TARGETED.includes(order.craftType)) return null;
+    if (!crafter && !TARGETED.includes(order.craftType) && !(WITH_SUBJECT.includes(order.craftType) && order.variant?.replaces)) return null;
     const product = await productFacts(order.product?.uuid);
     if (!product) return null;
     if (crafter) {
         const plan = await planFor(order, crafterFacts(crafter), product, rules);
         return plan.ok ? { priceCp: plan.priceCp, upfrontCp: plan.upfrontCp } : null;
     }
-    const change = await changePlan(order, product);
+    const change = WITH_SUBJECT.includes(order.craftType) ? replacePlan(order, product) : await changePlan(order, product);
     if (!change.ok) return null;
     if (change.unitCp === 0 && order.craftType === "rune-transfer") return { priceCp: 0, upfrontCp: 0 };
     const cost = craftCost({ unitPriceCp: change.unitCp, quantity: 1 });
@@ -379,20 +426,36 @@ export async function gatesFor(order, crafter, product, orderRows, rules) {
     const supply = spellSupply(product);
     const spells = supply ? spellGate(order, supply) : {};
     const precious = orderPrecious({ product, crafter: { level: crafter.level, rank: crafter.ranks?.crafting ?? 0 }, order, upfrontCp, coinCp }, rules);
+    const all = records("orders");
+    // M9 (6.14): a tattoo's or graft's subject has consented and sits for it where the process needs it present (G10); the
+    // crafter is locked to no other order as a helper or subject, and works on one tattoo (graft) at a time (G11).
+    const process = WITH_SUBJECT.includes(craftType) ? subjectProcess(craftType, rules, order.variant?.process ?? null) : null;
     const custody = TARGETED.includes(craftType)
         ? { targetHeld: inCustody(order, targetOf(order)) && (craftType !== "rune-transfer" || inCustody(order, targetOf(order, "source"))) }
-        : {};
+        : process ? subjectCustody(order, process, subjectStatus(order)) : {};
+    crafterGate.lockedBy = crafter.actorId ? lockOf(all, crafter.actorId, crafter.uuid) : null;
+    const busy = process?.oneAtATime ? busyWith(all, { id: order.id, crafter: crafter.uuid, craftType }) : null;
     const changeLevel = plan.change?.level ?? product.level;
     const gates = craftGates({
-        crafter: crafterGate, item: { ...item, level: changeLevel },
+        crafter: crafterGate, item: { ...item, level: changeLevel }, skill: skillFor({ ...order, craftType }),
         orderId: order.id, craftType, route: plan.route, accessGrant: routeInputs(crafter.held, product, options, crafter.level, rules).accessGrant,
-        tools: { available }, escrowCp: escrow, upfrontCp, precious, spells, custody,
+        tools: { available }, escrowCp: escrow, upfrontCp, precious, spells, custody, busyWith: busy,
         rune: plan.change?.check ?? null,
     }, rules).map((gate) => (craftType === "rune-transfer" && (gate.id === "G5" || gate.id === "G6")
         ? { id: gate.id, ok: true, reason: null, data: null, unlock: null } : gate));
     if (!plan.ok && plan.reason === "quantity") gates.push({ id: "batch", ok: false, reason: "quantity", data: plan.data, unlock: null });
     else if (!plan.ok && plan.reason !== "no-price") gates.push({ id: "G12", ok: false, reason: plan.reason, data: plan.data ?? {}, unlock: null });
+    // M9: a fulu takes its creator's tradition (Secrets of Magic p.158): the crafter's only one, or the one chosen for it.
+    if (product.traits.includes("fulu") && !fuluTradition({ chosen: order.variant?.tradition ?? null, traditions: crafter.traditions ?? [] })) {
+        gates.push({ id: "G12", ok: false, reason: "fulu-tradition", data: { traditions: [...(crafter.traditions ?? [])] }, unlock: null });
+    }
     return { gates, plan };
+}
+
+/** A subject order's subject's downtime status (`pcs.<id>`), for G10 (M9). */
+function subjectStatus(order) {
+    const subject = typeof order.target === "string" ? fromUuidSync(order.target, { strict: false }) : null;
+    return subject?.id ? pcStatusOf(read("pcs") ?? {}, subject.id) : null;
 }
 
 /**
@@ -405,7 +468,8 @@ export async function candidatesFor(order, product, members, rules) {
     for (const actor of members) {
         const crafter = crafterFacts(actor);
         const { gates, plan } = await gatesFor(order, crafter, product, [], rules);
-        if (gates.filter((g) => !ignored.has(g.id)).every((g) => g.ok)) {
+        // A fulu's tradition is chosen after accepting it (M9), as the tools and materials are sorted out.
+        if (gates.filter((g) => !ignored.has(g.id) && g.reason !== "fulu-tradition").every((g) => g.ok)) {
             out.push({ uuid: actor.uuid, name: actor.name, route: plan.route, formula: ROUTES_WITH_FORMULA.includes(plan.route) });
         }
     }

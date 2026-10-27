@@ -34,6 +34,8 @@ export const RULE_SETTINGS = Object.freeze([
     { key: "rules.snareToolkitIsArtisans", rule: "snareToolkitIsArtisans", name: "pf2e-artisans-workshop.Settings.SnareToolkitIsArtisans.Name", hint: "pf2e-artisans-workshop.Settings.SnareToolkitIsArtisans.Hint" },
     { key: "rules.tattooProcess", rule: "tattooProcess", name: "pf2e-artisans-workshop.Settings.TattooProcess.Name", hint: "pf2e-artisans-workshop.Settings.TattooProcess.Hint",
         choices: { "secrets-of-magic": "pf2e-artisans-workshop.Settings.TattooProcess.SecretsOfMagic", simple: "pf2e-artisans-workshop.Settings.TattooProcess.Simple" } },
+    { key: "rules.tattooSubjectLocked", rule: "tattooSubjectLocked", name: "pf2e-artisans-workshop.Settings.TattooSubjectLocked.Name", hint: "pf2e-artisans-workshop.Settings.TattooSubjectLocked.Hint" },
+    { key: "rules.tattooHealingDays", rule: "tattooHealingDays", name: "pf2e-artisans-workshop.Settings.TattooHealingDays.Name", hint: "pf2e-artisans-workshop.Settings.TattooHealingDays.Hint" },
     { key: "rules.talismanHostsExcludeBombs", rule: "talismanHostsExcludeBombs", name: "pf2e-artisans-workshop.Settings.TalismanHostsExcludeBombs.Name", hint: "pf2e-artisans-workshop.Settings.TalismanHostsExcludeBombs.Hint" },
     { key: "rules.earnIncomeOtherSkillDc", rule: "earnIncomeOtherSkillDc", name: "pf2e-artisans-workshop.Settings.EarnIncomeOtherSkillDc.Name", hint: "pf2e-artisans-workshop.Settings.EarnIncomeOtherSkillDc.Hint" },
     { key: "rules.downtimeRerolls", rule: "downtimeRerolls", name: "pf2e-artisans-workshop.Settings.DowntimeRerolls.Name", hint: "pf2e-artisans-workshop.Settings.DowntimeRerolls.Hint",
@@ -183,6 +185,13 @@ export function registerSettings(handlers) {
         scope: "user", config: true, type: Boolean, default: true,
     });
     game.settings.register(MODULE_ID, "bandolier.position", { scope: "user", config: false, type: Object, default: {} });
+    // M9 (DESIGN.md 14.1, 6.14): tattoo and graft orders with their subject, process, healing and investiture; off, a tattoo or
+    // graft is crafted as a plain item.
+    game.settings.register(MODULE_ID, "features.tattoos", {
+        name: "pf2e-artisans-workshop.Settings.FeaturesTattoos.Name",
+        hint: "pf2e-artisans-workshop.Settings.FeaturesTattoos.Hint",
+        scope: "world", config: true, type: Boolean, default: true,
+    });
     // M8a (DESIGN.md 14.1, 14.5): the affliction tracker, independent of the combat features and of Duct Tape, and who rolls,
     // when, and what Affliction Forge gets.
     game.settings.register(MODULE_ID, "features.afflictions", {

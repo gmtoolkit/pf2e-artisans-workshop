@@ -219,12 +219,16 @@ export function wireAmountForm(root, limits) {
     update();
 }
 
-/** One localized paragraph of dialog content. */
-const paragraph = (key) => ["<p>", foundry.utils.escapeHTML(game.i18n.localize(key)), "</p>"].join("");
+/** One localized paragraph of dialog content, formatted with `data` when given. */
+const paragraph = (key, data = null) => ["<p>", foundry.utils.escapeHTML(data ? game.i18n.format(key, data) : game.i18n.localize(key)), "</p>"].join("");
 
-/** Ask the user to confirm an action that cannot be undone, in the browser window `app` (the window that asks) is in. */
+/**
+ * Ask the user to confirm an action that cannot be undone, in the browser window `app` (the window that asks) is in.
+ * `content` is one key, or several paragraphs as `{key, data}` (M9: what agreeing to sit for a tattoo or graft means).
+ */
 export function confirm({ title, content, app = null }) {
-    return dialogs().confirm({ window: { title }, content: paragraph(content), rejectClose: false, renderOptions: inWindowOf(app) });
+    const html = (Array.isArray(content) ? content : [{ key: content }]).map(({ key, data = null }) => paragraph(key, data)).join("");
+    return dialogs().confirm({ window: { title }, content: html, rejectClose: false, renderOptions: inWindowOf(app) });
 }
 
 const CHOOSE = "modules/pf2e-artisans-workshop/templates/prompts/choose.hbs";

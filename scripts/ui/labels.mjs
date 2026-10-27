@@ -71,6 +71,10 @@ export const GATE = Object.freeze({
     "has-rune": "pf2e-artisans-workshop.Gate.HasRune",
     "not-there": "pf2e-artisans-workshop.Gate.NotThere",
     occupied: "pf2e-artisans-workshop.Gate.Occupied",
+    // M9: tattoos and grafts one at a time (6.14), a fulu's tradition and formula.
+    "one-at-a-time": "pf2e-artisans-workshop.Gate.OneAtATime",
+    "fulu-tradition": "pf2e-artisans-workshop.Gate.FuluTradition",
+    "no-reverse-engineer": "pf2e-artisans-workshop.Gate.NoReverseEngineer",
     other: "pf2e-artisans-workshop.Gate.Other",
 });
 
@@ -137,6 +141,7 @@ export const REFUSAL = Object.freeze({
     castings: "pf2e-artisans-workshop.Refusal.Castings",
     "no-pledge": "pf2e-artisans-workshop.Refusal.NoPledge",
     "no-casting-service": "pf2e-artisans-workshop.Refusal.NoCastingService",
+    "cantrip-service": "pf2e-artisans-workshop.Refusal.CantripService",
     "no-item": "pf2e-artisans-workshop.Refusal.NoItem",
     "in-strongbox": "pf2e-artisans-workshop.Refusal.InStrongbox",
     "not-stock": "pf2e-artisans-workshop.Refusal.NotStock",
@@ -275,6 +280,22 @@ export const REFUSAL = Object.freeze({
     "cloud-gone": "pf2e-artisans-workshop.Refusal.CloudGone",
     "forge-off": "pf2e-artisans-workshop.Refusal.ForgeOff",
     "forge-refused": "pf2e-artisans-workshop.Refusal.ForgeRefused",
+    // M9: subjects (6.14), listed castings (6.9), fulus, missives and snares.
+    subject: "pf2e-artisans-workshop.Refusal.Subject",
+    "not-subject": "pf2e-artisans-workshop.Refusal.NotSubject",
+    "subject-recipient": "pf2e-artisans-workshop.Refusal.SubjectRecipient",
+    "no-consent": "pf2e-artisans-workshop.Gate.NoConsent",
+    "subject-locked": "pf2e-artisans-workshop.Refusal.SubjectLocked",
+    "not-on-list": "pf2e-artisans-workshop.Refusal.NotOnList",
+    covered: "pf2e-artisans-workshop.Refusal.Covered",
+    "any-castings": "pf2e-artisans-workshop.Refusal.AnyCastings",
+    tradition: "pf2e-artisans-workshop.Refusal.Tradition",
+    "not-missive": "pf2e-artisans-workshop.Refusal.NotMissive",
+    composed: "pf2e-artisans-workshop.Refusal.Composed",
+    "no-pool": "pf2e-artisans-workshop.Refusal.NoPool",
+    mark: "pf2e-artisans-workshop.Refusal.Mark",
+    deployed: "pf2e-artisans-workshop.Refusal.Deployed",
+    "not-deployed": "pf2e-artisans-workshop.Refusal.NotDeployed",
     other: "pf2e-artisans-workshop.Refusal.Other",
 });
 
@@ -335,6 +356,9 @@ export const REQUIREMENT = Object.freeze({
     "G10.possession": "pf2e-artisans-workshop.Requirement.G10Possession",
     "G12.rune": "pf2e-artisans-workshop.Requirement.G12Rune",
     "G12.upgrade": "pf2e-artisans-workshop.Requirement.G12Upgrade",
+    // M9: a tattoo's or graft's subject (6.14).
+    "G10.subject": "pf2e-artisans-workshop.Requirement.G10Subject",
+    "G11.subject": "pf2e-artisans-workshop.Requirement.G11Subject",
     batch: "pf2e-artisans-workshop.Requirement.Batch",
     other: "pf2e-artisans-workshop.Requirement.Other",
 });
@@ -394,6 +418,25 @@ export const CRAFT_TYPE = Object.freeze({
     "rune-transfer": "pf2e-artisans-workshop.CraftType.RuneTransfer",
     "spell-item": "pf2e-artisans-workshop.CraftType.SpellItem",
     formula: "pf2e-artisans-workshop.CraftType.Formula",
+    // M9 (6.14).
+    tattoo: "pf2e-artisans-workshop.CraftType.Tattoo",
+    graft: "pf2e-artisans-workshop.CraftType.Graft",
+});
+
+/** A delivered tattoo's or graft's state (6.14, M9): a word and an icon each. */
+export const SUBJECT_STATE = Object.freeze({
+    healing: { key: "pf2e-artisans-workshop.Subject.State.Healing", icon: "fa-solid fa-bandage" },
+    invested: { key: "pf2e-artisans-workshop.Subject.State.Invested", icon: "fa-solid fa-circle-check" },
+    decorative: { key: "pf2e-artisans-workshop.Subject.State.Decorative", icon: "fa-solid fa-palette" },
+    inactive: { key: "pf2e-artisans-workshop.Subject.State.Inactive", icon: "fa-solid fa-circle-pause" },
+    mundane: { key: "pf2e-artisans-workshop.Subject.State.Mundane", icon: "fa-solid fa-pen-nib" },
+});
+
+/** The tattoo processes (6.14), as the Queue names them. */
+export const TATTOO_PROCESS = Object.freeze({
+    "secrets-of-magic": "pf2e-artisans-workshop.Settings.TattooProcess.SecretsOfMagic",
+    simple: "pf2e-artisans-workshop.Settings.TattooProcess.Simple",
+    graft: "pf2e-artisans-workshop.CraftType.Graft",
 });
 
 /** Service kinds and states (4.5). */
@@ -465,12 +508,14 @@ export const EVENT = Object.freeze({
 /** Why a day plan stopped (`planDays`): what the day resolver, the wizard and the day card say, with what to do next. */
 export const DAY_STOP = Object.freeze({
     locked: "pf2e-artisans-workshop.DayStop.Locked",
+    sitting: "pf2e-artisans-workshop.DayStop.Sitting",
     "no-order": "pf2e-artisans-workshop.DayStop.NoOrder",
     "order-state": "pf2e-artisans-workshop.DayStop.OrderState",
     check: "pf2e-artisans-workshop.DayStop.Check",
     settle: "pf2e-artisans-workshop.DayStop.Settle",
     "paid-off": "pf2e-artisans-workshop.DayStop.PaidOff",
     "not-helping": "pf2e-artisans-workshop.DayStop.NotHelping",
+    "not-subject": "pf2e-artisans-workshop.DayStop.NotSubject",
     "no-job": "pf2e-artisans-workshop.DayStop.NoJob",
     "job-ended": "pf2e-artisans-workshop.DayStop.JobEnded",
     "income-check": "pf2e-artisans-workshop.DayStop.IncomeCheck",
@@ -482,6 +527,7 @@ export const ACTIVITY = Object.freeze({
     craft: "pf2e-artisans-workshop.Activity.Craft",
     help: "pf2e-artisans-workshop.Activity.Help",
     earn: "pf2e-artisans-workshop.Activity.Earn",
+    subject: "pf2e-artisans-workshop.Activity.Subject",
     subsist: "pf2e-artisans-workshop.Activity.Subsist",
     retrain: "pf2e-artisans-workshop.Activity.Retrain",
     other: "pf2e-artisans-workshop.Activity.Other",

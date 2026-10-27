@@ -15,7 +15,7 @@
  */
 import { helperRate } from "../logic/communal.mjs";
 import { DEGREE, liveRows } from "../logic/core.mjs";
-import { activityKey, parseActivity, helperLockOf } from "../logic/downtime.mjs";
+import { activityKey, helperLockOf, parseActivity, lockOf } from "../logic/downtime.mjs";
 import { daysPaid, maxTaskLevel, wagePerDay } from "../logic/earn-income.mjs";
 import { jobActions, SETTLEMENT_SIZES } from "../logic/jobs.mjs";
 import { CLOSED } from "../logic/orders.mjs";
@@ -59,7 +59,7 @@ export function downtimeState(app) {
 
 /**
  * The activities a PC's days can go to (4.8), as select options: the orders it crafts that take days, the orders it helps
- * with, its open Earn Income jobs, and the plain activities; `extra` adds the wizard's "leave for the owner" and "not
+ * with, the tattoo or graft it sits for (M9), its open Earn Income jobs, and the plain activities; `extra` adds the wizard's "leave for the owner" and "not
  * downtime".
  */
 export function activityOptions(actor, current, { extra = [] } = {}) {
@@ -68,6 +68,10 @@ export function activityOptions(actor, current, { extra = [] } = {}) {
         if (order.crafter === actor.uuid && WORKING.includes(order.status)) options.push({ kind: "craft", ref: order.id });
         const helper = order.helpers?.[actor.id];
         if (helper && helper.leftDay == null && !CLOSED.includes(order.status)) options.push({ kind: "help", ref: order.id });
+        // M9 (6.14): the tattoo or graft this PC sits for.
+        if (order.subject?.consented && order.target === actor.uuid && order.crafter !== actor.uuid && !CLOSED.includes(order.status)) {
+            options.push({ kind: "subject", ref: order.id });
+        }
     }
     if (incomeOn()) for (const job of records("jobs")) if (job.actor === actor.uuid && job.status === "open") options.push({ kind: "earn", ref: job.id });
     for (const kind of PLAIN_ACTIVITIES) options.push({ kind, ref: null });
@@ -87,7 +91,7 @@ function pcRow(actor, now) {
     const status = statusOf(actor);
     const pending = pendingOf(actor, now);
     const resolved = resolvedOf(actor);
-    const lock = helperLockOf(records("orders"), actor.id);
+    const lock = lockOf(records("orders"), actor.id, actor.uuid);
     const owner = actor.isOwner;
     return {
         uuid: actor.uuid, id: actor.id, name: actor.name, img: actor.img, owner,
@@ -99,7 +103,8 @@ function pcRow(actor, now) {
         nextText: fmt("pf2e-artisans-workshop.Downtime.Next", { day: number(nextDayOf(actor, now)) }),
         activityText: activityText(status.activity),
         activityOptions: owner ? activityOptions(actor, status.activity, { extra: ["none"] }).map((o) => (o.value === "none" ? { ...o, value: "" } : o)) : null,
-        locked: lock ? fmt("pf2e-artisans-workshop.Downtime.Locked", { item: orderName(lock) }) : null,
+        locked: lock ? fmt(helperLockOf(records("orders"), actor.id) ? "pf2e-artisans-workshop.Downtime.Locked" : "pf2e-artisans-workshop.Downtime.Sitting",
+            { item: orderName(lock) }) : null,
         canResolve: pending.count > 0 && canWrite(),
         // Days to resolve and nothing to spend them on: say so beside Resolve, whose window asks for an activity.
         noActivity: pending.count > 0 && !status.activity,

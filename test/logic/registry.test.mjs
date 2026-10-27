@@ -66,6 +66,10 @@ const KINDS = {
     gather: (e) => Number.isInteger(e.per10) && e.per10 > 2,
     quickVial: (e) => e.quickened === true,
     quickBomber: () => true,
+    // M9 (6.14, 7.1).
+    crafterMark: (e) => typeof e.mark === "string" && Number.isInteger(e.by) && Number.isInteger(e.below) && typeof e.when === "object",
+    investitureExempt: (e) => Number.isInteger(e.per) && e.per > 0 && typeof e.count === "string" && typeof e.when === "object",
+    quickDeploy: (e) => ["giant", "broad"].includes(e.mark) && Number.isInteger(e.cost),
     // M8a (8.10.4-8.10.6).
     afflictionModifier: (e) => typeof e.mod === "string" && ["creator", "deliverer", "victim", "additive"].includes(e.as) && (e.when === undefined || typeof e.when === "object"),
 };

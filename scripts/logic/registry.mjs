@@ -360,3 +360,29 @@ export function repairEyepiece(held, rules = DEFAULT_RULES) {
     const effect = heldEffects(held, "repairHp", rules)[0]?.effect;
     return effect ? { success: effect.success, critSuccess: effect.critSuccess } : null;
 }
+
+/* -------------------------------------------- */
+/*  Tattoos, grafts and snares (M9)              */
+/* -------------------------------------------- */
+
+/**
+ * The marks a crafter puts on what they make (6.14, `crafterMark`: Legendary Tattoo Artist's +1 to a tattoo's activated
+ * abilities and resistances), each `{key, mark, by, below}`, for a product whose options the effect's predicate matches.
+ */
+export function crafterMarks(held, options, rules = DEFAULT_RULES) {
+    return heldEffects(held, "crafterMark", rules).filter(({ effect }) => testPredicate(effect.when, options))
+        .map(({ key, effect }) => ({ key, mark: effect.mark, by: effect.by, below: effect.below }));
+}
+
+/**
+ * The invest-limit exemptions a subject's features give (6.14, `investitureExempt`: Tattooed Historian), each `{key, per,
+ * count, when}`: one exempt item per `per` of the number at the actor path `count`, for items the predicate matches.
+ */
+export function investitureExemptions(held, rules = DEFAULT_RULES) {
+    return heldEffects(held, "investitureExempt", rules).map(({ key, effect }) => ({ key, per: effect.per, count: effect.count, when: effect.when }));
+}
+
+/** The quick-deploy marks a character's feats allow on prepared snares (7.1, `quickDeploy`: Giant Snare, Broad Snare). */
+export function quickDeployMarks(held, rules = DEFAULT_RULES) {
+    return [...new Set(heldEffects(held, "quickDeploy", rules).map(({ effect }) => effect.mark))].sort();
+}

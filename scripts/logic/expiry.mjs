@@ -8,6 +8,8 @@
  * - `creator`: the creator's actor UUID; `cycle`: the creator's daily-preparation counter (`pcs.<actorId>.prepCycle`) when
  *   the item was made. A `prep` stamp expires once the creator's counter is past it: at the creator's next daily
  *   preparations, wherever the item is (7.7).
+ * - A `world` stamp (gardens; fulus, M9: `fulu: true`, a year) ends at `at` (world seconds) or at `atDay` (days logged ahead
+ *   of the clock), whichever comes first.
  * - Advanced Alchemy items also carry `at` (world seconds, 24 hours after creation) and `atDay` (the workshop day after
  *   the day of creation): whichever comes first ends them (Player Core 2, Advanced Alchemy). `atDay` counts only days
  *   logged ahead of the clock (the wizard's days, 4.8): a clock that crosses midnight is not 24 hours, and `at` covers it.
@@ -97,7 +99,12 @@ export function expiryReason(stamp, { creatorCycle = null, worldTime = null, log
         if (Number.isInteger(stamp.atDay) && Number.isInteger(loggedDay) && loggedDay >= stamp.atDay) return "day";
         return null;
     }
-    if (stamp.rule === "world") return Number.isFinite(stamp.at) && Number.isFinite(worldTime) && worldTime >= stamp.at ? "time" : null;
+    if (stamp.rule === "world") {
+        if (Number.isFinite(stamp.at) && Number.isFinite(worldTime) && worldTime >= stamp.at) return "time";
+        // M9: a fulu's year also runs on days logged ahead of the clock, as an Advanced Alchemy item's day does.
+        if (Number.isInteger(stamp.atDay) && Number.isInteger(loggedDay) && loggedDay >= stamp.atDay) return "day";
+        return null;
+    }
     return null;
 }
 

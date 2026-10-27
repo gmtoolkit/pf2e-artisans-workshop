@@ -141,9 +141,11 @@ export function gateAccess(item, route, accessGrant = false, rules = DEFAULT_RUL
 
 /**
  * G6: a Craft route exists (known, family, virtual or none). Without one, `acquisition` lists the formula
- * jobs that would open it (6.8).
+ * jobs that would open it (6.8). As built in M9: a graft needs its formula (Howl of the Wild p.97), so the `none` route
+ * does not do for it (`needsFormula`).
  */
-export function gateRoute(route, acquisition = []) {
+export function gateRoute(route, acquisition = [], { needsFormula = false } = {}) {
+    if (route && needsFormula && !ROUTES_WITH_FORMULA.includes(route)) return fail("G6", "needs-formula", { rarity: null }, "formula");
     return route ? pass("G6") : fail("G6", "no-route", { routes: acquisition }, "formula");
 }
 
@@ -197,10 +199,14 @@ export function gateCustody(craftType, { targetHeld = false, subjectConsented = 
     return pass("G10");
 }
 
-/** G11: the crafter is not locked as a helper or subject on another order. */
-export function gateAvailable(crafter, orderId) {
+/**
+ * G11: the crafter is not locked as a helper or subject on another order. As built in M9: nor working on another tattoo
+ * (graft) while the process allows one at a time (`busyWith`, 6.14; Secrets of Magic p.164, Howl of the Wild p.97).
+ */
+export function gateAvailable(crafter, orderId, busyWith = null) {
     const other = crafter.lockedBy;
-    return !other || other === orderId ? pass("G11") : fail("G11", "locked", { order: other }, "release");
+    if (other && other !== orderId) return fail("G11", "locked", { order: other }, "release");
+    return busyWith && busyWith !== orderId ? fail("G11", "one-at-a-time", { order: busyWith }, "finish") : pass("G11");
 }
 
 /**
@@ -257,6 +263,7 @@ export function gateProduct(item, craftType = "item", rune = null) {
  * @param {object} [p.spells]             {spellsNeeded, spellsSupplied}
  * @param {object} [p.custody]
  * @param {object|null} [p.rune]
+ * @param {string|null} [p.busyWith]     M9: another tattoo or graft order the crafter has in progress (one at a time)
  */
 export function craftGates(p, rules = DEFAULT_RULES) {
     const { crafter, item, craftType = "item", skill = "crafting" } = p;
@@ -266,12 +273,12 @@ export function craftGates(p, rules = DEFAULT_RULES) {
         gateProficiency(crafter, item, skill, rules),
         gateFeats(crafter, item, craftType, rules),
         gateAccess(item, p.route, p.accessGrant, rules),
-        gateRoute(p.route, p.acquisition),
+        gateRoute(p.route, p.acquisition, { needsFormula: craftType === "graft" }),
         gateTools(item, p.tools, rules),
         gateMaterials(p.escrowCp ?? 0, p.upfrontCp, p.precious),
         gateRequirements(crafter, p.requirements, p.spells),
         gateCustody(craftType, p.custody),
-        gateAvailable(crafter, p.orderId),
+        gateAvailable(crafter, p.orderId, p.busyWith ?? null),
         gateProduct(item, craftType, p.rune),
     ];
 }
@@ -283,6 +290,8 @@ export function craftGates(p, rules = DEFAULT_RULES) {
  */
 export function reverseEngineerGates(p, rules = DEFAULT_RULES) {
     const { crafter, item, skill = "crafting" } = p;
+    // M9: a fulu's formula cannot be learned by Reverse Engineering (Secrets of Magic p.158).
+    if (hasTrait(item, "fulu")) return [fail("G6", "no-reverse-engineer", {}, "formula")];
     return [
         gateTrained(crafter, skill),
         gateLevel(crafter, item),

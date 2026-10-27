@@ -343,7 +343,7 @@ async function pageRequestForm({ mod, uuid, quantity }) {
     const find = () => [...foundry.applications.instances.values()].find((app) => app.id.startsWith(`${mod}-request-`) && app.rendered);
     for (let i = 0; i < 40 && !find(); i++) await sleep(100);
     const form = find();
-    form.state.quantity = quantity;
+    form.draft.quantity = quantity;
     await form.render();
     form.setPosition({ left: 120, top: 40 });
     await sleep(1500);

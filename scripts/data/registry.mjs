@@ -465,7 +465,9 @@ export const REGISTRY = deepFreeze({
     },
     "broad-snare": {
         uuid: "Compendium.pf2e.feats-srd.Item.VXIfIC7mFHx1Tl7C", type: "feat", book: "Pathfinder Lost Omens Hellfire Dispatches", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "quickDeploy", mark: "broad", cost: 2 },
+        ],
         verified: "pf2e-8.6.1",
     },
     "cadre": {
@@ -863,7 +865,9 @@ export const REGISTRY = deepFreeze({
     },
     "giant-snare": {
         uuid: "Compendium.pf2e.feats-srd.Item.SgXvw6rzk2lhTpXL", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 3,
-        effects: [],
+        effects: [
+            { kind: "quickDeploy", mark: "giant", cost: 2 },
+        ],
         verified: "pf2e-8.6.1",
     },
     "glitter-crystals": {
@@ -1050,6 +1054,15 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    // M9: inventors have access to uncommon gadgets (Guns & Gears, Gadgets). The class shares the Inventor feat's slug, so
+    // it is keyed apart; a character's class item matches by its compendium source.
+    "inventor@class": {
+        uuid: "Compendium.pf2e.classes.Item.30qVs46dVNflgQNx", type: "class", book: "Pathfinder Guns & Gears", remaster: true, tier: 2,
+        effects: [
+            { kind: "craftUnlock", access: { all: ["item:trait:gadget", "item:rarity:uncommon"] } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "inventor-dedication": {
         uuid: "Compendium.pf2e.feats-srd.Item.JIpjpZ8VneQomkZw", type: "feat", book: "Pathfinder Guns & Gears", remaster: true, tier: 2,
         effects: [],
@@ -1102,6 +1115,15 @@ export const REGISTRY = deepFreeze({
     "legendary-professional": {
         uuid: "Compendium.pf2e.feats-srd.Item.GZba7ped7ZxYHchf", type: "feat", book: "Pathfinder Player Core", remaster: true, tier: 2,
         effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    // M9 (6.14): a magical tattoo at least 3 levels below its tattooist gets +1 to its activated abilities' attack and DC values and
+    // to its resistances, written on the created item (no rule element does it).
+    "legendary-tattoo-artist": {
+        uuid: "Compendium.pf2e.feats-srd.Item.VRCBTEyrcBf7auGz", type: "feat", book: "Pathfinder Treasure Vault (Remastered)", remaster: true, tier: 2,
+        effects: [
+            { kind: "crafterMark", mark: "activated", by: 1, below: 3, when: { all: ["item:trait:tattoo"] } },
+        ],
         verified: "pf2e-8.6.1",
     },
     "legions-aim": {
@@ -1795,7 +1817,11 @@ export const REGISTRY = deepFreeze({
     },
     "tattooed-historian-dedication": {
         uuid: "Compendium.pf2e.feats-srd.Item.oKjyD46NmkKx1OvO", type: "feat", book: "Pathfinder #207: The Resurrection Flood", remaster: true, tier: 2,
-        effects: [],
+        // M9 (6.14): one magical tattoo per two tattooed historian feats does not count against the invest limit; pf2e
+        // counts the feats in a flag of their own rule elements.
+        effects: [
+            { kind: "investitureExempt", per: 2, count: "flags.system.tattooedHistorian.archetypeFeatCount", when: { all: ["item:trait:tattoo"] } },
+        ],
         verified: "pf2e-8.6.1",
     },
     "tenacious-toxins": {

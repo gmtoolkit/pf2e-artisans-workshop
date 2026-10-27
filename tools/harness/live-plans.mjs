@@ -3621,3 +3621,277 @@ Object.assign(BEHAVIOURS, {
     "m8a-familiar": m8aFamiliar,
     "m8a-shots": m8aShots,
 });
+
+/* -------------------------------------------- */
+/*  M9: tattoos, grafts and the remaining crafts */
+/* -------------------------------------------- */
+
+/** Compendium items the M9 plans use (pf2e `packs/pf2e/`, pf2e-8.6.1). */
+export const M9 = Object.freeze({
+    tattoo: "Compendium.pf2e.equipment-srd.Item.FYv6k2zkd0MJ93la",      // Eye Slash, a common magical tattoo of level 1
+    graft: "Compendium.pf2e.equipment-srd.Item.kLQdzIl2lfGIR3sy",       // Bioluminescent Stripes, a common graft of level 1
+    fulu: "Compendium.pf2e.equipment-srd.Item.89uak2oyHnEuIn0b",        // Fulu of Fire Suppression, level 3
+    missive: "Compendium.pf2e.equipment-srd.Item.NK0wjH9m32sjaeQe",     // Messenger Missive, level 4
+    staff: "Compendium.pf2e.equipment-srd.Item.opfpl1JmKgrfds9P",       // Staff of Fire: Ignition (cantrip), Breathe Fire (1st)
+    gadget: "Compendium.pf2e.equipment-srd.Item.nybZVDfQWMhwvL2C",      // Blast Boots (Lesser), an uncommon gadget of level 1
+    alarmSnare: "Compendium.pf2e.equipment-srd.Item.AFX1V0Go9DqPWBlN",
+    giantSnare: "Compendium.pf2e.feats-srd.Item.SgXvw6rzk2lhTpXL",
+    graftTechnician: "Compendium.pf2e.feats-srd.Item.9OaF7Lkrtvusg5AA",
+});
+
+/** A fixture's actor UUID by its id, or null (checked). */
+function fixtureOf(h, w, id) {
+    const actorId = w.fixtures.find(([, fixture]) => fixture === id)?.[0];
+    h.check(`the ${id} fixture is built`, !!actorId, w.fixtures);
+    return actorId ? `Actor.${actorId}` : null;
+}
+
+/** Every M9 plan starts here: the world reset, M9's items taken back from the characters and fixtures named. */
+async function m9Reset(h, w, fixtures = []) {
+    await resetWorld(h, w);
+    await h.step("gm", "m9", "reset", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid, ...fixtures.filter(Boolean)] });
+}
+
+/**
+ * 14a. A tattoo for Player Two's character (6.14, the Secrets of Magic process): the GM's tattoo artist fixture takes it; G10
+ * waits for Player Two, who agrees and so sits for it in downtime, and cannot leave until it is done; the Craft runs with
+ * the Tattoo Artist bonus; the finish shelves it uninvested and healing for 30 days; Player Two's client collects it;
+ * healing recorded and a day logged, Player Two's client invests it, once.
+ */
+async function m9Tattoo(h, w) {
+    const artist = fixtureOf(h, w, "rogue-tattoo-7");
+    if (!artist) return {};
+    await m9Reset(h, w, [artist]);
+    await h.step("gm", "m9", "learn", { actor: artist, uuids: [M9.tattoo] });
+    await h.only(["gm", "p2"]);
+    await h.settle("ready");
+    const filed = await h.step("gm", "m9", "request", { uuid: M9.tattoo, requester: artist, crafter: artist, target: w.pcs.p2.uuid });
+    h.check("a tattoo order for Player Two's character, received by it", filed.brief?.craftType === "tattoo" && filed.brief.recipient?.uuid === w.pcs.p2.uuid, filed);
+    const waiting = await h.step("gm", "m5", "gates", { order: filed.order });
+    h.check("G10 waits for the subject's consent", waiting.failing.some(([id, reason]) => id === "G10" && reason === "no-consent"), waiting);
+    await h.step("p2", "m5", "seen", { path: `orders.${filed.order}.status` });
+    const agreed = await h.step("p2", "m9", "consent", { order: filed.order });
+    h.check("Player Two agrees: in downtime, sitting for the order", agreed.result?.ok === true && agreed.status.inDowntime && agreed.status.activity?.kind === "subject",
+        agreed);
+    await h.step("gm", "m5", "seen", { path: `orders.${filed.order}.subject.consented`, value: true });
+    const ready = await h.step("gm", "m5", "gates", { order: filed.order });
+    h.check("only the money is left to find", ready.failing.every(([id]) => id === "G8"), ready);
+    const run = await h.step("gm", "m9", "run", { order: filed.order, crafter: artist, payer: w.pcs.p1.uuid, pledge: 1000 });
+    h.check("the tattoo is crafted (or its check fails)", ["complete", "failed"].includes(run.order?.status), run);
+    h.check("the process is frozen at the start", run.order?.process === "secrets-of-magic", run.order);
+    if (run.order?.status !== "complete") return { run };
+    const collected = await h.step("p2", "m9", "collect", {});
+    const made = await h.step("p2", "m9", "made", { order: filed.order, ms: 1500 });
+    const tattoo = made.items[0];
+    h.check("on Player Two's character: healing, uninvested, worn", tattoo?.subject?.state === "healing" && tattoo.equipped?.invested === false &&
+        tattoo.equipped?.carryType === "worn", { collected, made });
+    const healed = await h.step("p2", "m9", "heal", {});
+    h.check("healing recorded: it heals by the next day", healed.result?.ok === true && healed.result.until === tattoo.subject.from + 1, healed);
+    await h.step("gm", "m9", "logDay", { days: 1 });
+    const settled = await h.step("p2", "m9", "made", { order: filed.order, ms: 3000 });
+    h.check("Player Two's client invests it once healed", settled.items[0]?.subject?.state === "invested" && settled.items[0].equipped?.invested === true, settled);
+    const gmView = await h.step("gm", "m9", "made", { actor: w.pcs.p2.uuid, order: filed.order, ms: 500 });
+    h.check("the GM reads the same", gmView.items[0]?.subject?.state === "invested", gmView);
+    await checkStatuses(h);
+    return { filed, run, settled };
+}
+
+/** 14b. The simple toggle (6.14): consent only, no downtime lock, delivered invested with no healing. */
+async function m9Simple(h, w) {
+    const artist = fixtureOf(h, w, "rogue-tattoo-7");
+    if (!artist) return {};
+    await m9Reset(h, w, [artist]);
+    await h.step("gm", "m9", "setting", { key: "rules.tattooProcess", value: "simple" });
+    await h.step("gm", "m9", "learn", { actor: artist, uuids: [M9.tattoo] });
+    await h.only(["gm", "p2"]);
+    await h.settle("ready");
+    const filed = await h.step("gm", "m9", "request", { uuid: M9.tattoo, requester: artist, crafter: artist, target: w.pcs.p2.uuid });
+    await h.step("p2", "m5", "seen", { path: `orders.${filed.order}.status` });
+    const agreed = await h.step("p2", "m9", "consent", { order: filed.order });
+    h.check("consent only: Player Two is not put in downtime", agreed.result?.presence === false && !agreed.status.inDowntime, agreed);
+    await h.step("gm", "m5", "seen", { path: `orders.${filed.order}.subject.consented`, value: true });
+    const run = await h.step("gm", "m9", "run", { order: filed.order, crafter: artist, payer: w.pcs.p1.uuid, pledge: 1000 });
+    if (run.order?.status === "complete") {
+        await h.step("p2", "m9", "collect", {});
+        const made = await h.step("p2", "m9", "made", { order: filed.order, ms: 1500 });
+        h.check("delivered invested, with no healing", made.items[0]?.subject?.state === "invested" && made.items[0].equipped?.invested === true, made);
+    }
+    await h.step("gm", "m9", "setting", { key: "rules.tattooProcess", value: "secrets-of-magic" });
+    await checkStatuses(h);
+    return { run };
+}
+
+/**
+ * 14c. A graft (6.14, Howl of the Wild p.97): the GM's cleric fixture, given Graft Technician and expert Medicine, implants a
+ * graft in Player Two's character: G6 wants the formula first, the check is Medicine, the subject sits for it; with Player
+ * Two's invest limit at zero the graft is inactive, and invested once the limit rises.
+ */
+async function m9Graft(h, w) {
+    const surgeon = fixtureOf(h, w, "cleric-5");
+    if (!surgeon) return {};
+    await m9Reset(h, w, [surgeon]);
+    await h.step("gm", "m9", "give", { actor: surgeon, uuid: M9.graftTechnician });
+    await h.step("gm", "m9", "medicine", { actor: surgeon });
+    await h.only(["gm", "p2"]);
+    await h.settle("ready");
+    const filed = await h.step("gm", "m9", "request", { uuid: M9.graft, requester: surgeon, crafter: surgeon, target: w.pcs.p2.uuid });
+    h.check("a graft order", filed.brief?.craftType === "graft", filed);
+    await h.step("p2", "m5", "seen", { path: `orders.${filed.order}.status` });
+    await h.step("p2", "m9", "consent", { order: filed.order });
+    await h.step("gm", "m5", "seen", { path: `orders.${filed.order}.subject.consented`, value: true });
+    const noFormula = await h.step("gm", "m5", "gates", { order: filed.order });
+    h.check("no implant without the formula (G6)", noFormula.failing.some(([id, reason]) => id === "G6" && reason === "needs-formula"), noFormula);
+    await h.step("gm", "m9", "learn", { actor: surgeon, uuids: [M9.graft] });
+    await h.step("gm", "m9", "investiture", { actor: w.pcs.p2.uuid, max: 0 });
+    const run = await h.step("gm", "m9", "run", { order: filed.order, crafter: surgeon, payer: w.pcs.p1.uuid, pledge: 600 });
+    h.check("the implant rolls Medicine", run.order?.skill === "medicine", run.order);
+    if (run.order?.status === "complete") {
+        await h.step("p2", "m9", "collect", {});
+        const inactive = await h.step("p2", "m9", "made", { order: filed.order, ms: 1500 });
+        h.check("no invest limit left: inactive, implanted", inactive.items[0]?.subject?.state === "inactive" && inactive.items[0].equipped?.carryType === "implanted", inactive);
+        await h.step("gm", "m9", "investiture", { actor: w.pcs.p2.uuid, max: null });
+        await h.step("p2", "m9", "collect", {});
+        const invested = await h.step("p2", "m9", "made", { order: filed.order, ms: 1500 });
+        h.check("the limit rose: invested", invested.items[0]?.subject?.state === "invested", invested);
+    }
+    await h.step("gm", "m9", "investiture", { actor: w.pcs.p2.uuid, max: null });
+    await checkStatuses(h);
+    return { run };
+}
+
+/**
+ * 14d. A fulu and a missive by the GM's fighter crafter (no spellcasting): the fulu waits for a tradition (G12), takes the one
+ * chosen, batches in fours and carries a year's world stamp; the missive is made blank and one is composed.
+ */
+async function m9FuluMissive(h, w) {
+    const crafter = fixtureOf(h, w, "fighter-crafter-10");
+    if (!crafter) return {};
+    await m9Reset(h, w, [crafter]);
+    await h.step("gm", "m9", "learn", { actor: crafter, uuids: [M9.fulu, M9.missive] });
+    await h.only(["gm"]);
+    await h.settle("ready");
+    const fulu = await h.step("gm", "m9", "request", { uuid: M9.fulu, quantity: 4, requester: crafter, crafter });
+    const blocked = await h.step("gm", "m5", "gates", { order: fulu.order });
+    h.check("the fulu waits for a tradition (G12)", blocked.failing.some(([, reason]) => reason === "fulu-tradition"), blocked);
+    h.check("chosen", (await h.step("gm", "m9", "tradition", { order: fulu.order, tradition: "divine" })).ok === true);
+    const made = await h.step("gm", "m9", "run", { order: fulu.order, crafter, payer: w.pcs.p1.uuid, pledge: 2000 });
+    if (made.order?.status === "complete") {
+        const items = await h.step("gm", "m9", "made", { actor: crafter, order: fulu.order, ms: 1500 });
+        const shelf = items.items[0];
+        h.check("four fulus, divine, with a year's world stamp", (shelf?.qty ?? 0) === 4 && shelf.traits.includes("divine") && shelf.expiry?.rule === "world" &&
+            shelf.expiry?.atDay === items.today + 365, items);
+    }
+    const missive = await h.step("gm", "m9", "request", { uuid: M9.missive, quantity: 2, requester: crafter, crafter });
+    const crafted = await h.step("gm", "m9", "run", { order: missive.order, crafter, payer: w.pcs.p1.uuid, pledge: 3000 });
+    if (crafted.order?.status === "complete") {
+        const blank = await h.step("gm", "m9", "made", { actor: crafter, order: missive.order, ms: 1500 });
+        h.check("the missives are made blank", blank.items.every((i) => i.missive?.composed === null), blank);
+    }
+    await checkStatuses(h);
+    return { made, crafted };
+}
+
+/**
+ * 14e. A staff's listed castings (6.9, M9): the fighter crafter's Staff of Fire needs Ignition (a cantrip) and Breathe Fire
+ * at 1st rank; the wizard fixture offers both, each naming its listed casting; G9 waits until both are cast.
+ */
+async function m9Staff(h, w) {
+    const crafter = fixtureOf(h, w, "fighter-crafter-10");
+    const wizard = fixtureOf(h, w, "wizard-9");
+    if (!crafter || !wizard) return {};
+    await m9Reset(h, w, [crafter, wizard]);
+    await h.step("gm", "m9", "learn", { actor: crafter, uuids: [M9.staff] });
+    await h.only(["gm"]);
+    await h.settle("ready");
+    const ignition = await h.step("gm", "m5", "spell", { actor: wizard, name: "Ignition" });
+    const breathe = await h.step("gm", "m5", "spell", { actor: wizard, name: "Breathe Fire" });
+    const filed = await h.step("gm", "m9", "request", { uuid: M9.staff, requester: crafter, crafter });
+    h.check("a staff is a spell item", filed.brief?.craftType === "spell-item", filed);
+    const waiting = await h.step("gm", "m5", "gates", { order: filed.order });
+    h.check("G9 waits for the listed castings", waiting.failing.some(([id, reason]) => id === "G9" && reason === "spells"), waiting);
+    const first = await h.step("gm", "m5", "pledge", { order: filed.order, caster: wizard, spell: ignition.uuid, castings: 1 });
+    const second = await h.step("gm", "m5", "pledge", { order: filed.order, caster: wizard, spell: breathe.uuid, castings: 1 });
+    h.check("each pledge names its listed casting", first.ok === true && second.ok === true, { first, second });
+    const cast = await h.step("gm", "m5", "fulfil", { order: filed.order, caster: wizard });
+    h.check("both entries are named and cast", cast.order?.pledges?.every((p) => p.entry && p.status === "fulfilled"), cast);
+    const after = await h.step("gm", "m5", "gates", { order: filed.order });
+    h.check("G9 passes", !after.failing.some(([id]) => id === "G9"), after);
+    await checkStatuses(h);
+    return { cast };
+}
+
+/**
+ * 14f. Quick-deploy snares (7.1): the ranger fixture prepares two Alarm Snares in its snarecrafter pool; with Giant Snare one
+ * is marked giant and costs two; one is deployed through pf2e's own expend toggle (its craft makes nothing for a snare).
+ */
+async function m9Snares(h, w) {
+    const ranger = fixtureOf(h, w, "ranger-snares-8");
+    if (!ranger) return {};
+    await m9Reset(h, w, [ranger]);
+    await h.step("gm", "m9", "learn", { actor: ranger, uuids: [M9.alarmSnare] });
+    await h.step("gm", "m9", "give", { actor: ranger, uuid: M9.giantSnare });
+    await h.only(["gm"]);
+    await h.settle("ready");
+    const prepared = await h.step("gm", "m9", "snares", { actor: ranger, pool: "snarecrafter", uuid: M9.alarmSnare, count: 2 });
+    h.check("two snares prepared for quick deployment", prepared.ok === true && prepared.prepared.length === 2, prepared);
+    const key = `${M9.alarmSnare}#1`;
+    const marked = await h.step("gm", "m9", "ledger", { actor: ranger, pool: "snarecrafter", mark: { key, mark: "giant" } });
+    h.check("a giant snare costs two", marked.mark?.ok === true && marked.ledger.used === 3 && marked.ledger.allowed.includes("giant"), marked);
+    const deployed = await h.step("gm", "m9", "ledger", { actor: ranger, pool: "snarecrafter", deploy: 1 });
+    h.check("one deployed through pf2e", deployed.deploy?.ok === true && deployed.ledger.deployed === 1, deployed);
+    const again = await h.step("gm", "m9", "ledger", { actor: ranger, pool: "snarecrafter", deploy: 1 });
+    h.check("once", again.deploy?.reason === "deployed", again);
+    await checkStatuses(h);
+    return { marked, deployed };
+}
+
+/** 14g. An inventor has access to an uncommon gadget (G5, Guns & Gears); no feat is needed (G4). */
+async function m9Gadget(h, w) {
+    const inventor = fixtureOf(h, w, "inventor-6");
+    if (!inventor) return {};
+    await m9Reset(h, w, [inventor]);
+    await h.only(["gm"]);
+    await h.settle("ready");
+    const filed = await h.step("gm", "m9", "request", { uuid: M9.gadget, requester: inventor, crafter: inventor });
+    const gates = await h.step("gm", "m5", "gates", { order: filed.order });
+    h.check("an uncommon gadget: access and no feat for an inventor", !gates.failing.some(([id]) => id === "G4" || id === "G5"), gates);
+    await checkStatuses(h);
+    return { gates };
+}
+
+/** The Queue's tattoo detail photographed (17.1, M9): as Player Two, waiting to agree, 1440x900 and 1024x768, dark and light. */
+async function m9Shots(h, w) {
+    const artist = fixtureOf(h, w, "rogue-tattoo-7");
+    if (!artist) return {};
+    await m9Reset(h, w, [artist]);
+    await h.only(["gm", "p2"]);
+    await h.settle("ready");
+    const filed = await h.step("gm", "m9", "request", { uuid: M9.tattoo, requester: artist, crafter: artist, target: w.pcs.p2.uuid });
+    await h.step("p2", "m5", "seen", { path: `orders.${filed.order}.status` });
+    const opened = [];
+    for (const scheme of ["dark", "light"]) {
+        await h.step("p2", "m4", "theme", { scheme });
+        for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }]) {
+            await h.screenshot("p2", `m9-p2-queue-tattoo-${size.width}x${size.height}-${scheme}.png`, size, async () => {
+                const view = await h.step("p2", "m5", "open", { tab: "queue", order: filed.order });
+                opened.push({ scheme, ...size, open: view.open });
+                return view;
+            });
+        }
+        await h.step("p2", "m5", "close", {});
+    }
+    await h.step("p2", "m4", "theme", { scheme: "dark" });
+    h.check("the Queue opened every time", opened.every((o) => o.open), opened);
+    return { opened, shots: h.shots.filter((s) => s.label === h.label).map((s) => s.file) };
+}
+
+Object.assign(BEHAVIOURS, {
+    "m9-tattoo": m9Tattoo,
+    "m9-simple": m9Simple,
+    "m9-graft": m9Graft,
+    "m9-fulu-missive": m9FuluMissive,
+    "m9-staff": m9Staff,
+    "m9-snares": m9Snares,
+    "m9-gadget": m9Gadget,
+    "m9-shots": m9Shots,
+});

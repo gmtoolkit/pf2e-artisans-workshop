@@ -13,12 +13,16 @@
  *   on the crafter for someone else it moves to the shelf. An upgrade replaces the item with the stronger grade.
  * - Items handed over for the order and not consumed go back to where they came from (a reverse-engineered item is
  *   kept, Player Core p.294); precious-material stock is consumed (6.6).
+ * - M9 (`crafts.mjs`): a tattoo or graft goes on the shelf for its subject, with its record and (Legendary Tattoo Artist)
+ *   its mark; a fulu takes its tradition and a year's expiry stamp; a missive is blank; a specialty wand names its spell.
  */
 import { MODULE_ID } from "../constants.mjs";
 import { PROVENANCE } from "../logic/formula-jobs.mjs";
 import { idemKey } from "../logic/ids.mjs";
 import { stackLockId } from "../logic/lock-first.mjs";
+import { WITH_SUBJECT } from "../logic/orders.mjs";
 import { pledgedSpell, spellSupply } from "../logic/pledges.mjs";
+import { chosenSpellSource, fuluSource, missiveSource, subjectSource } from "./crafts.mjs";
 import { runesUpdate } from "../logic/runes.mjs";
 import { itemVersion } from "./coins.mjs";
 import { givingBack, heldLines } from "./custody.mjs";
@@ -189,9 +193,17 @@ export async function finishOutputs(order) {
     } else {
         const base = await sourceOf(order.product.uuid, order.quantity, order);
         if (!base) return { refuse: "no-product" };
-        const supply = spellSupply(await productFacts(order.product.uuid) ?? {});
-        const made = supply && (supply.kind === "scroll" || supply.kind === "wand") ? await spellItemSource(base, order, supply) : base;
+        const product = await productFacts(order.product.uuid) ?? {};
+        const supply = spellSupply(product);
+        let made = supply && (supply.kind === "scroll" || supply.kind === "wand") ? await spellItemSource(base, order, supply) : base;
         if (!made) return { refuse: "no-spell" };
+        // M9: what a tattoo, graft, fulu, missive or specialty wand carries besides the compendium item (`crafts.mjs`).
+        const traits = made.system?.traits?.value ?? [];
+        if (WITH_SUBJECT.includes(craftType)) made = subjectSource(made, order, product);
+        if (traits.includes("fulu")) made = fuluSource(made, order);
+        if (traits.includes("missive")) made = missiveSource(made);
+        // A specialty wand that names no spell of its own holds the one cast into it; one with its own spell keeps that.
+        if (supply?.kind === "wand-special" && !supply.entries.length && !made.system?.spell) made = await chosenSpellSource(made, order, supply);
         out.items.push({ target: "strongbox", data: [made] });
         out.rows.push({ kind: "shelved", idem: idemKey("shelve", order.id, order.attempt), cp: 0, order: order.id,
             actor: order.recipient?.kind === "actor" ? order.recipient.uuid : null, items: [{ uuid: order.product.uuid, name: made.name, qty: order.quantity }] });

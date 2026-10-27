@@ -2,6 +2,62 @@
 
 Newest first.
 
+## 2026-10-27: Tattoos and spell-supplied items after the M9 review
+
+**Decision:** four rules settled while fixing the M9 review (DESIGN 10.16, After the M9 review):
+
+- A decorative tattoo is made non-magical on the item: its `magical`, `invested` and tradition traits and its rule elements are
+  removed. A tattoo still healing, a decorative one and an inactive graft are uninvested again if invested by hand.
+- A subject who will sit for a tattoo or graft resolves its earlier downtime days before agreeing (`days-pending`), and "Agree"
+  says what the subject gives up first. The lock still runs from the consent (no start day).
+- A spellheart's casting at the spell's own rank takes the spell as it is, cantrips included; a cantrip's casting is not sold by
+  a spellcasting service, so a caster supplies it.
+- Prepared snares are deployed by marking the slot expended through pf2e, not by `craft`, and make no item.
+
+**Why:** Secrets of Magic says the failed tattoo "becomes a non-magical tattoo", and pf2e applies a worn item's rules and offers to
+invest anything with the `invested` trait, so only the item's own data can say so; a lock with no start day spends every
+unresolved day sitting, and leaving downtime already asks for days to be resolved first; every spellheart casts a cantrip, and
+the Player Core service table starts at rank 1; pf2e's `craft` expends a snare's slot and returns nothing (DESIGN 6.15 gap 23),
+and placing snares is a non-goal (1.2).
+
+**Consequences:** DESIGN 6.14, 7.1 and 10.16; refusal codes `cantrip-service` and `not-deployed`; the follow-ups the review
+logged are in 10.16, Follow-ups (M9, low).
+
+## 2026-10-27: Tattoos, grafts and the remaining crafts (M9)
+
+**Decision:** eight rules settled while building M9 (DESIGN 6.9, 6.14, 10.16):
+
+- Investiture: each magical tattoo and each graft lowers its subject's invest limit by one (Tattooed Historian's exemptions
+  aside), and a new one fails only when that limit is already zero: a tattoo stays decorative for good, a graft is inactive until
+  the limit rises. Items the subject invests each day never make it fail; the subject is told to stop investing one.
+- The subject consents from the Queue; where the process needs it present (the Secrets of Magic process, every graft) it is
+  locked from that consent, as a helper is from joining, until the order closes or it withdraws (before the start, or after a
+  failure). The one-at-a-time limit is on the tattooist (implanter), and G11 now also reads the crafter's own lock.
+- A Secrets of Magic tattoo heals for `rules.tattooHealingDays` (30) from the finish; recorded magical or alchemical healing
+  ends it that day, never before the day after the finish. It is invested by the subject's own responsible client when it
+  heals, which needs no ledger claim since the item is on the subject. The simple toggle and grafts have no healing.
+- The rapid fulu option is not built: under the Remaster Craft a crafter with the formula already takes one setup day and may
+  pay the full Price to finish at once, so the option would only cut the fulus' life to a month. Fulus last a year (365 days).
+- A fulu takes its crafter's spellcasting tradition when there is exactly one; otherwise the crafter chooses one (no GM gate).
+- Spell-supplied items read what they need from their own description in the installed compendium: a staff or coda every
+  listed spell at every listed rank (cantrips included, supplied by casting them), a spellheart the spells it casts, a specialty
+  wand one spell of its rank, any other item the spells its Craft Requirements link; a casting asked for without a link takes any
+  spell. Each pledge names the listed casting it supplies.
+- An upgrade of a tattoo or graft is a tattoo or graft order naming the item it replaces, at the Price difference; the old item
+  goes when the new one arrives.
+- The inventor class has access to uncommon gadgets through a registry entry keyed apart from the Inventor skill feat.
+
+**Why:** the investiture reading was settled in the earlier review; Secrets of Magic p.164 and Howl of the Wild p.97 put the
+one-at-a-time limit on the tattooist and implanter and keep the subject present throughout, and the helper lock is the model the
+day planner already has; pf2e counts tattoos and grafts among invested items, so the subject's own client is the one that can
+invest them; a Remaster rule that already gives one day and immediate finishing makes the old rapid option a strict loss; the
+Craft Requirements of staves and spellhearts name their spells only in their descriptions, which the module may read at runtime
+but not ship (P9).
+
+**Consequences:** DESIGN 1.1, 4.8, 4.12, 6.9, 6.11, 6.14, 7.10, 10.16, 14.3, 15.3 and 17; three settings (`features.tattoos`,
+`rules.tattooSubjectLocked`, `rules.tattooHealingDays`); registry kinds `crafterMark`, `investitureExempt`, `quickDeploy`. Unlinked
+spell names in Craft Requirements are a follow-up (10.16).
+
 ## 2026-10-27: The affliction tracker after its second review (M8a)
 
 **Decision:** six rules settled while fixing the second M8a review (DESIGN 8.10, 10.15 After the second M8a review):

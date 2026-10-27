@@ -154,6 +154,7 @@ npm run harness:live -- --scenarios none --behaviours m8-panel,m8-bandolier,m8-t
 npm run harness:live -- --scenarios none --behaviours m8-hud,m8-bandolier,m8-panel --runs 1 --canvas
 npm run harness:live -- --scenarios none --behaviours m8a-cloud,m8a-once,m8a-powerful,m8a-timing,m8a-forge,m8a-backends,m8a-panel,m8a-familiar,m8a-shots --runs 1 --shots /tmp/m8a-shots
 npm run harness:live -- --scenarios none --behaviours m8a-strike --runs 1 --canvas
+npm run harness:live -- --scenarios none --behaviours m9-tattoo,m9-simple,m9-graft,m9-fulu-missive,m9-staff,m9-snares,m9-gadget,m9-shots --runs 1 --shots /tmp/m9-shots
 ```
 
 The registry check also reads every pf2e item with stages, onset or a maximum duration as an affliction (`DESIGN.md`

@@ -29,8 +29,11 @@ export const DEFAULT_RULES = Object.freeze({
     snareDowntimeBatch: 4,
     magicalSnaresNeedMagicalCrafting: true,
     snareToolkitIsArtisans: true,
-    // Tattoos (6.14): "secrets-of-magic" or "simple".
+    // Tattoos (6.14): "secrets-of-magic" or "simple"; under the first the subject is locked while it sits for the tattoo
+    // (`tattooSubjectLocked`), and a tattoo heals for up to a month before it works (`tattooHealingDays`, M9).
     tattooProcess: "secrets-of-magic",
+    tattooSubjectLocked: true,
+    tattooHealingDays: 30,
     // Talismans (7.4): bombs are no hosts, since they are consumed (design choice).
     talismanHostsExcludeBombs: true,
     // Earn Income (6.10).

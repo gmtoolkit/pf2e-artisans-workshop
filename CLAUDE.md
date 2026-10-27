@@ -62,6 +62,11 @@ saves, recording, timing and the stage guard, `scripts/foundry/afflictions.mjs`;
 Affliction Forge, `scripts/foundry/forge.mjs`; the Afflictions window, cards and item-card augment, `scripts/ui/afflictions.mjs`);
 DESIGN 10.15 says what was built, and the live plans `m8a-*` (`tools/harness/affliction-scenarios.mjs`) passed their first live
 pass, with and without a canvas (10.15, M8a live pass).
+M9 is in place: tattoos and grafts with their subject (consent, presence in downtime, one at a time, healing, investiture, the
+simple toggle, Legendary Tattoo Artist's mark), the castings an item's description asks for (staves, codas, spellhearts,
+specialty wands), fulus, missives, quick-deploy snares and gadget access (pure parts in `scripts/logic/crafts.mjs`,
+`spell-lists.mjs`; `scripts/foundry/crafts.mjs`; the Queue's parts in `scripts/ui/crafts.mjs`); DESIGN 10.16 says what was
+built, and the live plans `m9-*` (`tools/harness/craft-scenarios.mjs`) have not run yet.
 README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
 world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every

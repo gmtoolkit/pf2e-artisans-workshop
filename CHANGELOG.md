@@ -156,6 +156,16 @@ All notable changes to this module are documented here. The format follows
   by the Strike as the rules say, with Sticky Poison and Double Poison. An Afflictions window lists each creature's
   afflictions and pending saves with reduce, end, undo and repair. With PF2E Affliction Forge active, template-linked
   exposures are handed to it on the GM's client.
+- Tattoos and the remaining crafts (milestone M9): tattoo and graft orders made on a subject, who agrees from the Queue and,
+  under the Secrets of Magic process (the default) or for a graft, sits for the work in downtime, locked to it (Agree says so
+  first, and asks for earlier downtime days to be resolved); one at a time per tattooist or implanter; a tattoo heals for 30
+  days (or until healing is recorded) before the subject's own client invests it, and becomes a non-magical, decorative tattoo
+  when the subject's invest limit is already used up, while a graft waits for room; the simple toggle;
+  grafts rolled with Medicine and needing their formula; Legendary Tattoo Artist's +1 written on the tattoo; upgrades of a tattoo
+  or graft the subject has. Staves, codas, spellhearts, specialty wands and other items read the castings they need from their
+  own description, and each offered casting names the one it supplies. Fulus take their crafter's tradition and last a year;
+  missives are made blank and composed one at a time; prepared snares get a quick-deploy ledger with giant and broad snares on
+  the Morning tab; inventors have access to uncommon gadgets. Live-harness plans `m9-*`.
 
 ### Changed
 

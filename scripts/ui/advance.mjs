@@ -183,7 +183,7 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
     #whoContext(entries) {
         const resolve = this.wizard.mode === "resolve";
         return entries.map(({ actor, days, value, plan, needsChoice }) => {
-            const locked = plan?.stop?.reason === "locked" ? plan.stop.ref : null;
+            const locked = ["locked", "sitting"].includes(plan?.stop?.reason) ? plan.stop.ref : null;
             const options = activityOptions(actor, value, { extra: resolve ? ["not-downtime"] : ["skip", "not-downtime"] });
             return {
                 id: actor.id, name: actor.name, img: actor.img,
@@ -193,7 +193,8 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
                 choose: needsChoice ? fmt("pf2e-artisans-workshop.Wizard.ChooseHint", { name: actor.name }) : null,
                 willWrite: plan ? spanText(plan.records) : null,
                 stop: plan?.stop ? stopText(plan.stop) : null,
-                locked: locked ? fmt("pf2e-artisans-workshop.Downtime.Locked", { item: orderName(locked) }) : null,
+                locked: locked ? fmt(plan.stop.reason === "sitting" ? "pf2e-artisans-workshop.Downtime.Sitting" : "pf2e-artisans-workshop.Downtime.Locked",
+                    { item: orderName(locked) }) : null,
                 skipped: value === "skip",
             };
         });
