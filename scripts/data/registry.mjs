@@ -1402,6 +1402,13 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "illicit-knowledge": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.3KFUMiKKTuTtzpG8", type: "equipment", book: "Pathfinder Lost Omens Cheliax, Infernal Inheritance", remaster: true, tier: 2,
+        // Note: as twilight-talon-dedication: two Lores picked at each daily preparation are trained until the next, with no rule
+        // element, so an Earn Income job in either is refused as untrained unless the rank is set by hand.
+        effects: [],
+        verified: "pf2e-8.6.1",
+    },
     "impeccable-crafting": {
         uuid: "Compendium.pf2e.feats-srd.Item.PiUe3tpv7UVtnfvS", type: "feat", book: "Pathfinder Player Core", remaster: true, tier: 1,
         effects: [
@@ -2485,6 +2492,13 @@ export const REGISTRY = deepFreeze({
             // G5: uncommon tengu weapons and the four named swords (pf2e's own MartialProficiency misspells two of the slugs).
             { kind: "craftUnlock", access: { all: ["item:type:weapon", "item:rarity:uncommon"], any: ["item:trait:tengu", "item:slug:katana", "item:slug:khakkhara", "item:slug:temple-sword", "item:slug:wakizashi"] } },
         ],
+        verified: "pf2e-8.6.1",
+    },
+    "the-queen-mother": {
+        uuid: "Compendium.pf2e.equipment-srd.Item.2nKh3kUMuq8I9rnm", type: "equipment", book: "Pathfinder #192: Worst of All Possible Worlds", remaster: false, tier: 4,
+        // Note: invested, a Lore the holder picks (and may change at each daily preparation) counts as master, legendary from 15th
+        // level, with no rule element: an Earn Income job in it is refused or paid at the wrong rank unless the rank is set by hand.
+        effects: [],
         verified: "pf2e-8.6.1",
     },
     "thespians-calling": {

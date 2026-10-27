@@ -8,9 +8,9 @@
  * reviewed false positives by its own buckets. Entries for repair, combat riders, DC stamps, runes, materials,
  * talismans and tattoos leave this list when the milestone that reads them adds them to the registry.
  *
- * The completeness review (M12, 2026-10-27) listed the 760 candidates the scan still reported at pf2e 8.6.1: 657 here, under
+ * The completeness review (M12, 2026-10-27) listed the 760 candidates the scan still reported at pf2e 8.6.1: 655 here, under
  * the four codes it added (`fp-daily-prep`, `core-activity`, `creature-ability`, `craft-requirements`) and the existing ones,
- * and 103 in the registry. Every candidate is now in one or the other, so `--enforce` passes.
+ * and 105 in the registry. Every candidate is now in one or the other, so `--enforce` passes.
  */
 
 /** Freeze a JSON-compatible value all the way down. */
@@ -507,8 +507,6 @@ export const REGISTRY_IGNORE = deepFreeze({
     "Compendium.pf2e.equipment-srd.Item.2gYZiUw9yjtb0yJY": "fp-craft-verb",
     "Compendium.pf2e.equipment-srd.Item.2gkG6hqPnSuPrdPD": "fp-craft-verb",
     "Compendium.pf2e.equipment-srd.Item.2mt15LcfMArk7JqT": "gear-mundane",
-    "Compendium.pf2e.equipment-srd.Item.2nKh3kUMuq8I9rnm": "proficiency",
-    "Compendium.pf2e.equipment-srd.Item.3KFUMiKKTuTtzpG8": "fp-daily-prep",
     "Compendium.pf2e.equipment-srd.Item.3QGZS6l7NrX4auyR": "gear-mundane",
     "Compendium.pf2e.equipment-srd.Item.3Ucc6E5V6bzdgFLE": "gear-tattoo",
     "Compendium.pf2e.equipment-srd.Item.3Wb0N7iqmTn6e2Xc": "fp-craft-verb",

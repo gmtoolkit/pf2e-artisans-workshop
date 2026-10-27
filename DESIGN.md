@@ -2340,16 +2340,16 @@ daily preparation or Earn Income, beyond what the system's own rule elements alr
   closes, for `inventor`, the slug collision of the follow-up below: the slug is shared, so the slug fallback no longer applies.
 - **As built in the M12 completeness review** (2026-10-27): each of the 760 candidates the scan reported at `pf2e-8.6.1`
   (all 25 Item packs) now has an entry or an ignore reason, so `validate-registry --enforce` passes with 0 unlisted and 0
-  problems: 389 entries (tier 1 51, tier 2 200, tier 3 51, tier 4 87) and 1823 ignored UUIDs under 29 reason codes.
-  - 657 onto the ignore list: `fp-craft-verb` 247, `fp-daily-prep` 243, `gear-mundane` 32 (the firearm rounds, whose
-    alchemical trait already gates them through G4), `gear-alchemical` 24, `proficiency` 23, `gear-magical` 18, `gear-tattoo`
+  problems: 391 entries (tier 1 51, tier 2 201, tier 3 51, tier 4 88) and 1821 ignored UUIDs under 29 reason codes.
+  - 655 onto the ignore list: `fp-craft-verb` 247, `fp-daily-prep` 242, `gear-mundane` 32 (the firearm rounds, whose
+    alchemical trait already gates them through G4), `gear-alchemical` 24, `proficiency` 22, `gear-magical` 18, `gear-tattoo`
     11, `fp-incidental` 10, `gear-food` 8, `legacy-combat` 6, `craft-requirements` 6, `fp-staff` 6, `core-activity` 5,
     `gear-rune` 5, `creature-ability` 3, `fp-ammo` 3, `gear-talisman` 2, `fp-invent` 2, `fp-toolkit` 1, `fp-downtime` 1,
     `combat` 1. Four codes are new: `fp-daily-prep` (daily preparations only as a reset, a duration or a non-item choice;
     it also takes the reviewed mentions of that kind first filed as `fp-incidental`), `core-activity` (Craft, Earn Income,
     Repair, Deconstruct and Grow themselves), `creature-ability`, and `craft-requirements` (a narrative Craft Requirement
     that G9's checklist reads at runtime, where the scan matched the requirement itself).
-  - 103 into the registry. Automated with kinds already built: Brigh's moderate boon (a `rollOptions` option on
+  - 105 into the registry. Automated with kinds already built: Brigh's moderate boon (a `rollOptions` option on
     `route:invent`, which three `degreeShift`s key on, since the invent route's roll has no option of its own), Shelyn's
     moderate boon (Specialty Crafting's `modifier` on every Craft but Deconstruct and quests), the PFS Crafter's Workshop
     (`setupDays` 1, not for reverse engineering), the Traveling Workshop spell effect (an alchemist's lab, Repair tools,
@@ -2379,7 +2379,9 @@ daily preparation or Earn Income, beyond what the system's own rule elements alr
   - The Highhelm stronghold plate's requirements are headed "Crafting Requirements", which `craftRequirementsOf` does not
     read, so its casting pledge (6.9) is never asked; accept the heading, or name the casting in a correction.
   - Ranks and feats picked at daily preparations with no rule element (Twilight Talon, Starstone Aspirant, Haunting
-    Memories, Aroden's Innovation, Consult the Stars, Quick Study): a Morning pick that writes the rank or feat for the day.
+    Memories, Aroden's Innovation, Consult the Stars, Quick Study, Illicit Knowledge, The Queen Mother): a Morning pick that
+    writes the rank or feat for the day. The last two were first ignored (`fp-daily-prep`, `proficiency`) and moved here in
+    the review's verification, since their Lores (trained; master or legendary) feed Earn Income as Quick Study's does.
   - One compendium item for several formulas (the bane ammunitions, soothing powders, animal pheromones and repellents,
     pheromone flares): a formula per variant.
   - The Azlanti diamond: a `modifier` that scales with level, and an exception to the specific-item rune rule (G12) and
