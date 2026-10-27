@@ -16,8 +16,8 @@ import { MODULE_ID } from "../constants.mjs";
 import { DEGREE } from "../logic/core.mjs";
 import { levelDC } from "../logic/dc.mjs";
 import {
-    activityResult, aidModifier, answers, API_VERSION, cadenceKey, createRegistry, extRowInput, extRunId, incomeResult, incomeRowInputs,
-    isExtensionScope, isKey, KINDS, modifierList, partyLevelOf, rollSelectors, RUN_VERSION,
+    activityResult, aidModifier, answers, API_VERSION, cadenceKey, createRegistry, extRowInput, extRowKey, extRunId, incomeResult, incomeRowInputs,
+    isExtensionScope, isKey, KINDS, modifierList, partyLevelOf, pathsOverlap, rollSelectors, RUN_VERSION,
 } from "../logic/extensions.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
 import { checkScopePath, readPath } from "../logic/keypath.mjs";
@@ -25,8 +25,10 @@ import { extLink } from "../logic/rolls.mjs";
 import { planStrongboxCredit, planStrongboxDebit } from "../logic/coins.mjs";
 import { fundSlotLockId, unallocatedCp } from "../logic/funds.mjs";
 import { isDayRecord } from "../logic/downtime.mjs";
+import { stackLockId } from "../logic/lock-first.mjs";
 import { runRequest } from "./batch.mjs";
 import { createClaims } from "./claims.mjs";
+import { itemVersion } from "./coins.mjs";
 import { expiredWhy, isInert } from "./expiry.mjs";
 import { frozenCopy } from "./events.mjs";
 import { freeStacks, lockedWrite, mint, moveCoins } from "./money.mjs";
@@ -356,8 +358,14 @@ export async function resolvePlan(actor, plan) {
         });
         const result = await resolveRun(def, ctx, { source: `${def.moduleId}:${def.slug}`, runId: block.run, day: block.to });
         if (Object.keys(result.ext).length) {
-            scopes[def.moduleId] ??= { set: {} };
-            Object.assign(scopes[def.moduleId].set, result.ext);
+            const into = (scopes[def.moduleId] ??= { set: {} }).set;
+            for (const [path, value] of Object.entries(result.ext)) {
+                // A later run writing the same path wins, as its day is later; one writing inside (or around) an earlier run's
+                // path would make the day's whole write fail, so it is dropped (M10 review).
+                if (Object.keys(into).some((other) => other !== path && pathsOverlap(path, other))) {
+                    console.warn(`${MODULE_ID} | ${def.id} resolve() wrote "${path}", which overlaps a path an earlier run of these days wrote; dropped`);
+                } else into[path] = value;
+            }
         }
         if (result.rows.length) record.extRows = [...(record.extRows ?? []), ...result.rows];
         if (result.notes.length) record.extNotes = result.notes;
@@ -425,6 +433,25 @@ export async function postExtRow(row = {}) {
     return postRow(made.input);
 }
 
+/**
+ * An extension's row by its key (`api.funds.posted({source, key})`, M10 review): `{id, kind, cp, state, reversed}`, or null
+ * when no row with that key was written. `reversed` says whether a member reversed it in the Funds tab (a reversal row
+ * names it, or it is marked `reversedBy`): an extension that sells something for an `expense` treats it as bought only while
+ * its row stands, and buys it again under a new key.
+ */
+export function postedRow({ source, key } = {}) {
+    let idem;
+    try {
+        idem = extRowKey(source, key);
+    } catch {
+        return null;
+    }
+    const row = read(`rows.${hashId(idem)}`);
+    if (!row) return null;
+    const reversed = !!row.reversedBy || records("rows").some((r) => r.kind === "reversal" && r.reverses === row.id);
+    return { id: row.id, kind: row.kind, cp: row.cp, state: row.state ?? null, reversed };
+}
+
 /** An income source's `compute(ctx)` safely: its checked result, or null. */
 async function computeIncome(source, ctx) {
     try {
@@ -445,19 +472,38 @@ function announceIncome(source, actor, day, key, result) {
     return incomeResult(payload.result) ?? result;
 }
 
+/** The income payment record version (`incomes.<id>`). */
+const INCOME_VERSION = 1;
+
+/** The id of an income source's payment with `key` (`incomes.<id>`, and the lock page that writes it once). */
+const incomeId = (sourceId, key) => hashId(idemKey("income", sourceId, key));
+
+/** A recorded payment's rows posted again (each is idempotent): what a second call with its key does. */
+async function repostIncome(recorded) {
+    const results = [];
+    for (const input of recorded.rows ?? []) results.push(await postRow(input));
+    return { ok: results.every((r) => r.ok), outcome: "already", cp: recorded.cp, breakdown: recorded.breakdown ?? [], results };
+}
+
 /**
  * Pay an income source once (12.2, `api.ext.income`): `compute(ctx)` with `ctx` `{source, actor, day, key, data, party,
  * partyLevel, store, rules}`, the `incomeComputed` hook, then its rows by `distribute`: into the party fund, `actor`'s purse,
- * or split evenly among `recipients` (UUIDs; the Workshop's members by default). `key` makes the payment idempotent: paying
- * the same key again posts nothing more. Refused: `no-income-source`, `bad-key`, `no-actor` (an `actor` source without one),
- * `bad-result`, and each row's.
- * @returns {Promise<{ok: boolean, cp?: number, breakdown?: object[], results?: object[]}>}
+ * or split evenly among `recipients` (UUIDs; the Workshop's members by default). `key` makes the payment idempotent: the
+ * payment is recorded once (`incomes.<id> = {id, v, source, key, cp, breakdown, distribute, rows, by, at}`, behind a lock
+ * page named by the source and the key) before its rows are posted, and paying the same key again computes nothing and
+ * posts exactly the recorded rows (each once), whatever the members or `recipients` are now (`outcome` "already"); of two
+ * clients paying it at once, the one whose record lands pays. Refused: `no-income-source`, `bad-key`, `no-actor` (an
+ * `actor` source without one), `bad-result`, the record's write (`error`, ...), and each row's.
+ * @returns {Promise<{ok: boolean, outcome?: "ok"|"already", cp?: number, breakdown?: object[], results?: object[]}>}
  */
 export async function postIncome(sourceId, { key, actor: actorRef = null, day = null, data = {}, recipients = null, note = null } = {}) {
     if (!canWrite()) return refuse("not-ready");
     const source = registry.get("incomeSource", sourceId);
     if (!source) return refuse("no-income-source");
     if (!isKey(key)) return refuse("bad-key");
+    const id = incomeId(sourceId, key);
+    const recorded = read(`incomes.${id}`);
+    if (recorded) return repostIncome(recorded);
     const actor = actorOf(actorRef);
     if (source.distribute === "actor" && !actor) return refuse("no-actor");
     const party = members();
@@ -469,9 +515,29 @@ export async function postIncome(sourceId, { key, actor: actorRef = null, day = 
         recipients: recipients ?? party.map((a) => a.uuid), day, note });
     const bad = inputs.find((made) => !made.ok);
     if (bad) return refuse(bad.reason);
+    const record = { id, v: INCOME_VERSION, source: sourceId, key, cp: result.cp, breakdown: result.breakdown, distribute: source.distribute,
+        rows: inputs.map((made) => made.input), ...stampNow() };
+    const landed = await lockedWrite([id], [], { set: { [`incomes.${id}`]: record } });
+    if (!landed.ok) {
+        // Another client recorded this payment first: its rows are the payment.
+        const other = landed.reason === "taken" ? read(`incomes.${id}`) : null;
+        return other ? repostIncome(other) : refuse(landed.reason ?? "error", { outcome: landed.outcome });
+    }
     const results = [];
-    for (const made of inputs) results.push(await postRow(made.input));
-    return { ok: results.every((r) => r.ok), cp: result.cp, breakdown: result.breakdown, results };
+    for (const input of record.rows) results.push(await postRow(input));
+    return { ok: results.every((r) => r.ok), outcome: "ok", cp: result.cp, breakdown: result.breakdown, results };
+}
+
+/**
+ * Whether an income source's payment with `key` is made (`api.ext.incomePaid`): recorded, and each of its rows is in the
+ * ledger or waiting as a claim for its purse's owner. False for a payment never made, and for one whose rows did not all post
+ * (paying the key again posts them).
+ */
+export function incomePaid(sourceId, key) {
+    if (!isKey(key)) return false;
+    const recorded = read(`incomes.${incomeId(sourceId, key)}`);
+    if (!recorded) return false;
+    return (recorded.rows ?? []).every((input) => exists(`rows.${hashId(input.idem)}`) || exists(`claims.${hashId(input.idem)}`));
 }
 
 /**
@@ -557,9 +623,10 @@ const SPEND_VERSION = 1;
  * Spend an item through a consumable sink (12.2): the sink's `spend(ctx)` says what it gives (`{modifiers, notes}`), and the
  * Workshop takes one of the item off its holder and logs it (`spends.<id>`), behind a lock page named by the spend, so the
  * same `key` spends one item however often it is sent. `ctx` is `{actor, item, sink, key, data, store, rules}`. The
- * `consumableSpent` hook then fires on this client with the log record. Refused: `not-ready`, `no-sink`, `no-actor`,
- * `not-owner`, `no-item`, `inert` (inert or expired), `not-accepted`, `bad-key`, `sink-error`, `taken` (another spend with
- * that key landed first).
+ * `consumableSpent` hook then fires on this client with the log record. The stack is locked at the version its quantity was
+ * read from, so two spends with different keys planned from the same copy take two items or the second is refused. A spend
+ * with the same key that landed first answers `already`. Refused: `not-ready`, `no-sink`, `no-actor`, `not-owner`, `no-item`,
+ * `inert` (inert or expired), `not-accepted`, `bad-key`, `sink-error`, `conflict` (the stack changed meanwhile: try again).
  * @returns {Promise<{ok: boolean, outcome?: "ok"|"already", modifiers?: object[], notes?: string[], record?: object}>}
  */
 export async function spendItem(sinkId, { actor: actorRef = null, item: itemRef = null, key = null, data = {}, source = "api" } = {}) {
@@ -592,8 +659,16 @@ export async function spendItem(sinkId, { actor: actorRef = null, item: itemRef 
     const quantity = item.quantity ?? 1;
     const take = quantity > 1 ? { op: "updateItems", target: actor.uuid, updates: [{ _id: item.id, "system.quantity": quantity - 1 }] }
         : { op: "deleteItems", target: actor.uuid, ids: [item.id] };
-    const result = await runRequest([{ op: "lock", ids: [id] }, take, { op: "ledger", change: { set: { [`spends.${id}`]: record } } }]);
-    if (result.outcome === "refused") return refuse("taken");
+    // The spend's own page (a key sent twice spends once) and the stack's at the version this quantity was read from, as the
+    // Workshop's own item moves lock it: of two spends planned from the same copy of the stack, the second is refused rather
+    // than writing the same decrement again (M10 review).
+    const locks = [id, stackLockId(item.id, itemVersion(item))];
+    const result = await runRequest([{ op: "lock", ids: locks }, take, { op: "ledger", change: { set: { [`spends.${id}`]: record } } }]);
+    if (result.outcome === "refused") {
+        const landed = read(`spends.${id}`);
+        if (landed) return { ok: true, outcome: "already", modifiers: landed.modifiers ?? [], notes: landed.notes ?? [], record: landed };
+        return refuse("conflict", { item: item.name });
+    }
     if (result.outcome !== "ok") return refuse(result.reason ?? "error", { outcome: result.outcome });
     Hooks.callAll(`${MODULE_ID}.consumableSpent`, frozenCopy({ sink: sinkId, actor: actor.uuid, item: record.item, key: spendKey, modifiers, notes, record }));
     return { ok: true, outcome: "ok", modifiers, notes, record };

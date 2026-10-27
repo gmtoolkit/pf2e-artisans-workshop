@@ -11,7 +11,7 @@ import { activityKey, daysSummary, extBlockOf, parseActivity, planDays } from ".
 import {
     activityResult, aidModifier, answers, API_VERSION, cadenceKey, createRegistry, extRowInput, extRowKey, extRunId, incomeResult, incomeRowInputs,
     isExtensionScope, isScopePath, modifierData, modifierList, normaliseActivity, normaliseIncomeSource, normaliseModifierSource, normaliseSink,
-    partyLevelOf, rollSelectors, splitEvenly, splitId, WORKSHOP_ID,
+    partyLevelOf, pathsOverlap, rollSelectors, splitEvenly, splitId, WORKSHOP_ID,
 } from "../../scripts/logic/extensions.mjs";
 import { hashId } from "../../scripts/logic/ids.mjs";
 import { makeRow } from "../../scripts/logic/rows.mjs";
@@ -164,6 +164,13 @@ test("an activity's result: store writes by valid path, rows keyed by the run un
     assert.deepEqual(result.notes, ["MY.Note"]);
     assert.equal(result.dropped, 7);
     assert.deepEqual(activityResult(undefined, { source: "my-ext:promote", runId: "r", day: 1 }), { ext: {}, rows: [], notes: [], dropped: 0 });
+});
+
+test("an activity's result never carries two store paths one inside the other: the outer one is dropped (M10 review)", () => {
+    const result = activityResult({ ext: { tally: { a: 1 }, "tally.b": 2, "tally.c.d": 3, other: 4, "others.x": 5 } }, { source: "my-ext:promote", runId: "r", day: 1 });
+    assert.deepEqual(result.ext, { "tally.b": 2, "tally.c.d": 3, other: 4, "others.x": 5 }, "`other` is no prefix of `others.x`");
+    assert.equal(result.dropped, 1);
+    assert.deepEqual([pathsOverlap("a", "a"), pathsOverlap("a", "a.b"), pathsOverlap("a.b", "a"), pathsOverlap("a", "ab"), pathsOverlap("a.b", "a.c")], [true, true, true, false, false]);
 });
 
 /* -------------------------------------------- */

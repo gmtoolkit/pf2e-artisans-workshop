@@ -12,16 +12,16 @@
 /**
  * The ledger's top-level keys (5.1) and how many path segments a write or a deletion needs at least. A
  * collection needs its id (`rows.<id>`); `formulas.<actorId>.<hash>` and `meta.manual.<runId>` are collections one level
- * down. The longest matching prefix decides. M10 adds `extRuns` (an extension activity's runs, 12.2) and `spends` (the log
- * of items spent through a consumable sink); an extension's own data is not here but in the ledger's flags under the
- * extension's module id (12.4, `scopeUpdate`).
+ * down. The longest matching prefix decides. M10 adds `extRuns` (an extension activity's runs, 12.2), `spends` (the log
+ * of items spent through a consumable sink) and `incomes` (an income source's payments, recorded once per key); an
+ * extension's own data is not here but in the ledger's flags under the extension's module id (12.4, `scopeUpdate`).
  */
 const MIN_DEPTH = new Map([
     ["schema", 1], ["role", 1],
     ["meta", 2], ["meta.manual", 3],
     ["orders", 2], ["services", 2], ["rows", 2], ["claims", 2], ["pcs", 2], ["days", 2], ["jobs", 2],
     ["roster", 2], ["standing", 2], ["gardens", 2], ["afflictionDefs", 2],
-    ["formulas", 3], ["extRuns", 2], ["spends", 2],
+    ["formulas", 3], ["extRuns", 2], ["spends", 2], ["incomes", 2],
 ]);
 
 /** A path segment: an id, a slug or a camelCase name. Dots separate segments; "=" (the banned -= and == keys) never appears. */

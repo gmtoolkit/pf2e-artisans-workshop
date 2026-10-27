@@ -2,6 +2,29 @@
 
 Newest first.
 
+## 2026-10-27: The extension API after the M10 review
+
+**Decision:** four changes to the extension API and one addition, found by building the circus module against it and
+reviewing both:
+
+- An income source's `perEvent` payment is recorded once per key (`incomes.<id>`, behind a lock page) before its rows are
+  posted. Paying the key again posts exactly the recorded rows, so a `split` paid again after a member joins pays nobody
+  more. `api.ext.incomePaid(sourceId, key)` says whether a payment is made.
+- An `ActivityResult`'s store path that is a prefix of another of its paths is dropped, and so is a later run's path inside
+  or around an earlier run's in the same span (the same path: the later run wins).
+- A spend through a consumable sink locks the item's stack at the version it read, as the Workshop's own item moves do.
+- The wizard's `downtimeDayEnd` names only the PCs whose days its own write landed.
+- New within API version 1: `api.funds.posted({source, key})`, an extension's row by its key and whether it was reversed.
+
+**Why:** "the same key posts once" has to hold for the payment, not for each recipient's row, or the payment's size changes
+with the party. A result that cannot be written blocks the PC's downtime forever, though a misbehaving callback should count
+as nothing. Two spends from one copy of a stack must not both give a bonus for one item. 12.3 says a hook fires on the
+client that performed the write. Any member may reverse an `expense` row in the Funds tab, so an extension selling
+something for one needs to see the reversal.
+
+**Consequences:** DESIGN 4.1 (the `incomes` record), 5.1 and 5.3 (the ledger key), 11.2 and 12.6 (as built, the lows in
+its follow-ups). The refusal `conflict` replaces `taken` for a spend; a spend whose key landed first answers `already`.
+
 ## 2026-10-27: The extension API as built (M10)
 
 **Decision:** seven rules settled while building DESIGN 12 (12.6):

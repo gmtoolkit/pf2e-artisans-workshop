@@ -418,16 +418,29 @@ export function partyLevelOf(levels) {
 /* -------------------------------------------- */
 
 /**
+ * Whether one store path lies inside another (`a` is `b`, or one is a prefix of the other at a dot): two such paths cannot be
+ * written in one update (`flagUpdate` refuses the whole update), so a result may not carry both.
+ */
+export const pathsOverlap = (a, b) => a === b || a.startsWith(`${b}.`) || b.startsWith(`${a}.`);
+
+/**
  * What an activity's `resolve(ctx)` returned (12.2 `ActivityResult`), checked: `ext` the extension-store writes (paths
  * relative to its own scope, each a valid path), `ledger` its rows (each an `extRowInput`, keyed `run.<runId>.<n>` when it
- * gives no key), `notes` lines to show (i18n keys or text). Invalid parts are dropped and counted.
+ * gives no key), `notes` lines to show (i18n keys or text). Invalid parts are dropped and counted. A path that is a prefix
+ * of another path of the same result (`tally` beside `tally.b`) is dropped too, and the deeper one kept: written together
+ * they would make the whole day's write fail (M10 review).
  */
 export function activityResult(result, { source, runId, day }) {
     const out = { ext: {}, rows: [], notes: [], dropped: 0 };
     if (!result || typeof result !== "object") return { ...out, dropped: result === undefined || result === null ? 0 : 1 };
-    for (const [path, value] of Object.entries(result.ext ?? {})) {
-        if (isScopePath(path) && value !== undefined) out.ext[path] = value;
-        else out.dropped += 1;
+    const valid = Object.entries(result.ext ?? {}).filter(([path, value]) => {
+        const ok = isScopePath(path) && value !== undefined;
+        if (!ok) out.dropped += 1;
+        return ok;
+    });
+    for (const [path, value] of valid) {
+        if (valid.some(([other]) => other.startsWith(`${path}.`))) out.dropped += 1;
+        else out.ext[path] = value;
     }
     (Array.isArray(result.ledger) ? result.ledger : []).forEach((row, i) => {
         const made = extRowInput({ ...row, source: row?.source ?? source, key: row?.key ?? `run.${runId}.${i}`, day: row?.day ?? day });

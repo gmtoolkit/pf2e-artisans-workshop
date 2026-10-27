@@ -410,12 +410,18 @@ export async function advanceDays({ kind = "days", count = 1, through = null, ba
         const result = await planFor(actor, days, choice);
         planned.push({ actor, activity: choice, plan: result.plan ?? null, refusal: result.refusal ?? null });
     }
-    const hooks = dayHooks(planned.filter((p) => p.plan), "wizard");
-    for (const { start } of hooks) Hooks.callAll("pf2e-artisans-workshop.downtimeDayStart", start);
+    for (const { start } of dayHooks(planned.filter((p) => p.plan), "wizard")) Hooks.callAll("pf2e-artisans-workshop.downtimeDayStart", start);
     const results = [];
-    for (const { actor, plan, refusal } of planned) {
-        results.push({ actor, ...(refusal ?? await writePlan(actor, plan)) });
+    // M10 review: `downtimeDayEnd` tells only of the days this client wrote; a PC whose write was refused ("taken": another
+    // client resolved those days first, and announced them) or failed is left out, and a day nobody's write landed for
+    // ends with no hook.
+    const written = [];
+    for (const entry of planned) {
+        const result = entry.refusal ?? await writePlan(entry.actor, entry.plan);
+        results.push({ actor: entry.actor, ...result });
+        if (!entry.refusal && result.ok && result.records?.length) written.push(entry);
     }
+    const hooks = dayHooks(written, "wizard");
     if (span.advances > 0) {
         const runId = newId();
         await write({ set: { [`meta.manual.${runId}`]: { id: runId, v: 1, fromDay: span.fromDay, toDay: span.toDay, ...stampNow() } } });

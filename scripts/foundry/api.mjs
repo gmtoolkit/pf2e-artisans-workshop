@@ -175,6 +175,8 @@ export function buildApi() {
             post: (row = {}) => ext.postExtRow({ ...row, cp: row.cp ?? (row.amount === undefined ? undefined : amountCp(row.amount)),
                 actor: row.actor ? resolveActor(row.actor)?.uuid ?? row.actor : null }),
             rows: (filter = {}) => records("rows").filter((r) => (!filter.order || r.order === filter.order) && (!filter.actor || r.actor === filter.actor)),
+            // M10 review: an extension's row by its key, and whether it was reversed (`{id, kind, cp, state, reversed}` or null).
+            posted: ({ source, key } = {}) => ext.postedRow({ source, key }),
             claims: (actor = null) => openClaims(read("claims"), resolveActor(actor)?.uuid ?? null).map((claim) => ({ ...claim, row: claimRowInput(claim) })),
             claimAll: () => funds.takeAll(),
         },
@@ -478,6 +480,8 @@ export function buildApi() {
             },
             income: (sourceId, { key, actor = null, day = null, data = {}, recipients = null, note = null } = {}) =>
                 ext.postIncome(sourceId, { key, actor: actor ? resolveActor(actor) : null, day, data, recipients, note }),
+            // Whether the payment with `key` is made: recorded, its rows in the ledger or claimed (M10 review).
+            incomePaid: (sourceId, key) => ext.incomePaid(sourceId, key),
             spend: (sinkId, { actor = null, item, key = null, data = {} } = {}) => ext.spendItem(sinkId, { actor: resolveActor(actor), item, key, data }),
             sinkItems: (sinkId, actor = null) => ext.sinkItems(sinkId, resolveActor(actor)),
             spends: (filter = {}) => ext.spends(filter),

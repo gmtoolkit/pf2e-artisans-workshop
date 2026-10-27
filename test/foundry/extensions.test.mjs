@@ -7,7 +7,7 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
-import { addDocument, asUser, coin, installFoundry, MOD, resetWorld, setUsers, sharedWorld, world } from "./stubs.mjs";
+import { addDocument, asUser, coin, installFoundry, interleave, MOD, resetWorld, setUsers, sharedWorld, world } from "./stubs.mjs";
 import { EXT_ID, registerTestExtension } from "./ext-fixture.mjs";
 
 installFoundry();
@@ -219,6 +219,38 @@ test("an activity that refuses the PC stops before its first day; one no module 
         "a 1-day activity with no check: each day is a run, resolved as it is written");
 });
 
+test("a resolve result whose store paths overlap still writes its days, without the overlapping paths (M10 review)", async () => {
+    const registry = ext.resetExtensions({ open: true });
+    // Day 1 returns `tally` beside `tally.b`; day 2's run writes `log`, day 3's `log.x` inside it, in the same span.
+    const results = { 1: { ext: { tally: { a: 1 }, "tally.b": 2 } }, 2: { ext: { log: { first: 2 } } }, 3: { ext: { "log.x": 3 } } };
+    assert.equal(registry.extension(EXT_ID).downtimeActivity({ id: `${EXT_ID}.tally`, label: "TEST.Tally", days: 1, resolve: (ctx) => results[ctx.day] }).ok, true);
+    await downtime.setDowntime(vera.uuid, true);
+    await downtime.setActivity(vera.uuid, { kind: "ext", ref: `${EXT_ID}.tally` });
+    await game.time.advance(3 * DAY);
+    const done = await downtime.resolveDays({ actor: vera });
+    assert.equal(done.ok, true, JSON.stringify(done));
+    assert.deepEqual(done.records.map((r) => r.day), [1, 2, 3], "every day is written");
+    assert.deepEqual(extFlags().tally, { b: 2 }, "the outer path of one result is dropped, the deeper one kept");
+    assert.deepEqual(extFlags().log, { first: 2 }, "a later run's path inside an earlier run's is dropped");
+    assert.equal((await downtime.resolveDays({ actor: vera })).reason, "no-days", "nothing is left pending");
+});
+
+test("the wizard announces downtimeDayEnd only for days it wrote: a PC another client resolved first is left out (12.3, M10 review)", async () => {
+    await downtime.setDowntime(vera.uuid, true);
+    await downtime.setActivity(vera.uuid, { kind: "ext", ref: `${EXT_ID}.rest` });
+    const ends = [];
+    Hooks.on("pf2e-artisans-workshop.downtimeDayEnd", (p) => ends.push([game.user.id, p.day, Object.keys(p.results)]));
+    // Vera's player resolves her day 1 while Player Two's wizard request for the same day is held at the server's door.
+    let mine;
+    const release = interleave((ops) => ops.some((o) => o.documentName === "JournalEntryPage"),
+        async () => { mine = await as("p1", () => downtime.resolveDays({ actor: vera, count: 1 })); });
+    const wizard = await as("p2", () => downtime.advanceDays({ kind: "days", count: 1 }));
+    release();
+    assert.deepEqual([mine.ok, mine.records.length], [true, 1]);
+    assert.deepEqual(wizard.results.map((r) => [r.actor.name, r.ok, r.reason]), [["Vera", false, "taken"]]);
+    assert.deepEqual(ends, [["p1", 1, [vera.id]]], "one downtimeDayEnd for Vera's day 1, from the client that wrote it");
+});
+
 test("a run's rows that did not land are posted by the sweep on the PC's responsible client, once (P5)", async () => {
     const input = { kind: "income", idem: `ext:${EXT_ID}:study:run.x.0`, cp: 100, how: { via: "box" }, actor: null, source: `${EXT_ID}:study`, day: 4 };
     await write({ set: { [`days.${vera.id}-4`]: { id: `${vera.id}-4`, v: 1, actor: vera.id, day: 4, toDay: 4, activity: { kind: "ext", ref: `${EXT_ID}.study` }, extRows: [input], rows: [] } } });
@@ -264,6 +296,47 @@ test("income split among the members: minted into this user's purse, a claim for
     assert.deepEqual([row.source, row.purse, row.box], [`${EXT_ID}:share`, 150, 0]);
 });
 
+test("a split payment is made once per key: paid again after a member joins, or to other recipients, it posts nothing new (12.2, M10 review)", async () => {
+    const share = `${EXT_ID}.share`;
+    const first = await ext.postIncome(share, { key: "show.s1", data: { cp: 300 } });
+    assert.deepEqual(first.results.map((r) => r.outcome), ["ok", "claimed"]);
+    const cy = addDocument("Actor", { name: "Cy", ownership: { default: 0, p2: 3 }, items: [coin("gp", 1)] });
+    Object.assign(cy, { level: 5, system: {} });
+    world.collections.Actor.party = { id: "party", members: [vera, bo, cy] };
+    const computed = [];
+    Hooks.on("pf2e-artisans-workshop.incomeComputed", (p) => computed.push(p.key));
+    const again = await ext.postIncome(share, { key: "show.s1", data: { cp: 300 } });
+    const other = await ext.postIncome(share, { key: "show.s1", data: { cp: 900 }, recipients: [cy.uuid] });
+    const paid = records("rows").filter((r) => r.kind === "income").reduce((sum, r) => sum + r.cp, 0);
+    const claimed = records("claims").filter((c) => c.kind === "income").reduce((sum, c) => sum + c.cp, 0);
+    assert.equal(paid + claimed, 300, "300 cp out for a 300 cp payment");
+    assert.equal(records("claims").some((c) => c.actor === cy.uuid), false, "nothing for the newcomer");
+    assert.deepEqual(computed, [], "a payment made is not computed again");
+    assert.deepEqual([first.outcome, again.outcome, again.cp, again.results.map((r) => r.outcome), other.outcome, other.cp],
+        ["ok", "already", 300, ["already", "already"], "already", 300]);
+});
+
+test("api.ext.incomePaid: a payment is made once it is recorded and its rows are in the ledger or claimed (M10 review)", async () => {
+    const share = `${EXT_ID}.share`;
+    assert.equal(ext.incomePaid(share, "show.s1"), false, "not paid yet");
+    await ext.postIncome(share, { key: "show.s1", data: { cp: 300 } });
+    assert.equal(ext.incomePaid(share, "show.s1"), true, "Vera's row is in the ledger, Bo's share is claimed");
+    assert.deepEqual([ext.incomePaid(share, "show.s2"), ext.incomePaid(`${EXT_ID}.show`, "show.s1"), ext.incomePaid(share, "bad key")], [false, false, false]);
+});
+
+test("two clients paying the same key at once: one records the payment, the other posts that payment's rows (12.2, M10 review)", async () => {
+    const share = `${EXT_ID}.share`;
+    let theirs;
+    const release = interleave((ops) => ops.some((o) => o.documentName === "JournalEntryPage"),
+        async () => { theirs = await as("p2", () => ext.postIncome(share, { key: "show.s9", data: { cp: 200 }, recipients: [bo.uuid] })); });
+    const mine = await ext.postIncome(share, { key: "show.s9", data: { cp: 200 } });
+    release();
+    const paid = records("rows").filter((r) => r.kind === "income").reduce((sum, r) => sum + r.cp, 0);
+    const claimed = records("claims").filter((c) => c.kind === "income").reduce((sum, c) => sum + c.cp, 0);
+    assert.equal(paid + claimed, 200, "Bo's 200, once");
+    assert.deepEqual([theirs.outcome, mine.outcome, mine.cp], ["ok", "already", 200]);
+});
+
 test("api.funds.post: an extension's expense comes out of the party fund behind its slot; strangers and bad rows are refused (12.4)", async () => {
     const row = { kind: "expense", cp: 4000, key: "upgrade.seats", source: `${EXT_ID}:upgrades` };
     assert.equal((await ext.postExtRow({ ...row, source: "stranger-ext:upgrades" })).reason, "unknown-extension");
@@ -277,6 +350,19 @@ test("api.funds.post: an extension's expense comes out of the party fund behind 
     assert.equal((await ext.postExtRow({ ...row, kind: "refund" })).reason, "bad-kind");
     const income = await ext.postExtRow({ kind: "income", amount: 250, key: "gift", source: `${EXT_ID}:gifts`, actor: bo.uuid });
     assert.equal(income.outcome, "claimed", "into a purse this user does not own: a claim");
+});
+
+test("api.funds.posted: an extension finds its row by key, and whether a member reversed it in the Funds tab (M10 review)", async () => {
+    const row = { kind: "expense", cp: 2000, key: "upgrade.seats.1", source: `${EXT_ID}:upgrades` };
+    assert.equal(ext.postedRow(row), null, "nothing posted yet");
+    await funds.deposit(vera.uuid, 5000);
+    assert.equal((await ext.postExtRow(row)).outcome, "ok");
+    const posted = ext.postedRow(row);
+    assert.deepEqual([posted.kind, posted.cp, posted.reversed], ["expense", 2000, false]);
+    assert.equal((await funds.reverse(posted.id)).ok, true, "its author reverses it: the money goes back to the party fund");
+    assert.equal(ext.postedRow(row).reversed, true);
+    assert.equal(unallocatedCp(records("rows")), 5000);
+    assert.deepEqual([ext.postedRow({ ...row, key: "upgrade.seats.2" }), ext.postedRow({ ...row, source: "bad" }), ext.postedRow({ ...row, key: "a b" })], [null, null, null]);
 });
 
 /* -------------------------------------------- */
@@ -306,6 +392,23 @@ test("a sink spends one item, logs it, gives its modifiers, and the same key spe
     assert.equal((await ext.spendItem("gone-ext.sink", { actor: vera, item: bandage.id })).reason, "no-sink");
     assert.equal(spent.length, 2);
     assert.ok(Object.isFrozen(spent[0]));
+});
+
+test("two spends with different keys planned from the same stack: the one that lands second is refused, never a free bonus (M10 review)", async () => {
+    const fire = vera.items.find((i) => i.name === "Alchemist's Fire");
+    let second;
+    // The first spend's request is held at the server's door while another spend of the same stack (another tab, the
+    // Bandolier) gets there first.
+    const release = interleave((ops) => ops.some((o) => o.documentName === "Item" && o.action === "update"),
+        async () => { second = await ext.spendItem(`${EXT_ID}.alchemical-trick`, { actor: vera, item: fire.id, key: "k2" }); });
+    const first = await ext.spendItem(`${EXT_ID}.alchemical-trick`, { actor: vera, item: fire.id, key: "k1" });
+    release();
+    assert.deepEqual([second.ok, first.ok, first.reason], [true, false, "conflict"]);
+    assert.equal(records("spends").length, 1, "one spend logged");
+    assert.equal(fire.system.quantity, 1, "for the one item taken");
+    const retried = await ext.spendItem(`${EXT_ID}.alchemical-trick`, { actor: vera, item: fire.id, key: "k1" });
+    assert.deepEqual([retried.ok, records("spends").length, vera.items.find((i) => i.name === "Alchemist's Fire")], [true, 2, undefined],
+        "tried again from the stack as it is now, it takes the last one");
 });
 
 /* -------------------------------------------- */
