@@ -53,7 +53,7 @@ test("every capture is a PNG in docs/screenshots/, linked from the README in ord
     }
     assert.deepEqual(checkAssets(ROOT, { files }), []);
     assert.ok(CAPTURES.some((c) => c.scheme === "light") && CAPTURES.some((c) => c.scheme === "dark"));
-    for (const view of ["queue", "request", "funds", "formulas", "downtime"]) assert.ok(CAPTURES.some((c) => c.view === view), view);
+    for (const view of ["queue", "request", "funds", "formulas", "downtime", "morning"]) assert.ok(CAPTURES.some((c) => c.view === view), view);
     // Each caption follows its image after a hard line break (a trailing backslash): with a plain newline GitHub puts the
     // caption on the image's line, beside any image narrower than the page (request-form.png is 560 px wide).
     const readme = readFileSync(join(ROOT, "README.md"), "utf8");
@@ -62,9 +62,9 @@ test("every capture is a PNG in docs/screenshots/, linked from the README in ord
     }
 });
 
-test("the Morning tab's capture (M7) is taken by npm run screenshots but linked from the README only once it has been checked", async () => {
+test("a new tab's capture waits in NEXT_CAPTURES until it has been checked; the Morning tab's (M7) is linked since the M7 live pass", async () => {
     const { NEXT_CAPTURES } = await import("../tools/harness/screenshots.mjs");
-    assert.deepEqual(NEXT_CAPTURES.map((c) => [c.file, c.view]), [["morning.png", "morning"]]);
+    assert.ok(CAPTURES.some((c) => c.file === "morning.png" && c.view === "morning"));
     for (const capture of NEXT_CAPTURES) {
         assert.ok(!CAPTURES.some((c) => c.file === capture.file), capture.file);
         assert.ok(isScreenshotPath(`${SCREENSHOT_DIR}${capture.file}`), capture.file);

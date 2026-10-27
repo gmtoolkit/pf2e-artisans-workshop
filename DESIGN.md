@@ -4980,7 +4980,7 @@ additions to `services.mjs`, `formulas.mjs`, `settings.mjs`, `sync.mjs`, `api.mj
 pure parts (`test/logic/morning.test.mjs`, `expiry.test.mjs`, `talismans.test.mjs`); stub tests the Foundry and window parts
 over a fake of pf2e's crafting model (`test/foundry/pf2e-crafting.mjs`: `CraftingAbility` and `performDailyCrafting` as the
 pf2e source runs them, including stacking by `system` data only, the unawaited stack update of `craft`, and the refusal of a
-pool beyond its slots; `test/foundry/morning.test.mjs`, `ui-m7.test.mjs`). The live plans are written and not yet run. pf2e
+pool beyond its slots; `test/foundry/morning.test.mjs`, `ui-m7.test.mjs`). The live plans passed their first run (M7 live pass, below). pf2e
 read: the dev head `be4ab21b` (`src/module/actor/character/crafting/`, `rule-element/crafting-ability.ts`,
 `special-resource.ts`, `scripts/macros/rest-for-the-night.ts`), pf2e-dailies 4.23.1 from its source map.
 
@@ -5112,7 +5112,7 @@ read: the dev head `be4ab21b` (`src/module/actor/character/crafting/`, `rule-ele
   Firework Technician (regain), the alchemist archetype, Wandering Chef and Munitions Machinist (no regain); new entries
   `talismanic-sage` and `munitions-machinist` (off the ignore list): 249 entries, 1202 ignored, validated against the pf2e
   checkout (`PF2E_SRC=<checkout> npm test`, `validate:registry`).
-- **Live plans** (15.3; `tools/harness/morning-scenarios.mjs`, scenario `m7`; `live-plans.mjs`), to run later:
+- **Live plans** (15.3; `tools/harness/morning-scenarios.mjs`, scenario `m7`; `live-plans.mjs`), run in the M7 live pass:
   - `m7-morning` (GM, P1): the bomber's pools from pf2e (Advanced Alchemy with its sources, Talisman Dabbler offering common
     talismans up to level 5), vials; a loadout of Elixir of Life by family prepares Elixir of Life (Moderate) ×2 at level
     11, infused, stamped with the cycle and 24 hours, written into the book by family; two virtual talismans, none in the
@@ -5200,6 +5200,44 @@ read: the dev head `be4ab21b` (`src/module/actor/character/crafting/`, `rule-ele
     `delete` a second delete of an item already gone. `expirySweep` is single-flight (a sweep asked for meanwhile runs
     once more after it), and the expiry claim's applier runs that sweep instead of marking on its own.
 
+#### M7 live pass (2026-10-27, Foundry 14.368, pf2e 8.6.1, pf2e-dailies 4.23.1, no canvas)
+
+One pass at `1130d98` (M0-M7), then once more after the fix below:
+
+- **M7 plans** (`--runs 1`): all seven pass at the first run with pf2e-dailies active in the world (`m7-rest` turns it off
+  for its own run and back, `m7-dailies` needs it on); `m7-morning`, `m7-expiry`, `m7-standing` and `m7-affix` pass again
+  with pf2e-dailies off for the world. No console errors or warnings on any client, no slow server answers. After the fix,
+  all seven, `m4-ui` and `m6-wizard-players` pass once more.
+- **Regression** (`--runs 1`, pf2e-dailies on): scenarios 1 and 7, `m6-wizard-players`, `m6-income`, `m4-lifecycle` and
+  `m5-fund` pass. Console errors: scenario 7's expected ones (15.3), and on `m6-income`'s second device core's "already
+  exists" for the lock page the first device took (the lock-first race the plan provokes, 5.4).
+- **Found and fixed** (with a test that fails without it):
+  - *Typing a talisman count and clicking "Make daily preparations" at once lost the click* (medium, the hands-on pass,
+    with a click held 120 ms as a hand does). The count's change event fires as the field loses focus, which is on the
+    button's press; it rendered the Morning tab and replaced the button before the release. M6 fixed its two fields by
+    rendering nothing, which the Morning cannot do (the plan's lines follow the counts). The window now holds a render
+    asked for while a pointer is pressed in it (`renderParts`: a capture-phase `pointerdown`, released on the document's
+    `pointerup` or `pointercancel`, `PRESS_HOLD_MS` 1.5 s at most) and renders after the release's click; every render a
+    field's change asks for, and the live refreshes, go through it (`ui-m7.test.mjs`).
+- **Hands-on pass** (a scratch Playwright script, real clicks and typing, the GM, Player One and Player Two online; setup
+  through the harness: the bomber's pools and book put back, a "Healer" loadout of Elixir of Life by family through the
+  API, as there is no loadout editor, a wielded longsword and a repair toolkit from the GM). With pf2e-dailies off: Player
+  One opens the Workshop from the Actors directory, the Morning tab, picks "Healer" in Advanced Alchemy's select, types 1
+  for Eye of Enlightenment (Tab) and 1 for Copper Penny and clicks "Make daily preparations" at once: Elixir of Life
+  (Moderate) ×2 and both talismans made, stamped cycle 0, the Morning card posted (after the fix; before it the click was
+  lost). On the affix board, "Longsword" chosen for Eye of Enlightenment and "Affix": the board says the longsword's
+  talisman works. The GM hands one elixir to Player Two's fighter and one to the party stash, then rests the party from
+  the party sheet (Exploration, the bed button, pf2e's "Rest for the night?" Yes): pf2e deletes the rested characters'
+  temporary items (the alchemist's own and the fighter's elixir, the affixed talisman), the stash's elixir becomes
+  "Elixir of Life (Moderate) (inert)", the alchemist's cycle goes to 1, one Morning prompt on Player One's client and the
+  tab's badge reads 1; preparing again from the tab makes new items stamped cycle 1. With pf2e-dailies on (every page
+  reloaded) the same party rest: its `rested` flag set, the cycle at 2, the cycle-1 elixir in the stash inert, one prompt;
+  Player One opens the character sheet from the directory, clicks pf2e-dailies' icon, picks "Healer" in the Workshop's
+  Advanced Alchemy row (the talisman row on "keep"), Accept: "Morning applied", Elixir of Life (Moderate) ×2 and the two
+  talismans again, stamped cycle 2. No raw keys in the Workshop, pf2e-dailies' window or the cards posted, and no console
+  errors on any client. The dev world's chat log keeps cards and roll flavours posted while the language file failed
+  (before the M6 live pass fix) with raw keys: their text is stored when posted, so they stay so.
+
 #### Follow-ups (M7, low)
 
 - No loadout editor in the window: loadouts are saved from the current preparation (with the last talisman picks) or
@@ -5269,6 +5307,23 @@ read: the dev head `be4ab21b` (`src/module/actor/character/crafting/`, `rule-ele
     with the Workshop's last answer (`flags.MOD.morning.wilderness`).
   - A preserved food whose creator can no longer be read (an actor deleted) stays preserved; Eternal Elixir and the other
     `expiryRule` exceptions of 7.7 are still to come.
+- From the M7 live pass:
+  - The affix board offers every host to each loose talisman: Copper Penny (affixed to an unarmored defense item) was
+    offered the longsword, and "Affix" then refuses it (`wrong-host`). Offer only the hosts `affixHostKinds` allows.
+  - "Affixing the loose talismans takes about 1 minutes" (`Morning.Affix.Minutes` has no singular).
+  - pf2e-dailies' window cuts the talisman pool's "Keep the current preparation and the last talismans made" to "... and
+    the la" in its narrow select; shorten `Dailies.KeepTalismans`.
+  - A standing order's chip names the grade asked for ("1 Elixir of Life (Minor) for Doran Vell") while the pool makes
+    the best grade it allows (the plan's line says Moderate), and names the requester twice when they are the recipient
+    ("(asked by Doran Vell)"). Word it by family, and leave out the requester when it is the recipient.
+  - The Dabbler's picker lists every talisman the pool can make (41 for the 11th-level fixture) in one long column, and
+    the Advanced Alchemy card beside it stretches to its height with empty space (`morning.png`). A filter, or the picked
+    ones first with the rest collapsed.
+  - A tab button's tooltip repeats its visible word in the wide tier (it is for the narrow tier, where the word is
+    hidden); after a click, "Morning" covers the Formulas button below it until the pointer moves.
+  - A party rest from the party sheet deletes the temporary items of every rested holder (pf2e), so an infused item handed
+    to a member who rests too is gone rather than inert; only holders that do not rest (the party stash, an NPC) show the
+    module's inert mark. As the rules want; noted because the Expiry card then has nothing to say for those holders.
 
 ---
 
@@ -6175,6 +6230,16 @@ renders the caption on the image's line, beside the 560 px request form (`test/s
 1440x900), checked and compressed like the rest but not yet linked from the README. After the next run, check it by eye,
 move its entry into `CAPTURES` and add its caption to the README's Screenshots section, which the test then holds. The
 live plan `m7-shots` takes the tab at both sizes and schemes as Player One and the GM into `--shots`.
+
+**Refresh after M7's live pass (2026-10-27).** `morning.png` (the Morning tab as Player One) joins the README after
+`downtime.png`, from `CAPTURES`; `NEXT_CAPTURES` is empty again, for the next new tab. The staging adds the Morning
+(`stageMorning`), each step on the client of whoever would take it: Player One saves Ilsa's "Field kit" loadout for
+Advanced Alchemy through the public API (`api.prep.saveLoadout`, families from `api.formulas.family`: two elixirs of life,
+three alchemist's fires, an antidote, from the formulas staged before), and Player Two places Doran's standing order for an
+elixir of life each morning; the capture opens the tab with the loadout as the pool's plan and two talismans picked, so it
+shows the standing order due, the plan's lines (each at the best grade the pool makes, Elixir of Life (Moderate) ×3 with
+the request) and the Dabbler's picker. All seven captures were looked at: no raw keys, no overflow, no fixture names;
+the follow-ups above still show, and the Morning tab's own are in 10.13 (Follow-ups, from the M7 live pass).
 
 ---
 

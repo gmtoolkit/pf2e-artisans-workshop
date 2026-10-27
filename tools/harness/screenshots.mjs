@@ -88,19 +88,19 @@ export const CAPTURES = Object.freeze([
         caption: "Formulas: a character's book by family, where each formula came from, and the ways to learn another." },
     { file: "downtime.png", scheme: "dark", view: "downtime",
         caption: "Downtime: the workshop day, a character's days and what they go to, the party's settlement, and an Earn Income job with its pay." },
+    { file: "morning.png", scheme: "dark", view: "morning",
+        caption: "Morning: a character's daily crafting by pool, a loadout's plan with an ally's standing order, and the talismans it can make today." },
     { file: "queue-light.png", scheme: "light", view: "queue", order: "complete",
         caption: "The Queue in the light theme, with a finished order's cost summary." },
 ]);
 
 /**
- * Captures taken and written beside `CAPTURES` but not yet linked from the README (M7: the Morning tab, 17.1 "refreshed
- * whenever a milestone adds a tab"). After a run, check the file by eye, move its entry into `CAPTURES` and add its caption
- * to the README's Screenshots section, which `test/screenshots.test.mjs` then holds to it.
+ * Captures taken and written beside `CAPTURES` but not yet linked from the README (17.1 "refreshed whenever a milestone adds
+ * a tab"): a new tab's capture goes here first. After a run, check the file by eye, move its entry into `CAPTURES` and add
+ * its caption to the README's Screenshots section, which `test/screenshots.test.mjs` then holds to it. Empty since the M7
+ * live pass linked `morning.png`.
  */
-export const NEXT_CAPTURES = Object.freeze([
-    { file: "morning.png", scheme: "dark", view: "morning",
-        caption: "Morning: a character's daily crafting by pool, the talismans it can make today, loadouts and standing orders." },
-]);
+export const NEXT_CAPTURES = Object.freeze([]);
 
 /** Names that must never appear in a capture: the fixture actors' labels and the character imported into the dev world. */
 export const BANNED_NAMES = Object.freeze(["Fixture"]);
@@ -482,22 +482,48 @@ async function stageDowntime(h, demo, orders) {
     return { job: job.job, perDayCp: job.perDayCp, profile: profile.id };
 }
 
+/** Player One: a loadout saved through the public API (the window has no loadout editor), each entry by its item's family. */
+async function pageLoadout({ mod, actor, name, pool, entries }) {
+    const api = game.modules.get(mod).api;
+    const families = [];
+    for (const [uuid, qty] of entries) families.push({ family: await api.formulas.family(uuid), qty });
+    return JSON.parse(JSON.stringify(await api.prep.saveLoadout(actor, { name, pools: { [pool]: families } })));
+}
+
+/**
+ * The Morning (M7), with Player One and Player Two online: Ilsa's "Field kit" loadout for Advanced Alchemy by family (two
+ * elixirs of life, three alchemist's fires and an antidote, each at the best grade the pool makes from the formulas staged
+ * above), saved as a player would through the API, and Doran's standing order for an elixir of life each morning, placed
+ * on Player Two's client. Returns the loadout's id, which the capture picks in the pool's plan.
+ */
+async function stageMorning(h, demo) {
+    const saved = await h.evaluate("p1", pageLoadout, { mod: MODULE_ID, actor: demo.alchemist.uuid, name: "Field kit", pool: "advanced-alchemy",
+        entries: [[ITEMS.elixirMinor, 2], [ITEMS.fireLesser, 3], [ITEMS.antidoteLesser, 1]] }, "the Field kit loadout");
+    const standing = await h.step("p2", "m7", "standing", { requester: demo.fighter.uuid, crafter: demo.alchemist.uuid, uuid: ITEMS.elixirMinor, qty: 1 });
+    h.check("the demo's Morning: Ilsa's loadout by family and Doran's standing order", saved?.ok === true && saved.loadout?.pools?.["advanced-alchemy"]?.length === 3
+        && standing?.ok === true, { saved, standing });
+    if (standing?.id) await seenEverywhere(h, `standing.${standing.id}`);
+    return { loadout: saved?.id ?? null, standing: standing?.id ?? null };
+}
+
 /* -------------------------------------------- */
 /*  Captures                                     */
 /* -------------------------------------------- */
 
 /** Open what a capture shows on Player One's client. */
-async function show(h, capture, orders, demo) {
+async function show(h, capture, orders, demo, morning = {}) {
     await h.evaluate("p1", pageCloseForms, { mod: MODULE_ID });
     if (capture.view === "formulas") {
         return h.step("p1", "m5", "open", { tab: "formulas", actor: demo.alchemist.uuid, uuid: ITEMS.lightningModerate, ms: 2000 });
     }
     if (capture.view === "downtime") return h.step("p1", "m4", "open", { tab: "downtime", ms: 2000 });
     if (capture.view === "morning") {
-        // The alchemist's Morning with two talismans of the Dabbler's picker chosen (M7, `morning-scenarios.mjs`).
+        // The alchemist's Morning with the staged loadout as Advanced Alchemy's plan and two talismans of the Dabbler's
+        // picker chosen (M7, `morning-scenarios.mjs`); Doran's standing order shows as due.
         const facts = await h.step("p1", "m7", "facts", { actor: demo.alchemist.uuid });
         const picks = (facts.pools.find((p) => p.slug === "talisman-dabbler")?.offered ?? []).slice(0, 2).map((t) => t.uuid);
-        return h.step("p1", "m7", "open", { actor: demo.alchemist.uuid, talismans: { "talisman-dabbler": picks }, ms: 2000 });
+        const plans = morning.loadout ? { "advanced-alchemy": { mode: "loadout", id: morning.loadout } } : {};
+        return h.step("p1", "m7", "open", { actor: demo.alchemist.uuid, plans, talismans: { "talisman-dabbler": picks }, ms: 2000 });
     }
     const tab = capture.view === "funds" ? "funds" : "queue";
     const opened = await h.step("p1", "m4", "open", { tab, order: capture.order ? orders[capture.order] : null, ms: 1500 });
@@ -534,7 +560,7 @@ export function compress(path, limit = SCREENSHOT_MAX_BYTES) {
 }
 
 /** Take every capture, check it, compress it. */
-async function captureAll(h, orders, demo, outDir) {
+async function captureAll(h, orders, demo, outDir, morning = {}) {
     const results = [];
     let scheme = null;
     for (const capture of [...CAPTURES, ...NEXT_CAPTURES]) {
@@ -546,7 +572,7 @@ async function captureAll(h, orders, demo, outDir) {
         let inspected = null;
         let opened = null;
         const path = await h.screenshot("p1", capture.file, SIZE, async () => {
-            opened = await show(h, capture, orders, demo);
+            opened = await show(h, capture, orders, demo, morning);
             const { page } = h.clients.get("p1");
             await page.mouse.move(SIZE.width - 4, SIZE.height - 4);
             await h.evaluate("p1", pageIsolate, { selector }, "isolate the window");
@@ -626,10 +652,11 @@ async function main() {
         await h.settle("ready");
         report.orders = await stage(h, cast.made);
         report.downtime = await stageDowntime(h, cast.made, report.orders);
+        report.morning = await stageMorning(h, cast.made);
         h.label = "capture";
         await h.only(["p1"]);
         await h.settle("ready", ["p1"]);
-        report.captures = await captureAll(h, report.orders, cast.made, values.out);
+        report.captures = await captureAll(h, report.orders, cast.made, values.out, report.morning);
     } catch (error) {
         report.error = error.message;
         h.check("the screenshots ran to the end", false, error.message);

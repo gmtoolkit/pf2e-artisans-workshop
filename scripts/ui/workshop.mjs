@@ -61,6 +61,9 @@ const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 const T = (name) => `modules/pf2e-artisans-workshop/templates/workshop/${name}.hbs`;
 
+/** The longest a press in the window holds renders back (`renderParts`): a human click is far shorter. */
+export const PRESS_HOLD_MS = 1500;
+
 /** The fund prompt's opening sentence by what the order needs next (`shortfallOf` phases). */
 const SHORT_INTRO = Object.freeze({
     upfront: "pf2e-artisans-workshop.Prompt.Intro.Upfront",
@@ -191,7 +194,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const parts = ["header", "queue", "funds", "formulas", "downtime", "status"];
         if (this.tabGroups.primary === "morning") parts.push("morning");
         if (this.badgesMoved()) parts.push("nav");
-        this.render({ parts });
+        this.renderParts(parts);
     }, 150);
 
     /** Re-render what a new day changes (9.1): the day in the header, the Downtime tab, and the badge if its count moved. */
@@ -200,8 +203,49 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const parts = ["header", "downtime"];
         if (this.tabGroups.primary === "morning") parts.push("morning");
         if (this.badgesMoved()) parts.push("nav");
-        this.render({ parts });
+        this.renderParts(parts);
     }, 150);
+
+    /** Whether a pointer is pressed in the window (a click under way), and the parts held back until it is released. */
+    #pressed = false;
+    #held = null;
+
+    /**
+     * Render `parts` now, or once a press in the window is released. A field's change event fires as the field loses
+     * focus, which is on the press of the button the user is clicking; a render then replaces that button before the
+     * release, and the click is lost (M7 live pass: a talisman count typed, then "Make daily preparations" at once; M6 had
+     * the same with a job's task level). The release's click runs first, then the held parts render.
+     */
+    renderParts(parts) {
+        if (!this.#pressed) return this.render({ parts });
+        this.#held = [...new Set([...(this.#held ?? []), ...parts])];
+        return null;
+    }
+
+    /** A press in the window: hold renders until it is released (or `PRESS_HOLD_MS` at most, a press that never ends). */
+    #onPress() {
+        if (this.#pressed) return;
+        this.#pressed = true;
+        const doc = this.element?.ownerDocument;
+        let done = false;
+        const release = () => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            doc?.removeEventListener("pointerup", release, true);
+            doc?.removeEventListener("pointercancel", release, true);
+            // A timeout: the click a release makes is dispatched in the same task, before this runs.
+            setTimeout(() => {
+                this.#pressed = false;
+                const parts = this.#held;
+                this.#held = null;
+                if (parts?.length && this.rendered) this.render({ parts });
+            }, 0);
+        };
+        const timer = setTimeout(release, PRESS_HOLD_MS);
+        doc?.addEventListener("pointerup", release, true);
+        doc?.addEventListener("pointercancel", release, true);
+    }
 
     /** Announce an event in the status bar's live region (10.2) without moving focus. */
     announce(text) {
@@ -403,6 +447,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     _onFirstRender(context, options) {
         super._onFirstRender?.(context, options);
         WorkshopApp.instance = this;
+        // In the capture phase: the press is known before the focused field's change event that it causes.
+        this.element.addEventListener("pointerdown", () => this.#onPress(), true);
         this.element.addEventListener("change", (event) => this.#onChange(event));
         this.element.addEventListener("input", (event) => this.#onInput(event));
         this.element.addEventListener("keydown", (event) => this.#onKeydown(event));
@@ -487,30 +533,31 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     /*  Listeners                                    */
     /* -------------------------------------------- */
 
+    /** A field changed: what it changes renders, after the click that made it lose focus, if any (`renderParts`). */
     async #onChange(event) {
         const target = event.target;
         if (onFormulaChange(this, target)) {
-            this.render({ parts: ["formulas"] });
+            this.renderParts(["formulas"]);
             return;
         }
         if (target.closest?.(".workshop-morning")) {
-            if (onMorningChange(this, target)) this.render({ parts: ["morning"] });
+            if (onMorningChange(this, target)) this.renderParts(["morning"]);
             return;
         }
         if (target.closest?.(".workshop-downtime")) {
             const again = await onDowntimeChange(this, target);
-            if (again) this.render({ parts: ["downtime"] });
+            if (again) this.renderParts(["downtime"]);
             if (again !== null) return;
         }
         if (target.name === "acting") {
             this.acting = target.value;
-            this.render({ parts: ["header", "queue", "funds"] });
+            this.renderParts(["header", "queue", "funds"]);
             return;
         }
         const filter = target.dataset?.filter;
         if (filter && filter !== "search") {
             this.filters = { ...this.filters, [filter]: target.value };
-            this.render({ parts: ["queue"] });
+            this.renderParts(["queue"]);
         }
     }
 

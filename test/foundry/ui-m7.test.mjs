@@ -235,3 +235,44 @@ test("Affix in the tab takes the host chosen in the talisman's own row (review f
     assert.equal(result?.ok, true, JSON.stringify(result));
     assert.equal(vera.items.get(gem.id).flags["pf2e-artisans-workshop"].affix.host, armor.id);
 });
+
+test("a field's change on the press of a button renders after the click, not before: typing a talisman count and clicking Make daily preparations at once is one click (M7 live pass)", async () => {
+    const app = new WorkshopApp();
+    const on = { element: [], doc: [] };
+    const doc = {
+        addEventListener: (type, fn, capture) => on.doc.push({ type, fn, capture }),
+        removeEventListener: (type, fn) => { on.doc = on.doc.filter((l) => l.type !== type || l.fn !== fn); },
+    };
+    app.element = { ownerDocument: doc, addEventListener: (type, fn, capture) => on.element.push({ type, fn, capture }) };
+    app._onFirstRender({}, {});
+    app.rendered = true;
+    const renders = [];
+    app.render = (options) => { renders.push(options.parts); };
+    const listener = (type) => on.element.find((l) => l.type === type);
+    assert.equal(listener("pointerdown")?.capture, true, "the press is seen in the capture phase, before the change it causes");
+    const count = { type: "number", value: "1", name: "", dataset: { morning: "talisman", pool: "talisman-dabbler", uuid: items.fear.uuid },
+        closest: (sel) => (sel === ".workshop-morning" ? {} : null) };
+    // The press on the button: the count field loses focus and its change event fires before the release.
+    listener("pointerdown").fn({});
+    await listener("change").fn({ target: count });
+    assert.deepEqual(app.morning.talismans["talisman-dabbler"], [items.fear.uuid], "the count is taken at once, for the click to use");
+    assert.deepEqual(renders, [], "nothing renders while the button is pressed: the button the click lands on stays in place");
+    // The release: its click runs first, then the held render.
+    on.doc.find((l) => l.type === "pointerup").fn({});
+    assert.deepEqual(renders, [], "the release's click comes before the render");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(renders, [["morning"]], "the tab renders once the press is over");
+    assert.equal(on.doc.length, 0, "the window stops listening to the document");
+    // Without a press (Tab out of the field), the change renders at once; a live refresh during a press waits too.
+    await listener("change").fn({ target: count });
+    assert.deepEqual(renders.at(-1), ["morning"]);
+    assert.equal(renders.length, 2);
+    listener("pointerdown").fn({});
+    app.renderParts(["header", "queue"]);
+    await listener("change").fn({ target: count });
+    assert.equal(renders.length, 2);
+    on.doc.find((l) => l.type === "pointercancel").fn({});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(renders.at(-1), ["header", "queue", "morning"], "held parts render together, once");
+    app.element = null;
+});

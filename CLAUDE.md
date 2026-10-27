@@ -46,8 +46,8 @@ M7 is in place: daily preparations (the Morning tab, `scripts/ui/morning.mjs`; s
 affix board and preparing through pf2e's `CraftingAbility` methods, `scripts/foundry/morning.mjs`; party-wide expiry by
 preparation cycle, `scripts/foundry/expiry.mjs`; rest ordering with and without pf2e-dailies, `scripts/foundry/rest.mjs`;
 the pf2e-dailies custom daily, `scripts/foundry/dailies.mjs`; pure parts in `scripts/logic/morning.mjs`, `expiry.mjs`,
-`talismans.mjs`); DESIGN 10.13 says what was built, and the live plans `m7-*` (`tools/harness/morning-scenarios.mjs`) have
-not run yet.
+`talismans.mjs`); DESIGN 10.13 says what was built, and the live plans `m7-*` (`tools/harness/morning-scenarios.mjs`) passed
+their first live pass (10.13, M7 live pass).
 README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
 world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every

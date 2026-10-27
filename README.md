@@ -53,6 +53,9 @@ until 1.0: every string is rewritten before the first release, and these capture
 ![Downtime](docs/screenshots/downtime.png)\
 *Downtime: the workshop day, a character's days and what they go to, the party's settlement, and an Earn Income job with its pay.*
 
+![Morning](docs/screenshots/morning.png)\
+*Morning: a character's daily crafting by pool, a loadout's plan with an ally's standing order, and the talismans it can make today.*
+
 ![The Queue in the light theme](docs/screenshots/queue-light.png)\
 *The Queue in the light theme, with a finished order's cost summary.*
 
@@ -168,15 +171,15 @@ lib-wrapper on in the world's module configuration, reloads every page, drives p
 loadout in the Workshop's row, and puts the configuration back), deliver a standing order with no GM (`m7-standing`),
 affix talismans with and without Talismanic Sage (`m7-affix`), and photograph the Morning tab (`m7-shots`). Items they
 give are marked `flags.world.pf2e-artisans-workshop-m7`; each plan puts the characters' formula books and prepared lists
-back first. `npm run screenshots` also takes `morning.png`, not yet linked here (DESIGN 17.1).
+back first.
 
 `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN.md 17.1) takes the README's screenshots in the same dev
 world, through the same driver. It copies four fixture actors into a demo party with generic names (Player One plays the
 alchemist, Player Two the fighter), makes them the party and the players' characters, stages orders in every state, money
 in the party fund, three formulas and downtime (a settlement, two days of an Earn Income job, a day to resolve on an
 order; the GM moves the world clock forward, so use the dev world), and captures the Workshop window cropped to its frame
-as Player One at 1440x900: the Queue with an order's detail, the request form, Funds, Formulas and Downtime in the dark
-theme, and the Queue in the light one.
+as Player One at 1440x900: the Queue with an order's detail, the request form, Funds, Formulas, Downtime and Morning (a
+loadout and a standing order staged for the alchemist) in the dark theme, and the Queue in the light one.
 Each capture is checked for raw i18n keys, fixture names and overflowing boxes, compressed with ImageMagick's `magick`
 when it is installed (to 256 colours only if it would be over 400 KiB), and written to `docs/screenshots/` (`--out` for
 elsewhere; `--results` for the run's JSON). Then it gives the party and the users their own characters back, deletes the

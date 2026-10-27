@@ -65,8 +65,8 @@ All notable changes to this module are documented here. The format follows
   to the strongbox when the crafter does not hold it and returned with the change. Repair, affixing and removing talismans, Identify
   Alchemy and formula copies are service orders any member can ask for and perform.
 - README screenshots (`npm run screenshots`): a demo party staged in a dev world, and the Workshop window captured
-  cropped to its frame (the Queue with an order's detail, the request form, Funds, Formulas, Downtime, and the Queue in
-  the light theme) into `docs/screenshots/`, the only place the asset check allows images; the world is put back afterwards. They
+  cropped to its frame (the Queue with an order's detail, the request form, Funds, Formulas, Downtime, Morning, and the
+  Queue in the light theme) into `docs/screenshots/`, the only place the asset check allows images; the world is put back afterwards. They
   are not part of the release.
 - Fund accounting (M4.1, from the first hands-on session). The Funds tab shows the strongbox as the party fund's
   unallocated money plus what is earmarked for orders, each order's earmarked money by source (the party fund or a
@@ -139,6 +139,9 @@ All notable changes to this module are documented here. The format follows
 
 - Talismanic Sage was never recognised when affixing (its feat was missing from the rules registry), so a sage could not
   put a second talisman on an item.
+- Typing in a field of the Workshop and clicking a button straight away (a talisman count, then "Make daily
+  preparations") no longer loses the click: the field's change no longer redraws the tab under the button being pressed;
+  it redraws once the button is released.
 
 - Storage and sync, from the first live runs: a client stops writing the moment a shared document it uses is
   deleted, or its user loses OWNER on one, even when no update hook reaches it (players without a canvas); ages
