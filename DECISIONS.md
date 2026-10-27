@@ -2,6 +2,23 @@
 
 Newest first.
 
+## 2026-10-26: Quick Alchemy items expire on their holder's client; pf2e's own Quick Alchemy action is stamped too
+
+**Decision:** turn expiry (DESIGN 8.8) is part of M7's expiry sweep: on core's `combatTurnChange` and when an encounter
+ends, each client marks what the actors it is responsible for hold (5.6), from the encounter's state at that moment, as
+party-wide expiry does (7.7), rather than the creator's client alone. An item made in an encounter carries the encounter,
+the creator's combatant and the round and turn it was made in; one made outside an encounter lasts one round of world
+time. What pf2e's own Quick Alchemy action makes (its chat path stamps nothing) is stamped on the client that made it, as
+the module's panel stamps its own.
+
+**Why:** a client may write only what its user owns, so the creator's client cannot mark an elixir an ally holds, and the
+holder's can; reading the deadline from the encounter's state, not from one turn change, gives the same answer when turns
+are skipped or a client missed the change. Players will use pf2e's own action as often as the panel: its items would
+otherwise never run out.
+
+**Consequences:** DESIGN 8.8 and 10.14 (As built in M8); the module still cannot gate pf2e's action, which crafts for free
+at 0 vials. Quick Alchemy items are left off the Expiry card.
+
 ## 2026-10-26: Preserved foods stop being temporary; the rules text beats pf2e's daily-pool data
 
 **Decision:** a food designated with Food Preservation gets `system.temporary: false` (and is made temporary again when

@@ -48,6 +48,13 @@ preparation cycle, `scripts/foundry/expiry.mjs`; rest ordering with and without 
 the pf2e-dailies custom daily, `scripts/foundry/dailies.mjs`; pure parts in `scripts/logic/morning.mjs`, `expiry.mjs`,
 `talismans.mjs`); DESIGN 10.13 says what was built, and the live plans `m7-*` (`tools/harness/morning-scenarios.mjs`) have
 not run yet.
+M8 is in place: combat (the Bandolier, `scripts/ui/bandolier.mjs`; the Quick Alchemy panel, `scripts/ui/alchemy-panel.mjs`;
+the token HUD palette, `scripts/ui/hud.mjs`; the combat cards and keybindings, `scripts/ui/combat-cards.mjs`,
+`combat-entry.mjs`; Quick Alchemy, quick vials, Quick Bomber and Healing Bomb through pf2e's `CraftingAbility#craft` and its
+Strike, `scripts/foundry/alchemy.mjs`, `combat.mjs`; vial gathering, `scripts/foundry/vials.mjs`; "Use best consumable",
+`scripts/foundry/consumables.mjs`; turn expiry in `scripts/foundry/expiry.mjs`; the Duct Tape step-aside; pure parts in
+`scripts/logic/alchemy.mjs`, `vials.mjs`, `consumables.mjs`); DESIGN 10.14 says what was built, and the live plans `m8-*`
+(`tools/harness/combat-scenarios.mjs`) have not run yet.
 README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
 world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every

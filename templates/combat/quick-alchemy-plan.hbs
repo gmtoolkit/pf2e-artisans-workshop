@@ -1,0 +1,32 @@
+<div class="qa-plan">
+    {{#unless off}}
+    {{#if picks.length}}
+    <ul class="qa-picks" aria-label="{{localize "pf2e-artisans-workshop.QuickAlchemy.Picked"}}">
+        {{#each picks}}<li><span>{{name}}</span> <button type="button" data-quick="unpick" data-uuid="{{uuid}}" aria-label="{{localize "pf2e-artisans-workshop.QuickAlchemy.Unpick" item=name}}"><i class="fa-solid fa-xmark" inert></i></button></li>{{/each}}
+    </ul>
+    {{else}}
+    <p class="qa-hint">{{localize "pf2e-artisans-workshop.QuickAlchemy.PickHint"}}</p>
+    {{/if}}
+    {{#if additives}}
+    <label class="qa-field">{{localize "pf2e-artisans-workshop.QuickAlchemy.Additive"}}
+        <select data-quick="additive" {{#if additiveSpent}}disabled{{/if}}>{{#each additives}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
+    </label>
+    {{#if additiveSpent}}<p class="qa-note" role="note">{{localize "pf2e-artisans-workshop.QuickAlchemy.AdditiveSpent"}}</p>{{/if}}
+    {{/if}}
+    {{#if combine}}
+    <label class="qa-field">{{localize "pf2e-artisans-workshop.QuickAlchemy.Combine"}}
+        <select data-quick="combine">{{#each combine}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
+    </label>
+    {{/if}}
+    {{#if then}}
+    <label class="qa-field">{{localize "pf2e-artisans-workshop.QuickAlchemy.Then"}}
+        <select data-quick="then">{{#each then}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
+    </label>
+    {{/if}}
+    {{#if cost}}<p class="qa-cost"><i class="fa-solid fa-flask" inert></i> {{cost}}</p>{{/if}}
+    {{#if problem}}<p class="qa-problem warn" role="alert"><i class="fa-solid fa-triangle-exclamation" inert></i> {{problem}}</p>{{/if}}
+    <button type="button" class="qa-create" data-quick="create" {{#unless canCreate}}disabled{{/unless}}>
+        <i class="fa-solid {{#if bombs}}fa-bomb{{else}}fa-mortar-pestle{{/if}}" inert></i> {{#if bombs}}{{localize "pf2e-artisans-workshop.QuickAlchemy.CreateStrike"}}{{else}}{{localize "pf2e-artisans-workshop.QuickAlchemy.Create"}}{{/if}}
+    </button>
+    {{/unless}}
+</div>

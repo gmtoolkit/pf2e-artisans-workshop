@@ -1,0 +1,13 @@
+<div class="qa-search">
+    {{#if off}}
+    <p class="qa-off" role="note"><i class="fa-solid fa-circle-info" inert></i> {{off}}</p>
+    {{else}}
+    <p class="qa-head"><strong>{{actor.name}}</strong>{{#if vials}} · {{vials}}{{/if}}{{#if brew}} · {{brew}}{{/if}}{{#if bombs}} · {{localize "pf2e-artisans-workshop.QuickAlchemy.QuickBomber"}}{{/if}}</p>
+    <label class="qa-search-field">
+        <i class="fa-solid fa-magnifying-glass" inert></i>
+        <input type="search" data-quick="search" value="{{query}}" autocomplete="off" placeholder="{{localize "pf2e-artisans-workshop.QuickAlchemy.Search"}}"
+            aria-label="{{localize "pf2e-artisans-workshop.QuickAlchemy.Search"}}" aria-controls="pf2e-artisans-workshop-qa-list">
+    </label>
+    <p class="qa-keys">{{localize "pf2e-artisans-workshop.QuickAlchemy.Keys"}}</p>
+    {{/if}}
+</div>

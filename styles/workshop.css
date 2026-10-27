@@ -854,3 +854,135 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
     .morning-pools { grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr)); }
     .morning-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
+
+/* ------------------------------------------------------------------ */
+/*  Combat: the Bandolier, the Quick Alchemy panel, the HUD palette    */
+/*  (DESIGN.md 8.1-8.3, 10.9: hit targets of at least 32 px)           */
+/* ------------------------------------------------------------------ */
+
+.workshop-bandolier .window-content,
+.workshop-quick-alchemy .window-content {
+    padding: 0.5rem;
+    gap: 0.4rem;
+}
+
+.workshop-bandolier .bandolier-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    font-size: var(--font-size-13, 0.8125rem);
+}
+
+.workshop-bandolier button,
+.workshop-quick-alchemy button {
+    min-height: 2rem;
+    min-width: 2rem;
+}
+
+.workshop-bandolier .bandolier-head,
+.workshop-bandolier .bandolier-vials,
+.workshop-bandolier .bandolier-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.workshop-bandolier .bandolier-round { margin-left: auto; font-variant-numeric: tabular-nums; }
+.workshop-bandolier .vial-pip { opacity: 0.35; }
+.workshop-bandolier .vial-pip.full { opacity: 1; color: var(--paw-accent); }
+.workshop-bandolier .vial-count { font-variant-numeric: tabular-nums; }
+.workshop-bandolier .bandolier-field { display: flex; align-items: center; gap: 0.35rem; }
+.workshop-bandolier .bandolier-state,
+.workshop-bandolier .bandolier-empty,
+.workshop-bandolier .bandolier-off { margin: 0; }
+.workshop-bandolier .bandolier-heading { margin: 0.2rem 0 0; font-size: 0.85rem; border-bottom: 1px solid var(--paw-line); }
+.workshop-bandolier .warn { color: var(--paw-warning); margin: 0; }
+
+.workshop-bandolier .bandolier-ready {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.workshop-bandolier .ready-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.5rem;
+    padding: 0.25rem;
+    background: var(--paw-surface);
+    border-radius: 3px;
+}
+
+.workshop-bandolier .ready-item.quick { border-left: 3px solid var(--paw-accent); }
+.workshop-bandolier .ready-name { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; }
+.workshop-bandolier .ready-name img { width: 1.5rem; height: 1.5rem; border: none; }
+.workshop-bandolier .ready-qty,
+.workshop-bandolier .ready-potency,
+.workshop-bandolier .ready-splash,
+.workshop-bandolier .ready-additive { font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.workshop-bandolier .ready-actions { display: flex; flex-wrap: wrap; gap: 0.25rem; width: 100%; }
+
+.workshop-quick-alchemy .qa-search,
+.workshop-quick-alchemy .qa-plan {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.workshop-quick-alchemy .qa-head,
+.workshop-quick-alchemy .qa-keys,
+.workshop-quick-alchemy .qa-hint,
+.workshop-quick-alchemy .qa-cost,
+.workshop-quick-alchemy .qa-note,
+.workshop-quick-alchemy .qa-count,
+.workshop-quick-alchemy .qa-empty { margin: 0; }
+.workshop-quick-alchemy .qa-keys,
+.workshop-quick-alchemy .qa-count { font-size: 0.75rem; opacity: 0.85; }
+.workshop-quick-alchemy .qa-search-field { display: flex; align-items: center; gap: 0.35rem; }
+.workshop-quick-alchemy .qa-search-field input { flex: 1; }
+.workshop-quick-alchemy .qa-list-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.workshop-quick-alchemy .qa-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    flex: 1;
+    border: 1px solid var(--paw-line);
+    border-radius: 3px;
+}
+
+.workshop-quick-alchemy .qa-option {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 2rem;
+    padding: 0.15rem 0.4rem;
+    cursor: pointer;
+}
+
+.workshop-quick-alchemy .qa-option img { width: 1.5rem; height: 1.5rem; border: none; }
+.workshop-quick-alchemy .qa-option .qa-name { flex: 1; }
+.workshop-quick-alchemy .qa-option .qa-level,
+.workshop-quick-alchemy .qa-option .qa-route { font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.workshop-quick-alchemy .qa-option.active { background: var(--paw-surface-strong); }
+.workshop-quick-alchemy .qa-option.picked { font-weight: 600; box-shadow: inset 3px 0 0 var(--paw-accent); }
+.workshop-quick-alchemy .qa-option:focus-visible { outline: 2px solid var(--paw-focus); outline-offset: -2px; }
+.workshop-quick-alchemy .qa-picks { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.workshop-quick-alchemy .qa-picks li { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0 0.3rem; background: var(--paw-surface); border-radius: 3px; }
+.workshop-quick-alchemy .qa-field { display: flex; align-items: center; gap: 0.35rem; }
+.workshop-quick-alchemy .qa-problem { color: var(--paw-warning); margin: 0; }
+.workshop-quick-alchemy .qa-create { justify-content: center; }
+
+#token-hud .pf2e-artisans-workshop-palette .palette-list-entry { cursor: pointer; }
+
+.pf2e-artisans-workshop-card .pf2e-artisans-workshop-ops {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}

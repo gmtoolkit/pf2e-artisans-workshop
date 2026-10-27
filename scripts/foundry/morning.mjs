@@ -477,7 +477,7 @@ async function deliverStanding(actor, delivery, cycle) {
  * the character has no buckets (no Advanced Vials choice yet) or they already agree; the vial item is never deleted or
  * made again.
  */
-async function syncVials(actor, materials = null) {
+export async function syncVials(actor, materials = null) {
     const vials = vialsOf(actor);
     if (!vials?.item) return false;
     const item = actor.items.get(vials.item);

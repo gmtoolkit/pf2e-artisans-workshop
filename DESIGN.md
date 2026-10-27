@@ -766,7 +766,10 @@ character is trained in or better, since Earn Income may use any; feats are thos
 (`scripts/logic/core.mjs`) until the registry (M3) names them, a choice feat by its base slug;
 `consumables` stays empty until M8. Members follow the `members` setting (14.1). Snapshots of characters
 that stop being members are not removed yet. As built in M3: `feats` lists the registry keys of the character's feats and
-features (`featKeysOf`), a choice feat as `<key>:<choice>` (`specialty-crafting:artistry`, which G4 reads).
+features (`featKeysOf`), a choice feat as `<key>:<choice>` (`specialty-crafting:artistry`, which G4 reads). As built in M8:
+`consumables` holds the character's consumables (consumables, and weapons with the consumable trait such as bombs) by family
+(`familyKey` of the compendium source's name), `{qty, soonestExpiry}` with the earliest world-time deadline (`at`) of the
+family's stamped items, inert items left out (`familySummary`, 8.9).
 
 ### 4.11 Daily loadouts and standing orders
 
@@ -2283,6 +2286,15 @@ daily preparation or Earn Income, beyond what the system's own rule elements alr
   `talismanic-sage` and `munitions-machinist` (off the ignore list, where Talismanic Sage had been put as "combat" and
   M5's affix rule could therefore never see it); 249 entries and 1202 ignored UUIDs, validated against the pf2e dev head
   `be4ab21b` checkout.
+- **As built in M8** (10.14): the kinds `additive`, `expiryRule {rule: "enduring" | "uncapped"}`, `brew`, `splash`,
+  `fieldVial`, `vialMaterial`, `gather`, `quickVial` and `quickBomber`; 28 new entries (the additives Healing Bomb, Combine
+  Elixirs, Debilitating Bomb, Sticky Bomb, Smoke Bomb, Exploitive Bomb, Sour Bomb, Lingering Bomb, Mega Bomb, Unstable
+  Concoction, Balm Bomb, Pernicious Poison, Combustible Poison, Invigorating Elixir, Glitter Crystals, Blazing Mutagen and
+  Numbing Spice Exhalation; Enduring Alchemy, Eternal Elixir, Expanded Splash, Directional Bombs, Quick Bomber, the bomber's
+  field discovery, greater field discovery and Advanced Vials, Double Brew, Alchemical Expertise and Abundant Vials, all off
+  the ignore list, where Double Brew had been put as "proficiency" and Alchemical Expertise as "item-dc"); `bomber` gains
+  `fieldVial` and `splash {primaryOnly}`, `persistent-mutagen` an `uncapped` rule: 277 entries and 1174 ignored UUIDs,
+  validated against the pf2e dev head `be4ab21b` checkout (`PF2E_SRC=<checkout> npm test`).
 - **Follow-ups (M3, low).**
   - The completeness candidates (760 at `pf2e-8.6.1` over all 25 Item packs, mostly equipment and spells mentioning
     daily preparations, and 21 in the packs CI's checkout used to leave out: the Pathfinder Society boons Crafter's
@@ -3239,7 +3251,8 @@ tracked per turn.
 
 - `pf2e.startTurn` and `pf2e.endTurn` fire only on the active GM. The module uses core
   `combatTurnChange(combat, previous, current)`, which fires on every client (verified), guarded by the
-  responsible client of the creator.
+  responsible client of the creator. (As built in M8: of each holder, as 7.7's expiry is, so an item handed to an ally
+  ends on the ally's client; 10.14.)
 - Quick Alchemy consumables: inert at the start of the creator's next turn; tools and elixirs with
   Enduring Alchemy at the end of the next turn; quick vials at the end of the current turn.
 - Outside combat, Quick Alchemy items expire once world time advances by one round (6 seconds), and at
@@ -3269,6 +3282,12 @@ not reused). It is not combat-specific and does not step aside for Duct Tape. Fe
   go through the system Strike (8.4).
 - **Party view** (optional): who holds one, from the roster snapshots' `consumables` counts (4.10).
   Handing one over is the system trade or the strongbox; the module never moves another player's item.
+
+As built in M8 (10.14): sections 8.1-8.9 are built as written except where 10.14 says otherwise: turn expiry is marked by
+each holder's responsible client, as party-wide expiry is (7.7), not by the creator's (DECISIONS 2026-10-26); what pf2e's own
+Quick Alchemy action makes is stamped too; vial-gathering buttons live in the Bandolier and work whenever the combat
+features do (`features.vialGathering` governs the clock only); Extra Vial (OQ-28) has no button yet; the party view of
+8.9 is the API's `consumables.holders` only.
 
 ### 8.10 Affliction tracker
 
@@ -5270,6 +5289,187 @@ read: the dev head `be4ab21b` (`src/module/actor/character/crafting/`, `rule-ele
   - A preserved food whose creator can no longer be read (an actor deleted) stays preserved; Eternal Elixir and the other
     `expiryRule` exceptions of 7.7 are still to come.
 
+### 10.14 As built in M8
+
+M8 builds combat (section 8.1-8.9): the Bandolier, the token HUD palette, the Quick Alchemy panel, quick vials, Quick
+Bomber, Healing Bomb and additives, vial gathering, turn expiry, the Duct Tape step-aside and "Use best consumable" (pure
+parts in `scripts/logic/alchemy.mjs`, `vials.mjs`, `consumables.mjs` and the turn rules of `expiry.mjs`; Foundry parts in
+`scripts/foundry/combat.mjs`, `alchemy.mjs`, `vials.mjs`, `consumables.mjs`, `item-facts.mjs` and additions to `expiry.mjs`,
+`roster.mjs`, `morning.mjs`, `settings.mjs`, `api.mjs`; the windows in `scripts/ui/bandolier.mjs`, `alchemy-panel.mjs`, the
+palette in `hud.mjs`, the cards in `combat-cards.mjs`, the keybindings and the settings note in `combat-entry.mjs`, templates
+in `templates/combat/` and `templates/chat/alchemy.hbs`). Unit tests cover the pure parts (`test/logic/alchemy.test.mjs`,
+`vials-consumables.test.mjs`); stub tests the Foundry and window parts over a fake pf2e alchemist (`test/foundry/alchemist.mjs`:
+versatile vials as pf2e's `SpecialResource` with an `itemUUID` keeps them, read from the first item whose `sourceId` is the
+Versatile Vial and clamped on write; the `quick-alchemy` `CraftingAbility` with its resource, which makes nothing at 0 when
+it consumes, and pf2e's rule that a held item stacks only with a held stack of quantity 0; a Strike per weapon with pf2e's
+three multiple attack penalty variants; `toggleRollOption`; `createItem` fired by the creating client;
+`test/foundry/combat.test.mjs`, `ui-m8.test.mjs` with an ApplicationV2 fake whose read-only properties are getters,
+`harness-m8.test.mjs`). The live plans are written and not yet run. pf2e read: the dev head `be4ab21b`
+(`actor/character/crafting/ability.ts`, `chat-message/helpers.ts` `createUseActionMessage`, `rule-element/special-resource.ts`,
+the character's Strike variants, `item/physical/document.ts` `isStackableWith`, `item/consumable/document.ts` `consume`,
+`actor/base.ts` `applyDamage` and `toggleRollOption`, `scripts/hooks/render-token-hud.ts`); Foundry 14.368
+(`applications/hud/placeable-hud.mjs` `togglePalette` and `_postRender`, `templates/hud/token-hud.hbs`, `documents/combat.mjs`
+`combatTurnChange` and `_getCurrentState`, `documents/combatant.mjs`'s actor of a token-less combatant).
+
+- **The switch** (8, 13): `combatOffReason()` is `disabled` (master switch), `off` (`features.combat`) or `duct-tape`; every
+  combat action refuses with `combat-off` or `duct-tape`, the Bandolier and the panel say why, turn expiry, vial gathering
+  and the effect cap stop. With Duct Tape active, the settings window adds a note under `features.combat`
+  (`renderSettingsConfig`). "Use best consumable" has its own toggle (`features.consumables`) and stays.
+- **What Quick Alchemy makes** (8.3, `quickChoices`): every catalogue item pf2e's `quick-alchemy` ability's predicates accept
+  (alchemical consumables), at most its `maxItemLevel` (the character's level), with a formula in the book or covering it by
+  family (6.4, the same setting as every route), sorted by name, each with its route.
+- **Making it** (8.3): `CraftingAbility#craft(uuid, {consume: true, destination: "hand"})`, which takes one vial through the
+  resource. pf2e's own chat path (`createUseActionMessage`) crafts with `consume: !!resource.value`, so for free at 0 vials; the
+  module refuses first (`brewPlan`: `no-vials`, `vials` with how many it takes and has, `double-brew`, `nothing-picked`,
+  `cannot-make`, the additive's `additive-unknown`, `additive-fit`, `additive-round`, `combine-pick`, `combine-fit`). An item
+  pf2e merged into a stack (a held one of quantity 0, pf2e's `isStackableWith`) is split off into its own in one request.
+  Each item gets `flags.MOD.expiry` (below) and `flags.MOD.quick = {source: "quick-alchemy", additive, combine, at, by}`; the
+  additive spends the character's additive of the round (`flags.MOD.combat.additive = {combat, round, at}`); Combine Elixirs'
+  extra vial is taken after the craft, the resource read again. Double Brew (`brew {count: 2}`) makes two, one vial each.
+- **pf2e's own Quick Alchemy action** (After the M8 review): what its chat path makes (a new, unstamped, temporary, infused,
+  held item its Quick Alchemy can make) is stamped on the creating client like the panel's, `quick.source` "system"; the
+  panel's own items are skipped while it makes them.
+- **Quick vials** (8.5): a copy of the vial item with `_stats.compendiumSource` and `duplicateSource` cleared (pf2e's
+  `sourceId` is `duplicateSource ?? compendiumSource`, and the vial count is read from the first item whose source is the
+  Versatile Vial), one, temporary, infused, held; free; `quick = {source: "quick-vial", damageType, material, quickened}`.
+  Abundant Vials (`quickVial {quickened}`): one a turn in an encounter (`flags.MOD.combat.quickened = {combat, round, turn}`).
+- **Strikes** (8.1, 8.4, OQ-27): `strikeWith` finds pf2e's Strike of the item (`actor.system.actions`) and rolls its variant
+  `map` (0, 1 or 2), so the multiple attack penalty, modifiers and cards are pf2e's. First it sets the system toggles: the
+  bomber's `bomber-field-vials` (domain `all`, the damage type as its suboption) for a versatile vial, Advanced Vials'
+  `bomber-advanced-vials` with the material (a resource vial takes one from the chosen bucket, `takeFromBucket`, 7.3), and
+  each additive's own toggle, on for the additive the item carries and off for the others. The toggles are actor-wide and stay
+  set after the roll, since pf2e reads them again for the damage roll from the card.
+- **Quick Bomber** (8.4, `quickBomber`): with the feat, the best ready bomb of the family (held, then worn, then stowed; the
+  soonest-expiring infused first, `chooseBest`), else the best grade it can make, made and thrown; one bomb. A family given by
+  UUID is read from the catalogue's facts (After the M8 review).
+- **Healing Bomb** (8.6): the additive's `when` is the elixir of life grades by slug. `healingBomb` makes the best grade with
+  it; `throwHealingBomb` takes the target (a token, actor or UUID, else the user's one target), refuses beyond 20 feet when
+  both tokens are on the canvas, uses the elixir through pf2e (`item.consume()`, whose healing card the target's owner
+  applies), and posts the module's card: the living creatures adjacent to the target on the canvas (within the grid distance,
+  pf2e's `modeOfBeing`), each regaining the elixir's number of damage dice (`damageDiceCount` of its `system.damage.formula`),
+  with an Apply button, and "Apply to my selected tokens" for a table without a canvas. `applyHealingBomb`: the creature's
+  owner or a GM, through pf2e's `applyDamage` with negative damage, once per card and creature (`flags.MOD.healed.<messageId>`
+  on the healed actor, written first).
+- **Turn expiry** (8.8): a stamp `{creator, cycle, rule: "turn-start" | "turn-end", when: "current" | "next", quick,
+  combat: {id, combatant, round, turn} | null, at?}`. In an encounter the creator is a combatant of, the deadline is a position
+  read from the encounter now (`turnDeadline`, `turnExpired`): the start of the creator's next turn (`turn-start`), the end of
+  the current turn (quick vials) or of the next (`turn-end` `next`: tools and elixirs with Enduring Alchemy, `expiryRule
+  {rule: "enduring"}`); so skipped turns, several at once or a client that missed the change give the same answer. Outside
+  one, a round of world time (`at` = now + 6 s). It runs in M7's sweep (`expirySweep`, single-flight), started by core's
+  `combatTurnChange` and `deleteCombat` on every client, each holder's responsible client marking what its actors hold (7.7):
+  an item handed to an ally ends on the ally's client (DECISIONS 2026-10-26). An ended encounter's items end with it
+  (`combat-end`), or with `expiry.quickAlchemyAtCombatEnd` off get one round of world time from then (the stamp rewritten
+  once). Turn stamps run with the combat features, the others with `features.expiry`. Quick Alchemy items are left off the
+  Expiry card (they run out every turn; the Bandolier shows them).
+- **The 10-minute cap** (8.8, OQ-19): `preCreateItem` on the creating client clamps an effect whose pf2e origin
+  (`system.context.origin.item`) is a Quick Alchemy item that still exists to 10 minutes (an unlimited one too, an
+  encounter-long one not); `expiryRule {rule: "uncapped"}` leaves the creator's own effect alone: Eternal Elixir's elixirs of
+  half the creator's level or lower, Persistent Mutagen's mutagens.
+- **Splash** (8.8, OQ-29: numbers only): `splashNumbers` from the bomb's own splash (a versatile vial's by its level), the
+  bomber's field discovery (`splash {intDamage}`: Intelligence, minimum 1), Expanded Splash (`bonusInt`: Intelligence again,
+  10 feet), the greater field discovery (10 feet, 15 with Expanded Splash), Directional Bombs (a 15- or 20-foot cone), the
+  bomber's primary-target option; on the Bandolier and the Quick Alchemy card.
+- **Vial gathering** (8.7): with `features.vialGathering` on, `updateWorldTime` on each character's responsible client adds 2
+  vials per full 10 minutes (3 with Alchemical Expertise, `gather {per10}`) through `actor.updateResource` (which clamps),
+  carrying the remainder in `flags.MOD.vialClock` (none for a full character), never in a started encounter or downtime, only
+  for a source that regains (`vialSource {regain}`); a user's second device sees the same move of the clock, so the gathering
+  of a moment runs behind the lock page `gather:<actorId>:<worldTime>`. The buttons, in the Bandolier: Gather reagents (10
+  minutes), Improvise Admixture (pf2e's Crafting check against the level DC, 3/2/1/0 vials, the feat's frequency used), the
+  Alchemist's Haversack's vial (once a preparation cycle, worn and invested); they work whenever the combat features do.
+  Advanced Vials' buckets follow the new count (`syncVials`, plain vials). Extra Vial (OQ-28) has no button: the checkout read
+  lacks the familiar abilities pack.
+- **Use best consumable** (8.9): candidates are the character's consumables (and weapons with the consumable trait) of the
+  family (`familyOfItem`: the compendium source's name, else its own, the inert suffix aside), `chooseBest` picks; two equally
+  good ask which (`askChoice`, quantities shown); a weapon goes through pf2e's Strike, anything else through `item.consume()`.
+  `partyWide` with none returns who holds one (`holders`, from the roster's `consumables`, 4.10).
+- **The Bandolier** (8.1): `BandolierApp`, one per client: the vial pips and tier, the buckets, Quick Alchemy (the panel), quick
+  vial and Abundant Vials' extra one, Healing Bomb, Quick Bomber (the panel's bombs, thrown when made), the field-vial and
+  material choices for the next throw, Double Brew, the additive of this round, the ready bombs and elixirs (Quick Alchemy's
+  first) with their potency in words, splash and pf2e's own Strike variant labels as buttons, Throw for a Healing Bomb, Use
+  for an elixir, and the vial buttons. Docked above the hotbar the first time; dragged, its position is saved per user
+  (`bandolier.position`, from `_onPosition`). It opens by itself on an encounter's first `combatTurnChange` (round 0 to 1) for
+  the responsible user of an alchemist combatant that user owns (`bandolier.autoOpen`). Controls carry `data-bandolier`.
+- **The token HUD palette** (8.2, OQ-33): added in `renderTokenHUD` at once, not after an await: core's `_postRender` runs
+  right after the hook and reopens the palette that was open, and does not check that it is there. Only for an owner of an
+  actor with Quick Alchemy, only when core's `.col.left` is there (PF2e HUD or Token Action HUD may replace it) and only once
+  per render; entries carry `data-pf2e-artisans-workshop-hud`, never `data-action`, and there is no input for the HUD's
+  submit-on-change. When the palette was open and is no longer offered (the combat features turned off), an empty hidden pair
+  stands in so core's toggle finds what it looks for.
+- **The Quick Alchemy panel** (8.3, 10.9): `QuickAlchemyPanel` with three parts (search, list, plan), so typing renders the
+  list and the plan and the search keeps its focus and caret. The list is a listbox of at most 60 matches with a roving tab
+  stop; the arrows go from the search into the list and through it, Space picks the focused row (in the search field it types
+  a space), Enter creates (the first match when nothing is picked) and closes, Esc closes. Additives listed are those that fit
+  the first pick, the select disabled once the round's is spent; Combine Elixirs asks for its second elixir; a bomb picked
+  offers "throw it at the target". Its state is its own fields, never ApplicationV2's read-only `state`.
+- **Cards** (10.5, `combat-cards.mjs`): Quick Alchemy (and quick vial): what was made with its potency, the additive, a bomb's
+  splash, a Strike button per variant (Throw for a Healing Bomb); Healing Bomb: the target and an Apply button per adjacent
+  creature, "Apply to my selected tokens"; Vials: +n vials and the new count. Posted from the client that did it, whispered to
+  the character's owners and GMs (or public by `chat.visibility`); buttons a user may not use are hidden on that user's client.
+- **Keybindings** (10.4): `openBandolier` and `quickAlchemy` (the controlled token's actor, else the user's character), unbound.
+- **Settings** (14.1-14.3): `features.combat`, `features.consumables`, `features.vialGathering` (off), `expiry.quickAlchemyAtCombatEnd`,
+  `bandolier.autoOpen` (U) and `bandolier.position` (U, hidden).
+- **API** (11.2) `alchemy.*` and `consumables.*`; internal hooks (12.3) `quickAlchemy`, `healingBomb`, `vialsRegained`,
+  `consumableUsed`.
+- **Registry** (6.11): the kinds `additive`, `expiryRule {enduring | uncapped}`, `brew`, `splash`, `fieldVial`, `vialMaterial`,
+  `gather`, `quickVial`, `quickBomber`; 28 new entries, 277 in all, 1174 ignored.
+- **Live plans** (15.3; `tools/harness/combat-scenarios.mjs`, scenario `m8`; `live-plans.mjs`), to run later:
+  - `m8-panel` (GM, P1; no canvas): the bomber's list from pf2e's Quick Alchemy (Elixir of Life to Moderate by family, no
+    Greater); Quick Alchemy takes one vial, the bomb held, infused and stamped for a round; at 0 vials refused, nothing made;
+    Double Brew two for two; then the panel by keys: typing keeps focus, the arrow enters the list, Space picks, Enter creates
+    and closes; the GM reads the same.
+  - `m8-bandolier` (GM, P1; no canvas): the pips; a quick vial from its button, free, its source cleared, the count unchanged;
+    its Strike is pf2e's (an attack card from the quick vial, the field-vial toggle on); dragged, it reopens where it was.
+  - `m8-turn` (GM, P1, P2; token-less encounter): the fighter then the bomber; a bomb, an Enduring elixir and a quick vial made
+    on the bomber's turn, a second bomb handed to the fighter; the quick vial ends with that turn (Player One's client), the
+    bombs at the bomber's next turn (each on its holder's client), the elixir after it; a bomb of the third round ends with the
+    encounter.
+  - `m8-vials` (GM, P1, P2): gathering on; 25 minutes give 6 (Alchemical Expertise) and carry 5; Player One and the GM click
+    Gather at once one short of the maximum: the maximum; nothing in an encounter; Improvise Admixture by its degree.
+  - `m8-healing-bomb` (GM, P1, P2): the feat given; the best elixir of life with the additive, used through pf2e, the card's
+    5 HP; Player Two applies it once; a second additive this round refused.
+  - `m8-duct-tape` (GM, P1, P2): Duct Tape on every client (a stand-in when not installed): Quick Alchemy and the Bandolier
+    refuse and say why, no turn expiry, Use best consumable works.
+  - `m8-use-best` (P1, P2, no GM): the held potion, then the stowed one, then the party view names who holds one.
+  - `m8-hud` (GM, P1; `--canvas`, a scene with Player One's token): the flask in the left column, its palette opened by core's
+    togglePalette, the token moved with it open (one button, still open, no error), its Quick Alchemy entry opens the panel;
+    skipped without a canvas.
+  - `m8-shots` (GM, P1): the Bandolier and the panel at 1440x900 and 1024x768, dark and light (`--shots`).
+- **After the M8 review** (one pass; medium findings fixed, each with a stub test that fails without it):
+  - What pf2e's own Quick Alchemy action makes (its chat path, the action on the sheet) carried no stamp, so it never ran out:
+    it is stamped on the creating client now (above).
+  - Quick Bomber by UUID (`api.alchemy.quickBomb({uuid})`, macro 13) read the family from `fromUuidSync`, whose compendium index
+    entry keeps the category under `system`, so no held bomb ever matched and every call made a new one with a vial: the
+    family comes from the catalogue's facts.
+
+#### Follow-ups (M8, low)
+
+- Persistent Mutagen's once a day is not counted: every mutagen the creator drinks outlasts the cap.
+- The cap needs the origin item when the effect is made (OQ-19): an effect dragged from a card after the elixir was used up,
+  or one with no `system.context.origin.item`, is not capped.
+- Turn expiry reads the creator's turn index now: a combatant added before the creator in the middle of a round shifts it, so
+  an item can end a turn early or late; a combat set back to round 0 keeps its items potent until it is deleted.
+- A creator whose token is unlinked (a synthetic actor) is not found as a combatant: its items get a round of world time.
+- Advanced Vials' bucket is taken before pf2e's Strike rolls: a Strike cancelled in pf2e's dialog still uses a bucket's vial
+  (the next preparation puts the buckets right).
+- An additive's toggle stays on after its Strike (pf2e reads it again for the damage roll); a Strike from the sheet before the
+  next one through the module uses it.
+- Gathering's lock pages (`gather:<actorId>:<worldTime>`) accumulate with M7's (5.3.3 archive).
+- The roster's `consumables` change with every Quick Alchemy item, so an encounter writes a snapshot (debounced) most turns.
+- The panel's list shows no splash numbers (8.8 names the panel and the card; the card and the Bandolier have them).
+- The tie question of "Use best consumable" shows quantities, not when each runs out (8.9), and there is no party-view window
+  (`api.consumables.holders` only).
+- Extra Vial (OQ-28) is unchecked: the familiar abilities pack was not in the checkout read.
+- The Morning tab's frequencies stay read-only (M7 follow-up); their buttons are the Bandolier's.
+- pf2e's own Quick Alchemy action still crafts for free at 0 vials: the module stamps what it makes but cannot gate its button.
+- Healing Bomb's 20 feet is checked only with both tokens on the canvas; without a canvas no neighbours are known (the card's
+  "Apply to my selected tokens" stands in). The healed actor's record is written before pf2e's `applyDamage`, so a failure
+  there leaves it applied without the healing.
+- Two devices of one user can each make a Quick Alchemy item at the same moment (the busy guard is per client); each spends
+  its own vial.
+- `api.alchemy.strike` with an item the character does not have refuses `no-actor`, not `item-gone`.
+- Esc in the panel may also reach core's dismiss key (the panel closes twice, harmlessly).
+- Outside an encounter every Quick Alchemy item lasts one round of world time, Enduring Alchemy's included (8.8's "one round").
+
 ---
 
 ## 11. Macros and public API
@@ -5339,6 +5539,13 @@ As built in M7: `prep.{open({actor, loadout, apply}), sources(actor), plan(actor
 saveLoadout(actor, loadout), captureLoadout(actor, name), deleteLoadout(actor, id), applyLoadout(actor, id), standing:
 {list(actor), place(opts), end(id)}, affixBoard({actor}), affix({actor, talisman, host}), unaffix({actor, talisman}),
 preserve({actor, items})}` and an `expiry` namespace, `{sweep(), beginCycle(actor)}` (10.13).
+
+As built in M8: `alchemy.{facts(actor), quickAlchemy({actor, uuid, second, additive, combine, then, map}) (the panel without a
+uuid), quickBomb({actor, family, uuid, damageType, material, createIfNone, map}), quickVial({actor, damageType, material,
+quickened, then}), healingBomb({actor, grade, target}) (made, and thrown when `target` is given), throwHealingBomb({actor,
+item, target}), strike({actor, item, map, damageType, material}), gatherReagents({actor, minutes}), improviseAdmixture({actor,
+skipDialog}), haversackVial({actor}), openBandolier({actor}), openPanel({actor, bombs})}` and `consumables.{useBest({family,
+actor, partyWide, map}), holders(family), candidates({family, actor})}` (10.14).
 
 ### 11.3 Stability promise
 
@@ -5448,6 +5655,10 @@ As built in M7: `preparationCompleted` `{actor, cycle, created}` fires once per 
 `created` the outputs `[{id, uuid, pool, qty, name}]` (10.13). `morningSummary`, `itemsExpired` and `morningPrompt` also
 fire, for the module's own cards and window; they are internal (prefixed like the public ones, not documented as API).
 
+As built in M8: `quickAlchemy` `{actor, items, additive, kind}`, `healingBomb` `{actor, card}`, `vialsRegained` `{actor, from, to,
+gained, why}` and `consumableUsed` `{actor, item, family}` fire on the client that did it, for the combat cards (10.14); they
+are internal too.
+
 ### 12.4 Extension data and versioning
 
 - `api.ext.store(moduleId)` returns `get(key)`, `set(key, value)`, `delete(key)` over
@@ -5485,13 +5696,13 @@ All circus numbers, rules and names ship only in that module; nothing in the shi
 | Calendar modules (Calendaria, Simple Calendar Reborn) | none needed | time is read only from `game.time.worldTime` and `updateWorldTime`; dates display through `game.time.calendar` or the pf2e world clock; that these modules drive core world time is to be tested (OQ-18). Seasons & Stars is not verified for v14. |
 | PF2e Convenient Consumables | active flag | "Use best consumable" (8.9) covers the same ground; both are user-triggered, so nothing competes; Settings notes the overlap |
 | PF2e Talisman Manager | active flag | it owns affixing: the module records no affixes and shows its state where readable; daily talisman creation is still the system's and ours |
-| PF2e Alchemist Remaster Duct Tape | `game.modules.get("pf2e-alchemist-remaster-ducttape")?.active` | 8.1-8.8 step aside entirely (8); the affliction tracker (8.10) stays; its Level Up feature (writes every tier into the book) is compatible with families |
+| PF2e Alchemist Remaster Duct Tape | `game.modules.get("pf2e-alchemist-remaster-ducttape")?.active` | 8.1-8.8 step aside entirely (8); the affliction tracker (8.10) stays; its Level Up feature (writes every tier into the book) is compatible with families. As built in M8: every combat action refuses with `duct-tape`, the Bandolier says why, turn expiry and the effect cap stop, and the settings window notes it under `features.combat` (10.14) |
 | PF2E Affliction Forge | `game.modules.get("pf2e-affliction-forge")?.active`; API on its module object | one engine per affliction: the Workshop never tracks an affliction or a coating that Affliction Forge owns, and hands off exposures whose source item has a linked Affliction Forge template (8.10.11, OQ-41) |
 | pf2e-downtime-scaling, Simplified Crafting, Heroic Crafting Automation | active flags | they replace or extend the Craft button or use a different ruleset: Settings and a GM notice warn about overlapping crafting; no `conflicts` entry in the manifest |
 | SpazzMods PF2e Earn Income | active flag | warning against paying the same job in both modules |
 | PF2e Downtime Tracker, Rutz's PF2e Days | active flags | coexist; Rutz's Days moves the world clock, which our accrual simply sees |
 | pf2e-kingmaker-tools | none | no integration; camping and cooking are out of scope |
-| PF2e HUD, Token Action HUD | none | must not collide with the token HUD palette (OQ-33) |
+| PF2e HUD, Token Action HUD | none | must not collide with the token HUD palette (OQ-33). As built in M8: the palette is added only when core's left column is there and only once, never with `data-action` entries or inputs (10.14); live check `m8-hud` (with `--canvas`) |
 
 ---
 
@@ -5599,7 +5810,10 @@ GM-only purge menu (5.9). As built in M4: `chat.visibility` (W), `notify.level` 
 `features.queue`, `features.funds`, `ui.windowSize` and `ui.parchment` are not registered yet. The other settings of 14.1 and 14.3-14.5 are registered by the milestones that
 read them, with the defaults listed here; `strongbox: party` comes with the Funds tab (M4, 4.7). As built in M6: `features.downtime`, `features.income` and the hidden
 `settlements` (the GM's profiles, edited in the Downtime tab); `rules.costOfLiving` is not read yet (10.12). As built in M7:
-`features.morning`, `features.expiry` and `expiry.action` (10.13).
+`features.morning`, `features.expiry` and `expiry.action` (10.13). As built in M8: `features.combat` (W, on),
+`features.consumables` (W, on), `features.vialGathering` (W, off), `expiry.quickAlchemyAtCombatEnd` (W, on; off gives an
+encounter's items one round of world time from its end), `bandolier.autoOpen` (U, on) and the hidden `bandolier.position`
+(U, `{left, top}`) (10.14).
 
 ### 14.4 Treasure Vault (Remastered) variants
 
@@ -5893,6 +6107,12 @@ churn watch come with M8a and the release workflow.
   `core.moduleConfiguration` (with lib-wrapper) and load by reloading every page, putting it back afterwards. Rest for the
   Night is pf2e's own action (`game.pf2e.actions.restForTheNight` with `skipDialog`), and pf2e-dailies' window is driven
   by its own controls.
+- As built in M8: scenario `m8` (`tools/harness/combat-scenarios.mjs`) and the behaviours `m8-panel`, `m8-bandolier`,
+  `m8-turn`, `m8-vials`, `m8-healing-bomb`, `m8-duct-tape`, `m8-use-best`, `m8-hud` and `m8-shots`, described in 10.14; not run
+  yet. They are scenarios 5 and 6 of the list above. `m8-panel` and `m8-bandolier` drive the windows without a canvas;
+  `m8-hud` needs `--canvas` and a scene with Player One's token, and says it was skipped without one. Encounters are made of
+  token-less combatants, so the turn plans need no scene either; Duct Tape is a stand-in package entry on each client when it
+  is not installed.
 - As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
   counts the rows that are new since `purseBefore` by id, not by a server-time cut-off (two devices' estimates of
   the server's time differ by milliseconds, and one real row was left out); the `claim` step reports its own rows
@@ -6087,7 +6307,7 @@ draft; the letters keep the existing milestone numbers stable.
 | M5 | Formulas | codex, families, provenance, acquisition jobs, picks owed, casting pledges, precious materials, service orders, rune etching, upgrades and transfers; built, live plans run (10.11, M5 live pass) | M4 |
 | M6 | Downtime | per-PC status, clock accrual and prompts, day resolver, Advance days wizard, Communal Crafting helpers, Earn Income jobs, settlement profiles; built, live plans not yet run (10.12) | M4 |
 | M7 | Morning | daily sources panel, loadouts, standing orders, Talisman Dabbler and Esoterica lists, the Dabbler DC stamp, affix records, party-wide expiry, rest ordering, pf2e-dailies custom daily; built, live plans not yet run (10.13) | M5 |
-| M8 | Combat | Bandolier, HUD palette, Quick Alchemy panel, quick vials, Quick Bomber, Healing Bomb, additives, vial gathering, turn expiry, Duct Tape step-aside, Use best consumable | M7 |
+| M8 | Combat | Bandolier, HUD palette, Quick Alchemy panel, quick vials, Quick Bomber, Healing Bomb, additives, vial gathering, turn expiry, Duct Tape step-aside, Use best consumable; built, live plans not yet run (10.14) | M7 |
 | M8a | Afflictions | 8.10: the affliction rules engine with tests; the parser, `scripts/data/afflictions.mjs` overrides and the corpus check in the validation script; backend detection, the effect backend and the native backend with its constraints and migration; grant flags and the stage guard; exposure and coating-spend claims; coatings and Strike handling; saves (with the source item, for incapacitation), recording and pending state; turn and world-time timing, catch-up and the affliction time function for logged days; the DC stamp at creation; Afflictions drawer and cards; Affliction Forge coexistence and the GM-routed hand-off; harness scenario 12 | M3 (validation script, roll recording), M6 (day resolver for logged days), M7 (creation stamps, infused expiry), M8 (Bandolier entry point) |
 | M9 | Tattoos and remaining crafts | tattoo process and toggle, grafts, spellhearts, fulus, missives, snares and gadgets specifics, spell-supplied items beyond scrolls and wands | M5, M6 |
 | M9a | Treasure Vault (Remastered) variants | 6.16 behind their settings: Complex Crafting and Quick Setup (setup, rush, sub-day setups, rushed finishing), crafting with adjustments, downtime events, Critical Crafting, Deconstruct and components, Grow with untended growth and seasons, gardens, bestowed gifts, crafting quests; the one-group-at-a-time notice; harness scenario 13 | M5 (service orders, materials, Repair), M6 (day resolver, seasons, events), M7 (expiry stamps and the inert guard for produce, components and gifts) |

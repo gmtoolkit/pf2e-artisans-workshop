@@ -51,6 +51,7 @@ import { locateShared } from "../../scripts/foundry/shared-docs.mjs";
 import { status, shared } from "../../scripts/foundry/state.mjs";
 import { newId, read, records, stampNow } from "../../scripts/foundry/store.mjs";
 import { refresh } from "../../scripts/foundry/sync.mjs";
+import { COMBAT_SCENARIOS } from "./combat-scenarios.mjs";
 import { DOWNTIME_SCENARIOS } from "./downtime-scenarios.mjs";
 import { FORMULA_SCENARIOS } from "./formula-scenarios.mjs";
 import { MORNING_SCENARIOS } from "./morning-scenarios.mjs";
@@ -339,6 +340,7 @@ const SCENARIOS = {
     ...FORMULA_SCENARIOS,
     ...DOWNTIME_SCENARIOS,
     ...MORNING_SCENARIOS,
+    ...COMBAT_SCENARIOS,
 };
 
 /** Every scenario, its steps and what each does. */

@@ -16,9 +16,10 @@
  *   (`flags.MOD.morning.preserved`, wherever the food has gone): one the creator's later designations push past the cap
  *   has spoiled, and the food expires at once (`spoiled`).
  */
+import { isTurnStamp, turnExpired } from "./alchemy.mjs";
 import { RANK } from "./core.mjs";
 
-/** Stamp rules (4.12); M7 writes `prep` stamps, M8 the turn rules, gardens and fulus the `world` rule. */
+/** Stamp rules (4.12); M7 writes `prep` stamps, M8 the turn rules (8.8), gardens and fulus the `world` rule. */
 export const EXPIRY_RULES = Object.freeze(["prep", "turn-start", "turn-end", "world"]);
 
 /** How long an Advanced Alchemy item lasts at most, in world seconds (Player Core 2: 24 hours). */
@@ -58,22 +59,38 @@ export function sameStamp(a, b) {
 }
 
 /**
- * Why a stamped item has expired, or null while it has not (7.7):
+ * Why a stamped item has expired, or null while it has not (7.7, 8.8):
  * - `cycle`: the creator made daily preparations since (its counter is past the stamp's);
  * - `time`: world time reached `at`;
  * - `day`: the days logged ahead of the clock reached `atDay`;
  * - `spoiled`: a preserved food whose designation the creator no longer holds (Food Preservation: "the previous item
- *   becomes inedible").
- * Exempt items whose designation stands (or cannot be read: `designations` null), items already inert, and rules M7
- * does not run (the turn rules, M8) never expire here.
+ *   becomes inedible");
+ * - `turn` (M8): a Quick Alchemy item made in an encounter whose potency ran out with a turn (`turnExpired`), read from the
+ *   encounter's state now (`turn(stamp)` gives `{position, creatorTurn}`, or `{gone: true}` once the encounter is over);
+ * - `combat-end` (M8): such an item when its encounter has ended and `combatEnd` is on (`expiry.quickAlchemyAtCombatEnd`).
+ *   With it off the Foundry side gives the item a round of world time instead (`at`, 8.8).
+ * A Quick Alchemy item made outside an encounter lasts one round of world time (`at`, `time`).
+ * Exempt items whose designation stands (or cannot be read: `designations` null) and items already inert never expire
+ * here.
  *
  * @param {object|null} stamp
  * @param {{creatorCycle?: number|null, worldTime?: number|null, loggedDay?: number|null, inert?: boolean,
- *   designations?: Set<string>|null}} now   `designations`: the ids of the creator's designations that stand
+ *   designations?: Set<string>|null, turn?: ((stamp: object) => object|null)|null, combatEnd?: boolean}} now
+ *   `designations`: the ids of the creator's designations that stand
  */
-export function expiryReason(stamp, { creatorCycle = null, worldTime = null, loggedDay = null, inert = false, designations = null } = {}) {
+export function expiryReason(stamp, { creatorCycle = null, worldTime = null, loggedDay = null, inert = false, designations = null, turn = null,
+    combatEnd = true } = {}) {
     if (!stamp || typeof stamp !== "object" || inert) return null;
     if (stamp.exempt) return stamp.exempt.id && designations instanceof Set && !designations.has(stamp.exempt.id) ? "spoiled" : null;
+    if (isTurnStamp(stamp)) {
+        if (stamp.combat) {
+            const state = typeof turn === "function" ? turn(stamp) : null;
+            if (!state) return null;
+            if (state.gone) return combatEnd ? "combat-end" : null;
+            return turnExpired(stamp, state) ? "turn" : null;
+        }
+        return Number.isFinite(stamp.at) && Number.isFinite(worldTime) && worldTime >= stamp.at ? "time" : null;
+    }
     if (stamp.rule === "prep") {
         if (Number.isInteger(creatorCycle) && Number.isInteger(stamp.cycle) && creatorCycle > stamp.cycle) return "cycle";
         if (Number.isFinite(stamp.at) && Number.isFinite(worldTime) && worldTime >= stamp.at) return "time";

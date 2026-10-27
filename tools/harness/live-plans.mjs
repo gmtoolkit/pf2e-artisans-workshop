@@ -2909,3 +2909,325 @@ Object.assign(BEHAVIOURS, {
     "m7-affix": m7Affix,
     "m7-shots": m7Shots,
 });
+
+/* -------------------------------------------- */
+/*  M8: combat (DESIGN.md 8, 10.14)              */
+/* -------------------------------------------- */
+
+/** What the M8 plans give and make: compendium UUIDs and the families `familyKey` gives them. */
+export const M8 = Object.freeze({
+    elixirMinor: ELIXIR,
+    elixirModerate: "Compendium.pf2e.equipment-srd.Item.c21stU5rhN4F2fZl",
+    fireLesser: ALCHEMISTS_FIRE,
+    fireModerate: "Compendium.pf2e.equipment-srd.Item.gWr4q4HiyGhETA8H",
+    potionMinor: HEALING_POTION,
+    potionLesser: "Compendium.pf2e.equipment-srd.Item.e0vSAQfxhHauiAoD",
+    healingBomb: "Compendium.pf2e.feats-srd.Item.xXHwktc9SymSY8d6",
+    enduringAlchemy: "Compendium.pf2e.feats-srd.Item.jBeuyq0Aged45YAc",
+    quickBomber: "Compendium.pf2e.feats-srd.Item.xbg1scOIT7RI9Fij",
+    improviseAdmixture: "Compendium.pf2e.feats-srd.Item.H6SL2F11nlMfqCQC",
+    stickyBomb: "Compendium.pf2e.feats-srd.Item.zXKfKKOxht0b0XNL",
+    fireFamily: "weapon|bomb|alchemist's fire",
+    potionFamily: "consumable|potion|healing potion",
+});
+
+/**
+ * Every M8 plan starts here: the world reset, M5's, M7's and M8's items taken back, the vials refilled, then Player One's
+ * bomber (level 11: Double Brew, Alchemical Expertise, the field discovery, Advanced Vials) knows Elixir of Life (Minor)
+ * and Alchemist's Fire (Lesser), whose families Quick Alchemy makes by.
+ */
+async function m8Reset(h, w) {
+    await resetWorld(h, w);
+    const actors = [w.pcs.p1.uuid, w.pcs.p2.uuid];
+    await h.step("gm", "m5", "reset", { actors });
+    await h.step("gm", "m7", "reset", { actors });
+    await h.step("gm", "m8", "reset", { actors });
+    await h.step("gm", "m7", "learn", { actor: w.pcs.p1.uuid, uuids: [M8.elixirMinor, M8.fireLesser] });
+}
+
+/**
+ * The Quick Alchemy panel without a canvas (8.3, 10.9, scenario 5): what Player One's bomber can make (by book and family,
+ * up to level 11: Elixir of Life (Moderate) by family, never the Greater); Quick Alchemy through pf2e's craft takes one vial
+ * and makes the item held, infused and stamped; at 0 vials it is refused and nothing is made (pf2e's own path would craft
+ * for free); Double Brew makes two for two vials; then the panel driven with real keys: typing keeps focus in the search,
+ * the arrow goes into the list, Space picks, Enter creates and closes it.
+ */
+async function m8Panel(h, w) {
+    await m8Reset(h, w);
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    const facts = await h.step("p1", "m8", "facts", {});
+    const names = facts.choices.map((c) => c.name);
+    h.check("the panel's list: Elixir of Life up to Moderate by family, Alchemist's Fire up to Moderate, no Greater (level 13)",
+        names.includes("Elixir of Life (Moderate)") && names.includes("Alchemist's Fire (Moderate)") && !names.includes("Elixir of Life (Greater)") &&
+        facts.choices.find((c) => c.name === "Elixir of Life (Moderate)")?.route === "family", names);
+    h.check("the bomber's features: Double Brew, the field discovery's splash", facts.features.brew === 2 && facts.features.splash.intDamage === true, facts.features);
+    const before = facts.vials.value;
+    const one = await h.step("p1", "m8", "quick", { uuid: M8.fireModerate });
+    const bomb = one.brief.quick.find((i) => i.name === "Alchemist's Fire (Moderate)");
+    h.check("Quick Alchemy: one vial through pf2e's resource; the bomb held, infused, stamped for a round outside an encounter", one.result.ok && one.brief.vials.value === before - 1 &&
+        bomb?.held && bomb.traits.includes("infused") && bomb.expiry?.rule === "turn-start" && bomb.expiry?.combat === null && Number.isFinite(bomb.expiry?.at), one);
+    h.check("the Quick Alchemy card is posted, with Strike buttons", one.messages.some((m) => m.card?.kind === "quick-alchemy"), one.messages);
+    await h.step("p1", "m8", "vials", { value: 0 });
+    const none = await h.step("p1", "m8", "quick", { uuid: M8.fireLesser });
+    h.check("at 0 vials Quick Alchemy is refused and nothing is made", none.result.reason === "no-vials" && none.brief.quick.length === one.brief.quick.length, none.result);
+    await h.step("p1", "m8", "vials", { value: 3 });
+    const two = await h.step("p1", "m8", "quick", { uuid: M8.elixirMinor, second: M8.fireLesser });
+    h.check("Double Brew: two items for two vials", two.result.ok && two.result.items.length === 2 && two.brief.vials.value === 1, two.result);
+    await h.step("p1", "m8", "vials", { value: 3 });
+    const keys = await h.step("p1", "m8", "panel", { query: "alchemist's fire lesser", create: true });
+    h.check("the panel from the keyboard: typing keeps focus, the arrow enters the list, Space picks, Enter creates and closes", keys.focusedSearch && keys.stillFocused &&
+        keys.onOption && keys.picks.length === 1 && keys.made === 1 && keys.closed && keys.hasStyles, keys);
+    const gm = await h.step("gm", "m8", "state", { actors: [w.pcs.p1.uuid], ms: 1000 });
+    h.check("the GM reads the same Quick Alchemy items", gm.actors[0].quick.length === keys.made + two.brief.quick.length, gm.actors[0].quick.length);
+    await checkStatuses(h);
+    return { facts, one, none, two, keys };
+}
+
+/**
+ * The Bandolier without a canvas (8.1, 8.5): as Player One, its vial pips are the bomber's vials; a quick vial from its
+ * button is free and leaves the vial count alone (its source identity cleared); its Strike button throws through pf2e's
+ * own Strike (an attack card whose origin is the quick vial), with the field vial chosen; dragged, it reopens where it was.
+ */
+async function m8Bandolier(h, w) {
+    await m8Reset(h, w);
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    const first = await h.step("p1", "m8", "bandolier", {});
+    h.check("the Bandolier opens with the vial pips of the bomber", first.view.open && first.view.pips === first.brief.vials.max && first.view.full === first.brief.vials.value,
+        first.view);
+    const vial = await h.step("p1", "m8", "bandolier", { click: "quick-vial" });
+    const quick = vial.brief.quick.find((i) => i.quick?.source === "quick-vial");
+    h.check("a quick vial from the Bandolier: free, held, its source identity cleared, the vial count unchanged", !!quick && quick.sourceId === null && quick.held &&
+        vial.brief.vials.value === first.brief.vials.value, { quick, vials: vial.brief.vials });
+    const struck = await h.step("p1", "m8", "strike", { item: quick.id, map: 0, damageType: "fire" });
+    h.check("its Strike is pf2e's own: an attack card from the quick vial, with the field vial's toggle on", struck.result.ok &&
+        struck.messages.some((m) => m.type === "attack-roll" && m.origin === quick.uuid) && struck.options["bomber-field-vials"] === true, struck);
+    await h.step("p1", "m8", "bandolier", { move: { left: 160, top: 220 } });
+    const closed = await h.step("p1", "m8", "closeBandolier", {});
+    const reopened = await h.step("p1", "m8", "bandolier", {});
+    h.check("dragged, it reopens where it was (per user)", closed.saved?.left === 160 && reopened.view.position.left === 160 && reopened.view.position.top === 220,
+        { saved: closed.saved, position: reopened.view.position });
+    await h.step("p1", "m8", "close", {});
+    return { first, vial, struck, reopened };
+}
+
+/**
+ * Turn expiry (8.8, scenario 5): an encounter of Player Two's fighter then Player One's bomber; on the bomber's turn
+ * Player One makes a bomb (until the start of its next turn), an elixir with Enduring Alchemy (until the end of its next
+ * turn) and a quick vial (until the end of this turn), and the GM hands a second bomb to the fighter. The fighter's turn:
+ * the quick vial is inert, marked by Player One's client. The bomber's next turn: its bomb is inert on Player One's client
+ * and the fighter's on Player Two's. The turn after: the elixir. Then a bomb made in the third round goes inert when the
+ * GM ends the encounter.
+ */
+async function m8Turn(h, w) {
+    await m8Reset(h, w);
+    await h.step("gm", "m8", "give", { actor: w.pcs.p1.uuid, uuid: M8.enduringAlchemy });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const fight = await h.step("gm", "m8", "encounter", { actors: [w.pcs.p2.uuid, w.pcs.p1.uuid] });
+    h.check("the encounter: the fighter, then the bomber", fight.order[0] === w.pcs.p2.name && fight.order[1] === w.pcs.p1.name, fight);
+    await h.step("gm", "m8", "next", { combat: fight.id });
+    const bomb = await h.step("p1", "m8", "quick", { uuid: M8.fireLesser });
+    const elixir = await h.step("p1", "m8", "quick", { uuid: M8.elixirMinor });
+    const vial = await h.step("p1", "m8", "vial", {});
+    const handed = await h.step("p1", "m8", "quick", { uuid: M8.fireLesser });
+    const moved = await h.step("gm", "m7", "move", { item: handed.result.items[0].uuid, qty: 1, to: w.pcs.p2.uuid });
+    const id = (r) => r.result.items[0].id;
+    h.check("made in the bomber's turn: stamped with the encounter, its round and turn", bomb.brief.quick.find((i) => i.id === id(bomb))?.expiry?.combat?.round === 1, bomb.brief.quick);
+    const read = async () => {
+        const s = await h.step("gm", "m8", "state", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid], ms: 2500 });
+        const all = [...s.actors[0].quick, ...s.actors[1].quick];
+        const find = (itemId) => all.find((i) => i.id === itemId) ?? null;
+        return { s, bomb: find(id(bomb)), elixir: find(id(elixir)), vial: find(id(vial)), given: s.actors[1].quick.find((i) => i.uuid === moved.moved) ?? s.actors[1].quick[0] ?? null };
+    };
+    await h.step("gm", "m8", "next", { combat: fight.id });
+    const r2t0 = await read();
+    h.check("the fighter's turn: the quick vial is inert, marked by Player One's client; the bombs and the elixir are potent",
+        r2t0.vial?.inert && r2t0.vial.by === w.users.p1 && !r2t0.bomb?.inert && !r2t0.elixir?.inert && !r2t0.given?.inert, r2t0);
+    await h.step("gm", "m8", "next", { combat: fight.id });
+    const r2t1 = await read();
+    h.check("the bomber's next turn: its bomb is inert on Player One's client, the fighter's on Player Two's; the Enduring elixir still potent",
+        r2t1.bomb?.inert && r2t1.bomb.by === w.users.p1 && r2t1.given?.inert && r2t1.given.by === w.users.p2 && !r2t1.elixir?.inert, r2t1);
+    await h.step("gm", "m8", "next", { combat: fight.id });
+    const r3t0 = await read();
+    h.check("the turn after: the elixir is inert", r3t0.elixir?.inert && r3t0.elixir.inertWhy === "turn", r3t0.elixir);
+    const late = await h.step("p1", "m8", "quick", { uuid: M8.fireLesser });
+    await h.step("gm", "m8", "end", { combat: fight.id });
+    const ended = await h.step("gm", "m8", "state", { actors: [w.pcs.p1.uuid], ms: 2500 });
+    const last = ended.actors[0].quick.find((i) => i.id === late.result.items[0].id);
+    h.check("the encounter ends: what Quick Alchemy made in it is inert", last?.inert && last.inertWhy === "combat-end", last);
+    await checkStatuses(h);
+    return { fight, r2t0, r2t1, r3t0, ended };
+}
+
+/**
+ * Vial gathering (8.7, scenario 5): with `features.vialGathering` on, 25 minutes of world time give the bomber (Alchemical
+ * Expertise: 3 per 10 minutes) 6 vials and carry 5 minutes; Player One and the GM click Gather reagents at the same moment
+ * one vial short of the maximum: the vials end at the maximum, never past it; in an encounter the clock gathers nothing;
+ * Improvise Admixture regains vials by its degree.
+ */
+async function m8Vials(h, w) {
+    await m8Reset(h, w);
+    await h.step("gm", "m8", "give", { actor: w.pcs.p1.uuid, uuid: M8.improviseAdmixture });
+    await h.step("gm", "m8", "setting", { key: "features.vialGathering", value: true });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    await h.step("p1", "m8", "vials", { value: 0 });
+    await h.step("gm", "m8", "clock", { seconds: 1500 });
+    const clock = await h.step("p1", "m8", "state", { ms: 1500 });
+    const max = clock.actors[0].vials.max;
+    h.check("25 minutes: 6 vials (3 a ten with Alchemical Expertise), 5 minutes carried, on Player One's client", clock.actors[0].vials.value === Math.min(6, max) &&
+        clock.actors[0].vialClock === 300, clock.actors[0]);
+    await h.step("p1", "m8", "vials", { value: max - 1 });
+    const both = await h.together([["p1", "m8", "gather", { actor: w.pcs.p1.uuid }], ["gm", "m8", "gather", { actor: w.pcs.p1.uuid }]]);
+    const capped = await h.step("gm", "m8", "state", { actors: [w.pcs.p1.uuid], ms: 1000 });
+    h.check("two clicks at once one vial short: the maximum, never past it", capped.actors[0].vials.value === max, { both, vials: capped.actors[0].vials });
+    await h.step("p1", "m8", "vials", { value: 1 });
+    const fight = await h.step("gm", "m8", "encounter", { actors: [w.pcs.p1.uuid] });
+    await h.step("gm", "m8", "clock", { seconds: 1200 });
+    const inFight = await h.step("p1", "m8", "state", { ms: 1500 });
+    h.check("in an encounter the clock gathers nothing", inFight.actors[0].vials.value === 1, inFight.actors[0].vials);
+    await h.step("gm", "m8", "end", { combat: fight.id });
+    const admix = await h.step("p1", "m8", "admixture", {});
+    const degree = admix.result.degree;
+    h.check("Improvise Admixture regains 3, 2, 1 or no vials by its degree", admix.result.ok && admix.result.gained === Math.min([0, 1, 2, 3][degree] ?? 0, max - 1), admix.result);
+    await h.step("gm", "m8", "setting", { key: "features.vialGathering", value: false });
+    return { clock, both, capped, inFight, admix };
+}
+
+/**
+ * Healing Bomb (8.6): Player One's bomber gets the feat and throws an elixir of life made with Quick Alchemy at Player
+ * Two's hurt fighter: the elixir is used through pf2e (its healing card), the module's card says each living creature
+ * adjacent regains 5 HP (Moderate: 5d6+12); Player Two applies it to the fighter once; a second time is refused.
+ */
+async function m8HealingBomb(h, w) {
+    await m8Reset(h, w);
+    await h.step("gm", "m8", "give", { actor: w.pcs.p1.uuid, uuid: M8.healingBomb });
+    const hurt = await h.step("gm", "m8", "hp", { actor: w.pcs.p2.uuid, value: 10 });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const thrown = await h.step("p1", "m8", "healing", { target: w.pcs.p2.uuid });
+    const card = thrown.messages?.find((m) => m.card?.kind === "healing-bomb");
+    h.check("the best elixir of life with the additive, used through pf2e, and the Healing Bomb card with its HP", thrown.made?.ok && thrown.thrown?.ok && thrown.thrown.hp === 5 &&
+        !!card && card.combat?.hp === 5 && thrown.messages.some((m) => m.origin && m.card === null), thrown);
+    const heal = await h.step("p2", "m8", "heal", { message: card?.id, actor: w.pcs.p2.uuid });
+    h.check("Player Two applies it to the fighter", heal.result.ok && heal.hp === Math.min(hurt.max, 10 + 5), heal);
+    const again = await h.step("p2", "m8", "heal", { message: card?.id, actor: w.pcs.p2.uuid });
+    h.check("once per card and creature", again.result.reason === "already" && again.hp === heal.hp, again);
+    const additive = await h.step("p1", "m8", "quick", { uuid: M8.elixirMinor, additive: "healing-bomb" });
+    h.check("one additive a round: a second is refused", additive.result.reason === "additive-round", additive.result);
+    return { thrown, heal, again };
+}
+
+/**
+ * Duct Tape (8, 13, scenario 6): with Duct Tape active on every client (a stand-in package entry when it is not
+ * installed), the Bandolier, Quick Alchemy, quick vials and gathering refuse and say why; turn expiry leaves Quick Alchemy
+ * items alone; Use best consumable still works. Then it is put back.
+ */
+async function m8DuctTape(h, w) {
+    await m8Reset(h, w);
+    await h.step("gm", "m7", "give", { actor: w.pcs.p2.uuid, uuid: M8.potionMinor, system: { equipped: { carryType: "held", handsHeld: 1 } } });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const made = await h.step("p1", "m8", "quick", { uuid: M8.fireLesser });
+    const fight = await h.step("gm", "m8", "encounter", { actors: [w.pcs.p1.uuid, w.pcs.p2.uuid] });
+    const on = await h.together([["gm", "m8", "ductTape", { on: true }], ["p1", "m8", "ductTape", { on: true }], ["p2", "m8", "ductTape", { on: true }]]);
+    h.check("Duct Tape is active on every client", on.every((o) => o.off === "duct-tape" || (o.installed && o.active)), on);
+    const refused = await h.step("p1", "m8", "quick", { uuid: M8.fireLesser });
+    const bandolier = await h.step("p1", "m8", "bandolier", {});
+    h.check("Quick Alchemy and the Bandolier step aside, and say why", refused.result.reason === "duct-tape" && bandolier.opened?.reason === "duct-tape", { refused, bandolier });
+    await h.step("gm", "m8", "next", { combat: fight.id, times: 3 });
+    const kept = await h.step("p1", "m8", "state", { ms: 1500 });
+    h.check("no turn expiry while Duct Tape runs its own", kept.actors[0].quick.some((i) => i.id === made.result.items[0].id && !i.inert), kept.actors[0].quick);
+    const used = await h.step("p2", "m8", "useBest", { family: M8.potionFamily });
+    h.check("Use best consumable stays", used.result.ok === true, used.result);
+    await h.together([["gm", "m8", "ductTape", { on: false }], ["p1", "m8", "ductTape", { on: false }], ["p2", "m8", "ductTape", { on: false }]]);
+    await h.step("gm", "m8", "end", { combat: fight.id });
+    return { on, refused, kept, used };
+}
+
+/**
+ * Use best consumable (8.9): Player Two's fighter holds a Healing Potion (Minor) in hand and a Healing Potion (Lesser)
+ * stowed; the held one is used through pf2e (its own card); then the stowed one; with none left, the party view says
+ * Player One's bomber holds one.
+ */
+async function m8UseBest(h, w) {
+    await m8Reset(h, w);
+    await h.step("gm", "m7", "give", { actor: w.pcs.p2.uuid, uuid: M8.potionMinor, system: { equipped: { carryType: "held", handsHeld: 1 } } });
+    await h.step("gm", "m7", "give", { actor: w.pcs.p2.uuid, uuid: M8.potionLesser, system: { equipped: { carryType: "stowed" } } });
+    await h.step("gm", "m7", "give", { actor: w.pcs.p1.uuid, uuid: M8.potionMinor });
+    await h.only(["p1", "p2"]);
+    await h.settle("ready");
+    const first = await h.step("p2", "m8", "useBest", { family: M8.potionFamily });
+    h.check("the held potion first, through pf2e's own card", first.result.ok && first.result.name === "Healing Potion (Minor)" && first.messages.length >= 1, first);
+    const second = await h.step("p2", "m8", "useBest", { family: M8.potionFamily });
+    h.check("then the stowed one", second.result.ok && second.result.name === "Healing Potion (Lesser)", second.result);
+    const none = await h.step("p2", "m8", "useBest", { family: M8.potionFamily, partyWide: true, ms: 2000 });
+    h.check("none left: the party view names who holds one", none.result.reason === "none" && none.result.data.holders.some((x) => x.name === w.pcs.p1.name), none.result);
+    return { first, second, none };
+}
+
+/**
+ * The token HUD palette (8.2, OQ-33; needs `--canvas`, a scene with Player One's bomber token on it): the flask button in
+ * the left column, its palette opened by core's own togglePalette; the token moved with the palette open (core renders the
+ * HUD again and reopens the palette after the hook): one button, still open, no error; its Quick Alchemy entry opens the
+ * panel. Without a canvas it says it was skipped.
+ */
+async function m8Hud(h, w) {
+    if (!h.canvas) {
+        h.check("m8-hud needs --canvas: skipped", true, { skipped: true });
+        return { skipped: true };
+    }
+    await m8Reset(h, w);
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    const view = await h.step("p1", "m8", "hud", { entry: "quick-alchemy" });
+    h.check("the scene has Player One's bomber token", view.canvas && view.token, view);
+    h.check("the flask in the HUD's left column; its palette lists Quick Alchemy, a quick vial and the Bandolier", view.button && ["quick-alchemy", "quick-vial", "bandolier"]
+        .every((e) => view.entries.includes(e)), view.entries);
+    h.check("core's togglePalette opens it", view.paletteOpen, view);
+    h.check("moved with the palette open: one button, the palette still open, no error", view.afterMove.buttons === 1 && view.afterMove.paletteOpen && !view.afterMove.errors.length,
+        view.afterMove);
+    h.check("its Quick Alchemy entry opens the panel", view.used?.panel === true, view.used);
+    await h.step("p1", "m8", "close", {});
+    return view;
+}
+
+/** The Bandolier and the panel photographed (17.1, M8): as Player One, 1440x900 and 1024x768, dark and light. */
+async function m8Shots(h, w) {
+    await m8Reset(h, w);
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    await h.step("p1", "m8", "quick", { uuid: M8.fireLesser });
+    await h.step("p1", "m8", "quick", { uuid: M8.elixirMinor });
+    const opened = [];
+    for (const scheme of ["dark", "light"]) {
+        await h.step("p1", "m4", "theme", { scheme });
+        for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }]) {
+            await h.screenshot("p1", `m8-p1-bandolier-${size.width}x${size.height}-${scheme}.png`, size, async () => {
+                const open = await h.step("p1", "m8", "bandolier", {});
+                opened.push({ scheme, ...size, open: open.view.open, ready: open.view.ready.length });
+                return open;
+            });
+            await h.screenshot("p1", `m8-p1-quick-alchemy-${size.width}x${size.height}-${scheme}.png`, size,
+                () => h.step("p1", "m8", "panel", { query: "elixir", close: false }));
+            await h.step("p1", "m8", "close", {});
+        }
+    }
+    await h.step("p1", "m4", "theme", { scheme: "dark" });
+    h.check("the Bandolier opened with what is ready every time", opened.every((o) => o.open && o.ready >= 2), opened);
+    return { opened, shots: h.shots.filter((s) => s.label === h.label).map((s) => s.file) };
+}
+
+Object.assign(BEHAVIOURS, {
+    "m8-panel": m8Panel,
+    "m8-bandolier": m8Bandolier,
+    "m8-turn": m8Turn,
+    "m8-vials": m8Vials,
+    "m8-healing-bomb": m8HealingBomb,
+    "m8-duct-tape": m8DuctTape,
+    "m8-use-best": m8UseBest,
+    "m8-hud": m8Hud,
+    "m8-shots": m8Shots,
+});

@@ -142,6 +142,8 @@ const EXPIRY_REASON = Object.freeze({
     time: "pf2e-artisans-workshop.Expiry.Reason.Time",
     day: "pf2e-artisans-workshop.Expiry.Reason.Day",
     spoiled: "pf2e-artisans-workshop.Expiry.Reason.Spoiled",
+    turn: "pf2e-artisans-workshop.Expiry.Reason.Turn",
+    "combat-end": "pf2e-artisans-workshop.Expiry.Reason.CombatEnd",
 });
 
 /** Who a Morning or Expiry card goes to: the actor's owners and GMs, or everyone (`chat.visibility`). */
@@ -181,10 +183,14 @@ export async function postMorningCard(actor, result) {
     }
 }
 
-/** The Expiry card (10.5, M7): the items a holder lost to expiry in one sweep, whispered to its owners and GMs. */
-export async function postExpiryCard(holder, items) {
+/**
+ * The Expiry card (10.5, M7): the items a holder lost to expiry in one sweep, whispered to its owners and GMs. Quick
+ * Alchemy items, which run out every turn or two (8.8), are left off it: the Bandolier shows them.
+ */
+export async function postExpiryCard(holder, list) {
     try {
-        if (!items?.length) return null;
+        const items = (list ?? []).filter((i) => !i.quick);
+        if (!items.length) return null;
         const lines = items.map((i) => game.i18n.format("pf2e-artisans-workshop.Card.ExpiryLine", {
             item: i.name, creator: fromUuidSync(i.creator ?? "", { strict: false })?.name ?? "",
             why: game.i18n.localize(EXPIRY_REASON[i.reason] ?? EXPIRY_REASON.cycle),

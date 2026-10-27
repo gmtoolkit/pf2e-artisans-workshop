@@ -18,14 +18,23 @@
  * - **Exceptions**: an item whose stamp is `exempt` (Food Preservation's designation) never expires here while its
  *   creator still holds the designation (`flags.MOD.morning.preserved`); one pushed past the cap spoils at once, and is
  *   made temporary again so the holder's next rest deletes it. Affliction effects already running (8.10.10) are M8a's.
+ * - **Turns** (M8, 8.8): Quick Alchemy items carry a turn stamp (`turn-start`, `turn-end`) with the encounter they were
+ *   made in. The same sweep marks them, from the encounter's state now (`turnStateOf`), on `combatTurnChange` (which fires
+ *   on every client) and when an encounter ends, each holder's responsible client marking what its actors hold, so an
+ *   item handed to an ally ends on the ally's client. When an encounter ends, its items end too
+ *   (`expiry.quickAlchemyAtCombatEnd`), or, with that off, get one round of world time from then. Made outside an
+ *   encounter, they last one round of world time. Turn stamps run while the combat features do (Duct Tape aside, 8), the
+ *   others while `features.expiry` does.
  */
 import { MODULE_ID } from "../constants.mjs";
+import { ROUND_SECONDS, isTurnStamp } from "../logic/alchemy.mjs";
 import { pcStatusOf } from "../logic/downtime.mjs";
 import { actorIdOf, expiryReason } from "../logic/expiry.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
 import { makeClaim } from "../logic/claims.mjs";
 import { runRequest } from "./batch.mjs";
 import { registerClaimKind } from "./claims.mjs";
+import { combatOn, turnStateOf } from "./combat.mjs";
 import { today } from "./downtime.mjs";
 import { isElected, isResponsibleFor } from "./responsible.mjs";
 import { setting } from "./settings.mjs";
@@ -49,7 +58,10 @@ export function cycleOf(creatorUuid) {
     return id ? pcStatusOf(read("pcs") ?? {}, id).prepCycle : null;
 }
 
-/** World time and the highest logged day, which the `at` and `atDay` deadlines are read against. */
+/**
+ * World time and the highest logged day, which the `at` and `atDay` deadlines are read against, and the encounters, which
+ * the turn stamps are (8.8).
+ */
 function nowFacts() {
     let loggedDay;
     try {
@@ -57,7 +69,12 @@ function nowFacts() {
     } catch {
         loggedDay = null;
     }
-    return { worldTime: game.time.worldTime ?? 0, loggedDay };
+    return { worldTime: game.time.worldTime ?? 0, loggedDay, turn: turnStateOf, combatEnd: setting("expiry.quickAlchemyAtCombatEnd") !== false };
+}
+
+/** Whether this client runs a stamp's rule now: turn stamps with the combat features (8.8), the others with expiry (7.7). */
+function ruleOn(stamp) {
+    return isTurnStamp(stamp) ? combatOn() : expiryOn() && canWrite();
 }
 
 /**
@@ -76,7 +93,7 @@ export function expiredWhy(item, now = nowFacts()) {
     const stamp = stampOf(item);
     if (!stamp) return null;
     return expiryReason(stamp, { creatorCycle: cycleOf(stamp.creator), worldTime: now.worldTime, loggedDay: now.loggedDay, inert: isInert(item),
-        designations: stamp.exempt?.id ? designationsOf(stamp.creator) : null });
+        designations: stamp.exempt?.id ? designationsOf(stamp.creator) : null, turn: now.turn, combatEnd: now.combatEnd });
 }
 
 /** The name an inert item takes, without stacking the suffix. */
@@ -87,7 +104,7 @@ function inertName(item) {
 
 /**
  * Mark expired items of one actor inert (or delete them, `expiry.action`), in one update each way. Returns what was
- * marked, `[{id, name, reason, creator}]`.
+ * marked, `[{id, name, reason, creator, quick}]` (`quick`: a Quick Alchemy item, 8.8).
  */
 export async function expireItems(actor, items, now = nowFacts()) {
     const due = [];
@@ -96,7 +113,7 @@ export async function expireItems(actor, items, now = nowFacts()) {
         if (reason) due.push({ item, reason });
     }
     if (!due.length) return [];
-    const marked = due.map(({ item, reason }) => ({ id: item.id, name: item.name, reason, creator: stampOf(item)?.creator ?? null }));
+    const marked = due.map(({ item, reason }) => ({ id: item.id, name: item.name, reason, creator: stampOf(item)?.creator ?? null, quick: !!stampOf(item)?.quick }));
     if (setting("expiry.action") === "delete") {
         await actor.deleteEmbeddedDocuments("Item", due.map(({ item }) => item.id));
         return marked;
@@ -112,8 +129,25 @@ export async function expireItems(actor, items, now = nowFacts()) {
     return marked;
 }
 
-/** The physical items of an actor that carry a stamp and are not inert yet. */
-const stampedItems = (actor) => (actor?.items ?? []).filter((item) => stampOf(item) && !isInert(item));
+/** The physical items of an actor that carry a stamp and are not inert yet, whose rule this client runs now. */
+const stampedItems = (actor) => (actor?.items ?? []).filter((item) => stampOf(item) && !isInert(item) && ruleOn(stampOf(item)));
+
+/**
+ * Quick Alchemy items of an encounter that has ended, with `expiry.quickAlchemyAtCombatEnd` off (8.8): they get one round
+ * of world time from now (`combat: null`, `at`), written once by the holder's responsible client. Returns their ids.
+ */
+async function releaseEnded(actor, items, now) {
+    if (now.combatEnd) return [];
+    const ended = items.filter((item) => {
+        const stamp = stampOf(item);
+        return isTurnStamp(stamp) && stamp.combat && now.turn(stamp)?.gone;
+    });
+    if (!ended.length) return [];
+    await actor.updateEmbeddedDocuments("Item", ended.map((item) => ({
+        _id: item.id, [`flags.${MODULE_ID}.expiry.combat`]: null, [`flags.${MODULE_ID}.expiry.at`]: now.worldTime + ROUND_SECONDS,
+    })));
+    return ended.map((item) => item.id);
+}
 
 /**
  * The strongbox's stamped items this tab marks: those whose creator it is responsible for (7.7: the creator's client
@@ -162,15 +196,17 @@ export function expirySweep() {
 
 /** One pass of the sweep (`expirySweep`). */
 async function sweepOnce() {
-    if (!canWrite() || !expiryOn()) return [];
+    const prepOn = canWrite() && expiryOn();
+    if (!prepOn && !combatOn()) return [];
     const now = nowFacts();
     const out = [];
-    const strongbox = shared().strongbox;
+    const strongbox = prepOn ? shared().strongbox : null;
     for (const actor of game.actors ?? []) {
         if (actor === strongbox) continue;
         const items = stampedItems(actor);
         if (!items.length || !isResponsibleFor(actor)) continue;
-        const marked = await expireItems(actor, items, now);
+        const released = new Set(await releaseEnded(actor, items, now));
+        const marked = await expireItems(actor, items.filter((item) => !released.has(item.id)), now);
         if (marked.length) out.push({ holder: actor, items: marked });
     }
     if (strongbox) {
@@ -258,7 +294,14 @@ function inertOrigin(message) {
 export function registerExpiryHooks() {
     registerClaimKind("expiry", (claim) => applyExpiryClaim(claim));
     Hooks.on("updateWorldTime", () => {
-        if (expiryOn()) scheduleExpiry(1000);
+        if (expiryOn() || combatOn()) scheduleExpiry(1000);
+    });
+    // M8 (8.8): a turn changed, or an encounter ended, on every client: each holder's client marks what ran out.
+    Hooks.on("combatTurnChange", () => {
+        if (combatOn()) scheduleExpiry(0);
+    });
+    Hooks.on("deleteCombat", () => {
+        if (combatOn()) scheduleExpiry(0);
     });
     Hooks.on("updateJournalEntry", (doc, changed) => {
         if (doc !== shared().ledger) return;
