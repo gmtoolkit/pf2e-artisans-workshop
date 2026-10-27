@@ -17,7 +17,7 @@ import { FEAT, RANK, asSet } from "../logic/core.mjs";
 import { helperEligibility, joinHelper, leaveHelper, relevantSkills } from "../logic/communal.mjs";
 import { helperLockOf, PC_VERSION } from "../logic/downtime.mjs";
 import { closedAs } from "../logic/orders.mjs";
-import { nextDayOf, statusOf } from "./downtime.mjs";
+import { nextDayOf, statusOf, today } from "./downtime.mjs";
 import { featKeysOf, ranksOf } from "./registry.mjs";
 import { rollHelper } from "./rolls.mjs";
 import { rulesFromSettings } from "./settings.mjs";
@@ -70,7 +70,9 @@ export function helpSkills(order, actor) {
 /**
  * Join an order as a helper (6.7), as the helper's owner: their entry from their next open day (or the crafter's, if
  * later, so their share starts with a day the crafter has not resolved yet), their activity `help:<orderId>` and
- * `lockedBy`. Refused: `not-ready`, `no-order`, `not-owner`, `not-eligible` (with the reasons), and `joinHelper`'s.
+ * `lockedBy`. Helping is how the helper spends their downtime (helpers stay for the whole Craft), so a helper not in
+ * downtime goes into it, from the day after today, as "Start downtime" does. Refused: `not-ready`, `no-order`,
+ * `not-owner`, `not-eligible` (with the reasons), and `joinHelper`'s.
  */
 export async function joinOrder(orderId, actorUuid, skill) {
     if (!canWrite()) return refuse("not-ready");
@@ -89,9 +91,10 @@ export async function joinOrder(orderId, actorUuid, skill) {
     });
     if (!result.ok) return result;
     const stamp = stampNow();
+    const downtime = statusOf(actor).inDowntime ? {} : { [`pcs.${actor.id}.inDowntime`]: true, [`pcs.${actor.id}.since`]: today().day };
     await write({
         replace: { [`orders.${orderId}.helpers.${actor.id}`]: { ...result.entry, ...stamp }, [`pcs.${actor.id}.activity`]: { kind: "help", ref: orderId } },
-        set: { [`pcs.${actor.id}.id`]: actor.id, [`pcs.${actor.id}.v`]: PC_VERSION, [`pcs.${actor.id}.lockedBy`]: orderId },
+        set: { [`pcs.${actor.id}.id`]: actor.id, [`pcs.${actor.id}.v`]: PC_VERSION, [`pcs.${actor.id}.lockedBy`]: orderId, ...downtime },
     });
     return { ok: true, joinedDay, accepted: result.entry.accepted };
 }

@@ -11,7 +11,16 @@
  *   4. Review: per PC, the days and what they amount to, the wages and whether they are paid now or claimed by the
  *      earner's owner.
  *   5. Done: what was written, where each PC stopped, and "Resolve the rest" once the checks are rolled.
- * The day resolver is the same window for one PC and its pending days (steps 2-5).
+ * The day resolver is the same window for one PC and its pending days (steps 2-5); it asks for an activity when the PC has
+ * none, rather than offering to leave the days.
+ *
+ * The span is fixed when the user leaves the first step: the later steps show it and the commit writes it, whatever the
+ * clock or another user does meanwhile. If the workshop day moved before the commit, the wizard writes nothing and goes
+ * back to the first step (`advanceDays` refuses as `moved`), so two people advancing a day at once never advance two.
+ *
+ * Live updates (a check recorded, another user's days, a new day on the clock) render the window again after a moment,
+ * but not while a field has focus (a render would close an open menu or swallow the click that blurs it); focus stays on
+ * the control that had it (`focus.mjs`), and moves to the new step's first control when the step changes (10.9).
  *
  * Daily preparations (9.2 step 4), affliction saves and the variants' checks come with M7, M8a and M9a.
  */
@@ -19,7 +28,7 @@ import { activityKey, openDaysThrough, parseActivity, wizardSpan } from "../logi
 import { rollCraft } from "../foundry/rolls.mjs";
 import { rollHelp } from "../foundry/communal.mjs";
 import {
-    advanceDays, downtimeMembers, previewDays, resolveDays, resolvedOf, statusOf, today,
+    advanceDays, dayWatcher, downtimeMembers, previewDays, resolveDays, resolvedOf, statusOf, today,
 } from "../foundry/downtime.mjs";
 import { rollJob } from "../foundry/jobs.mjs";
 import { isResponsibleFor } from "../foundry/responsible.mjs";
@@ -27,7 +36,8 @@ import { canWrite, shared } from "../foundry/state.mjs";
 import { read } from "../foundry/store.mjs";
 import { activityOptions } from "./downtime.mjs";
 import { dayLines, jobName, orderName, spanText, stopText } from "./days.mjs";
-import { money, number, report } from "./format.mjs";
+import { focusState, restoreFocus } from "./focus.mjs";
+import { money, number, refusalText, report } from "./format.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const loc = (key) => game.i18n.localize(key);
@@ -40,8 +50,11 @@ const STEP_KEY = Object.freeze({
     review: "pf2e-artisans-workshop.Wizard.Step.Review", done: "pf2e-artisans-workshop.Wizard.Step.Done",
 });
 
-/** An assignment from its select value: an activity object, or "skip" / "not-downtime". */
-const choiceOf = (value) => (value === "skip" || value === "not-downtime" ? value : parseActivity(value) ?? "skip");
+/** An assignment from its select value: an activity object, "skip" / "not-downtime", or null when none is chosen yet. */
+const choiceOf = (value) => (value === "skip" || value === "not-downtime" ? value : parseActivity(value) ?? (value ? "skip" : null));
+
+/** Fields whose focus holds off a live re-render (10.9). */
+const FIELDS = Object.freeze(["SELECT", "INPUT", "TEXTAREA"]);
 
 export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
     static DEFAULT_OPTIONS = {
@@ -67,19 +80,52 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
      */
     constructor({ mode = "advance", actor = null, ...options } = {}) {
         super(options);
-        this.state = { mode, actor, step: STEPS[mode][0], kind: "days", count: 1, advanceClock: false, assignments: {}, result: null, toDay: null, busy: false };
+        this.state = {
+            mode, actor, step: STEPS[mode][0], kind: "days", count: 1, advanceClock: false, assignments: {}, result: null, toDay: null, busy: false,
+            pin: null, notice: null, skipped: [],
+        };
     }
 
-    /** Re-render when the ledger changes (a check recorded, someone else's days written). */
-    #hook = null;
+    /** The hooks that render the window again: the ledger changing, the clock reaching a new day. */
+    #hooks = [];
+
+    /** A live update arrived while a field had focus: render once focus leaves it. */
+    #stale = false;
+
+    /** The step changed: focus goes to the new step's first control, not back to the button that was pressed. */
+    #stepFocus = false;
+
+    /** Render again after live updates stop for a moment, but not while a field has focus (10.9). */
+    refresh = foundry.utils.debounce(() => {
+        if (!this.rendered || this.state.busy) return;
+        const active = this.element?.ownerDocument?.activeElement;
+        if (active && FIELDS.includes(active.tagName) && this.element.contains(active)) {
+            this.#stale = true;
+            return;
+        }
+        this.#stale = false;
+        this.render();
+    }, 150);
 
     get steps() {
         return STEPS[this.state.mode];
     }
 
-    /** The span the wizard covers now: in resolve mode, or once committed, through the workshop day it reached. */
+    /** The resolver says whose days it resolves (the wizard's title otherwise). */
+    get title() {
+        if (this.state?.mode !== "resolve") return super.title;
+        return fmt("pf2e-artisans-workshop.Wizard.ResolveTitle", { name: actorOf(this.state.actor)?.name ?? "" });
+    }
+
+    /**
+     * The span the wizard covers: once committed, through the day that commit reached ("Resolve the rest" never advances
+     * again); past the first step, the span fixed when the user left it; else the resolver's days through today, or the
+     * wizard's count of days from today.
+     */
     span(now) {
-        if (this.state.mode === "resolve" || this.state.toDay !== null) return { fromDay: null, toDay: Math.max(now.day, this.state.toDay ?? now.day), advances: 0 };
+        if (this.state.toDay !== null) return { fromDay: null, toDay: this.state.toDay, advances: 0 };
+        if (this.state.pin) return this.state.pin.span;
+        if (this.state.mode === "resolve") return { fromDay: null, toDay: now.day, advances: 0 };
         try {
             return wizardSpan({ day: now.day, kind: this.state.kind, count: Math.max(1, this.state.count) });
         } catch {
@@ -93,11 +139,12 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
         return pcs.map((actor) => {
             const status = statusOf(actor);
             const days = openDaysThrough({ status, resolved: resolvedOf(actor), day: now.day, toDay: span.toDay });
-            const value = this.state.assignments[actor.id] ?? (activityKey(status.activity) || "skip");
+            // The wizard leaves a PC with no activity to its owner; the resolver asks for one.
+            const value = this.state.assignments[actor.id] ?? (activityKey(status.activity) || (this.state.mode === "resolve" ? "" : "skip"));
             const choice = choiceOf(value);
-            const activity = choice === "not-downtime" ? null : choice === "skip" ? undefined : choice;
+            const activity = choice === "not-downtime" ? null : choice === "skip" || choice === null ? undefined : choice;
             const plan = days.length && activity !== undefined ? previewDays(actor, days, activity) : null;
-            return { actor, status, days, value, activity, plan };
+            return { actor, status, days, value, activity, plan, needsChoice: choice === null };
         }).filter((e) => e.days.length);
     }
 
@@ -112,6 +159,7 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
             step, ready: canWrite(), isGM: game.user.isGM, mode: this.state.mode, busy: this.state.busy,
             stepper: this.steps.map((s, i) => ({ id: s, label: loc(STEP_KEY[s]), current: s === step, done: i < index, n: number(i + 1) })),
             first: index === 0, lastBeforeDone: step === "review", isDone: step === "done",
+            blocked: step === "who" && entries.some((e) => e.needsChoice),
             span: this.#spanContext(now, span),
             who: step === "who" ? this.#whoContext(entries) : null,
             checks: step === "checks" ? this.#checksContext(entries) : null,
@@ -127,17 +175,21 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
             from: fmt("pf2e-artisans-workshop.Wizard.Today", { day: number(now.day) }),
             to: span.advances > 0 ? fmt("pf2e-artisans-workshop.Wizard.Becomes", { day: number(span.toDay) }) : loc("pf2e-artisans-workshop.Wizard.Stays"),
             ahead: now.ahead > 0 ? fmt("pf2e-artisans-workshop.Wizard.Ahead", { n: number(now.ahead) }) : null,
+            notice: this.state.notice,
         };
     }
 
     #whoContext(entries) {
-        return entries.map(({ actor, days, value, plan }) => {
+        const resolve = this.state.mode === "resolve";
+        return entries.map(({ actor, days, value, plan, needsChoice }) => {
             const locked = plan?.stop?.reason === "locked" ? plan.stop.ref : null;
+            const options = activityOptions(actor, value, { extra: resolve ? ["not-downtime"] : ["skip", "not-downtime"] });
             return {
                 id: actor.id, name: actor.name, img: actor.img,
                 span: fmt(days.length === 1 ? "pf2e-artisans-workshop.Days.SpanOne" : "pf2e-artisans-workshop.Days.Span",
                     { n: number(days.length), from: number(days[0]), to: number(days.at(-1)), day: number(days[0]) }),
-                options: activityOptions(actor, value, { extra: ["skip", "not-downtime"] }),
+                options: needsChoice ? [{ value: "", label: loc("pf2e-artisans-workshop.Wizard.Choose"), selected: true }, ...options] : options,
+                choose: needsChoice ? fmt("pf2e-artisans-workshop.Wizard.ChooseHint", { name: actor.name }) : null,
                 willWrite: plan ? spanText(plan.records) : null,
                 stop: plan?.stop ? stopText(plan.stop) : null,
                 locked: locked ? fmt("pf2e-artisans-workshop.Downtime.Locked", { item: orderName(locked) }) : null,
@@ -173,7 +225,8 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     /** Per PC: the days and what they amount to, the wages paid now or claimed, and where it stops (9.2 step 6). */
     #reviewContext(entries) {
-        return entries.filter((e) => e.value !== "skip").map(({ actor, plan }) => ({
+        const skipped = loc("pf2e-artisans-workshop.Wizard.Skipped");
+        return entries.map(({ actor, plan, value }) => (value === "skip" ? { name: actor.name, skipped, lines: [], wages: [] } : {
             name: actor.name, span: plan ? spanText(plan.records) : null, lines: plan ? dayLines(plan.records) : [],
             wages: (plan?.wages ?? []).map((w) => {
                 const earner = actorOf(read(`jobs.${w.job}`)?.actor);
@@ -192,10 +245,10 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
         return {
             toDay: Number.isInteger(result.toDay) ? fmt("pf2e-artisans-workshop.Wizard.NowDay", { day: number(result.toDay) }) : null,
             clock: result.clock !== null && result.clock !== undefined ? loc("pf2e-artisans-workshop.Wizard.ClockMoved") : null,
-            pcs: (result.results ?? []).map((r) => ({
+            pcs: [...(result.results ?? []).map((r) => ({
                 name: r.actor.name, span: spanText(r.records ?? []), lines: dayLines(r.records ?? []), stop: r.stop ? stopText(r.stop) : null,
                 refused: r.ok === false ? (r.reason === "taken" ? loc("pf2e-artisans-workshop.Wizard.Taken") : loc("pf2e-artisans-workshop.Refusal.Other")) : null,
-            })),
+            })), ...this.state.skipped.map((name) => ({ name, skipped: loc("pf2e-artisans-workshop.Wizard.Skipped"), lines: [] }))],
             rest: (result.results ?? []).some((r) => r.stop),
         };
     }
@@ -203,64 +256,149 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
     _onFirstRender(context, options) {
         super._onFirstRender?.(context, options);
         AdvanceDaysApp.instance = this;
-        this.element.addEventListener("change", (event) => this.#onChange(event));
-        this.#hook = Hooks.on("updateJournalEntry", (doc) => {
-            if (doc === shared().ledger && this.rendered && !this.state.busy) this.render();
+        this.element.addEventListener("change", (event) => {
+            if (this.fieldChanged(event.target)) this.render();
         });
+        this.element.addEventListener("input", (event) => {
+            if (event.target?.name === "count") this.fieldChanged(event.target);
+        });
+        this.element.addEventListener("keydown", (event) => {
+            // Enter in the number of days goes on, as in a form.
+            if (event.key !== "Enter" || event.target?.name !== "count") return;
+            event.preventDefault();
+            this.fieldChanged(event.target);
+            AdvanceDaysApp.#onNext.call(this);
+        });
+        this.element.addEventListener("focusout", () => {
+            if (this.#stale) this.refresh();
+        });
+        const dayMoved = dayWatcher();
+        dayMoved();
+        this.#hooks = [
+            ["updateJournalEntry", Hooks.on("updateJournalEntry", (doc) => {
+                if (doc === shared().ledger) this.refresh();
+            })],
+            ["updateWorldTime", Hooks.on("updateWorldTime", () => {
+                if (dayMoved()) this.refresh();
+            })],
+        ];
     }
 
     _onClose(options) {
         super._onClose?.(options);
-        if (this.#hook !== null) Hooks.off("updateJournalEntry", this.#hook);
+        for (const [name, id] of this.#hooks) Hooks.off(name, id);
+        this.#hooks = [];
         if (AdvanceDaysApp.instance === this) AdvanceDaysApp.instance = null;
     }
 
-    #onChange(event) {
-        const target = event.target;
-        if (target.name === "kind") this.state.kind = target.value === "since" ? "since" : "days";
-        else if (target.name === "count") this.state.count = Math.max(1, Math.min(365, Number.parseInt(target.value, 10) || 1));
-        else if (target.name === "advanceClock") this.state.advanceClock = target.checked === true;
-        else if (target.name === "assign" && target.dataset.actor) this.state.assignments[target.dataset.actor] = target.value;
-        else return;
-        this.render();
+    /** Before the body is replaced: which control has focus (none after a step change), and its caret (10.9). */
+    _preSyncPartState(partId, newElement, priorElement, state) {
+        super._preSyncPartState?.(partId, newElement, priorElement, state);
+        state.wizardFocus = this.#stepFocus ? null : focusState(priorElement);
     }
 
+    /** After: that control has focus again, with its caret where it was. */
+    _syncPartState(partId, newElement, priorElement, state) {
+        super._syncPartState?.(partId, newElement, priorElement, state);
+        restoreFocus(newElement, state.wizardFocus);
+    }
+
+    /** After a step change, focus the new step's first control, or its main button. */
+    async _onRender(context, options) {
+        await super._onRender?.(context, options);
+        if (!this.#stepFocus) return;
+        this.#stepFocus = false;
+        const target = this.element.querySelector(".wizard-body :is(select, input, button):not([disabled])")
+            ?? this.element.querySelector(".wizard-buttons button.primary:not([disabled])");
+        target?.focus({ preventScroll: true });
+    }
+
+    /**
+     * A field changed (or, for the number of days, is being typed in). Returns whether the window should render again. The
+     * number of days only updates the day it leads to, in place: a render as the field loses focus would replace the Next
+     * button between the press and the click.
+     */
+    fieldChanged(target) {
+        switch (target?.name) {
+            case "kind":
+                this.state.kind = target.value === "since" ? "since" : "days";
+                return true;
+            case "count": {
+                this.state.count = Math.max(1, Math.min(365, Number.parseInt(target.value, 10) || 1));
+                const now = today();
+                const span = this.#spanContext(now, this.span(now));
+                const line = this.element?.querySelector?.(".wizard-span-day");
+                if (line) line.textContent = `${span.from} ${span.to}`;
+                return false;
+            }
+            case "advanceClock":
+                this.state.advanceClock = target.checked === true;
+                return false;
+            case "assign":
+                if (!target.dataset?.actor) return false;
+                this.state.assignments[target.dataset.actor] = target.value;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /** Leave a step: the span is fixed when leaving the first one; the resolver waits for an activity to be chosen. */
     static #onNext() {
         const index = this.steps.indexOf(this.state.step);
+        const now = today();
+        if (this.state.step === "who" && this.entries(now, this.span(now)).some((e) => e.needsChoice)) return null;
+        if (index === 0 && this.state.toDay === null) this.state.pin = { base: now.day, span: this.span(now) };
+        this.state.notice = null;
         this.state.step = this.steps[Math.min(index + 1, this.steps.length - 1)];
+        this.#stepFocus = true;
         return this.render();
     }
 
     static #onBack() {
         const index = this.steps.indexOf(this.state.step);
         this.state.step = this.steps[Math.max(index - 1, 0)];
+        if (index - 1 <= 0 && this.state.toDay === null) this.state.pin = null;
+        this.#stepFocus = true;
         return this.render();
     }
 
-    /** Commit (9.2 step 7): every PC's days, then the logged-day mark and, for a GM who asked, the clock. */
+    /**
+     * Commit (9.2 step 7): every PC's days through the span the user reviewed, then the logged-day mark and, for a GM who
+     * asked, the clock. If the day moved on meanwhile, nothing is written and the wizard goes back to the span.
+     */
     static async #onCommit() {
         if (this.state.busy) return null;
         this.state.busy = true;
         try {
             const now = today();
+            const span = this.span(now);
+            const entries = this.entries(now, span);
             const assignments = {};
-            for (const entry of this.entries(now, this.span(now))) assignments[entry.actor.id] = choiceOf(entry.value);
+            for (const entry of entries) assignments[entry.actor.id] = choiceOf(entry.value);
             let result;
             if (this.state.mode === "resolve") {
                 const actor = actorOf(this.state.actor);
-                const choice = assignments[actor?.id] ?? "skip";
-                const single = choice === "skip" ? { ok: true, records: [], stop: null } : await resolveDays({ actor, activity: choice });
+                const choice = assignments[actor?.id] ?? null;
+                const single = choice && choice !== "skip" ? await resolveDays({ actor, activity: choice, through: span.toDay }) : { ok: true, records: [], stop: null };
                 result = { ok: single.ok !== false, toDay: null, clock: null, results: actor ? [{ actor, ...single }] : [] };
             } else {
                 // Once committed, "Resolve the rest" resolves through the day the first commit reached; it never advances again.
                 const again = this.state.toDay !== null;
-                result = await advanceDays({ kind: again ? "since" : this.state.kind, count: this.state.count, assignments,
+                result = await advanceDays({ through: span.toDay, base: again ? null : this.state.pin?.base ?? null, assignments,
                     advanceClock: !again && this.state.advanceClock });
                 if (result.ok && !again) this.state.toDay = result.toDay;
+                if (result.ok && !again) this.state.skipped = entries.filter((e) => e.value === "skip").map((e) => e.actor.name);
             }
             report(result);
-            this.state.result = result;
-            this.state.step = "done";
+            if (result.reason === "moved") {
+                // Someone else moved the days on: back to the span, counted again from the day it is now.
+                Object.assign(this.state, { pin: null, step: this.steps[0], notice: refusalText(result) });
+            } else {
+                this.state.result = result;
+                this.state.step = "done";
+            }
+            this.#stepFocus = true;
         } finally {
             this.state.busy = false;
         }
@@ -284,7 +422,9 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
     /** "Resolve the rest": back to the checks with the same span, since days already written are skipped. */
     static #onAgain() {
         this.state.result = null;
+        this.state.skipped = [];
         this.state.step = "checks";
+        this.#stepFocus = true;
         return this.render();
     }
 

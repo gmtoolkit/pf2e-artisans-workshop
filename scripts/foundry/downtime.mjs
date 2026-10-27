@@ -20,8 +20,8 @@
 import { MODULE_ID } from "../constants.mjs";
 import { liveRows } from "../logic/core.mjs";
 import {
-    clockDayOf, componentsOffset, firstOpenDay, isDayRecord, openDaysThrough, pcStatusOf, PC_VERSION, pendingDays, planDays, resolvedThrough,
-    secondsPerDayOf, wageDaysOf, wizardSpan, workshopDay, worldClockOffset,
+    asSettled, clockDayOf, componentsOffset, firstOpenDay, helperLockOf, isDayRecord, openDaysThrough, pcStatusOf, PC_VERSION, pendingDays, planDays,
+    resolvedThrough, secondsPerDayOf, wageDaysOf, wizardSpan, workshopDay, worldClockOffset,
 } from "../logic/downtime.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
 import { closedAs } from "../logic/orders.mjs";
@@ -39,6 +39,9 @@ const refuse = (reason, data = {}) => ({ ok: false, reason, data });
 
 /** Calendar modules whose date replaces pf2e's World Clock (4.8, OQ-18). */
 const CALENDAR_MODULES = Object.freeze(["calendaria", "foundryvtt-simple-calendar", "simple-calendar-reborn", "seasons-and-stars", "simple-timekeeping"]);
+
+/** Whether a calendar module is active, so its date, not pf2e's World Clock's, is the one the table sees. */
+const calendarModuleActive = () => CALENDAR_MODULES.some((id) => game.modules.get(id)?.active);
 
 /** Whether the downtime features are on (14.1 `features.downtime`). */
 export const downtimeOn = () => setting("features.downtime") !== false;
@@ -60,7 +63,7 @@ export function secondsPerDay() {
  * `worldCreatedOn`); otherwise from the calendar's own time of day at world time 0.
  */
 export function computeDayOffset() {
-    const calendarModule = CALENDAR_MODULES.some((id) => game.modules.get(id)?.active);
+    const calendarModule = calendarModuleActive();
     const created = game.pf2e?.settings?.worldClock?.worldCreatedOn ?? null;
     if (!calendarModule && created) {
         const offset = worldClockOffset(created);
@@ -108,13 +111,38 @@ async function noteClockHigh() {
     if (!Number.isInteger(high) || clock > high) await write({ set: { "meta.clockHigh": clock } });
 }
 
-/** The pf2e World Clock's date, for the header (10.2), or null. */
+/**
+ * The date the table sees, for the header and the Downtime tab (10.2): pf2e's World Clock's (`dateAsString`, its own
+ * words for the date), or null when a calendar module shows the date instead, or there is no World Clock.
+ */
 export function worldDate() {
+    if (calendarModuleActive()) return null;
     try {
-        return game.pf2e?.worldClock?.date ?? null;
+        const date = game.pf2e?.worldClock?.dateAsString;
+        return typeof date === "string" && date ? date : null;
     } catch {
         return null;
     }
+}
+
+/**
+ * A watcher of the clock's day: whether it changed since the watcher last looked (true the first time). World time moves
+ * every combat round and with a calendar module's running clock; only a new day changes the workshop day (9.1), so the
+ * `updateWorldTime` handlers do their work only then.
+ */
+export function dayWatcher() {
+    let last = null;
+    return () => {
+        let day;
+        try {
+            day = clockDayNow();
+        } catch {
+            return true;
+        }
+        if (day === last) return false;
+        last = day;
+        return true;
+    };
 }
 
 /* -------------------------------------------- */
@@ -146,9 +174,10 @@ const statusBase = (actor, stamp) => ({ [`pcs.${actor.id}.id`]: actor.id, [`pcs.
     [`pcs.${actor.id}.at`]: stamp.at });
 
 /**
- * Put a PC in downtime or take it out (4.8), as its owner. In: its downtime starts after today. Out with days still
- * pending: refused as `days-pending` (with the count) unless `notDowntime`, which records the pending span as one "not
- * downtime" record, with no effects; resolve them first otherwise.
+ * Put a PC in downtime or take it out (4.8), as its owner. In: its downtime starts after today. Out: refused as `helping`
+ * while the PC is a Communal Crafting helper (6.7: helpers stay for the whole Craft; leave the order first); with days
+ * still pending, refused as `days-pending` (with the count) unless `notDowntime`, which records the pending span as one
+ * "not downtime" record, with no effects; resolve them first otherwise.
  */
 export async function setDowntime(actorUuid, on, { notDowntime = false } = {}) {
     if (!canWrite()) return refuse("not-ready");
@@ -162,6 +191,8 @@ export async function setDowntime(actorUuid, on, { notDowntime = false } = {}) {
         return { ok: true, outcome: "ok" };
     }
     if (!status.inDowntime) return { ok: true, outcome: "already" };
+    const lock = helperLockOf(records("orders"), actor.id);
+    if (lock) return refuse("helping", { order: lock });
     const pending = pendingOf(actor);
     if (pending.count > 0 && !notDowntime) return refuse("days-pending", { count: pending.count });
     const off = { ...statusBase(actor, stamp), [`pcs.${actor.id}.inDowntime`]: false };
@@ -198,28 +229,36 @@ function factsOf(actor) {
     return { level: roster?.level ?? actor.level ?? 0, ranks: roster?.skills ?? {} };
 }
 
-/** What resolving a PC's days with an activity would write, without settling or writing anything (the wizard's review). */
-export function previewDays(actor, days, activity) {
+/** Whether this user settles an order before its next day (4.2.3): it is `rolled` and this user owns its crafter. */
+const settlesFirst = (order) => order?.status === "rolled" && actorOf(order.crafter)?.isOwner === true && !closedAs(order);
+
+/**
+ * What resolving a PC's days with an activity would write, without settling or writing anything (the wizard's review).
+ * An order this user settles first (`settlesFirst`) is previewed as its settlement leaves it (`asSettled`); everyone else
+ * sees the days stop at `settle`, as they will.
+ */
+export function previewDays(actor, days, activity, { simulate = true } = {}) {
+    const orders = records("orders").map((o) => (simulate && activity?.kind === "craft" && o.id === activity.ref && settlesFirst(o) ? asSettled(o) : o));
     return planDays({
-        actorId: actor.id, actorUuid: actor.uuid, days, activity, orders: records("orders"), jobs: records("jobs"), records: records("days"),
+        actorId: actor.id, actorUuid: actor.uuid, days, activity, orders, jobs: records("jobs"), records: records("days"),
         rows: records("rows"), facts: factsOf(actor),
     }, stampNow(), rulesFromSettings());
 }
 
 /**
  * Plan a PC's days with one activity (`planDays`). An order whose check is recorded but not settled is settled first
- * when this user owns its crafter (4.2.3: settlement comes with the order's next day); a runner who does not writes the
- * days at the recorded degree, and the crafter's client settles it.
+ * when this user owns its crafter (4.2.3: settlement comes with the order's next day); for anyone else the planner stops
+ * at `settle` and the days wait for the crafter's owner, so no day is written at a degree a reroll could still replace.
  */
 async function planFor(actor, days, activity) {
     if (activity?.kind === "craft") {
         const order = read(`orders.${activity.ref}`);
-        if (order?.status === "rolled" && actorOf(order.crafter)?.isOwner && !closedAs(order)) {
+        if (settlesFirst(order)) {
             const settled = await settleOrder(order.id);
             if (!settled.ok) return { refusal: settled };
         }
     }
-    return { plan: previewDays(actor, days, activity) };
+    return { plan: previewDays(actor, days, activity, { simulate: false }) };
 }
 
 /**
@@ -229,12 +268,17 @@ async function planFor(actor, days, activity) {
  * (`sweepWages`), since the day record says what it owes.
  */
 async function writePlan(actor, plan, { extra = {} } = {}) {
-    if (!plan.records.length) return { ok: true, outcome: plan.stop ? "stopped" : "nothing", records: [], stop: plan.stop, wages: [] };
-    const set = { ...extra };
+    const moves = {};
     for (const [id, next] of Object.entries(plan.status)) {
         const order = read(`orders.${id}`);
-        if (order && !closedAs(order) && actorOf(order.crafter)?.isOwner) set[`orders.${id}.status`] = next;
+        if (order && !closedAs(order) && actorOf(order.crafter)?.isOwner) moves[`orders.${id}.status`] = next;
     }
+    if (!plan.records.length) {
+        // No day to write, but a setup earlier records completed is moved on now (the derived move of 4.2.3).
+        if (Object.keys(moves).length) await write({ set: moves });
+        return { ok: true, outcome: plan.stop ? "stopped" : "nothing", records: [], stop: plan.stop, wages: [] };
+    }
+    const set = { ...extra, ...moves };
     const replace = Object.fromEntries(plan.records.map((record) => [`days.${record.id}`, record]));
     const lock = hashId(idemKey("days", actor.id, plan.records[0].day));
     const written = await lockedWrite([lock], [], { set, replace });
@@ -312,20 +356,31 @@ export function downtimeMembers() {
  * span advances the day, and, for a GM who asks, the world clock moved to match (only GMs and assistant GMs may move it,
  * 9.1). A span already logged writes nothing. One summary card.
  *
+ * The wizard passes the span its user reviewed: `through`, its last day, and `base`, the workshop day it was counted
+ * from. If the day moved on meanwhile (another user's run, the clock), nothing is written and the commit is refused as
+ * `moved` (with the day now), so two people advancing "one day" at once never advance two.
+ *
  * @param {object} p
  * @param {"days"|"since"} [p.kind]
  * @param {number} [p.count]
+ * @param {number|null} [p.through]   the span's last day (instead of `kind` and `count`)
+ * @param {number|null} [p.base]      the workshop day the span was counted from
  * @param {Record<string, object|null|"skip">} [p.assignments]
  * @param {boolean} [p.advanceClock]
  */
-export async function advanceDays({ kind = "days", count = 1, assignments = {}, advanceClock = false } = {}) {
+export async function advanceDays({ kind = "days", count = 1, through = null, base = null, assignments = {}, advanceClock = false } = {}) {
     if (!canWrite()) return refuse("not-ready");
     const now = today();
+    if (Number.isInteger(base) && base !== now.day) return refuse("moved", { day: now.day });
     let span;
-    try {
-        span = wizardSpan({ day: now.day, kind, count });
-    } catch {
-        return refuse("no-days");
+    if (Number.isInteger(through)) {
+        span = { fromDay: now.day + 1, toDay: through, advances: Math.max(0, through - now.day) };
+    } else {
+        try {
+            span = wizardSpan({ day: now.day, kind, count });
+        } catch {
+            return refuse("no-days");
+        }
     }
     const planned = [];
     for (const actor of downtimeMembers()) {
@@ -427,22 +482,29 @@ export function promptPending() {
 }
 
 let promptTimer = null;
-/** Prompt after changes settle: a clock advance and the wizard's writes arrive as several updates. */
+/**
+ * Prompt after changes settle: a clock advance and the wizard's writes arrive as several updates. A prompt already due
+ * is not put off again, so a stream of updates (a running clock) cannot starve it.
+ */
 function schedulePrompt(delay = 1000) {
-    clearTimeout(promptTimer);
+    if (promptTimer !== null) return;
     promptTimer = setTimeout(() => {
+        promptTimer = null;
         noteClockHigh().catch((error) => console.warn(`${MODULE_ID} | could not note the clock`, error));
         promptPending();
     }, delay);
 }
 
 /**
- * The downtime hooks, at `init`: the world clock moving (`updateWorldTime`, every client), the ledger's logged days,
+ * The downtime hooks, at `init`: the world clock reaching a new day (`updateWorldTime`, every client), the ledger's logged days,
  * statuses or day records changing, and this client's status turning "ready" (the offset is frozen then, and an owner who
  * was away is told about the days that accrued meanwhile).
  */
 export function registerDowntimeHooks() {
-    Hooks.on("updateWorldTime", () => schedulePrompt());
+    const dayMoved = dayWatcher();
+    Hooks.on("updateWorldTime", () => {
+        if (dayMoved()) schedulePrompt();
+    });
     Hooks.on("updateJournalEntry", (doc, changed) => {
         if (doc !== shared().ledger) return;
         const flags = changed.flags?.[MODULE_ID] ?? {};
@@ -459,4 +521,5 @@ export function registerDowntimeHooks() {
 export function resetDowntime() {
     prompted.clear();
     clearTimeout(promptTimer);
+    promptTimer = null;
 }

@@ -570,6 +570,23 @@ export async function onOrdersChanged(ids) {
 }
 
 /**
+ * The catch-up of order repairs (P5, a sweep step): every order this client's user is responsible for the crafter of is
+ * repaired as `onOrdersChanged` would. The hook runs only on a client that was responsible when the change arrived; a
+ * setup a wizard runner's day records completed while nobody was (no GM, the crafter's player away) is moved to `check`
+ * at that player's next login (M6). Returns the orders repaired.
+ */
+export async function sweepOrderRepairs() {
+    if (!canWrite()) return 0;
+    let repaired = 0;
+    for (const order of records("orders")) {
+        if (!repairOf(order)) continue;
+        const crafter = actorOf(order.crafter);
+        if (crafter && isResponsibleFor(crafter) && await repairSettlement(order.id)) repaired += 1;
+    }
+    return repaired;
+}
+
+/**
  * The order hooks, at `init`: a ledger change that touches orders, or day records of orders (M6), runs the order repair
  * on the crafter's responsible client (P4) and this client's check of its own recent rerolls.
  */

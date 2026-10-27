@@ -50,7 +50,7 @@ import { openRequestForm } from "./request.mjs";
 import { detailExtras, kindText, onCustodyOp, onPledgeOp, onServiceOp, servicesView, targetText } from "./extras.mjs";
 import { formulasContext, formulasOn, onFormulaChange, onFormulaDrop, onFormulaOp, onFormulaSearch } from "./formulas.mjs";
 import { allServices } from "../foundry/services.mjs";
-import { downtimeOn, today, worldDate } from "../foundry/downtime.mjs";
+import { dayWatcher, downtimeOn, today, worldDate } from "../foundry/downtime.mjs";
 import { downtimeContext, helpersContext, onDowntimeChange, onDowntimeInput, onDowntimeOp, onHelperOp, pendingBadge } from "./downtime.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -173,6 +173,14 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     refresh = foundry.utils.debounce(() => {
         if (!this.rendered) return;
         const parts = ["header", "queue", "funds", "formulas", "downtime", "status"];
+        if (pendingBadge() !== this.lastBadge) parts.push("nav");
+        this.render({ parts });
+    }, 150);
+
+    /** Re-render what a new day changes (9.1): the day in the header, the Downtime tab, and the badge if its count moved. */
+    refreshDay = foundry.utils.debounce(() => {
+        if (!this.rendered) return;
+        const parts = ["header", "downtime"];
         if (pendingBadge() !== this.lastBadge) parts.push("nav");
         this.render({ parts });
     }, 150);
@@ -859,8 +867,12 @@ export function registerWindowHooks() {
         });
     }
     Hooks.on("pf2e-artisans-workshop.status", touch);
-    // M6: the clock moving changes the workshop day and pending days (9.1).
-    Hooks.on("updateWorldTime", touch);
+    // M6: the clock reaching a new day changes the workshop day and pending days (9.1). It moves far more often (every
+    // combat round, a calendar module's running clock), so other moves render nothing.
+    const dayMoved = dayWatcher();
+    Hooks.on("updateWorldTime", () => {
+        if (dayMoved()) WorkshopApp.instance?.refreshDay();
+    });
     Hooks.on("pf2e-artisans-workshop.announce", (text) => WorkshopApp.instance?.announce(text));
     Hooks.once("setup", () => foundry.applications.handlebars.loadTemplates([...PARTIALS]));
 }

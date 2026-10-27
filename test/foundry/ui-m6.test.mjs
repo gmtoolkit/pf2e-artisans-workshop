@@ -38,7 +38,8 @@ const state = await import("../../scripts/foundry/state.mjs");
 const { setCoinTemplates } = await import("../../scripts/foundry/coins.mjs");
 const { write } = await import("../../scripts/foundry/store.mjs");
 const labels = await import("../../scripts/ui/labels.mjs");
-const { WorkshopApp } = await import("../../scripts/ui/workshop.mjs");
+const { WorkshopApp, registerWindowHooks } = await import("../../scripts/ui/workshop.mjs");
+const { focusSelector } = await import("../../scripts/ui/focus.mjs");
 const { AdvanceDaysApp } = await import("../../scripts/ui/advance.mjs");
 const { dayLines, spanText, stopText } = await import("../../scripts/ui/days.mjs");
 const { helpersContext, pendingBadge } = await import("../../scripts/ui/downtime.mjs");
@@ -161,4 +162,112 @@ test("the Downtime tab is a tab of the window, with its badge described to scree
     assert.ok(WorkshopApp.PARTS.downtime);
     const nav = readFileSync(join(ROOT, "templates/workshop/nav.hbs"), "utf8");
     assert.match(nav, /aria-description="\{\{lookup \.\.\/badgeLabels tab\.id\}\}"/);
+});
+
+/* -------------------------------------------- */
+/*  After the M6 review (fix pass)               */
+/* -------------------------------------------- */
+
+/** A small fake element: its tag, name and data attributes, and the focus calls it gets. */
+function fakeEl(tag, { name = null, data = {} } = {}) {
+    return {
+        tagName: tag.toUpperCase(), id: "", dataset: data, calls: [], getAttribute: (key) => (key === "name" ? name : null), closest: () => null,
+        focus(options) { this.calls.push(["focus", options]); },
+    };
+}
+
+/** A rendered part: what has focus in it, and what its selectors find. */
+const part = (active, found = {}) => ({ ownerDocument: { activeElement: active }, contains: (el) => el === active, querySelector: (sel) => found[sel] ?? null });
+
+test("a live update gives focus back to the same character's control, not the first character's (review fix, 10.9)", () => {
+    const select = fakeEl("select", { name: "dtActivity", data: { actor: bo.uuid } });
+    const selector = `select[name="dtActivity"][data-actor="${bo.uuid}"]`;
+    assert.equal(focusSelector(select), selector);
+    assert.equal(focusSelector(fakeEl("button", { data: { action: "downtime", op: "toggle", actor: bo.uuid } })),
+        `button[data-action="downtime"][data-op="toggle"][data-actor="${bo.uuid}"]`);
+    assert.equal(focusSelector(fakeEl("button", { data: { action: "downtime", op: "job-end", job: "j1" } })), 'button[data-action="downtime"][data-op="job-end"][data-job="j1"]');
+    assert.equal(focusSelector(fakeEl("button", { data: { action: "downtime", op: "profile-edit", profile: "p9" } })),
+        'button[data-action="downtime"][data-op="profile-edit"][data-profile="p9"]');
+    const app = new WorkshopApp();
+    const state = {};
+    app._preSyncPartState("downtime", null, part(select), state);
+    const first = fakeEl("select");
+    const second = fakeEl("select");
+    app._syncPartState("downtime", part(null, { 'select[name="dtActivity"]': first, [selector]: second }), null, state);
+    assert.deepEqual([first.calls.length, second.calls.length], [0, 1], "Bo's select, not Vera's");
+});
+
+test("the wizard keeps focus on the same character's choice, renders nothing while the number of days is typed, and holds live updates while a field has focus (review fix)", async () => {
+    world.currentUser = "p1";
+    const app = new AdvanceDaysApp({ mode: "advance" });
+    const select = fakeEl("select", { name: "assign", data: { actor: bo.id } });
+    const state = {};
+    app._preSyncPartState("body", null, part(select), state);
+    const again = fakeEl("select");
+    app._syncPartState("body", part(null, { 'select[name="assign"]': fakeEl("select"), [`select[name="assign"][data-actor="${bo.id}"]`]: again }), null, state);
+    assert.equal(again.calls.length, 1);
+    assert.equal(app.fieldChanged({ name: "count", value: "3" }), false, "the day line is updated in place; Next stays where it was");
+    assert.equal(app.state.count, 3);
+    assert.equal(app.fieldChanged({ name: "assign", value: "subsist", dataset: { actor: bo.id } }), true);
+    let renders = 0;
+    app.render = async () => { renders += 1; };
+    app.rendered = true;
+    const active = { tagName: "SELECT" };
+    app.element = { ownerDocument: { activeElement: active }, contains: () => true };
+    app.refresh();
+    assert.equal(renders, 0, "a select is open: its menu is not closed under the user");
+    active.tagName = "BUTTON";
+    app.refresh();
+    assert.equal(renders, 1);
+});
+
+test("the day resolver asks for an activity when the character has none, and says whose days it resolves (review fix)", async () => {
+    world.currentUser = "p2";
+    await write({ set: { [`pcs.${bo.id}.activity`]: null } });
+    const app = new AdvanceDaysApp({ mode: "resolve", actor: bo.uuid });
+    app.render = async () => {};
+    assert.equal(app.title, "Resolve days for Bo");
+    const context = await app._prepareContext({});
+    const [who] = context.who;
+    assert.deepEqual(who.options[0], { value: "", label: "Choose an activity", selected: true });
+    assert.equal(who.options.some((o) => o.value === "skip"), false, "no leaving the days for their own player");
+    assert.equal(context.blocked, true);
+    assert.equal(who.choose, "Choose what Bo spends these days on, then go on.");
+    await AdvanceDaysApp.DEFAULT_OPTIONS.actions.next.call(app);
+    assert.equal(app.state.step, "who", "Next waits for a choice");
+    app.fieldChanged({ name: "assign", value: "not-downtime", dataset: { actor: bo.id } });
+    assert.equal((await app._prepareContext({})).blocked, false);
+    const advance = new AdvanceDaysApp({ mode: "advance" });
+    advance.state.step = "review";
+    const review = (await advance._prepareContext({})).review;
+    assert.equal(review.find((r) => r.name === "Bo").skipped, "Left for their player to resolve: nothing is written for these days.",
+        "the wizard says when it leaves a character's days");
+    const tab = await new WorkshopApp()._preparePartContext("downtime", { ...(await new WorkshopApp()._prepareContext({})) }, {});
+    assert.equal(tab.downtime.pcs[0].noActivity, true);
+});
+
+test("the clock moving within a day renders nothing; a new day renders the day, the Downtime tab and the badge (review fix)", async () => {
+    registerWindowHooks();
+    const calls = { refresh: 0, day: 0 };
+    WorkshopApp.instance = { refresh: () => { calls.refresh += 1; }, refreshDay: () => { calls.day += 1; } };
+    try {
+        Hooks.callAll("updateWorldTime", game.time.worldTime, 0);   // the first look
+        const seen = { ...calls };
+        for (let i = 0; i < 5; i += 1) {
+            game.time.worldTime += 6;
+            Hooks.callAll("updateWorldTime", game.time.worldTime, 6);
+        }
+        assert.deepEqual(calls, seen, "combat rounds render nothing");
+        game.time.worldTime += 86400;
+        Hooks.callAll("updateWorldTime", game.time.worldTime, 86400);
+        assert.deepEqual(calls, { ...seen, day: seen.day + 1 });
+    } finally {
+        WorkshopApp.instance = null;
+    }
+    const app = new WorkshopApp();
+    let parts = null;
+    app.rendered = true;
+    app.render = (options) => { parts = options.parts; };
+    app.refreshDay();
+    assert.deepEqual(parts, ["header", "downtime", "nav"], "Bo has days to resolve: the badge changes too");
 });

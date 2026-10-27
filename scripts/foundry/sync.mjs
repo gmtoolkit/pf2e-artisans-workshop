@@ -14,7 +14,7 @@
  * The sweep (P5), on the tab holding the lease, after `refresh`, when a user connects or disconnects, when the
  * lease passes to this tab, and when claims or shelf items appear: apply claims and deliveries this tab is
  * responsible for, finish lost deliveries, publish roster snapshots, resume coin moves whose apply request never
- * landed, pay wages that day records owe (M6), and tell the user about their own rows that did not finish. Every
+ * landed, pay wages that day records owe and repair orders the hook missed (M6), and tell the user about their own rows that did not finish. Every
  * step is idempotent, so running it again is always safe. A move too young to resume yet, and a row of the user's own left out of the notice while it is
  * in flight, bring the sweep back when they are due.
  */
@@ -25,6 +25,7 @@ import { sweepWages } from "./downtime.mjs";
 import { sweepClaims, sweepDeliveries } from "./claims.mjs";
 import { resumeFormulaClaims } from "./formulas.mjs";
 import { loadCoinTemplates } from "./coins.mjs";
+import { sweepOrderRepairs } from "./orders.mjs";
 import { resumeStalled } from "./money.mjs";
 import { registerGuards } from "./guards.mjs";
 import { holdsLease, requestLease } from "./lease.mjs";
@@ -198,6 +199,8 @@ const SWEEP_STEPS = [
     ["roster", () => publishAll()],
     // M6: wages that day records owe and that never landed (the earner's responsible client mints them, 6.10).
     ["wages", () => sweepWages()],
+    // M6: order repairs the hook missed, such as a setup a runner's day records completed while nobody was responsible.
+    ["orders", () => sweepOrderRepairs()],
     ["resume", async () => sweepAgainIn("resume", (await resumeStalled()).dueInMs)],
     ["pending rows", () => sweepAgainIn("pending rows", reportOwnPending().dueInMs)],
 ];

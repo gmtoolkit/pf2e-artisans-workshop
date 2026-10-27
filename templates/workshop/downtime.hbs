@@ -46,6 +46,7 @@
                 {{#if owner}}<button type="button" class="small" data-action="downtime" data-op="toggle" data-actor="{{uuid}}" aria-pressed="{{#if inDowntime}}true{{else}}false{{/if}}">
                     {{#if inDowntime}}<i class="fa-solid fa-person-hiking" inert></i>{{localize "pf2e-artisans-workshop.Downtime.End"}}{{else}}<i class="fa-solid fa-mug-hot" inert></i>{{localize "pf2e-artisans-workshop.Downtime.Begin"}}{{/if}}</button>{{/if}}
                 {{#if canResolve}}<button type="button" class="small primary" data-action="downtime" data-op="resolve" data-actor="{{uuid}}"><i class="fa-solid fa-list-check" inert></i>{{localize "pf2e-artisans-workshop.Downtime.Resolve"}}</button>{{/if}}
+                {{#if noActivity}}<span class="hint">{{localize "pf2e-artisans-workshop.Downtime.NoActivityHint"}}</span>{{/if}}
             </div>
         </li>
         {{/each}}

@@ -92,12 +92,13 @@ All notable changes to this module are documented here. The format follows
   may move the world clock to match. A day is never resolved twice, from two devices or two players at once. An
   order's "Work a day" is the same resolver for one day.
 - Communal Crafting helpers: a character with a relevant skill joins an order, rolls once against the item's DC, and
-  takes their share off each work day while they stay; one who brings the feat waits for the crafter to accept; one who
-  leaves early loses what they gave (all as settings).
+  takes their share off each work day while they stay, in downtime until they leave; one who brings the feat waits for
+  the crafter to accept; one who leaves early loses what they gave (all as settings). A crafter's work days wait for the
+  Craft check to be settled, so a reroll never leaves days counted at the wrong result.
 - Earn Income jobs: a character takes a job at a task level the party's settlement offers for the skill, rolls after
   the first day, and each day worked pays once into their purse, with no GM needed. A resumed job can be rolled again
-  after a level or rank change. The GM keeps settlement profiles (the highest task level, with exceptions by skill);
-  any member chooses where the party is.
+  after a level or rank change. Ending a job waits until its days so far are resolved, so they still pay. The GM keeps
+  settlement profiles (the highest task level, with exceptions by skill); any member chooses where the party is.
 - Retry after a critical failure asks where the missing up-front money comes from, as Finish does.
 - Formulas and castings use fund accounting (M5 on M4.1): buying a formula or a casting, a spell's cost and a formula
   copy's cost are paid from the party fund or a character's purse, chosen in the same dialog as "Fund this order"; a

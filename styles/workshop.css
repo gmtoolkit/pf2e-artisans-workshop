@@ -772,6 +772,7 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .wizard-span label { display: flex; align-items: center; gap: 0.4rem; }
 .wizard-span input[type="number"] { width: 5rem; }
 .wizard-day { font-weight: 700; }
+.wizard-body .notice { border-left: 3px solid var(--paw-warning); padding-left: 0.5rem; }
 .wizard-pc.skipped { opacity: 0.75; }
 .wizard-pc .will { margin: 0; }
 .wizard-pc .stop,

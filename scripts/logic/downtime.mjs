@@ -16,7 +16,7 @@ import { DEFAULT_RULES } from "./defaults.mjs";
 import { wageKey, wageSeq } from "./earn-income.mjs";
 import { hashId } from "./ids.mjs";
 import { CLOSED, DAY_VERSION, workDayRecord } from "./orders.mjs";
-import { remainingCp } from "./progress.mjs";
+import { remainingCp, setupComplete } from "./progress.mjs";
 
 /** Seconds in a day of the core calendar. */
 export const SECONDS_PER_DAY = 86400;
@@ -191,18 +191,22 @@ export function notDowntimeRecord(actorId, from, to, stamp) {
 /**
  * Plan a PC's days (9.1, 9.2): one day record per day, in order, for one activity, and what they cause. The planner stops
  * at the first day the activity cannot go on, and that day and the rest stay pending:
- * - `locked`: the PC is a Communal Crafting helper on another order (6.7) and must leave it first;
+ * - `locked`: the PC is a Communal Crafting helper on another order (6.7) and must leave it first; a helper's days are
+ *   never "not downtime" either, since their share is in the crafter's days (6.7: helpers stay for the whole activity);
  * - `no-order`, `order-state`: the order is gone, closed, not the PC's to craft, or in a state that takes no days
  *   (accepted, paused, failed);
- * - `check`: the Craft check is due (the order reached `check`, here or earlier in the span): roll it, then go on;
+ * - `check`: the Craft check is due (the order reached `check`, here or earlier in the span, or its day records already
+ *   complete the setup while its status still says `setup`): roll it, then go on;
+ * - `settle`: the check is recorded but not settled. Its crafter's owner settles it first (the resolver does, 4.2.3), so
+ *   no day is ever written at a degree a reroll could still replace (6.2.3);
  * - `paid-off`: the check settled as a success and nothing is left to take off: finish the order;
  * - `not-helping`: the PC is not (or no longer) a helper on that order;
  * - `no-job`, `job-ended`: the job is gone, not the PC's, ended, or fired before this day;
  * - `income-check`: the job's Earn Income check is due (6.10: rolled after the first day; every day pays its result).
  *
  * A craft day is the order's setup or extra day (`workDayRecord`, 6.2.3); a setup day that completes the setup moves the
- * order to `check` (`status`, for the crafter's owner to write; the crafter's responsible client writes it otherwise). An
- * extra day of an order whose check is recorded but not settled is written at the recorded degree. A help day records the
+ * order to `check` (`status`, for the crafter's owner to write; the crafter's responsible client writes it otherwise). A
+ * help day records the
  * day spent helping: the helper's share is in the crafter's extra-day record. An earn day pays the job's daily wage
  * (`wages`, keyed `wage:<jobId>:<day>:<seq>`, 4.6); a day of a job the roll fired the earner from pays nothing.
  *
@@ -226,7 +230,13 @@ export function planDays({ actorId, actorUuid, days, activity, orders = [], jobs
     const out = { records: [], status: {}, wages: [], stop: null };
     if (!days.length) return out;
     days.forEach((d) => requireInteger(d, "day"));
+    const stop = (day, reason, data = {}) => {
+        out.stop = { day, reason, ...data };
+        return out;
+    };
+    const lock = helperLockOf(orders, actorId);
     if (!activity) {
+        if (lock) return stop(days[0], "locked", { ref: lock });
         out.records.push(notDowntimeRecord(actorId, days[0], days.at(-1), stamp));
         return out;
     }
@@ -239,11 +249,6 @@ export function planDays({ actorId, actorUuid, days, activity, orders = [], jobs
         return simulated.get(id);
     };
     const all = [...records];
-    const lock = helperLockOf(orders, actorId);
-    const stop = (day, reason, data = {}) => {
-        out.stop = { day, reason, ...data };
-        return out;
-    };
     for (const day of days) {
         if (lock && !(activity.kind === "help" && activity.ref === lock)) return stop(day, "locked", { ref: lock });
         const base = {
@@ -255,11 +260,17 @@ export function planDays({ actorId, actorUuid, days, activity, orders = [], jobs
             const order = orderOf(activity.ref);
             if (!order || order.crafter !== actorUuid || CLOSED.includes(order.status)) return stop(day, "no-order", { ref: activity.ref });
             if (order.status === "check") return stop(day, "check", { ref: order.id });
+            if (order.status === "rolled") return stop(day, "settle", { ref: order.id });
+            const orderDays = all.filter((d) => d.order === order.id);
+            if (order.status === "setup" && order.setup && setupComplete(order, orderDays)) {
+                // Day records completed the setup, and the crafter's client has not moved the order on yet: no more setup days.
+                out.status[order.id] = "check";
+                return stop(day, "check", { ref: order.id });
+            }
             const settledSuccess = order.check?.settled === true && order.check.degree >= DEGREE.success;
             if (order.status === "finishing" && settledSuccess && remainingCp(order, all, rules) <= 0) return stop(day, "paid-off", { ref: order.id });
             const crafter = { actorId, level: facts.level ?? 0, rank: facts.ranks?.[order.skill ?? "crafting"] ?? 0, rateLevel: rateLevels[order.id] ?? null };
-            const work = ["setup", "rolled", "finishing"].includes(order.status)
-                ? workDayRecord(order, day, crafter, all.filter((d) => d.order === order.id), stamp, rules) : null;
+            const work = ["setup", "finishing"].includes(order.status) ? workDayRecord(order, day, crafter, orderDays, stamp, rules) : null;
             if (!work) return stop(day, "order-state", { ref: order.id, status: order.status });
             record = work.record;
             if (work.patch.status) {
@@ -289,6 +300,16 @@ export function planDays({ actorId, actorUuid, days, activity, orders = [], jobs
         all.push(record);
     }
     return out;
+}
+
+/**
+ * An order in `rolled` as settling its recorded check leaves it (4.2.3, 6.2.3): the check settled, `finishing` on a
+ * success and `failed` otherwise. Only for a preview by a user who settles it first (the crafter's owner); what is
+ * written always follows the real settlement. Any other order is returned as it is.
+ */
+export function asSettled(order) {
+    if (order?.status !== "rolled" || !order.check) return order;
+    return { ...order, check: { ...order.check, settled: true }, status: order.check.degree >= DEGREE.success ? "finishing" : "failed" };
 }
 
 /**

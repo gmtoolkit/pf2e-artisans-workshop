@@ -121,8 +121,10 @@ export function rerollPatch(job) {
 
 /**
  * What undoing a job's last transition would do (4.2.3 for jobs, 10.1): restore what it changed. A start is undone by
- * removing the job, only while nothing was paid and no day was spent on it (`delete`). Refused: `nothing`,
- * `not-undoable`, `not-yours`, `moved-on` (a start with days or wages since).
+ * removing the job, only while nothing was paid and no day was spent on it (`delete`). A roll-again is undone only while
+ * its new check is not rolled: after that, undoing it would let the earner keep the better of two rolls (Player Core
+ * p.228, GM Core p.46). Refused: `nothing`, `not-undoable`, `not-yours`, `job-moved-on` (a start with days or wages
+ * since, a roll-again whose check is rolled).
  *
  * @param {object} job
  * @param {{userId: string, isGM: boolean, owns: (uuid: string) => boolean}} viewer
@@ -133,7 +135,8 @@ export function jobUndoPlan(job, viewer, { worked = 0 } = {}) {
     if (!entry || entry.event === "undo") return refuse("nothing");
     if (!JOB_UNDOABLE.includes(entry.event)) return refuse("not-undoable", { event: entry.event });
     if (!(viewer.isGM || entry.by === viewer.userId || viewer.owns(job.actor))) return refuse("not-yours");
-    if (entry.event === "start") return worked > 0 ? refuse("moved-on", { status: job.status }) : { ok: true, entry, delete: true };
+    if (entry.event === "start") return worked > 0 ? refuse("job-moved-on", { status: job.status }) : { ok: true, entry, delete: true };
+    if (entry.event === "reroll" && job.check) return refuse("job-moved-on", { status: job.status });
     return { ok: true, entry, patch: { ...entry.prev } };
 }
 

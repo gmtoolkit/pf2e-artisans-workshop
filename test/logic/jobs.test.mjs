@@ -63,7 +63,7 @@ test("job transitions log what they changed behind their slot's lock; undo resto
     assert.equal(started.lock, jobLogLockId("j1", 1));
     const withStart = { ...job, log: { 1: started.replace["jobs.j1.log.1"] } };
     assert.deepEqual(jobUndoPlan(withStart, viewer({ userId: "u1" })), { ok: true, entry: withStart.log[1], delete: true });
-    assert.equal(jobUndoPlan(withStart, viewer({ userId: "u1" }), { worked: 2 }).reason, "moved-on", "days were spent on it");
+    assert.equal(jobUndoPlan(withStart, viewer({ userId: "u1" }), { worked: 2 }).reason, "job-moved-on", "days were spent on it");
     const rolled = { ...withStart, check: { degree: DEGREE.success, level: 3, rank: 1 }, perDayCp: 20 };
     const reroll = jobTransitionChange(rolled, "reroll", rerollPatch(rolled), { by: "u2", at: {} });
     assert.deepEqual(reroll.set["jobs.j1.round"], 2);
@@ -74,6 +74,9 @@ test("job transitions log what they changed behind their slot's lock; undo resto
     const undo = jobUndoPlan(after, viewer({ owns: (uuid) => uuid === "Actor.a" }));
     assert.deepEqual(undo.patch, { round: 1, check: rolled.check, perDayCp: 20, shortened: null });
     assert.equal(jobUndoPlan({ ...after, log: {} }, viewer({ isGM: true })).reason, "nothing");
+    // Once the new round's check is rolled, undoing the roll-again would keep the better of two rolls (review fix).
+    const rerolled = { ...after, check: { degree: DEGREE.fail, level: 4, rank: 1 }, perDayCp: 2 };
+    assert.deepEqual(jobUndoPlan(rerolled, viewer({ isGM: true })), { ok: false, reason: "job-moved-on", data: { status: "open" } });
 });
 
 test("a resumed job may be rolled again only after a level or rank change (Player Core p.228)", () => {

@@ -5,7 +5,7 @@
  * and two devices, settlement profiles capping task levels, and Communal Crafting helpers joining, rolling and leaving.
  */
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, test } from "node:test";
+import { afterEach, beforeEach, mock, test } from "node:test";
 import { addDocument, asUser, coin, flagsOf, installFoundry, interleave, resetWorld, setUsers, sharedWorld, world } from "./stubs.mjs";
 
 installFoundry();
@@ -27,6 +27,7 @@ const rolls = await import("../../scripts/foundry/rolls.mjs");
 const settings = await import("../../scripts/foundry/settings.mjs");
 const state = await import("../../scripts/foundry/state.mjs");
 const { read, records, write } = await import("../../scripts/foundry/store.mjs");
+const sync = await import("../../scripts/foundry/sync.mjs");
 
 settings.registerSettings({ enabled: () => {}, docs: () => {} });
 const realNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
@@ -400,4 +401,155 @@ test("the wizard's Resolve the rest resolves through the day the first commit re
     await commit.call(app);
     assert.equal(downtime.today().day, 2, "the second commit adds no days");
     assert.equal(records("days").length, 2);
+});
+
+/* -------------------------------------------- */
+/*  After the M6 review (fix pass)               */
+/* -------------------------------------------- */
+
+test("a runner who does not own the crafter writes no day of a rolled order; its owner settles it first, then the days count (review fix)", async () => {
+    await order({ status: "rolled", check: { degree: DEGREE.critSuccess, level: 5, rank: RANK.expert, attempt: 1, messageId: "m1", settled: false } });
+    await downtime.setDowntime(vera.uuid, true);
+    await downtime.setActivity(vera.uuid, { kind: "craft", ref: "o1" });
+    await game.time.advance(3 * DAY);
+    const seen = await as("p2", () => downtime.previewDays(vera, [1, 2, 3], { kind: "craft", ref: "o1" }));
+    assert.deepEqual([seen.records.length, seen.stop.reason], [0, "settle"], "Player Two's preview: the days wait");
+    assert.deepEqual(downtime.previewDays(vera, [1, 2, 3], { kind: "craft", ref: "o1" }).records.map((r) => r.crafterCp), [200, 200, 200],
+        "Vera's player settles it first, and the preview says what that gives");
+    const runner = await as("p2", () => downtime.resolveDays({ actor: vera }));
+    assert.deepEqual([runner.ok, runner.records.length, runner.stop.reason], [true, 0, "settle"]);
+    assert.deepEqual([read("orders.o1.status"), records("days").length], ["rolled", 0], "nothing written at a degree a reroll could replace");
+    const owner = await downtime.resolveDays({ actor: vera });
+    assert.equal(owner.ok, true, JSON.stringify(owner));
+    assert.equal(read("orders.o1.status"), "finishing");
+    assert.deepEqual(owner.records.map((r) => [r.kind, r.crafterCp]), [["extra", 200], ["extra", 200], ["extra", 200]]);
+});
+
+test("a setup a runner's records completed while nobody was responsible: no second setup day, and the crafter's next sweep moves it on (review fix)", async () => {
+    await order();   // one setup day
+    await downtime.setDowntime(vera.uuid, true);
+    await downtime.setActivity(vera.uuid, { kind: "craft", ref: "o1" });
+    world.collections.User.get("p1").active = false;
+    world.collections.User.get("gm00000000000000").active = false;
+    const run = await as("p2", () => downtime.advanceDays({ count: 2 }));
+    const mine = run.results.find((r) => r.actor === vera);
+    assert.deepEqual([mine.records.map((r) => r.kind), mine.stop.reason], [["setup"], "check"]);
+    assert.equal(read("orders.o1.status"), "setup", "Player Two writes the day record, not Vera's order");
+    const again = await as("p2", () => downtime.resolveDays({ actor: vera }));
+    assert.deepEqual([again.records.length, again.stop.reason], [0, "check"], "no second setup day for Vera");
+    assert.deepEqual(records("days").filter((d) => d.kind === "setup").length, 1);
+    world.collections.User.get("p1").active = true;   // Vera's player logs in: the sweep catches up
+    await sync.sweep();
+    assert.equal(read("orders.o1.status"), "check");
+});
+
+test("a job's roll-again cannot be undone once its new check is rolled: no keeping the better of two rolls (review fix)", async () => {
+    const id = await boJob();
+    bo.level = 11;
+    assert.equal((await as("p2", () => jobs.rerollJob(id))).ok, true);
+    const recorded = await as("p2", () => rolls.onCheckMessage(message({ id: "m7", link: jobLink(id, 2), author: "p2", actor: bo, dc: 18, outcome: "failure" })));
+    assert.equal(recorded.ok, true, JSON.stringify(recorded));
+    const undo = await as("p2", () => jobs.undoJob(id));
+    assert.deepEqual([undo.ok, undo.reason], [false, "job-moved-on"]);
+    assert.equal(read(`jobs.${id}.round`), 2);
+});
+
+test("a helper spends their downtime helping: joining puts them in downtime, which they leave only after leaving the order (review fix, 6.7)", async () => {
+    await order({ status: "finishing", check: { degree: DEGREE.success, level: 5, rank: RANK.expert, settled: true } });
+    await write({ replace: { [`roster.${vera.id}`]: { id: vera.id, v: 1, level: 5, skills: { crafting: RANK.expert }, feats: ["communal-crafting"] } } });
+    assert.equal(downtime.statusOf(bo).inDowntime, false);
+    assert.equal((await as("p2", () => communal.joinOrder("o1", bo.uuid, "crafting"))).ok, true);
+    assert.deepEqual([downtime.statusOf(bo).inDowntime, downtime.statusOf(bo).since], [true, 0], "in downtime from the day after today");
+    assert.deepEqual(await as("p2", () => downtime.setDowntime(bo.uuid, false)), { ok: false, reason: "helping", data: { order: "o1" } });
+    await game.time.advance(DAY);
+    const outside = await as("p2", () => downtime.resolveDays({ actor: bo, activity: "not-downtime" }));
+    assert.deepEqual([outside.records.length, outside.stop.reason], [0, "locked"], "nor are their days counted as not downtime");
+    assert.equal((await as("p2", () => communal.leaveOrder("o1", bo.uuid))).ok, true);
+    assert.equal((await as("p2", () => downtime.setDowntime(bo.uuid, false, { notDowntime: true }))).ok, true);
+    assert.equal(downtime.statusOf(bo).inDowntime, false);
+});
+
+test("ending a job waits for the days still going to it, which pay first (review fix)", async () => {
+    const id = await boJob();
+    await game.time.advance(3 * DAY);
+    requestLease("p2");
+    const before = cpOf(bo);
+    assert.deepEqual(await as("p2", () => jobs.endJob(id)), { ok: false, reason: "job-days-pending", data: { count: 3 } });
+    const paid = await as("p2", () => downtime.resolveDays({ actor: bo }));
+    assert.equal(paid.records.length, 3);
+    assert.equal(cpOf(bo) - before, 3 * read(`jobs.${id}.perDayCp`), "the three days pay");
+    assert.equal((await as("p2", () => jobs.endJob(id))).ok, true);
+});
+
+test("two players advancing a day at once advance one: the later commit finds the day moved and writes nothing (review fix, 9.2)", async () => {
+    world.collections.User.get("gm00000000000000").active = false;
+    await downtime.setDowntime(vera.uuid, true);
+    await downtime.setActivity(vera.uuid, { kind: "subsist" });
+    assert.equal((await downtime.advanceDays({ through: 1, base: 0 })).ok, true);
+    assert.deepEqual(await as("p2", () => downtime.advanceDays({ through: 1, base: 0 })), { ok: false, reason: "moved", data: { day: 1 } });
+    assert.equal(downtime.today().day, 1);
+    // The wizard: Player Two fixes "one day" from day 1; Player One advances meanwhile; Player Two's commit goes back to the span.
+    const { AdvanceDaysApp } = await import("../../scripts/ui/advance.mjs");
+    const app = new AdvanceDaysApp({ mode: "advance" });
+    app.render = async () => {};
+    const { next, commit } = AdvanceDaysApp.DEFAULT_OPTIONS.actions;
+    await as("p2", () => next.call(app));
+    assert.deepEqual(app.state.pin, { base: 1, span: { fromDay: 2, toDay: 2, advances: 1 } });
+    await downtime.advanceDays({ count: 1 });
+    await as("p2", () => commit.call(app));
+    assert.deepEqual([app.state.step, app.state.pin, downtime.today().day], ["span", null, 2], "back to the span, the day advanced once");
+    assert.match(app.state.notice, /Refusal\.Moved .*"day":"2"/, "saying the day it is now");
+    assert.equal(records("days").length, 2, "Vera's days 1 and 2, once each");
+});
+
+test("the resolver writes the days it showed, even if the clock moves on before the commit (review fix)", async () => {
+    await downtime.setDowntime(vera.uuid, true);
+    await downtime.setActivity(vera.uuid, { kind: "subsist" });
+    await game.time.advance(DAY);
+    const { AdvanceDaysApp } = await import("../../scripts/ui/advance.mjs");
+    const app = new AdvanceDaysApp({ mode: "resolve", actor: vera.uuid });
+    app.render = async () => {};
+    const { next, commit } = AdvanceDaysApp.DEFAULT_OPTIONS.actions;
+    await next.call(app);
+    await game.time.advance(DAY);
+    await commit.call(app);
+    assert.deepEqual(records("days").map((d) => d.day), [1], "day 2 came after the review and waits");
+    assert.equal(downtime.pendingOf(vera).count, 1);
+});
+
+test("the date shown is the World Clock's own words for it, and none when a calendar module shows the date (review fix)", () => {
+    assert.equal(downtime.worldDate(), null, "no World Clock");
+    game.pf2e.worldClock = { dateAsString: "Wealday, 3rd of Rova, 4725 AR" };
+    assert.equal(downtime.worldDate(), "Wealday, 3rd of Rova, 4725 AR");
+    game.modules.set("calendaria", { id: "calendaria", active: true });
+    try {
+        assert.equal(downtime.worldDate(), null);
+    } finally {
+        game.modules.delete("calendaria");
+    }
+});
+
+test("only a new day on the clock prompts: combat rounds and a running clock neither prompt again nor put the prompt off (review fix)", async () => {
+    const moved = downtime.dayWatcher();
+    assert.equal(moved(), true, "the first look");
+    game.time.worldTime += 6;
+    assert.equal(moved(), false);
+    game.time.worldTime += DAY;
+    assert.equal(moved(), true);
+    assert.equal(moved(), false);
+    await downtime.setDowntime(vera.uuid, true);
+    game.time.worldTime = 2 * DAY;
+    mock.timers.enable({ apis: ["setTimeout"] });
+    try {
+        downtime.registerDowntimeHooks();
+        const notes = world.notes.length;
+        for (let i = 0; i < 6; i += 1) {
+            game.time.worldTime += 6;
+            Hooks.callAll("updateWorldTime", game.time.worldTime, 6);
+            mock.timers.tick(400);
+        }
+        assert.equal(world.notes.length, notes + 1, "one prompt, a second after the day changed, however the clock ticks");
+    } finally {
+        mock.timers.reset();
+    }
 });

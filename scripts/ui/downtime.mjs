@@ -101,7 +101,8 @@ function pcRow(actor, now) {
         activityOptions: owner ? activityOptions(actor, status.activity, { extra: ["none"] }).map((o) => (o.value === "none" ? { ...o, value: "" } : o)) : null,
         locked: lock ? fmt("pf2e-artisans-workshop.Downtime.Locked", { item: orderName(lock) }) : null,
         canResolve: pending.count > 0 && canWrite(),
-        noActivity: !status.activity,
+        // Days to resolve and nothing to spend them on: say so beside Resolve, whose window asks for an activity.
+        noActivity: pending.count > 0 && !status.activity,
     };
 }
 

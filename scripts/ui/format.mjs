@@ -123,7 +123,7 @@ export function refusalText(result) {
         short: money(data.shortCp ?? 0), max: Number.isInteger(data.max) ? String(data.max) : money(data.maxCp ?? 0),
         gates: (data.gates ?? []).map(gateText).join(" "),
         // M6: pending days, and why a PC may not help (6.7).
-        count: String(data.count ?? ""), reasons: (data.reasons ?? []).map((r) => loc(HELPER_REASON[r] ?? REFUSAL.other)).join(" "),
+        count: String(data.count ?? ""), day: String(data.day ?? ""), reasons: (data.reasons ?? []).map((r) => loc(HELPER_REASON[r] ?? REFUSAL.other)).join(" "),
     });
 }
 

@@ -16,7 +16,7 @@ import {
     currentProfile, jobStart, jobTransitionChange, jobUndoPlan, makeProfile, mayRerollJob, profilesOf, rerollPatch,
 } from "../logic/jobs.mjs";
 import { makeJob } from "../logic/rolls.mjs";
-import { nextDayOf, statusOf } from "./downtime.mjs";
+import { nextDayOf, pendingOf, statusOf } from "./downtime.mjs";
 import { lockedWrite } from "./money.mjs";
 import { rollEarnIncome } from "./rolls.mjs";
 import { rulesFromSettings, setting } from "./settings.mjs";
@@ -167,11 +167,19 @@ export async function rerollJob(id) {
     return transition(job, "reroll", rerollPatch(job));
 }
 
-/** End a job (the earner moves on, or the GM's fiction ends it); days stop paying. Refused: `state` when ended already. */
+/**
+ * End a job (the earner moves on, or the GM's fiction ends it); days after today stop paying. Refused: `state` when ended
+ * already; `job-days-pending` (with the count) while the earner's days are going to this job and some are still to
+ * resolve, since an ended job pays no day: resolve them first, and they pay.
+ */
 export async function endJob(id) {
     const { job, refusal } = ownJob(id);
     if (refusal) return refusal;
     if (job.status === "ended") return refuse("state", { status: job.status });
+    const earner = actorOf(job.actor);
+    const activity = earner ? statusOf(earner).activity : null;
+    const pending = activity?.kind === "earn" && activity.ref === id ? pendingOf(earner).count : 0;
+    if (pending > 0) return refuse("job-days-pending", { count: pending });
     const result = await transition(job, "end", { status: "ended" });
     if (result.ok) {
         const actor = actorOf(job.actor);

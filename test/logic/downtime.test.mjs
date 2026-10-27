@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { DEGREE, RANK } from "../../scripts/logic/core.mjs";
 import { rulesWith } from "../../scripts/logic/defaults.mjs";
 import {
-    activityKey, clockDayOf, componentsOffset, daySpan, dayRecordsOf, firstOpenDay, helperLockOf, isDayRecord, manualDayOf, notDowntimeRecord,
+    activityKey, asSettled, clockDayOf, componentsOffset, daySpan, dayRecordsOf, firstOpenDay, helperLockOf, isDayRecord, manualDayOf, notDowntimeRecord,
     openDaysThrough, parseActivity, pcStatusOf, pendingDays, planDays, resolvedThrough, secondsPerDayOf, wageDaysOf, wizardSpan,
     workshopDay, worldClockOffset,
 } from "../../scripts/logic/downtime.mjs";
@@ -113,20 +113,45 @@ test("craft days: setup days move the order to its check, which stops the plan; 
     assert.deepEqual([inCheck.records.length, inCheck.stop.reason], [0, "check"]);
 });
 
-test("extra days take the crafter's rate off, at the recorded degree before settlement; a paid-off order stops (Player Core p.237 vector)", () => {
+test("extra days take the crafter's rate off once the check is settled; a paid-off order stops (Player Core p.237 vector)", () => {
     const finishing = order({ status: "finishing", check: settled() });
     const plan = planDays({ ...PC, days: [20, 21, 22], activity: { kind: "craft", ref: "o1" }, orders: [finishing], facts }, stamp);
     assert.deepEqual(plan.records.map((r) => [r.kind, r.crafterCp]), [["extra", 100], ["extra", 100], ["extra", 100]]);
     assert.equal(plan.stop, null);
     const rolled = order({ status: "rolled", check: { degree: DEGREE.critSuccess, level: 5, rank: RANK.expert, settled: false } });
     const pending = planDays({ ...PC, days: [20], activity: { kind: "craft", ref: "o1" }, orders: [rolled], facts }, stamp);
-    assert.equal(pending.records[0].crafterCp, 200, "a recorded critical success, not yet settled");
+    assert.deepEqual(asSettled(rolled).status, "finishing");
+    assert.equal(planDays({ ...PC, days: [20], activity: { kind: "craft", ref: "o1" }, orders: [asSettled(rolled)], facts }, stamp).records[0].crafterCp, 200,
+        "settled as the critical success it recorded");
     // 13 extra days leave 1,950 cp at a success; 3,250 cp off makes it 0 and the next day stops.
     const thirteen = Array.from({ length: 13 }, (_, i) => ({ id: `c1-${i}`, actor: "c1", day: i, order: "o1", attempt: 1, kind: "extra", crafterCp: 100, helpers: {} }));
     assert.equal(remainingCp(finishing, thirteen), 1950);
     const nearly = order({ status: "finishing", check: settled(), priceCp: 3450 });
     const done = planDays({ ...PC, days: [30, 31, 32], activity: { kind: "craft", ref: "o1" }, orders: [nearly], facts }, stamp);
     assert.deepEqual([done.records.length, done.stop.reason, done.stop.day], [2, "paid-off", 32], "200 cp left: two days, then finish it");
+    assert.deepEqual(pending, { records: [], status: {}, wages: [], stop: { day: 20, reason: "settle", ref: "o1" } });
+});
+
+test("a recorded check that is not settled stops the days whatever its degree: a reroll could still replace it (review fix, 6.2.3)", () => {
+    for (const degree of [DEGREE.critFail, DEGREE.fail, DEGREE.success, DEGREE.critSuccess]) {
+        const rolled = order({ status: "rolled", check: { degree, level: 5, rank: RANK.expert, settled: false } });
+        const plan = planDays({ ...PC, days: [20, 21, 22, 23, 24], activity: { kind: "craft", ref: "o1" }, orders: [rolled], facts }, stamp);
+        assert.deepEqual([plan.records.length, plan.stop], [0, { day: 20, reason: "settle", ref: "o1" }], `degree ${degree}`);
+    }
+    // Settled, a failure takes no days, and a success that is already paid off stops at once.
+    assert.equal(asSettled(order({ status: "rolled", check: { degree: DEGREE.fail, settled: false } })).status, "failed");
+    const nearly = order({ status: "rolled", priceCp: 3450, check: { degree: DEGREE.success, level: 5, rank: RANK.expert, settled: false } });
+    const settledPlan = planDays({ ...PC, days: Array.from({ length: 10 }, (_, i) => 30 + i), activity: { kind: "craft", ref: "o1" }, orders: [asSettled(nearly)], facts }, stamp);
+    assert.deepEqual([settledPlan.records.length, settledPlan.stop.reason], [2, "paid-off"]);
+    assert.equal(asSettled(order({ status: "finishing", check: settled() })).status, "finishing", "anything else is left as it is");
+});
+
+test("a setup the day records already completed stops at its check: no setup day past the count (review fix)", () => {
+    const records = [{ id: "c1-11", actor: "c1", day: 11, order: "o1", attempt: 1, kind: "setup" }, { id: "c1-12", actor: "c1", day: 12, order: "o1", attempt: 1, kind: "setup" }];
+    const plan = planDays({ ...PC, days: [13, 14, 15], activity: { kind: "craft", ref: "o1" }, orders: [order()], records, facts }, stamp);
+    assert.deepEqual(plan, { records: [], status: { o1: "check" }, wages: [], stop: { day: 13, reason: "check", ref: "o1" } });
+    const half = planDays({ ...PC, days: [13, 14], activity: { kind: "craft", ref: "o1" }, orders: [order()], records: records.slice(0, 1), facts }, stamp);
+    assert.deepEqual([half.records.map((r) => r.kind), half.stop.reason], [["setup"], "check"], "one more day completes it");
 });
 
 test("craft days refuse orders that are not the PC's, are closed, or take no days", () => {
@@ -162,6 +187,9 @@ test("help days need a helper entry on an open order; a helper locked to an orde
     assert.deepEqual(help.records.map((r) => [r.id, r.result, r.order]), [["c1-5", "help", "o1"], ["c1-6", "help", "o1"]]);
     const elsewhere = planDays({ ...PC, days: [5], activity: { kind: "other" }, orders: [helped] }, stamp);
     assert.deepEqual(elsewhere.stop, { day: 5, reason: "locked", ref: "o1" });
+    const outside = planDays({ ...PC, days: [5, 6, 7], activity: null, orders: [helped] }, stamp);
+    assert.deepEqual([outside.records.length, outside.stop], [0, { day: 5, reason: "locked", ref: "o1" }],
+        "nor be out of downtime while the crafter's days carry their share (review fix)");
     const left = order({ crafter: "Actor.k", helpers: { c1: { joinedDay: 1, leftDay: 6 } } });
     const after = planDays({ ...PC, days: [5, 6], activity: { kind: "help", ref: "o1" }, orders: [left] }, stamp);
     assert.deepEqual([after.records.length, after.stop.reason], [1, "not-helping"], "from the day they left, not helping");
