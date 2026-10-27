@@ -181,7 +181,8 @@ export function readyFacts(actorRef) {
     const combat = combatOf(actor);
     const worldTime = game.time?.worldTime ?? 0;
     const flags = actor.flags?.[MODULE_ID]?.combat ?? {};
-    const items = physicalOf(actor).filter((item) => !isInert(item));
+    // A bomb pf2e's Strike has thrown stays on the sheet at quantity 0 (it is its own ammunition): it is not ready (M8 live pass).
+    const items = physicalOf(actor).filter((item) => !isInert(item) && (item.quantity ?? 1) > 0);
     const ready = items.filter((item) => {
         const traits = traitsOf(item);
         return (item.type === "weapon" && traits.includes("bomb")) || traits.includes("elixir") || !!quickOf(item);

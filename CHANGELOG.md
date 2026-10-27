@@ -65,8 +65,8 @@ All notable changes to this module are documented here. The format follows
   to the strongbox when the crafter does not hold it and returned with the change. Repair, affixing and removing talismans, Identify
   Alchemy and formula copies are service orders any member can ask for and perform.
 - README screenshots (`npm run screenshots`): a demo party staged in a dev world, and the Workshop window captured
-  cropped to its frame (the Queue with an order's detail, the request form, Funds, Formulas, Downtime, Morning, and the
-  Queue in the light theme) into `docs/screenshots/`, the only place the asset check allows images; the world is put back afterwards. They
+  cropped to its frame (the Queue with an order's detail, the request form, Funds, Formulas, Downtime, Morning, the
+  Bandolier and the Quick Alchemy panel in an encounter, and the Queue in the light theme) into `docs/screenshots/`, the only place the asset check allows images; the world is put back afterwards. They
   are not part of the release.
 - Fund accounting (M4.1, from the first hands-on session). The Funds tab shows the strongbox as the party fund's
   unallocated money plus what is earmarked for orders, each order's earmarked money by source (the party fund or a
@@ -155,6 +155,11 @@ All notable changes to this module are documented here. The format follows
 - Typing in a field of the Workshop and clicking a button straight away (a talisman count, then "Make daily
   preparations") no longer loses the click: the field's change no longer redraws the tab under the button being pressed;
   it redraws once the button is released.
+- A bomb already thrown no longer stays in the Bandolier's and the token HUD palette's ready list with Strike buttons (pf2e
+  keeps a thrown bomb on the sheet at quantity 0), and the Bandolier stops at the bottom of the screen and scrolls, so its
+  vial buttons stay in reach when much is ready.
+- At a table without a canvas, what Quick Alchemy made in an encounter now stops working when the encounter ends (pf2e's
+  encounter deletion fails on such a client before the end of the encounter is announced).
 
 - Storage and sync, from the first live runs: a client stops writing the moment a shared document it uses is
   deleted, or its user loses OWNER on one, even when no update hook reaches it (players without a canvas); ages

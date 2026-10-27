@@ -208,6 +208,17 @@ test("the Bandolier: vial pips and tier, the ready bombs and elixirs with potenc
     assert.equal(vera.items.get(quick.items[0].id).flags[MOD].quick.damageType, "fire");
 });
 
+test("a thrown bomb pf2e keeps at quantity 0 leaves the ready list of the Bandolier and the HUD palette (M8 live pass)", async () => {
+    // pf2e's Strike with a bomb takes it as its own ammunition and leaves the item at quantity 0 (WeaponPF2e#consumeAmmo).
+    const made = await alchemy.quickAlchemy(vera, { uuid: items.fire.uuid });
+    const bomb = vera.items.get(made.items[0].id);
+    await bomb.update({ "system.quantity": 0 });
+    const context = await bandolier.bandolierContext(new bandolier.BandolierApp());
+    assert.equal(context.ready.some((r) => r.id === bomb.id), false, "no Strike buttons for a bomb already thrown");
+    assert.equal(alchemy.readyFacts(vera).ready.some((r) => r.id === bomb.id), false, "the palette reads the same list");
+    assert.ok(context.ready.some((r) => r.name === "Versatile Vial"), "the vials, while there are some, stay");
+});
+
 test("the Bandolier says why it is off: the master switch, the toggle, Duct Tape; it opens at an encounter's start for the alchemist's responsible user only (8, 8.1)", async () => {
     game.modules.set(combat.DUCT_TAPE, { id: combat.DUCT_TAPE, active: true });
     assert.equal((await bandolier.bandolierContext(new bandolier.BandolierApp())).off, lang["pf2e-artisans-workshop.Combat.Off.DuctTape"]);
@@ -613,4 +624,10 @@ test("the Quick Alchemy card and the Bandolier name Combine Elixirs' second elix
     assert.ok(rendered.at(-1).lines.some((l) => l.text.endsWith("with Elixir of Life (Minor)")), JSON.stringify(rendered.at(-1).lines));
     const context = await bandolier.bandolierContext(new bandolier.BandolierApp());
     assert.ok(context.ready.find((r) => r.id === made.items[0].id).additive.endsWith("with Elixir of Life (Minor)"));
+});
+
+test("the Bandolier stops at the viewport and scrolls: ApplicationV2 does not hold an auto height to the screen (M8 live pass)", () => {
+    const css = readFileSync(join(ROOT, "styles/workshop.css"), "utf8");
+    assert.match(css, /\.workshop-bandolier\s*\{[^}]*max-height:\s*calc\(100vh[^}]*\}/);
+    assert.match(css, /\.workshop-bandolier \.window-content\s*\{[^}]*overflow-y:\s*auto[^}]*\}/);
 });

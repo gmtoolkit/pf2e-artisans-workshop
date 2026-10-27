@@ -54,7 +54,7 @@ the token HUD palette, `scripts/ui/hud.mjs`; the combat cards and keybindings, `
 Strike, `scripts/foundry/alchemy.mjs`, `combat.mjs`; vial gathering, `scripts/foundry/vials.mjs`; "Use best consumable",
 `scripts/foundry/consumables.mjs`; turn expiry in `scripts/foundry/expiry.mjs`; the Duct Tape step-aside; pure parts in
 `scripts/logic/alchemy.mjs`, `vials.mjs`, `consumables.mjs`); DESIGN 10.14 says what was built, and the live plans `m8-*`
-(`tools/harness/combat-scenarios.mjs`) have not run yet.
+(`tools/harness/combat-scenarios.mjs`) passed their first live pass, with and without a canvas (10.14, M8 live pass).
 README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
 world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every

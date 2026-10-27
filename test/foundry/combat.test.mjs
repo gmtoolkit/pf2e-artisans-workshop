@@ -354,6 +354,24 @@ test("the encounter's end: Quick Alchemy items end with it, or with the setting 
     assert.deepEqual([two.flags[MOD].inert, two.flags[MOD].inertFrom.reason], [true, "time"]);
 });
 
+test("without a canvas the encounter's end still runs the sweep: core never calls deleteCombat there, its tracker render does (M8 live pass)", async () => {
+    // pf2e's EncounterPF2e#_onDelete calls game.user.clearTargets(), which reads canvas.scene.id and throws on a client
+    // without a canvas, before core calls the deleteCombat hook; core has asked the combat tracker to render by then.
+    const fight = encounter("c1", [vera, bo]);
+    const one = vera.items.get((await alchemy.quickAlchemy(vera, { uuid: items.fire.uuid })).items[0].id);
+    expiry.resetExpiry();   // the sweep the new item scheduled has run
+    game.combats.delete(fight.id);
+    globalThis.canvas = { ready: false };
+    try {
+        Hooks.callAll("renderCombatTracker", {}, {});
+        const end = Date.now() + 1000;
+        while (one.flags[MOD]?.inert !== true && Date.now() < end) await new Promise((resolve) => setTimeout(resolve, 10));
+    } finally {
+        delete globalThis.canvas;
+    }
+    assert.deepEqual([one.flags[MOD]?.inert, one.flags[MOD]?.inertFrom?.reason], [true, "combat-end"]);
+});
+
 /* -------------------------------------------- */
 /*  Duct Tape (8)                                */
 /* -------------------------------------------- */

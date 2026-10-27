@@ -5372,7 +5372,7 @@ Versatile Vial and clamped on write; the `quick-alchemy` `CraftingAbility` with 
 it consumes, and pf2e's rule that a held item stacks only with a held stack of quantity 0; a Strike per weapon with pf2e's
 three multiple attack penalty variants; `toggleRollOption`; `createItem` fired by the creating client;
 `test/foundry/combat.test.mjs`, `ui-m8.test.mjs` with an ApplicationV2 fake whose read-only properties are getters,
-`harness-m8.test.mjs`). The live plans are written and not yet run. pf2e read: the dev head `be4ab21b`
+`harness-m8.test.mjs`). The live plans had their first run in the M8 live pass (below). pf2e read: the dev head `be4ab21b`
 (`actor/character/crafting/ability.ts`, `chat-message/helpers.ts` `createUseActionMessage`, `rule-element/special-resource.ts`,
 the character's Strike variants, `item/physical/document.ts` `isStackableWith`, `item/consumable/document.ts` `consume`,
 `actor/base.ts` `applyDamage` and `toggleRollOption`, `scripts/hooks/render-token-hud.ts`); Foundry 14.368
@@ -5502,7 +5502,7 @@ the character's Strike variants, `item/physical/document.ts` `isStackableWith`, 
   `consumableUsed`.
 - **Registry** (6.11): the kinds `additive`, `expiryRule {enduring | uncapped}`, `brew`, `splash`, `fieldVial`, `vialMaterial`,
   `gather`, `quickVial`, `quickBomber`; 28 new entries, 277 in all, 1174 ignored.
-- **Live plans** (15.3; `tools/harness/combat-scenarios.mjs`, scenario `m8`; `live-plans.mjs`), to run later:
+- **Live plans** (15.3; `tools/harness/combat-scenarios.mjs`, scenario `m8`; `live-plans.mjs`), first run in the M8 live pass:
   - `m8-panel` (GM, P1; no canvas): the bomber's list from pf2e's Quick Alchemy (Elixir of Life to Moderate by family, no
     Greater); Quick Alchemy takes one vial, the bomb held, infused and stamped for a round; at 0 vials refused, nothing made;
     Double Brew two for two; then the panel by keys: typing keeps focus, the arrow enters the list, Space picks, Enter creates
@@ -5521,7 +5521,7 @@ the character's Strike variants, `item/physical/document.ts` `isStackableWith`, 
   - `m8-duct-tape` (GM, P1, P2): Duct Tape on every client (a stand-in when not installed): Quick Alchemy and the Bandolier
     refuse and say why, no turn expiry, Use best consumable works.
   - `m8-use-best` (P1, P2, no GM): the held potion, then the stowed one, then the party view names who holds one.
-  - `m8-hud` (GM, P1; `--canvas`, a scene with Player One's token): the flask in the left column, its palette opened by core's
+  - `m8-hud` (GM, P1; `--canvas`; it stages a marked scene with Player One's token, `arena`): the flask in the left column, its palette opened by core's
     togglePalette, the token moved with it open (one button, still open, no error), its Quick Alchemy entry opens the panel;
     skipped without a canvas.
   - `m8-shots` (GM, P1): the Bandolier and the panel at 1440x900 and 1024x768, dark and light (`--shots`).
@@ -5558,6 +5558,55 @@ the character's Strike variants, `item/physical/document.ts` `isStackableWith`, 
     pf2e is handed the item with the module's flags already on it.
   - Outside an encounter one additive a round was measured in world time, so a second Healing Bomb after a fight waited for a
     GM to move the clock: not enforced outside an encounter.
+
+#### M8 live pass (2026-10-27, Foundry 14.368, pf2e 8.6.1, pf2e-dailies 4.23.1, with and without a canvas)
+
+One pass at `9b23b9a` (M0-M8), then once more after the fixes below:
+
+- **M8 plans** (`--runs 1`): with `--canvas`, `m8-hud`, `m8-panel`, `m8-bandolier`, `m8-turn`, `m8-vials`, `m8-healing-bomb`,
+  `m8-duct-tape` and `m8-use-best` pass; without a canvas the same and `m8-shots` pass (`m8-hud` says it was skipped). The
+  first runs failed in the steps, not the module, and the harness was fixed (15.3): every Strike step waited on pf2e's roll
+  dialog (the dev world's users keep pf2e's default, dialogs on); pf2e's encounter takes no combatants without a canvas; the
+  encounter step set initiative by the order the created combatants came back in, which is not the order asked for (with a
+  canvas the fighter and the bomber swapped); the panel step read the element of a window it had closed; the HUD step looked
+  for the panel before it had read the catalogue (4.7 s on a fresh client, headless, with a canvas). Console: the headless
+  browser's own warnings (no hardware acceleration), Duct Tape's notice, and without a canvas pf2e's page error on every
+  player client at each encounter's deletion (below). No slow server answers.
+- **Regression** (`--runs 1`, no canvas, pf2e-dailies on): scenario 7, `m7-morning`, `m7-expiry`, `m6-income` and
+  `m4-lifecycle` pass. Console errors: scenario 7's expected ones (15.3) and `m6-income`'s second device's "already exists"
+  (the lock-first race the plan provokes, 5.4).
+- **Found and fixed** (each with a test that fails without it):
+  - *Without a canvas an encounter's end left what Quick Alchemy made in it potent* (medium; `m8-turn` without a canvas).
+    pf2e's `EncounterPF2e#_onDelete` calls `game.user.clearTargets()`, whose core `_onUpdateTokenTargets` reads
+    `canvas.scene.id` and throws on a client without a canvas, before core calls `deleteCombat` there, so no holder's client
+    without a canvas ran the sweep. Core has asked the combat tracker to render the deleted encounter away by then: on a
+    client without a canvas `renderCombatTracker` schedules the sweep too (`registerExpiryHooks`; `combat.test.mjs`).
+  - *A thrown bomb stayed ready* (medium; the hands-on pass). pf2e's Strike takes a bomb as its own ammunition and leaves the
+    item on the sheet at quantity 0; the Bandolier and the HUD palette listed it, "× 0", with Strike buttons pf2e refuses.
+    `readyFacts` leaves out items at quantity 0 (`ui-m8.test.mjs`).
+  - *The Bandolier ran off the bottom of the screen* (medium; the hands-on pass at 1440x900): ApplicationV2 does not hold an
+    "auto" height to the viewport, so with a turn's Double Brew, quick vials and prepared items the vial buttons at its foot
+    were out of reach. It stops at the viewport and its content scrolls (`styles/workshop.css`; `ui-m8.test.mjs` holds the
+    rule).
+- **Hands-on pass** (a scratch Playwright script, real clicks and keys, canvas on; the GM, Player One and Player Two online;
+  setup through the harness: the bomber's vials refilled, Quick Bomber and Healing Bomb given, a marked scene with the bomber,
+  the GM's cleric fixture as the ally at 10 feet, Player Two's fighter next to the cleric and the goblin warrior 20 feet off,
+  an encounter of the four with the bomber first). The GM starts the encounter and the Bandolier opens by itself on Player
+  One's client. Player One hovers the goblin and presses T, clicks the Bandolier's Quick Bomber, types "alchemist's fire" in
+  the panel, clicks Alchemist's Fire (Moderate) and "Create and Strike", and Rolls in pf2e's dialog: pf2e's attack card at the
+  goblin, 7 vials to 6 in pf2e's resource and the pips. Picks Cold for the field vial, clicks Quick vial (6 vials still) and
+  the quick vial's second Strike button: pf2e's attack card with the MAP -5 variant, `bomber-field-vials:cold` and cold
+  damage. Targets the cleric, clicks Healing Bomb (6 to 5) and Throw: pf2e's own healing card for the cleric, and the
+  module's card whispered to the GMs, Player One and Player Two (the adjacent fighter's player), whose client shows it with
+  one Apply button, "Fixture 6: Fighter crafter: +5 HP"; Player Two opens the chat log and clicks it, the fighter 20 to 25.
+  Opens the panel, clicks Alchemist's Fire (Lesser) twice ("× 2", two chips, "Costs 2 vials.") and Create: 5 to 3; a second
+  quick vial, kept. Clicks the combat tracker's End Turn: at once both quick vials are "(inert)" (turn) and the two bombs
+  potent "until the start of your next turn"; the GM moves through the goblin, the fighter and the cleric, and at the
+  bomber's turn in round 2 the bombs (and the thrown one) are inert, the Bandolier lists no Quick Alchemy item, "Additive
+  this round: free.", 3 of 7 vials. Before the fixes the thrown bomb and quick vial stayed in Ready "× 0" and the Bandolier
+  ran past the bottom of the screen; after them it lists neither and ends at the screen's foot (top 16, bottom 900, its
+  content scrolling). No raw keys in the Bandolier, the panel or the cards on
+  either player's client (only the fixtures' own names), and no console error on any client.
 
 #### Follow-ups (M8, low)
 
@@ -5625,6 +5674,23 @@ the character's Strike variants, `item/physical/document.ts` `isStackableWith`, 
     only its inline roll in the description.
   - Pf2e's sheet may drop the stamp tag from `system.traits.otherTags` when a player edits a Quick Alchemy item's other tags
     there (the tag is not one of pf2e's options); the item may then stack with another stamp's again.
+- From the M8 live pass (low, not fixed in that pass):
+  - pf2e 8.6.1 throws on every client without a canvas when an encounter is deleted (`EncounterPF2e#_onDelete` calls
+    `game.user.clearTargets()`, and core reads `canvas.scene.id`), so `deleteCombat`, pf2e's `resetActors` and core's
+    collection update never run there, with a page error each time; to report upstream. The module's sweep runs from the
+    tracker's render instead; if the deleted encounter was not the one that client's tracker showed, it waits for the next
+    trigger (a turn, a clock move, a stamped item).
+  - The first Quick Alchemy panel (or Quick Bomber) on a client waits for the catalogue before the window appears: 4.7 s
+    from the HUD entry on a fresh headless client with a canvas, a click with no visible answer. Read the catalogue when the
+    Bandolier opens, or open the window at once with a line saying it is loading.
+  - pf2e leaves a thrown bomb and a thrown quick vial on the sheet at quantity 0; turn expiry then renames them "(inert)", so
+    an encounter leaves "× 0 (inert)" items in the inventory. Delete Quick Alchemy items at quantity 0 when they expire.
+  - Without a canvas the Healing Bomb card's Throw asks which creature; the hands-on pass used the canvas only (the plan
+    `m8-healing-bomb` covers the card without one, through the API).
+  - The Bandolier's saved position is clamped to the screen when it renders taller than the space below it, so it can jump
+    up and stay there (the clamped position is saved).
+  - The Quick Alchemy panel shows its Additive select, with only "None", for a character with no additive that fits the
+    first pick (`panelContext` offers it whenever something is picked). Leave it out when `fitting` is empty.
 
 ---
 
@@ -6264,11 +6330,17 @@ churn watch come with M8a and the release workflow.
   Night is pf2e's own action (`game.pf2e.actions.restForTheNight` with `skipDialog`), and pf2e-dailies' window is driven
   by its own controls.
 - As built in M8: scenario `m8` (`tools/harness/combat-scenarios.mjs`) and the behaviours `m8-panel`, `m8-bandolier`,
-  `m8-turn`, `m8-vials`, `m8-healing-bomb`, `m8-duct-tape`, `m8-use-best`, `m8-hud` and `m8-shots`, described in 10.14; not run
-  yet. They are scenarios 5 and 6 of the list above. `m8-panel` and `m8-bandolier` drive the windows without a canvas;
-  `m8-hud` needs `--canvas` and a scene with Player One's token, and says it was skipped without one. Encounters are made of
-  token-less combatants, so the turn plans need no scene either; Duct Tape is a stand-in package entry on each client when it
-  is not installed.
+  `m8-turn`, `m8-vials`, `m8-healing-bomb`, `m8-duct-tape`, `m8-use-best`, `m8-hud` and `m8-shots`, described in 10.14; first
+  run in the M8 live pass (10.14). They are scenarios 5 and 6 of the list above. `m8-panel` and `m8-bandolier` drive the
+  windows without a canvas; `m8-hud` needs `--canvas`, stages its own scene (`arena`: a marked scene with Player One's token,
+  active while it runs, the world's own scene active again afterwards) and says it was skipped without one. Encounters are
+  made of token-less combatants, so the turn plans need no scene either; Duct Tape is a stand-in package entry on each client
+  when it is not installed. As built in the M8 live pass: the steps that Strike pass pf2e a shift-click when the user's
+  `showCheckDialogs` is on (pf2e's own default), so no roll dialog waits for a click; `encounter` creates its combatants
+  through the Combatant class, since pf2e's `EncounterPF2e#createEmbeddedDocuments` reads `canvas.tokens.placeables` and
+  throws without a canvas; `reset` and `end` take pf2e's throw after an encounter's deletion without a canvas
+  (`deleteFight`: the encounter is gone, the promise rejects); and the driver records a step that does not answer in
+  150 s as failed instead of waiting for ever.
 - As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
   counts the rows that are new since `purseBefore` by id, not by a server-time cut-off (two devices' estimates of
   the server's time differ by milliseconds, and one real row was left out); the `claim` step reports its own rows
@@ -6561,6 +6633,21 @@ elixir of life each morning; the capture opens the tab with the loadout as the p
 shows the standing order due, the plan's lines (each at the best grade the pool makes, Elixir of Life (Moderate) ×3 with
 the request) and the Dabbler's picker. All seven captures were looked at: no raw keys, no overflow, no fixture names;
 the follow-ups above still show, and the Morning tab's own are in 10.13 (Follow-ups, from the M7 live pass).
+
+**Refresh after M8's live pass (2026-10-27).** `bandolier.png` and `quick-alchemy.png` join the README after `morning.png`,
+straight into `CAPTURES` (looked at after the run). They are the first captures of a window other than the Workshop and the
+request form: each view names the element it is cropped to (`SELECTORS`: the Bandolier's and the panel's ids). The staging
+adds an encounter (`stageCombat`, after the Morning): Player One fills Ilsa's vials (the copy carries the fixture's count),
+the GM starts an encounter of Ilsa then Doran (token-less combatants, M8's `encounter` step), and on Ilsa's turn Player One
+uses Quick Alchemy with Double Brew, an Alchemist's Fire (Moderate) by family and an Elixir of Life (Minor), and makes a
+quick vial; `restore` deletes the encounter with the module off, before the demo actors go. The captures open the Bandolier
+for Ilsa (round 1, five of seven vials, the three Quick Alchemy items with their potency, splash and pf2e's Strike buttons)
+and the panel with "elixir" typed and the first match picked from the keyboard. The capture's text check now leaves out a
+select's options other than the chosen one (a closed select shows only that one): the Bandolier's character select offers
+every alchemist Player One owns, the dev world's bomber fixture among them. All nine captures were looked at: no raw keys,
+no overflow, no fixture names in what shows. The fixture the demo alchemist is copied from carries two separate Elixir of
+Life (Lesser) stacks and they show in the Bandolier; the panel's Additive select shows with only "None" for a character
+with no additive (10.14, Follow-ups).
 
 ---
 

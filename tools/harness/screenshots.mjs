@@ -72,6 +72,13 @@ export const ITEMS = Object.freeze({
 /** The Workshop window's element. */
 const WORKSHOP = `#${MODULE_ID}`;
 
+/** The element each view is cropped to: the Workshop window, the request form, the Bandolier or the Quick Alchemy panel. */
+const SELECTORS = Object.freeze({
+    request: `[id^="${MODULE_ID}-request-"]`,
+    bandolier: `#${MODULE_ID}-bandolier`,
+    "quick-alchemy": `#${MODULE_ID}-quick-alchemy`,
+});
+
 /**
  * What is captured, in this order, as Player One: the file under SCREENSHOT_DIR (`docs/screenshots/`, where the asset
  * check allows images, 16.5), the colour scheme, what is open (a tab; on the Queue, the detail of the staged order named
@@ -90,6 +97,10 @@ export const CAPTURES = Object.freeze([
         caption: "Downtime: the workshop day, a character's days and what they go to, the party's settlement, and an Earn Income job with its pay." },
     { file: "morning.png", scheme: "dark", view: "morning",
         caption: "Morning: a character's daily crafting by pool, a loadout's plan with an ally's standing order, and the talismans it can make today." },
+    { file: "bandolier.png", scheme: "dark", view: "bandolier",
+        caption: "The Bandolier in an encounter: the vials, Quick Alchemy and quick vials, and what is ready, with how long it stays potent and pf2e's Strike buttons." },
+    { file: "quick-alchemy.png", scheme: "dark", view: "quick-alchemy",
+        caption: "Quick Alchemy: what the alchemist can make now, by formula or family, picked from the keyboard, with what it costs in vials." },
     { file: "queue-light.png", scheme: "light", view: "queue", order: "complete",
         caption: "The Queue in the light theme, with a finished order's cost summary." },
 ]);
@@ -366,7 +377,11 @@ function pageInspect({ selector }) {
         && el.clientWidth > 2 && getComputedStyle(el).overflowX !== "visible" && getComputedStyle(el).textOverflow !== "ellipsis")
         .map((el) => `${el.tagName.toLowerCase()}.${[...el.classList].join(".")} ${el.scrollWidth}>${el.clientWidth}`).slice(0, 10);
     const box = root.getBoundingClientRect();
-    return { found: true, text: `${root.innerText}\n${fields.join("\n")}`, overflow, wider: root.scrollWidth > root.clientWidth + 1,
+    // A closed select shows its chosen option only; `innerText` would list every option (the Bandolier's character select
+    // offers each alchemist the user owns, the dev world's fixtures among them).
+    let text = root.innerText;
+    for (const option of root.querySelectorAll("select option:not(:checked)")) text = text.replace(option.textContent, "");
+    return { found: true, text: `${text}\n${fields.join("\n")}`, overflow, wider: root.scrollWidth > root.clientWidth + 1,
         box: { x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) } };
 }
 
@@ -506,6 +521,23 @@ async function stageMorning(h, demo) {
     return { loadout: saved?.id ?? null, standing: standing?.id ?? null };
 }
 
+/**
+ * Combat (M8), with the GM and Player One online: Ilsa's vials full, the GM starts an encounter of Ilsa then Doran (token-less combatants,
+ * `combat-scenarios.mjs`), and on Ilsa's turn Player One uses Quick Alchemy with Double Brew, an Alchemist's Fire
+ * (Moderate) by family and an Elixir of Life (Minor), then makes a quick vial. Returns the encounter's id; `restore` ends it.
+ */
+async function stageCombat(h, demo) {
+    const ilsa = demo.alchemist.uuid;
+    // Her vials full first: the copy carries the fixture's count, whatever the last run left it at.
+    await h.step("p1", "m8", "vials", { actor: ilsa, value: 99 });
+    const fight = await h.step("gm", "m8", "encounter", { actors: [ilsa, demo.fighter.uuid] });
+    const brew = await h.step("p1", "m8", "quick", { actor: ilsa, uuid: ITEMS.fireModerate, second: ITEMS.elixirMinor });
+    const vial = await h.step("p1", "m8", "vial", { actor: ilsa });
+    h.check("the demo's encounter: Ilsa's turn, two items of Quick Alchemy and a quick vial", fight.order?.[0] === demo.alchemist.name
+        && brew.result?.ok === true && brew.result.items.length === 2 && vial.result?.ok === true, { fight, brew: brew.result, vial: vial.result });
+    return { combat: fight.id ?? null };
+}
+
 /* -------------------------------------------- */
 /*  Captures                                     */
 /* -------------------------------------------- */
@@ -513,6 +545,7 @@ async function stageMorning(h, demo) {
 /** Open what a capture shows on Player One's client. */
 async function show(h, capture, orders, demo, morning = {}) {
     await h.evaluate("p1", pageCloseForms, { mod: MODULE_ID });
+    await h.step("p1", "m8", "close", {});
     if (capture.view === "formulas") {
         return h.step("p1", "m5", "open", { tab: "formulas", actor: demo.alchemist.uuid, uuid: ITEMS.lightningModerate, ms: 2000 });
     }
@@ -525,6 +558,9 @@ async function show(h, capture, orders, demo, morning = {}) {
         const plans = morning.loadout ? { "advanced-alchemy": { mode: "loadout", id: morning.loadout } } : {};
         return h.step("p1", "m7", "open", { actor: demo.alchemist.uuid, plans, talismans: { "talisman-dabbler": picks }, ms: 2000 });
     }
+    // The Bandolier of Ilsa's turn (M8), and the Quick Alchemy panel beside it with an elixir picked from the keyboard.
+    if (capture.view === "bandolier") return h.step("p1", "m8", "bandolier", { actor: demo.alchemist.uuid });
+    if (capture.view === "quick-alchemy") return h.step("p1", "m8", "panel", { actor: demo.alchemist.uuid, query: "elixir", close: false });
     const tab = capture.view === "funds" ? "funds" : "queue";
     const opened = await h.step("p1", "m4", "open", { tab, order: capture.order ? orders[capture.order] : null, ms: 1500 });
     if (capture.view === "request") return { ...opened, form: await h.evaluate("p1", pageRequestForm, { mod: MODULE_ID, uuid: ITEMS.mistformModerate, quantity: 2 }) };
@@ -568,7 +604,7 @@ async function captureAll(h, orders, demo, outDir, morning = {}) {
             await h.step("p1", "m4", "theme", { scheme: capture.scheme });
             scheme = capture.scheme;
         }
-        const selector = capture.view === "request" ? `[id^="${MODULE_ID}-request-"]` : WORKSHOP;
+        const selector = SELECTORS[capture.view] ?? WORKSHOP;
         let inspected = null;
         let opened = null;
         const path = await h.screenshot("p1", capture.file, SIZE, async () => {
@@ -602,6 +638,10 @@ async function restore(h, world, messages) {
     h.label = "restore";
     await h.ensureBrowser();
     await resetWorld(h, world, { enable: false });
+    // The demo's encounter (M8): deleted with every encounter the M8 steps marked.
+    await h.evaluate("gm", async (mark) => {
+        for (const fight of game.combats.filter((c) => c.flags?.world?.[mark])) await fight.delete().catch(() => null);
+    }, `${MODULE_ID}-m8`, "end the demo's encounter");
     const uncast = await h.evaluate("gm", pageUncast, { mark: DEMO_MARK, messages }, "uncast");
     h.check("the party and the users have their own characters again, and the demo actors are gone", uncast.restored === true && !uncast.error, uncast);
     await resetWorld(h, world);
@@ -653,6 +693,7 @@ async function main() {
         report.orders = await stage(h, cast.made);
         report.downtime = await stageDowntime(h, cast.made, report.orders);
         report.morning = await stageMorning(h, cast.made);
+        report.combat = await stageCombat(h, cast.made);
         h.label = "capture";
         await h.only(["p1"]);
         await h.settle("ready", ["p1"]);

@@ -56,6 +56,12 @@ until 1.0: every string is rewritten before the first release, and these capture
 ![Morning](docs/screenshots/morning.png)\
 *Morning: a character's daily crafting by pool, a loadout's plan with an ally's standing order, and the talismans it can make today.*
 
+![The Bandolier](docs/screenshots/bandolier.png)\
+*The Bandolier in an encounter: the vials, Quick Alchemy and quick vials, and what is ready, with how long it stays potent and pf2e's Strike buttons.*
+
+![Quick Alchemy](docs/screenshots/quick-alchemy.png)\
+*Quick Alchemy: what the alchemist can make now, by formula or family, picked from the keyboard, with what it costs in vials.*
+
 ![The Queue in the light theme](docs/screenshots/queue-light.png)\
 *The Queue in the light theme, with a finished order's cost summary.*
 

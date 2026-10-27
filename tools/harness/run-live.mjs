@@ -49,6 +49,8 @@ export const ROLE_USERS = Object.freeze({ gm: "Gamemaster", assistant: "Assistan
 const READY_TIMEOUT_MS = 120 * 1000;
 const SETTLE_TIMEOUT_MS = 30 * 1000;
 const STALL_MS = 2000;
+/** How long one step or evaluation may take before it is recorded as failed (a window waiting on a click, say). */
+const STEP_TIMEOUT_MS = 150 * 1000;
 
 /** Foundry refuses screens smaller than 1366 x 768 with a console error. */
 const VIEWPORT = { width: 1440, height: 900 };
@@ -330,10 +332,17 @@ export class Harness {
         const client = this.clients.get(name) ?? await this.open(name);
         const record = { label: this.label, client: name, call: what, params: arg, started: new Date().toISOString() };
         const t0 = Date.now();
+        let timer = null;
         try {
-            record.result = await client.page.evaluate(fn, arg);
+            // A step that never answers (pf2e's roll dialog open on the page, say) fails the step instead of the whole run.
+            const late = new Promise((_resolve, reject) => {
+                timer = setTimeout(() => reject(new Error(`no answer in ${STEP_TIMEOUT_MS / 1000} s`)), STEP_TIMEOUT_MS);
+            });
+            record.result = await Promise.race([client.page.evaluate(fn, arg), late]);
         } catch (error) {
             record.error = error.message.split("\n")[0];
+        } finally {
+            clearTimeout(timer);
         }
         record.ms = Date.now() - t0;
         this.records.push(record);

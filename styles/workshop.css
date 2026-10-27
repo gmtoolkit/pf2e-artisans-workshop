@@ -866,6 +866,11 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
     gap: 0.4rem;
 }
 
+/* The Bandolier grows with what is ready, and ApplicationV2 does not hold an "auto" height to the screen: it stops at
+   the viewport and its content scrolls, so the vial buttons at its foot stay in reach (M8 live pass). */
+.workshop-bandolier { max-height: calc(100vh - 1rem); }
+.workshop-bandolier .window-content { overflow-y: auto; }
+
 .workshop-bandolier .bandolier-body {
     display: flex;
     flex-direction: column;

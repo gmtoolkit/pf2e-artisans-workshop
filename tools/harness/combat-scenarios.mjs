@@ -27,6 +27,31 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const plain = (value) => JSON.parse(JSON.stringify(value ?? null));
 const actorOf = (p) => (p.actor ? fromUuidSync(p.actor) : game.user.character);
 
+/**
+ * A click for pf2e's Strike that skips its check dialog for this user: pf2e shows the dialog when the user's
+ * `showCheckDialogs` is on and a shift-click flips that (`eventToRollParams`). Without it a step would wait on a window
+ * nobody clicks (the dev world's users keep pf2e's default, dialogs on).
+ */
+const noDialog = () => {
+    const init = { shiftKey: game.user.settings?.showCheckDialogs !== false, ctrlKey: false, metaKey: false };
+    return globalThis.MouseEvent ? new globalThis.MouseEvent("click", init) : init;
+};
+
+/**
+ * Delete an encounter. Without a canvas pf2e's `EncounterPF2e#_onDelete` throws on every client after the server has
+ * deleted it (`game.user.clearTargets()` reads `canvas.scene.id`), so the caller's promise rejects although the encounter
+ * is gone; that error is returned, not thrown.
+ */
+async function deleteFight(fight) {
+    try {
+        await fight?.delete();
+        return null;
+    } catch (error) {
+        if (fight && game.combats.has(fight.id)) throw error;
+        return error.message;
+    }
+}
+
 async function waitFor(test, ms = 10000) {
     const end = Date.now() + ms;
     while (Date.now() < end) {
@@ -90,7 +115,7 @@ export const COMBAT_SCENARIOS = {
         about: "M8: Quick Alchemy, quick vials, Healing Bomb, Strikes, turn expiry, vial gathering, Duct Tape, Use best consumable, the Bandolier, the panel and the HUD.",
         reset: { about: "GM: take away what the M8 steps gave or Quick Alchemy made on params.actors, refill their vials, clear the combat flags, delete M8 encounters",
             run: async (p) => {
-                for (const fight of game.combats.filter((c) => c.flags?.world?.[MARK])) await fight.delete();
+                for (const fight of game.combats.filter((c) => c.flags?.world?.[MARK])) await deleteFight(fight);
                 const out = {};
                 for (const uuid of p.actors) {
                     const actor = fromUuidSync(uuid);
@@ -144,28 +169,30 @@ export const COMBAT_SCENARIOS = {
             const actor = actorOf(p);
             const since = Date.now();
             const result = await alchemy.quickAlchemy(actor, { uuid: p.uuid, second: p.second ?? null, additive: p.additive ?? null, combine: p.combine ?? null,
-                then: p.then ?? "hand", map: p.map ?? 0 });
+                then: p.then ?? "hand", map: p.map ?? 0, event: noDialog() });
             await sleep(p.ms ?? 800);
             return { result: plain(result), brief: combatBrief(actor), messages: messagesSince(since) };
         } },
         vial: { about: "owner: a quick vial for params.actor (params.damageType, params.material, params.quickened, params.then)", run: async (p) => {
             const actor = actorOf(p);
             const since = Date.now();
-            const result = await alchemy.quickVial(actor, { damageType: p.damageType ?? null, material: p.material ?? null, quickened: !!p.quickened, then: p.then ?? "hand" });
+            const result = await alchemy.quickVial(actor, { damageType: p.damageType ?? null, material: p.material ?? null, quickened: !!p.quickened, then: p.then ?? "hand",
+                event: noDialog() });
             await sleep(p.ms ?? 800);
             return { result: plain(result), brief: combatBrief(actor), messages: messagesSince(since) };
         } },
         bomb: { about: "owner: Quick Bomber for params.actor (params.family or params.uuid, params.map)", run: async (p) => {
             const actor = actorOf(p);
             const since = Date.now();
-            const result = await alchemy.quickBomb(actor, { family: p.family ?? null, uuid: p.uuid ?? null, map: p.map ?? 0 });
+            const result = await alchemy.quickBomb(actor, { family: p.family ?? null, uuid: p.uuid ?? null, map: p.map ?? 0, event: noDialog() });
             await sleep(p.ms ?? 1200);
             return { result: plain(result), brief: combatBrief(actor), messages: messagesSince(since) };
         } },
         strike: { about: "owner: pf2e's Strike with params.item (an item id of params.actor), variant params.map, field vial params.damageType", run: async (p) => {
             const actor = actorOf(p);
             const since = Date.now();
-            const result = await combat.strikeWith(actor, actor.items.get(p.item), { map: p.map ?? 0, damageType: p.damageType ?? null, material: p.material ?? null });
+            const result = await combat.strikeWith(actor, actor.items.get(p.item), { map: p.map ?? 0, damageType: p.damageType ?? null, material: p.material ?? null,
+                event: noDialog() });
             await sleep(p.ms ?? 1200);
             return { result: plain(result), messages: messagesSince(since), options: plain(actor.rollOptions?.all ?? {}) };
         } },
@@ -193,11 +220,14 @@ export const COMBAT_SCENARIOS = {
         encounter: { about: "GM: an encounter of params.actors (token-less combatants) in that initiative order, started; marked", run: async (p) => {
             const fight = await Combat.implementation.create({ scene: null, active: true, flags: { world: { [MARK]: true } } });
             const actors = p.actors.map((uuid) => fromUuidSync(uuid));
-            const made = await fight.createEmbeddedDocuments("Combatant", actors.map((a) => ({ actorId: a.id, sceneId: null, tokenId: null })));
-            for (const [i, combatant] of made.entries()) await fight.setInitiative(combatant.id, 30 - i);
+            // Through the Combatant class: pf2e's `EncounterPF2e#createEmbeddedDocuments` reads `canvas.tokens.placeables`, which
+            // throws without a canvas (the table's case these plans run in).
+            await Combatant.implementation.createDocuments(actors.map((a) => ({ actorId: a.id, sceneId: null, tokenId: null })), { parent: fight });
+            // Initiative by actor, not by the order the created combatants come back in.
+            for (const [i, actor] of actors.entries()) await fight.setInitiative(fight.combatants.find((c) => c.actorId === actor.id).id, 30 - i);
             await fight.startCombat();
             await sleep(p.ms ?? 800);
-            return { id: fight.id, round: fight.round, turn: fight.turn, order: fight.turns.map((c) => c.actor?.name ?? null) };
+            return { id: fight.id, round: fight.round, turn: fight.turn, order: fight.turns.map((c) => c.actor?.name ?? null), initiative: fight.turns.map((c) => c.initiative) };
         } },
         next: { about: "GM: the next turn of params.combat (params.times times)", run: async (p) => {
             const fight = game.combats.get(p.combat);
@@ -206,9 +236,9 @@ export const COMBAT_SCENARIOS = {
             return { round: fight.round, turn: fight.turn, current: fight.combatant?.actor?.name ?? null };
         } },
         end: { about: "GM: end params.combat (deleted, as core's End does after its question)", run: async (p) => {
-            await game.combats.get(p.combat)?.delete();
+            const thrown = await deleteFight(game.combats.get(p.combat));
             await sleep(p.ms ?? 1500);
-            return { ended: true };
+            return { ended: !game.combats.has(p.combat), thrown };
         } },
         state: { about: "any client: params.actors' combat alchemy in brief, after params.ms", run: async (p) => {
             await sleep(p.ms ?? 0);
@@ -284,6 +314,8 @@ export const COMBAT_SCENARIOS = {
                 await sleep(400);
                 const picks = [...app.picks];
                 const shown = app.visible.map((c) => c.name);
+                // Read before Enter: a closed ApplicationV2 has no element.
+                const hasStyles = !!app.element.querySelector(".qa-list");
                 if (p.create) {
                     key(app.element.ownerDocument.activeElement ?? search, "Enter");
                     await sleep(p.ms ?? 1500);
@@ -291,7 +323,7 @@ export const COMBAT_SCENARIOS = {
                 const after = actor.items.filter((i) => i.flags?.[MODULE_ID]?.quick).length;
                 const closed = !QuickAlchemyPanel.instance;
                 if (!closed && p.close !== false) key(QuickAlchemyPanel.instance.element.querySelector("[data-quick='search']"), "Escape");
-                return { focusedSearch, stillFocused, onOption, picks, shown, made: after - before, closed, hasStyles: !!app.element.querySelector(".qa-list") };
+                return { focusedSearch, stillFocused, onOption, picks, shown, made: after - before, closed, hasStyles };
             } },
         hud: { about: "any client with a canvas: bind the token HUD to params.actor's token, open the alchemy palette, use params.entry; then move the token with the palette open",
             run: async (p) => {
@@ -322,11 +354,38 @@ export const COMBAT_SCENARIOS = {
                 view.afterMove = { buttons: again?.querySelectorAll(".pf2e-artisans-workshop-hud").length ?? 0,
                     paletteOpen: again?.querySelector(".pf2e-artisans-workshop-palette")?.classList.contains("active") ?? false, errors };
                 if (p.entry) {
+                    const clicked = Date.now();
                     again?.querySelector(`[data-pf2e-artisans-workshop-hud="${p.entry}"]`)?.click();
-                    await sleep(p.ms ?? 1200);
-                    view.used = { panel: !!QuickAlchemyPanel.instance, bandolier: !!BandolierApp.instance, brief: combatBrief(actor) };
+                    // The panel renders once the catalogue is read: the first time on a client that takes a moment.
+                    const opened = p.entry === "quick-alchemy" ? await waitFor(() => QuickAlchemyPanel.instance?.rendered, p.ms ?? 10000) : await sleep(p.ms ?? 1200);
+                    view.used = { panel: !!QuickAlchemyPanel.instance, bandolier: !!BandolierApp.instance, brief: combatBrief(actor), ms: opened ? Date.now() - clicked : null };
                 }
                 return view;
+            } },
+        arena: { about: "GM: a marked scene with tokens of params.tokens ([{actor, x, y}] in grid squares), activated; with params.off, the scene params.previous active again and the marked scenes deleted",
+            run: async (p) => {
+                const marked = () => game.scenes.filter((s) => s.flags?.world?.[MARK]);
+                if (p.off) {
+                    const back = p.previous ? game.scenes.get(p.previous) : null;
+                    if (back && !back.active) await back.activate();
+                    for (const scene of marked()) await scene.delete();
+                    return { active: game.scenes.active?.id ?? null, left: marked().length };
+                }
+                const previous = game.scenes.active?.id ?? null;
+                for (const scene of marked()) await scene.delete();
+                const size = 100;
+                const scene = await Scene.implementation.create({ name: "Workshop M8 arena", width: 1600, height: 1200, padding: 0, grid: { size },
+                    tokenVision: false, fog: { exploration: false }, flags: { world: { [MARK]: true } } });
+                const tokens = [];
+                for (const { actor: uuid, x, y } of p.tokens) {
+                    const actor = fromUuidSync(uuid);
+                    const token = await actor.getTokenDocument({ x: x * size, y: y * size, hidden: false });
+                    tokens.push(token.toObject());
+                }
+                await scene.createEmbeddedDocuments("Token", tokens);
+                await scene.activate();
+                await sleep(p.ms ?? 1500);
+                return { id: scene.id, previous, tokens: scene.tokens.map((t) => ({ id: t.id, uuid: t.uuid, name: t.name, actor: t.actor?.uuid ?? null, x: t.x, y: t.y })) };
             } },
         close: { about: "any client: close the Bandolier and the panel", run: async () => {
             await BandolierApp.instance?.close();

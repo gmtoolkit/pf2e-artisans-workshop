@@ -3178,7 +3178,8 @@ async function m8UseBest(h, w) {
 }
 
 /**
- * The token HUD palette (8.2, OQ-33; needs `--canvas`, a scene with Player One's bomber token on it): the flask button in
+ * The token HUD palette (8.2, OQ-33; needs `--canvas`; the plan stages a marked scene with Player One's bomber token, `arena`,
+ * and gives the world its own active scene back afterwards): the flask button in
  * the left column, its palette opened by core's own togglePalette; the token moved with the palette open (core renders the
  * HUD again and reopens the palette after the hook): one button, still open, no error; its Quick Alchemy entry opens the
  * panel. Without a canvas it says it was skipped.
@@ -3189,9 +3190,12 @@ async function m8Hud(h, w) {
         return { skipped: true };
     }
     await m8Reset(h, w);
+    // The scene: a marked arena with the bomber's token, active while the plan runs, then the world's own scene again.
+    const arena = await h.step("gm", "m8", "arena", { tokens: [{ actor: w.pcs.p1.uuid, x: 5, y: 5 }] });
     await h.only(["gm", "p1"]);
     await h.settle("ready");
     const view = await h.step("p1", "m8", "hud", { entry: "quick-alchemy" });
+    await h.step("gm", "m8", "arena", { off: true, previous: arena.previous });
     h.check("the scene has Player One's bomber token", view.canvas && view.token, view);
     h.check("the flask in the HUD's left column; its palette lists Quick Alchemy, a quick vial and the Bandolier", view.button && ["quick-alchemy", "quick-vial", "bandolier"]
         .every((e) => view.entries.includes(e)), view.entries);

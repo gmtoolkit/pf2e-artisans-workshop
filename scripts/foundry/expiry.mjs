@@ -303,6 +303,12 @@ export function registerExpiryHooks() {
     Hooks.on("deleteCombat", () => {
         if (combatOn()) scheduleExpiry(0);
     });
+    // Without a canvas core never calls `deleteCombat` (M8 live pass): pf2e's `EncounterPF2e#_onDelete` calls
+    // `game.user.clearTargets()`, which reads `canvas.scene.id` and throws first. Core has asked the combat tracker to
+    // render the deleted encounter away by then, so that render schedules the sweep on such a client.
+    Hooks.on("renderCombatTracker", () => {
+        if (combatOn() && !canvas?.ready) scheduleExpiry(0);
+    });
     Hooks.on("updateJournalEntry", (doc, changed) => {
         if (doc !== shared().ledger) return;
         const flags = changed.flags?.[MODULE_ID] ?? {};
