@@ -71,10 +71,15 @@ function fakeHarness(answers = {}, { canvas = false, leak = false } = {}) {
     const checks = [];
     const calls = [];
     const keys = [];
-    const state = { open: false, paused: true, controlled: [], toolbelt: true, workbench: true, scheme: "dark", parchment: false };
+    const state = { open: false, paused: true, controlled: [], toolbelt: true, workbench: true, scheme: "dark", parchment: false, startTab: "queue" };
     const press = async (key) => {
         keys.push(key);
-        if (key === "Alt+Shift+KeyW") state.open = true;
+        if (key === "Alt+Shift+KeyW") {
+            state.open = true;
+            tab = TABS.indexOf(state.startTab);
+        }
+        if (key === "ArrowDown" && !keys.includes("Escape")) tab = (tab + 1) % TABS.length;
+        if (key === "ArrowUp" && !keys.includes("Escape")) tab = (tab + TABS.length - 1) % TABS.length;
         if (key === "Space" && (leak || !state.open)) state.paused = !state.paused;
         if (key === "Tab" && canvas && (leak || !state.open)) state.controlled = ["t1"];
     };
@@ -90,16 +95,21 @@ function fakeHarness(answers = {}, { canvas = false, leak = false } = {}) {
         stripButtons: ["open", "request", "morning"],
         clicked: p.click === "open" ? { workshop: true, acting: "Actor.p1" } : p.click === "request" ? { requestForm: true } : undefined,
     });
-    /** Where focus is in the GM's walkthrough, from the keys pressed so far (Space opens the detail, two Enters after Escape). */
+    /**
+     * Where focus is in the GM's walkthrough, from the keys pressed so far: the window opens on `state.startTab` (the tab it was
+     * last on), the arrows move along the tabs, Tab from a tab reaches the order row, Space opens the detail, and after Escape
+     * Tab reaches Macros, Enter opens the shelf and a second Enter adds a tile to the hotbar.
+     */
+    const TABS = ["queue", "funds", "formulas", "downtime", "morning"];
+    let tab = 0;
     const focus = () => {
         const last = keys.at(-1);
         const escaped = keys.includes("Escape");
         const enters = keys.slice(keys.indexOf("Escape")).filter((k) => k === "Enter").length;
         if (!escaped) {
-            if (last === "Alt+Shift+KeyW") return { inWorkshop: true, tab: "queue", currentTab: "queue" };
-            if (last === "ArrowDown") return { inWorkshop: true, tab: "funds", currentTab: "funds" };
-            if (last === "ArrowUp") return { inWorkshop: true, orderId: "ord1", tag: "LI" };
-            return { inWorkshop: true, inDetail: true, selected: "ord1", detailOpen: true };
+            if (keys.includes("Space")) return { inWorkshop: true, inDetail: true, selected: "ord1", detailOpen: true, currentTab: "queue" };
+            if (last === "Tab") return { inWorkshop: true, orderId: "ord1", tag: "LI", currentTab: TABS[tab] };
+            return { inWorkshop: true, tab: TABS[tab], currentTab: TABS[tab], tabs: TABS };
         }
         if (last === "Escape") return { inWorkshop: true, orderId: "ord1", tag: "LI", detailOpen: false };
         if (enters === 0) return { inWorkshop: true, action: "macros" };
@@ -117,7 +127,7 @@ function fakeHarness(answers = {}, { canvas = false, leak = false } = {}) {
         "m11.cleanup": { deleted: 0, slots: 0 }, "m11.close": () => { state.open = false; return { closed: true }; },
         "m11.modules": (p) => { const before = { toolbelt: state.toolbelt, workbench: state.workbench }; Object.assign(state, p); return { before, after: p }; },
         "m11.active": () => ({ toolbelt: state.toolbelt, workbench: state.workbench }),
-        "m11.companions": { sortList: "pf2e-toolbelt.crafting.sortList", rarityColour: true },
+        "m11.companions": (p) => (p.restore ? { before: {} } : { sortList: "pf2e-toolbelt.crafting.sortList", rarityColour: true, before: { "pf2e-toolbelt.crafting.sortList": false } }),
         "m11.sheet": sheet,
         "m11.party": { first: { region: true, cards: 1, afterSummary: true, facts: ["1", "0", "1", "0", "0", "1 gp"], header: 1 },
             again: { region: true, cards: 1, afterSummary: true, facts: [], header: 1 }, audit: clean() },
@@ -257,11 +267,33 @@ test("m11-shots fails when a capture had no card to show", async () => {
 test("m11-keyboard-gm: with a canvas, keys that reach core while the Workshop has focus fail the walkthrough; the controls show core takes them outside it", async () => {
     assert.equal(typeof BEHAVIOURS["m11-keyboard-gm"], "function");
     const kept = fakeHarness({}, { canvas: true });
+    kept.state.startTab = "downtime";   // the window opens on the tab it was last on (M11 live pass)
     await quickly(() => BEHAVIOURS["m11-keyboard-gm"](kept.h, WORLD()));
     assert.deepEqual(failed(kept.checks), []);
+    assert.ok(kept.checks.some((c) => /ArrowDown moves to the next tab/.test(c.name) && c.ok && c.detail.next === "morning"));
     assert.ok(kept.keys.includes("Space"), "the GM opens the detail with Space");
     assert.ok(kept.calls.some((c) => c.scenario === "m8" && c.step === "arena" && c.params.off), "the arena is taken down");
     const leaked = fakeHarness({}, { canvas: true, leak: true });
     await quickly(() => BEHAVIOURS["m11-keyboard-gm"](leaked.h, WORLD()));
     assert.ok(failedMatching(leaked.checks, /none of the keys reached core/));
+});
+
+test("the companions step turns Workbench's feats colours on with the formulas' (Workbench 7.7.5 hooks the sheet only for those), and puts both back", async () => {
+    for (const key of ["xdy-pf2e-workbench.playerCraftingRarityColour", "xdy-pf2e-workbench.playerFeatsRarityColour", "pf2e-toolbelt.crafting.sortList"]) {
+        const [namespace, ...rest] = key.split(".");
+        game.settings.register(namespace, rest.join("."), { default: false });
+    }
+    const on = await INTEGRATION_SCENARIOS.m11.companions.run({});
+    assert.equal(game.settings.get("xdy-pf2e-workbench", "playerCraftingRarityColour"), true);
+    assert.equal(game.settings.get("xdy-pf2e-workbench", "playerFeatsRarityColour"), true);
+    assert.equal(game.settings.get("pf2e-toolbelt", "crafting.sortList"), true);
+    assert.deepEqual(on.before, { "pf2e-toolbelt.crafting.sortList": false, "xdy-pf2e-workbench.playerCraftingRarityColour": false, "xdy-pf2e-workbench.playerFeatsRarityColour": false });
+    await INTEGRATION_SCENARIOS.m11.companions.run({ restore: on.before });
+    for (const key of Object.keys(on.before)) {
+        const [namespace, ...rest] = key.split(".");
+        assert.equal(game.settings.get(namespace, rest.join(".")), false, key);
+    }
+    const plan = fakeHarness();
+    await BEHAVIOURS["m11-companions"](plan.h, WORLD());
+    assert.ok(plan.calls.some((c) => c.step === "companions" && c.client === "gm" && c.params.restore), "the plan puts the GM's settings back");
 });

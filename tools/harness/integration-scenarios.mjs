@@ -54,22 +54,60 @@ function contrastOf(fg, bg) {
     return (a + 0.05) / (b + 0.05);
 }
 
-/** The colour behind an element: its own background, or the first ancestor's that is not transparent. */
-function backgroundOf(element) {
+/**
+ * The colour behind an element: its own background, or the first ancestor's that is not transparent. An ancestor painted with
+ * an image (core's light theme lays `ui/parchment.jpg` under a transparent colour) counts as the image's mean colour from
+ * `images` (`imageColours`); without it the walk went on to the body, black without a canvas (M11 live pass).
+ */
+function backgroundOf(element, images = {}) {
     for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
         const style = node.ownerDocument.defaultView.getComputedStyle(node);
         const bg = style.backgroundColor;
         const alpha = Number((bg.match(/rgba\([^)]*,\s*([\d.]+)\)/) ?? [])[1] ?? 1);
         if (bg && bg !== "transparent" && alpha > 0.5) return bg;
+        const url = urlOf(style.backgroundImage);
+        if (url && images[url]) return images[url];
     }
     return "rgb(255, 255, 255)";
+}
+
+/** The first `url(...)` of a computed `background-image`, or null. */
+const urlOf = (image) => (/url\("?([^")]+)"?\)/.exec(image ?? "") ?? [])[1] ?? null;
+
+/** The mean colour of every background image on `root` and its ancestors and descendants, as `rgb(...)`, by URL. */
+async function imageColours(root) {
+    if (!root) return {};
+    const nodes = [...root.querySelectorAll("*"), root];
+    for (let node = root.parentElement; node; node = node.parentElement) nodes.push(node);
+    const urls = new Set(nodes.map((n) => urlOf(getComputedStyle(n).backgroundImage)).filter(Boolean));
+    const out = {};
+    for (const url of urls) {
+        try {
+            const img = document.createElement("img");
+            img.src = url;
+            await img.decode();
+            const canvasEl = document.createElement("canvas");
+            canvasEl.width = 64;
+            canvasEl.height = 64;
+            const ctx = canvasEl.getContext("2d");
+            ctx.drawImage(img, 0, 0, 64, 64);
+            const data = ctx.getImageData(0, 0, 64, 64).data;
+            const sum = [0, 0, 0];
+            for (let i = 0; i < data.length; i += 4) for (let c = 0; c < 3; c++) sum[c] += data[i + c];
+            const n = data.length / 4;
+            out[url] = `rgb(${Math.round(sum[0] / n)}, ${Math.round(sum[1] / n)}, ${Math.round(sum[2] / n)})`;
+        } catch {
+            // an image that does not load leaves the walk to the next ancestor's colour
+        }
+    }
+    return out;
 }
 
 /**
  * An accessibility audit of a window (10.9): buttons, links and fields without a name, positive tab indexes, images without
  * `alt`, tabs outside a tablist, and the text colours below 4.5:1 against what is behind them (large text 3:1).
  */
-function audit(root) {
+function audit(root, images = {}) {
     if (!root) return null;
     // `aria-labelledby` may name several elements (the Downtime tab's activity select: its label, then the PC's name).
     const labelledBy = (el) => (el.getAttribute("aria-labelledby") ?? "").split(/\s+/).filter(Boolean)
@@ -86,9 +124,10 @@ function audit(root) {
     for (const el of root.querySelectorAll("*")) {
         if (!visible(el) || ![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
         const style = el.ownerDocument.defaultView.getComputedStyle(el);
-        const ratio = contrastOf(style.color, backgroundOf(el));
+        const bg = backgroundOf(el, images);
+        const ratio = contrastOf(style.color, bg);
         const large = parseFloat(style.fontSize) >= 24 || (parseFloat(style.fontSize) >= 18.66 && Number(style.fontWeight) >= 700);
-        if (ratio < (large ? 3 : 4.5)) lowContrast.push({ text: el.textContent.trim().slice(0, 40), ratio: Math.round(ratio * 100) / 100, color: style.color, bg: backgroundOf(el) });
+        if (ratio < (large ? 3 : 4.5)) lowContrast.push({ text: el.textContent.trim().slice(0, 40), ratio: Math.round(ratio * 100) / 100, color: style.color, bg });
     }
     return { unnamed, positive, noAlt, looseTabs, lowContrast: lowContrast.slice(0, 20), lowContrastCount: lowContrast.length };
 }
@@ -127,17 +166,30 @@ export const INTEGRATION_SCENARIOS = {
         active: { about: "any client: whether Toolbelt and Workbench are active here", run: async () => ({
             toolbelt: game.modules.get("pf2e-toolbelt")?.active === true, workbench: game.modules.get("xdy-pf2e-workbench")?.active === true,
         }) },
-        companions: { about: "the client: Toolbelt's crafting sort buttons (a user setting) and, as GM, Workbench's formula rarity colours (a world setting) on", run: async () => {
-            const out = {};
+        companions: { about: "the client: Toolbelt's crafting sort buttons (a user setting) and, as GM, Workbench's formula rarity colours (a world setting) on; params.restore (what an earlier call returned as `before`) puts them back", run: async (p) => {
+            const out = { before: {} };
             const keys = [...game.settings.settings.keys()];
+            const set = async (key, value) => {
+                const [scope, ...rest] = key.split(".");
+                out.before[key] = game.settings.get(scope, rest.join("."));
+                await game.settings.set(scope, rest.join("."), value);
+            };
+            if (p.restore) {
+                for (const [key, value] of Object.entries(p.restore)) if (keys.includes(key) && (game.user.isGM || !key.startsWith("xdy-"))) await set(key, value);
+                return out;
+            }
             const sort = keys.find((k) => k.startsWith("pf2e-toolbelt.") && /sortList$/.test(k));
             if (sort) {
-                await game.settings.set("pf2e-toolbelt", sort.slice("pf2e-toolbelt.".length), true);
+                await set(sort, true);
                 out.sortList = sort;
             }
+            // Workbench 7.7.5 registers the sheet hook that colours formulas only while one of its other sheet settings is on (its
+            // `renderActorSheet` condition leaves `playerCraftingRarityColour` out), so the feats' colours go on with it (M11 live pass).
             if (game.user.isGM && keys.includes("xdy-pf2e-workbench.playerCraftingRarityColour")) {
-                await game.settings.set("xdy-pf2e-workbench", "playerCraftingRarityColour", true);
+                await set("xdy-pf2e-workbench.playerCraftingRarityColour", true);
+                if (keys.includes("xdy-pf2e-workbench.playerFeatsRarityColour")) await set("xdy-pf2e-workbench.playerFeatsRarityColour", true);
                 out.rarityColour = true;
+                await sleep(500);
             }
             return out;
         } },
@@ -263,6 +315,7 @@ export const INTEGRATION_SCENARIOS = {
                 op: active?.dataset?.op ?? null, orderId: active?.closest?.("[data-order-id]")?.dataset.orderId ?? null, label: active?.getAttribute?.("aria-label") ?? null,
                 text: active?.textContent?.trim().slice(0, 40) ?? null, width: app?.element?.clientWidth ?? null, selected: app?.selected ?? null,
                 currentTab: app?.tabGroups?.primary ?? null, detailOpen: !!app?.element?.querySelector(".order-detail"),
+                tabs: app ? [...app.element.querySelectorAll(".workshop-tabs [data-tab]")].map((t) => t.dataset.tab) : [],
             });
         } },
         size: { about: "any client: resize the open Workshop to params.width (the tier) and read the size it remembers", run: async (p) => {
@@ -272,10 +325,22 @@ export const INTEGRATION_SCENARIOS = {
             await sleep(900);
             return { open: true, width: app.element.clientWidth, saved: plain(game.settings.get(MODULE_ID, "ui.windowSize")) };
         } },
-        audit: { about: "any client: the accessibility audit of the open Workshop (and the shelf, if open), with its theme classes", run: async () => plain({
-            workshop: audit(WorkshopApp.instance?.element ?? null), shelf: audit(MacroShelf.instance?.element ?? null),
-            scheme: document.body.classList.contains("theme-dark") ? "dark" : "light", classes: WorkshopApp.instance ? [...WorkshopApp.instance.element.classList] : [],
-        }) },
+        audit: { about: "any client: the accessibility audit of the open Workshop (and the shelf, if open), with its theme classes and the colours of the images behind them", run: async () => {
+            const workshop = WorkshopApp.instance?.element ?? null;
+            const shelf = MacroShelf.instance?.element ?? null;
+            const images = { ...(await imageColours(workshop)), ...(await imageColours(shelf)) };
+            return plain({
+                workshop: audit(workshop, images), shelf: audit(shelf, images), images,
+                scheme: document.body.classList.contains("theme-dark") ? "dark" : "light", classes: WorkshopApp.instance ? [...WorkshopApp.instance.element.classList] : [],
+            });
+        } },
+        place: { about: "any client: the Workshop and the shelf moved to the top of the screen, off the hotbar", run: async () => {
+            WorkshopApp.instance?.setPosition({ left: 12, top: 12, width: 680, height: 560 });
+            MacroShelf.instance?.setPosition({ left: 720, top: 12, height: 600 });
+            await sleep(300);
+            const rect = (app) => (app?.rendered ? plain(app.element.getBoundingClientRect()) : null);
+            return { workshop: rect(WorkshopApp.instance), shelf: rect(MacroShelf.instance) };
+        } },
         parchment: { about: "the client: the Parchment setting on or off (params.on)", run: async (p) => {
             await game.settings.set(MODULE_ID, "ui.parchment", !!p.on);
             await sleep(300);
