@@ -437,18 +437,57 @@ export async function makeDespite(orderId, critical) {
  * @returns {Promise<{ok: boolean, outcome?: string, reason?: string}>}  outcome "ok", "already" or "claimed"
  */
 export async function payWage(jobId, day, { cp = null } = {}) {
-    if (!canWrite()) return refuse("not-ready");
+    const [result] = await payWages(jobId, [{ day, cp }]);
+    return result;
+}
+
+/**
+ * Pay several days of one job at once (M12 performance pass): for each day what `payWage` pays, in one move. The earner's
+ * responsible client mints the rows of every unpaid day in one lock-first batch, one purse credit for their sum, so a span of
+ * days costs one round of requests rather than one per day (a week of three earners' wages was 21 batches, each slower as the
+ * ledger grows); any other client files the days' wage claims in one write. A day already paid answers "already", one that
+ * pays nothing "nothing". A move that is refused or stops pays none of its days now: their day records still say what they
+ * owe, and the earner's sweep pays them (`sweepWages`).
+ * @param {string} jobId
+ * @param {{day: number, cp?: number|null}[]} days
+ * @returns {Promise<object[]>}  one answer per day, in order, as `payWage` gives it
+ */
+export async function payWages(jobId, days) {
+    const each = (answer) => days.map(() => answer);
+    if (!canWrite()) return each(refuse("not-ready"));
     const job = read(`jobs.${jobId}`);
-    if (!job) return refuse("no-job");
-    if (!job.check) return refuse("unrolled");
-    const pay = cp ?? job.perDayCp;
-    if (!(pay > 0)) return refuse("nothing");
+    if (!job) return each(refuse("no-job"));
+    if (!job.check) return each(refuse("unrolled"));
     const earner = fromUuidSync(job.actor);
-    if (!earner) return refuse("no-earner");
-    const idem = wageKey(jobId, day, wageSeq(rowsOf("job", jobId), jobId, day));
-    if (exists(`rows.${hashId(idem)}`)) return { ok: true, outcome: "already" };
-    const row = { kind: "wage", idem, cp: pay, actor: job.actor, job: jobId, day };
-    if (isResponsibleFor(earner)) return mint({ actor: earner, row });
-    const created = await createClaims([{ kind: "wage", idem, actor: job.actor, cp: pay, job: jobId, day, parties: [job.actor] }]);
-    return { ok: true, outcome: created.length ? "claimed" : "already" };
+    if (!earner) return each(refuse("no-earner"));
+    const jobRows = rowsOf("job", jobId);
+    const answers = [];
+    const due = [];
+    for (const { day, cp = null } of days) {
+        const pay = cp ?? job.perDayCp;
+        if (!(pay > 0)) {
+            answers.push(refuse("nothing"));
+            continue;
+        }
+        const idem = wageKey(jobId, day, wageSeq(jobRows, jobId, day));
+        if (exists(`rows.${hashId(idem)}`) || due.some((row) => row.idem === idem)) {
+            answers.push({ ok: true, outcome: "already" });
+            continue;
+        }
+        due.push({ kind: "wage", idem, cp: pay, actor: job.actor, job: jobId, day });
+        answers.push(null);
+    }
+    if (!due.length) return answers;
+    let answerOf;
+    if (isResponsibleFor(earner)) {
+        const moved = await mint({ actor: earner, rows: due });
+        answerOf = () => moved;
+    } else {
+        const created = await createClaims(due.map((row) => ({ kind: "wage", idem: row.idem, actor: job.actor, cp: row.cp, job: jobId, day: row.day,
+            parties: [job.actor] })));
+        const filed = new Set(created.map((claim) => claim.idem));
+        answerOf = (row) => ({ ok: true, outcome: filed.has(row.idem) ? "claimed" : "already" });
+    }
+    let next = 0;
+    return answers.map((answer) => answer ?? answerOf(due[next++]));
 }

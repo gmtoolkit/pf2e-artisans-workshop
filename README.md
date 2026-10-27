@@ -99,6 +99,7 @@ npm run check:strings:enforce   # the same, failing if any is left (stable relea
 npm run signoff -- --keys <key> [<key> ...]   # sign off strings the author has rewritten
 npm run harness:live     # the sync scenarios in a running dev world (below)
 npm run screenshots      # the README screenshots, from a running dev world (below)
+npm run harness:perf     # the performance pass, in a running dev world (below)
 npm run validate:registry -- --pf2e <checkout>   # the rules registry against a pf2e checkout
 npm run macros           # write macros/ from the macro catalogue (DESIGN.md 11.1)
 ```
@@ -257,6 +258,16 @@ elsewhere; `--results` for the run's JSON). Then it gives the party and the user
 demo actors and the run's chat messages, and resets the shared documents as `harness:live` does. The captures show the
 checkout the server runs. `docs/screenshots/` is the only place the asset check allows images (PNG, at most 400 KiB
 each), and the release zip leaves `docs/` out.
+
+`npm run harness:perf` (`tools/harness/perf.mjs`, DESIGN.md 15.7) is the performance pass, in the same dev world through the
+same driver. It adds three copies of fixture actors to the party (five members), measures, then stages a campaign through the
+module's own functions (`--seeds` runs of orders in every state, every member in downtime, three on Earn Income jobs, and
+one Advance days run of `--days` days) and measures again, then copies those records up to `--orders` orders and `--rows`
+ledger rows (default 200 and 2000) and measures a third time: the Workshop's opens and each tab's render as the GM and
+as Player One, what one change to the ledger costs every open window, reconciliation, a ledger write and a deposit, and a
+full Advance days run through the wizard, with CPU profiles of each on the GM's page summed by function and file. Then it
+puts the party back, deletes the copies and the run's chat messages, and resets the shared documents as `harness:live`
+does; the results are in `<out>/results.json`.
 
 Options: `--shots` (where screenshots go), `--url` (default `http://localhost:30000`), `--chromium` (the browser binary; on
 Arch the default is `/usr/lib/chromium/chromium`, behind the `/usr/bin/chromium` launcher

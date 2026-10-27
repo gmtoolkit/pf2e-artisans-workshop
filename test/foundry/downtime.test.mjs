@@ -235,6 +235,61 @@ test("an Earn Income job pays each day once: resolved twice, by a runner as a cl
     assert.equal(records("rows").filter((r) => r.kind === "wage").length, 3, "one wage row a day");
 });
 
+/** Count the requests (`modifyBatch` calls) `action` sends; the real one runs them. */
+async function requestsOf(action) {
+    const real = globalThis.foundry.documents.modifyBatch;
+    let count = 0;
+    globalThis.foundry.documents.modifyBatch = (operations) => {
+        count += 1;
+        return real(operations);
+    };
+    try {
+        return { result: await action(), count };
+    } finally {
+        globalThis.foundry.documents.modifyBatch = real;
+    }
+}
+
+test("a span of an Earn Income job's days pays its wages in one move: a week costs the requests of a day (M12 performance pass)", async () => {
+    const id = await boJob();
+    const pay = read(`jobs.${id}.perDayCp`);
+    requestLease("p2");
+    await game.time.advance(DAY);
+    const before = cpOf(bo);
+    const one = await requestsOf(() => as("p2", () => downtime.resolveDays({ actor: bo })));
+    assert.deepEqual(one.result.wages.map((w) => w.result.outcome), ["ok"]);
+    await game.time.advance(7 * DAY);
+    const week = await requestsOf(() => as("p2", () => downtime.resolveDays({ actor: bo })));
+    assert.equal(week.result.records.length, 7);
+    assert.deepEqual(week.result.wages.map((w) => [w.day, w.result.outcome]), week.result.records.map((r) => [r.day, "ok"]),
+        "each day's wage answered, in day order");
+    assert.equal(week.count, one.count, "seven days' wages, no more requests than one day's");
+    assert.equal(cpOf(bo) - before, 8 * pay);
+    const wages = records("rows").filter((r) => r.kind === "wage" && r.job === id);
+    assert.equal(wages.length, 8, "still one wage row a day");
+    assert.deepEqual(new Set(wages.map((r) => r.day)).size, 8);
+    // A day paid already is not paid again when the span is paid once more (the sweep, a second device).
+    const again = await as("p2", () => rolls.payWages(id, week.result.records.map((r) => ({ day: r.day, cp: pay }))));
+    assert.deepEqual(new Set(again.map((a) => a.outcome)), new Set(["already"]));
+    assert.equal(cpOf(bo) - before, 8 * pay);
+});
+
+test("wages owed by several day records are paid by the sweep in one move per job", async () => {
+    const id = await boJob();
+    const cp = read(`jobs.${id}.perDayCp`);
+    const owed = Object.fromEntries([7, 8, 9].map((day) => [`days.${bo.id}-${day}`,
+        { id: `${bo.id}-${day}`, v: 1, actor: bo.id, day, toDay: day, activity: { kind: "earn", ref: id }, job: id, wageCp: cp, rows: [] }]));
+    await write({ set: owed });
+    requestLease("p2");
+    const before = cpOf(bo);
+    const swept = await requestsOf(() => as("p2", () => downtime.sweepWages()));
+    assert.equal(swept.result, 3);
+    const single = await requestsOf(() => as("p2", () => rolls.payWage(id, 10, { cp })));
+    assert.equal(single.result.outcome, "ok");
+    assert.equal(swept.count, single.count, "three days owed, the requests of one wage");
+    assert.equal(cpOf(bo) - before, 4 * cp);
+});
+
 test("two devices of the earner resolving the same day: one record, one wage (6.10)", async () => {
     const id = await boJob();
     await game.time.advance(DAY);

@@ -66,6 +66,9 @@ const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 const T = (name) => `modules/pf2e-artisans-workshop/templates/workshop/${name}.hbs`;
 
+/** The tabs a live refresh renders while shown, and leaves stale while hidden (`WorkshopApp#refresh`). */
+const LIVE_TABS = Object.freeze(["queue", "funds", "morning", "formulas", "downtime"]);
+
 /** The longest a press in the window holds renders back (`renderParts`): a human click is far shorter. */
 export const PRESS_HOLD_MS = 1500;
 
@@ -204,11 +207,23 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         return pendingBadge() !== this.lastBadge || morningBadge() !== this.lastMorningBadge;
     }
 
-    /** Re-render after store changes stop for a moment (10.1). */
+    /** Tab parts a live refresh left alone while their tab was hidden: each renders when its tab is shown (`changeTab`). */
+    #stale = new Set();
+
+    /**
+     * Re-render after store changes stop for a moment (10.1): the header, the status bar and the shown tab. A hidden tab is
+     * marked stale and renders when it is shown (M12 performance pass: every change to the ledger rendered the Queue, Funds and
+     * Downtime tabs on every client with the window open, whichever one was shown; with 200 orders the hidden Queue alone took
+     * 150 ms a change).
+     */
     refresh = foundry.utils.debounce(() => {
         if (!this.rendered) return;
-        const parts = ["header", "queue", "funds", "formulas", "downtime", "status"];
-        if (this.tabGroups.primary === "morning") parts.push("morning");
+        const shown = this.tabGroups.primary;
+        const parts = ["header", "status"];
+        for (const tab of LIVE_TABS) {
+            if (tab === shown) parts.push(tab);
+            else this.#stale.add(tab);
+        }
         if (this.badgesMoved()) parts.push("nav");
         this.renderParts(parts);
     }, 150);
@@ -309,6 +324,7 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
 
     async _preparePartContext(partId, context, options) {
+        this.#stale.delete(partId);
         const part = await super._preparePartContext(partId, context, options);
         part.tab = context.tabs?.[partId] ?? null;
         if (partId === "queue" && context.readable) Object.assign(part, await this.#queueContext());
@@ -338,9 +354,14 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     async #queueContext() {
         const all = orders.allOrders();
         const viewer = orders.viewer();
+        // The ledger's rows and days grouped by order once, and the rules read once, for every order listed (M12 performance
+        // pass: per order, they were read whole again, which made the Queue's render grow with orders times rows).
+        const rules = rulesFromSettings();
+        const rowsByOrder = byOrder(records("rows"));
+        const daysByOrder = byOrder(records("days"));
         const views = [];
         for (const { order, no } of queueOrder(all)) {
-            const view = await orderContext(order, { no, viewer });
+            const view = await orderContext(order, { no, viewer, rules, rows: rowsByOrder.get(order.id) ?? [], days: daysByOrder.get(order.id) ?? [] });
             if (passesFilters(view, order, this.filters)) views.push({ ...view, kindText: kindText(order), targetText: targetText(order) });
         }
         this.#rowActions = new Map(views.map((v) => [v.id, v.actions ?? {}]));
@@ -595,8 +616,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     changeTab(tab, group, options) {
         super.changeTab(tab, group, options);
         this.#syncTabs();
-        if (tab === "formulas") this.render({ parts: ["formulas"] });
-        if (tab === "morning") this.render({ parts: ["morning"] });
+        // The Formulas and Morning tabs are built only while shown; another tab renders if a live refresh left it stale.
+        if (tab === "formulas" || tab === "morning" || this.#stale.has(tab)) this.render({ parts: [tab] });
         if (setting("ui.lastTab") !== tab) game.settings.set(MODULE_ID, "ui.lastTab", tab);
     }
 
@@ -1122,6 +1143,18 @@ export function registerWindowHooks() {
     // M9a: a variant turned on or off shows or hides what it adds (6.16).
     Hooks.on("pf2e-artisans-workshop.variantsChanged", touch);
     Hooks.once("setup", () => foundry.applications.handlebars.loadTemplates([...PARTIALS]));
+}
+
+/** Records by the order they belong to (`record.order`), in the order given: what `orderRows` and `orderDays` give per order. */
+export function byOrder(list) {
+    const map = new Map();
+    for (const record of list) {
+        if (!record.order) continue;
+        const own = map.get(record.order);
+        if (own) own.push(record);
+        else map.set(record.order, [record]);
+    }
+    return map;
 }
 
 /** Closed orders still listed: complete and cancelled ones stay in the Queue until archived (5.3.3). */

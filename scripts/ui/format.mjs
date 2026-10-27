@@ -10,9 +10,26 @@ import { GATE, GRADE, HELPER_REASON, RANK_KEY, REFUSAL, REQUIREMENT, STATUS, TOO
 const loc = (key) => game.i18n.localize(key);
 const fmt = (key, data) => game.i18n.format(key, data);
 
+/**
+ * One `Intl` formatter per kind and language, made once (M12 performance pass): a formatter is costly to make, and the Queue,
+ * Funds and Downtime tabs format every amount and date they show, on every client, after every change to the ledger. A new
+ * interface language gets formatters of its own.
+ */
+const formatters = new Map();
+function formatter(kind, make) {
+    const lang = game.i18n.lang || "en";
+    const key = `${kind}:${lang}`;
+    let made = formatters.get(key);
+    if (!made) {
+        made = make(lang);
+        formatters.set(key, made);
+    }
+    return made;
+}
+
 /** Whole numbers with the interface language's grouping. */
 export function number(n) {
-    return new Intl.NumberFormat(game.i18n.lang || "en").format(n);
+    return formatter("number", (lang) => new Intl.NumberFormat(lang)).format(n);
 }
 
 /** An amount of copper as coins: "1,045 gp 3 sp". */
@@ -142,5 +159,5 @@ export function report(result) {
 export function when(at) {
     const real = at?.real;
     if (!Number.isFinite(real)) return "";
-    return new Intl.DateTimeFormat(game.i18n.lang || "en", { dateStyle: "short", timeStyle: "short" }).format(new Date(real));
+    return formatter("when", (lang) => new Intl.DateTimeFormat(lang, { dateStyle: "short", timeStyle: "short" })).format(new Date(real));
 }

@@ -18,6 +18,7 @@
     "macros": "node tools/write-macros.mjs",
     "signoff": "node tools/signoff-strings.mjs",
     "harness:live": "node tools/harness/run-live.mjs",
+    "harness:perf": "node tools/harness/perf.mjs",
     "screenshots": "node tools/harness/screenshots.mjs"
   },
   "devDependencies": {

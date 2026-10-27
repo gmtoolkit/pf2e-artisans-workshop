@@ -2,6 +2,26 @@
 
 Newest first.
 
+## 2026-10-27: Performance pass (M12)
+
+**Decision:** what the first performance pass changes, and what it leaves to archiving (DESIGN 15.7, OQ-36):
+
+- A live refresh of the Workshop renders the header, the status bar and the shown tab; a hidden tab is marked stale and renders
+  when it is shown. The Queue groups the ledger's rows and day records by order once per render.
+- An Earn Income job's wages for a span of days are minted in one move (one lock-first batch, one wage row a day as before, one
+  purse credit for their sum); a player who is not the earner's responsible client files the span's claims in one write. The
+  sweep pays a job's owed days the same way. If that move is refused or stops, none of its days is paid at that moment; the
+  day records still say what they owe and the sweep pays them, as it did for a single day.
+- The interface makes one `Intl` number and date formatter per language instead of one per amount.
+- OQ-36's thresholds (30 and 60 workshop days) stay as proposed: they cannot be tuned before archiving (5.3.3) exists. What
+  the pass measured instead is that the lock pages on the ledger, which only archiving prunes, decide its write cost, more than
+  the size of its flags.
+
+**Why:** with 200 orders, 2000 rows and 2600 lock pages every change to the ledger cost each open Workshop about 180 ms (the
+hidden Queue alone 150 ms), and a week's Advance days with three earners took 40 s, 21 of its batches being one wage each. The
+wage move keeps every guarantee of a single wage (the row's key, its lock, the claim path for other clients, the sweep) and
+only stops paying day by day. Rendering hidden tabs bought nothing a user could see.
+
 ## 2026-10-27: The integration surface after the M11 review
 
 **Decision:** five rules for the module's windows and entry points, found reviewing M11:

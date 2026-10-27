@@ -44,13 +44,14 @@ function shelfCountOf(order) {
 }
 
 /**
- * Everything a template needs about one order.
+ * Everything a template needs about one order. `rows` and `days` are the order's own (`orderRows`, `orderDays`) when the
+ * caller has them already: the Queue groups the ledger's once for all its orders (M12 performance pass), where reading them
+ * per order read every row of the ledger once per order.
  * @param {object} order
- * @param {{no?: number, rules?: object, viewer?: object}} [options]
+ * @param {{no?: number, rules?: object, viewer?: object, rows?: object[], days?: object[]}} [options]
  */
-export async function orderContext(order, { no = null, rules = rulesFromSettings(), viewer = currentViewer() } = {}) {
-    const rows = orderRows(order.id);
-    const days = orderDays(order.id);
+export async function orderContext(order, { no = null, rules = rulesFromSettings(), viewer = currentViewer(), rows = orderRows(order.id),
+    days = orderDays(order.id) } = {}) {
     const judged = await gatesOf(order, rows, rules);
     // Before start, the plan the order would freeze, as G8 judges it (M5 on M4.1): a formula job, an upgrade, a rune, a
     // transfer or a free crafter's order is measured against half its own Price, not half of the item's.

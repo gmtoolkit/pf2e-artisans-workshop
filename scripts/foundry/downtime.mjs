@@ -31,7 +31,7 @@ import { planFacts, postRow, resolvePlan } from "./extensions.mjs";
 import { lockedWrite } from "./money.mjs";
 import { ranksOf } from "./registry.mjs";
 import { isElected, isResponsibleFor } from "./responsible.mjs";
-import { payWage, settleOrder } from "./rolls.mjs";
+import { payWages, settleOrder } from "./rolls.mjs";
 import { members } from "./roster.mjs";
 import { rulesFromSettings, setting } from "./settings.mjs";
 import { canWrite, shared } from "./state.mjs";
@@ -270,8 +270,8 @@ async function planFor(actor, days, activity) {
 
 /**
  * Write a PC's planned days in one request behind its lock page (`days:<actorId>:<first day>`): the day records, an
- * order's move to `check` when this user owns its crafter, and `extra` keys (a status change). Then each wage: minted by
- * the earner's responsible client, a claim otherwise (`payWage`); a wage that does not land is paid by the sweep
+ * order's move to `check` when this user owns its crafter, and `extra` keys (a status change). Then the wages, each job's in
+ * one move: minted by the earner's responsible client, claims otherwise (`payWages`); a wage that does not land is paid by the sweep
  * (`sweepWages`), since the day record says what it owes. M10: the extension runs the plan finishes are resolved first
  * (`resolvePlan`): their store writes go in the same request, their rows (and the per-day income sources') on the
  * records, posted after the write (`postRow`) and by the sweep (`sweepExtRows`) if they do not land.
@@ -293,8 +293,14 @@ async function writePlan(actor, plan, { extra = {} } = {}) {
     const lock = hashId(idemKey("days", actor.id, plan.records[0].day));
     const written = await lockedWrite([lock], [], { set, replace, scopes: ext.scopes });
     if (!written.ok) return written;
+    // Each job's wages for the span in one move (M12 performance pass): a request per day made a long span slow.
     const wages = [];
-    for (const wage of plan.wages) wages.push({ ...wage, result: await payWage(wage.job, wage.day, { cp: wage.cp }) });
+    const byJob = new Map();
+    for (const wage of plan.wages) byJob.set(wage.job, [...(byJob.get(wage.job) ?? []), wage]);
+    for (const [job, list] of byJob) {
+        const results = await payWages(job, list.map((wage) => ({ day: wage.day, cp: wage.cp })));
+        list.forEach((wage, i) => wages.push({ ...wage, result: results[i] }));
+    }
     const extRows = [];
     for (const input of ext.rows) extRows.push({ idem: input.idem, result: await postRow(input) });
     return { ok: true, outcome: "ok", records: plan.records, stop: plan.stop, wages, extRows };
@@ -455,7 +461,7 @@ export async function advanceClockToMatch() {
 /**
  * Pay what day records owe (P5, a sweep step): a day record of an Earn Income job with a wage and neither a live wage
  * row nor an open wage claim for that day, written by a resolution whose wage did not land. Only the earner's
- * responsible client pays, by minting (`payWage`); every other client leaves it to that one.
+ * responsible client pays, by minting (`payWages`, each job's owed days in one move); every other client leaves it to that one.
  * @returns {Promise<number>}  wages paid
  */
 export async function sweepWages() {
@@ -464,6 +470,7 @@ export async function sweepWages() {
     const claims = records("claims");
     let paid = 0;
     const promised = new Map();
+    const owed = new Map();
     for (const record of records("days")) {
         if (!isDayRecord(record) || !record.job || !(record.wageCp > 0)) continue;
         const job = read(`jobs.${record.job}`);
@@ -471,8 +478,11 @@ export async function sweepWages() {
         if (!earner || !isResponsibleFor(earner)) continue;
         if (!promised.has(job.id)) promised.set(job.id, wageDaysOf(live, claims, job.id));
         if (promised.get(job.id).has(record.day)) continue;
-        const result = await payWage(job.id, record.day, { cp: record.wageCp });
-        if (result.ok && result.outcome === "ok") paid += 1;
+        owed.set(job.id, [...(owed.get(job.id) ?? []), { day: record.day, cp: record.wageCp }]);
+    }
+    // Each job's owed days in one move (M12 performance pass).
+    for (const [jobId, days] of owed) {
+        for (const result of await payWages(jobId, days)) if (result.ok && result.outcome === "ok") paid += 1;
     }
     return paid;
 }
