@@ -14,6 +14,9 @@
  * it was. Opened from the Workshop, the form is its child and opens in the same browser window. The Queue's magnifying
  * glass opens it with the search focused (F, As built in M4.1), and "Browse" opens pf2e's own Compendium Browser on its
  * equipment tab, to drag an item from: the module builds no item search of its own beyond this one.
+ *
+ * M9: a tattoo or a graft (6.14) asks whose it is (the subject, who receives it) and, optionally, which tattoo or graft
+ * the subject has that it upgrades. The form keeps its fields in `draft`, never in ApplicationV2's own `state`.
  */
 import { MODULE_ID } from "../constants.mjs";
 import { DEGREE } from "../logic/core.mjs";
@@ -30,6 +33,8 @@ import { searchCatalogue } from "../foundry/catalogue.mjs";
 import { requestService } from "../foundry/services.mjs";
 import { rulesFromSettings } from "../foundry/settings.mjs";
 import { canWrite } from "../foundry/state.mjs";
+import { setting } from "../foundry/settings.mjs";
+import { subjectTypeOf } from "../logic/crafts.mjs";
 import { showDcs } from "./context.mjs";
 import { focusState, restoreFocus } from "./focus.mjs";
 import { gateText, money, number, report } from "./format.mjs";
@@ -81,6 +86,18 @@ export function itemChoices(actor, kind, product, { serviceKind = null, source =
     return [];
 }
 
+/**
+ * The tattoos or grafts a subject has that a product could upgrade (6.14): the same family, a lower level. Read from the
+ * subject's items, which every client has.
+ */
+export function replaceChoices(subject, product) {
+    if (!subject || !product) return [];
+    const key = familyKey(product);
+    return (subject.items ?? []).filter((i) => i.isOfType?.("physical") && (traitsOf(i).has("tattoo") || traitsOf(i).has("graft")) && (i.level ?? 0) < product.level &&
+        familyKey({ name: (i.sourceId ? actorOf(i.sourceId)?.name : null) ?? i.name, type: i.type, category: product.category }) === key)
+        .map((i) => ({ uuid: i.uuid, name: i.name }));
+}
+
 export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
     static DEFAULT_OPTIONS = {
         id: "pf2e-artisans-workshop-request-{id}",
@@ -96,10 +113,13 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
         form: { template: "modules/pf2e-artisans-workshop/templates/request/form.hbs", scrollable: [".request-matches"] },
     };
 
-    /** The form's state between renders. */
-    state = {
+    /**
+     * The form's fields between renders. Not `state`: ApplicationV2 has a `state` of its own (its render state), which a
+     * field of that name would shadow.
+     */
+    draft = {
         uuid: null, quantity: 1, requester: null, recipient: null, crafter: "", gift: false, note: "", search: "",
-        kind: "item", target: "", source: "", serviceKind: "repair", host: "", performer: "",
+        kind: "item", target: "", source: "", serviceKind: "repair", host: "", performer: "", subject: "", replaces: "",
     };
 
     /** Whether the next render puts focus in the item search (the Queue's magnifying glass). */
@@ -109,17 +129,19 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
         super(options);
         this.#focusSearch = focusSearch && !uuid;
         const choices = actingChoices();
-        this.state.uuid = uuid;
-        this.state.requester = requester ?? choices.find((a) => a === game.user.character)?.uuid ?? choices[0]?.uuid ?? null;
-        this.state.recipient = this.state.requester;
-        if (KINDS.includes(kind)) this.state.kind = kind;
+        this.draft.uuid = uuid;
+        this.draft.requester = requester ?? choices.find((a) => a === game.user.character)?.uuid ?? choices[0]?.uuid ?? null;
+        this.draft.recipient = this.draft.requester;
+        if (KINDS.includes(kind)) this.draft.kind = kind;
     }
 
     async _prepareContext(options) {
         const context = await super._prepareContext(options);
-        const s = this.state;
+        const s = this.draft;
         const service = s.kind === "service";
         const product = !service && s.uuid ? await productFacts(s.uuid) : null;
+        // M9: a tattoo or graft is made on a subject, who receives it (6.14).
+        const subjectType = product && s.kind === "item" && setting("features.tattoos") !== false ? subjectTypeOf(product) : null;
         const people = members();
         const own = actingChoices();
         const single = ON_ITEM.has(s.kind);
@@ -149,26 +171,29 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
                 { value: "strongbox", label: "pf2e-artisans-workshop.Queue.ForStrongbox", selected: s.recipient === "strongbox" },
             ],
             crafters: own.map((a) => ({ uuid: a.uuid, name: a.name, selected: a.uuid === s.crafter })),
-            candidates: product && (!single || s.target) ? await this.#candidates(product, quantity, people) : [],
+            subjectType, subjects: subjectType ? people.map((a) => ({ uuid: a.uuid, name: a.name, selected: a.uuid === (s.subject || s.requester) })) : [],
+            replaceable: subjectType ? replaceChoices(actorOf(s.subject || s.requester), product).map((i) => ({ ...i, selected: i.uuid === s.replaces })) : [],
+            candidates: product && (!single || s.target) ? await this.#candidates(product, quantity, people, subjectType) : [],
             matches: service ? [] : await this.#matches(),
         });
     }
 
     /** Every member with Crafting, and how they would make the item at this quantity (4.3, 4.4, 6.5). */
-    async #candidates(product, quantity, people) {
+    async #candidates(product, quantity, people, subjectType = null) {
         const rules = rulesFromSettings();
-        const s = this.state;
-        const single = ON_ITEM.has(s.kind);
+        const s = this.draft;
+        const single = ON_ITEM.has(s.kind) || !!subjectType;
         const probe = {
-            id: "preview", quantity: 1, craftType: s.kind, target: single ? s.target || null : null,
-            variant: s.kind === "rune-transfer" ? { transfer: { source: s.source || null } } : {}, custody: {}, pledges: {},
+            id: "preview", quantity: 1, craftType: subjectType ?? s.kind, target: subjectType ? s.subject || s.requester : single ? s.target || null : null,
+            variant: s.kind === "rune-transfer" ? { transfer: { source: s.source || null } } : subjectType && s.replaces ? { replaces: s.replaces } : {},
+            custody: {}, pledges: {},
         };
         const out = [];
         for (const actor of people) {
             const crafter = crafterFacts(actor);
             if (!(crafter.ranks.crafting > 0)) continue;
             const { gates, plan } = await gatesFor(probe, crafter, product, [], rules);
-            const blocking = gates.filter((g) => !g.ok && !["G7", "G8", "G9", "G10", "G11", "batch"].includes(g.id));
+            const blocking = gates.filter((g) => !g.ok && !["G7", "G8", "G9", "G10", "G11", "batch"].includes(g.id) && g.reason !== "fulu-tradition");
             const batches = splitIntoBatches(quantity, Math.max(1, plan.batchMax ?? 1));
             const perDay = incomePerDay(crafter.level, crafter.ranks.crafting, DEGREE.success);
             const priceCp = single ? (plan.priceCp ?? 0) : Math.round((product.priceCp * batches[0]) / product.per);
@@ -187,7 +212,7 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
 
     /** Items in the equipment compendium whose name contains the search text (the cached catalogue, M5). */
     async #matches() {
-        return (await searchCatalogue(this.state.search, MATCHES)).map(({ uuid, name, img, level }) => ({ uuid, name, img, level }));
+        return (await searchCatalogue(this.draft.search, MATCHES)).map(({ uuid, name, img, level }) => ({ uuid, name, img, level }));
     }
 
     _onFirstRender(context, options) {
@@ -195,7 +220,7 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
         this.element.addEventListener("change", (event) => this.#onChange(event));
         this.element.addEventListener("input", (event) => {
             if (event.target.name !== "search") return;
-            this.state.search = event.target.value;
+            this.draft.search = event.target.value;
             this.#searchLater();
         });
         // Enter in the search box picks the first match instead of submitting a form that has no item yet.
@@ -233,27 +258,28 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
     #onChange(event) {
         const { name, value, checked, type } = event.target;
         if (!name || name === "search") return;
-        this.state[name] = type === "checkbox" ? checked : value;
-        if (name === "kind" || name === "serviceKind" || name === "requester") Object.assign(this.state, { target: "", source: "", host: "" });
-        if (["quantity", "crafter", "recipient", "requester", "kind", "serviceKind", "target", "source", "host"].includes(name)) this.render();
+        this.draft[name] = type === "checkbox" ? checked : value;
+        if (name === "kind" || name === "serviceKind" || name === "requester") Object.assign(this.draft, { target: "", source: "", host: "" });
+        if (name === "subject") this.draft.replaces = "";
+        if (["quantity", "crafter", "recipient", "requester", "kind", "serviceKind", "target", "source", "host", "subject", "replaces"].includes(name)) this.render();
     }
 
     async #onDrop(event) {
         const data = foundry.applications.ux.TextEditor.implementation.getDragEventData(event);
         if (data?.type !== "Item" || !data.uuid) return;
         const item = await fromUuid(data.uuid);
-        this.state.uuid = item?._stats?.compendiumSource ?? item?.sourceId ?? data.uuid;
+        this.draft.uuid = item?._stats?.compendiumSource ?? item?.sourceId ?? data.uuid;
         this.render();
     }
 
     static #onPick(_event, target) {
-        this.state.uuid = target.dataset.uuid;
-        this.state.search = "";
+        this.draft.uuid = target.dataset.uuid;
+        this.draft.search = "";
         return this.render();
     }
 
     static #onClear() {
-        this.state.uuid = null;
+        this.draft.uuid = null;
         return this.render();
     }
 
@@ -270,7 +296,7 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
     }
 
     static async #onSubmit() {
-        const s = this.state;
+        const s = this.draft;
         if (s.kind === "service") {
             const result = report(await requestService({ kind: s.serviceKind, requester: s.requester, performer: s.performer || null,
                 target: s.target || null, host: s.host || null, note: s.note }));
@@ -287,6 +313,19 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
         const single = ON_ITEM.has(s.kind);
         if (single && (!s.target || (s.kind === "rune-transfer" && !s.source))) {
             ui.notifications.warn("pf2e-artisans-workshop.Request.NoTarget", { localize: true });
+            return;
+        }
+        const product = await productFacts(s.uuid);
+        const subjectType = product && s.kind === "item" && setting("features.tattoos") !== false ? subjectTypeOf(product) : null;
+        if (subjectType) {
+            // M9 (6.14): a tattoo or graft for its subject, who receives it; one at a time.
+            const subject = s.subject || s.requester;
+            const result = report(await requestOrder({ uuid: s.uuid, quantity: 1, requester: s.requester, recipient: { kind: "actor", uuid: subject },
+                crafter: s.crafter || null, note: s.note, gift: s.gift === true, target: subject, variant: s.replaces ? { replaces: s.replaces } : {} }));
+            if (result?.ok) {
+                ui.notifications.info("pf2e-artisans-workshop.Request.Filed", { format: { count: String(result.orders.length) } });
+                await this.close();
+            }
             return;
         }
         const recipient = s.recipient === "strongbox" ? { kind: "strongbox" } : { kind: "actor", uuid: s.recipient || s.requester };

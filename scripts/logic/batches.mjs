@@ -25,7 +25,8 @@ export function isConsumableForBatch(item) {
  * @param {string[]} item.traits
  * @param {number} [item.per]          `price.per`: ammunition is priced (and batched) per 10
  * @param {string} [item.type]         pf2e item type; "ammo" for ammunition
- * @param {"scroll"|"wand"|null} [item.spellcasting]  from `CONFIG.PF2E.spellcastingItems`
+ * @param {{kind: "scroll"|"wand", rank: number}|"scroll"|"wand"|null} [item.spellcasting]  from `CONFIG.PF2E.spellcastingItems`
+ *   (`productFacts` gives the object; the kind alone is read)
  * @param {boolean} [item.consumableFix]  the registry's correction (`consumableFix` in registry.mjs)
  * @param {object} [options]
  * @param {number} [options.multiplier]       the registry's batch multiplier for the crafter and item
@@ -39,8 +40,11 @@ export function batchMax(item, { multiplier = 1, pledgedCastings = 0 } = {}, rul
     let max = consumable ? Math.max(CONSUMABLE_BATCH, per) : per;          // matches pf2e getFormulas
     if (item.type === "ammo" && !isMagical(item)) max = per;              // mundane ammunition: per 10
     max *= requireInteger(multiplier, "multiplier");                      // Efficient Alchemy: twice as many
-    if (item.spellcasting === "scroll") max = Math.min(SCROLL_BATCH, pledgedCastings);
-    if (item.spellcasting === "wand") max = 1;                            // GM Core p.282
+    // `productFacts` gives `{kind, rank}`; M9 review fix: the scroll and wand limits compared the object with a string, so a
+    // scroll batch was never held to its castings.
+    const spellKind = typeof item.spellcasting === "string" ? item.spellcasting : item.spellcasting?.kind ?? null;
+    if (spellKind === "scroll") max = Math.min(SCROLL_BATCH, pledgedCastings);
+    if (spellKind === "wand") max = 1;                                    // GM Core p.282
     if (hasTrait(item, "snare")) max = rules.snareDowntimeBatch;          // OQ-14
     return max;
 }

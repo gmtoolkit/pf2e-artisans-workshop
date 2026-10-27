@@ -9,9 +9,12 @@
  * paid from (the party fund or a character's purse), and "Mark cast" asks for a spell's cost, if it has one, in pp, gp,
  * sp and cp with the same choice of source. The words follow M4.1's: a casting is offered, not pledged, and an item
  * handed over is given back to its owner.
+ *
+ * As built in M9 (`crafts.mjs`): a tattoo's or graft's subject, a fulu's tradition, a finished missive order's blank
+ * missives, and the castings an item lists; offering or buying a listed casting picks the entry it supplies.
  */
 import { stockMaterial } from "../logic/materials.mjs";
-import { TARGETED } from "../logic/orders.mjs";
+import { TARGETED, WITH_SUBJECT } from "../logic/orders.mjs";
 import { castingsOf, livePledges, spellGate, spellSupply } from "../logic/pledges.mjs";
 import { serviceActions } from "../logic/services.mjs";
 import { STOCK_STATUSES, giveBack, handOver, heldLines } from "../foundry/custody.mjs";
@@ -24,6 +27,7 @@ import { read } from "../foundry/store.mjs";
 import { money, nameOf, number, report, sourceName } from "./format.mjs";
 import { CRAFT_TYPE, PLEDGE_STATUS, PURPOSE, SERVICE, SERVICE_STATUS } from "./labels.mjs";
 import { askChoice, askMoney } from "./prompts.mjs";
+import { entriesView, listedBuyOptions, listedPledgeOptions, missiveView, subjectView, traditionView } from "./crafts.mjs";
 
 const loc = (key) => game.i18n.localize(key);
 const fmt = (key, data) => game.i18n.format(key, data);
@@ -37,8 +41,9 @@ export function kindText(order) {
     return type === "item" ? null : loc(CRAFT_TYPE[type] ?? CRAFT_TYPE.item);
 }
 
-/** The name of the item an order works on (an etching's, an upgrade's, a transfer's target). */
+/** The name of the item an order works on (an etching's, an upgrade's, a transfer's target); M9: a tattoo's subject. */
 export function targetText(order) {
+    if (WITH_SUBJECT.includes(order.craftType)) return actorOf(order.target)?.name ?? null;
     if (!TARGETED.includes(order.craftType)) return null;
     return targetOf(order)?.name ?? actorOf(order.target)?.name ?? null;
 }
@@ -91,7 +96,7 @@ export async function detailExtras(order) {
             cost: p.costCp ? fmt("pf2e-artisans-workshop.Pledge.CostFrom", { amount: money(p.costCp), source: sourceName(paidBy(p)) }) : null,
             canFulfil: open && p.status === "offered" && owns(p.caster), canWithdraw: open && p.status === "offered" && (viewer.isGM || owns(p.caster)),
             // A wand's spell cost is not paid (GM Core p.282): marking it cast asks for nothing.
-            askCost: supply.kind !== "wand",
+            askCost: supply.kind !== "wand" && supply.kind !== "wand-special",
         }));
     }
     const lines = heldLines(order);
@@ -103,6 +108,11 @@ export async function detailExtras(order) {
     if (open) extras.handOver = handOverChoices(order);
     extras.stock = STOCK_STATUSES.includes(order.status) && !!product?.material?.type && actingChoices().some((a) => stockItems(a).length > 0);
     extras.castings = supply ? number(castingsOf(order)) : null;
+    // M9: the subject, a fulu's tradition, missives to compose, the listed castings.
+    extras.subject = subjectView(order);
+    extras.tradition = traditionView(order, product);
+    extras.missives = missiveView(order, product);
+    extras.entries = supply ? entriesView(order, supply) : [];
     return extras;
 }
 
@@ -162,8 +172,22 @@ const orderOf = (target) => target.closest("[data-order-id]")?.dataset.orderId ?
 export async function onPledgeOp(app, target) {
     const id = orderOf(target);
     const { op, pledge } = dataOf(target);
+    // M9: an item that lists its castings (a staff, a spellheart) is offered or bought one listed casting at a time.
+    const order = read(`orders.${id}`);
+    const product = order ? await productFacts(order.product?.uuid) : null;
+    const supply = product ? spellSupply(product) : null;
+    const listed = !!supply?.entries?.length;
     switch (op) {
         case "pledge": {
+            if (listed) {
+                const options = listedPledgeOptions(order, supply);
+                const answer = await askChoice({ title: "pf2e-artisans-workshop.Pledge.Title", label: "pf2e-artisans-workshop.Pledge.Entry", options,
+                    button: "pf2e-artisans-workshop.Pledge.Button", icon: "fa-solid fa-scroll", app });
+                if (!answer?.value) return null;
+                const [spell, entry] = answer.value.split("|");
+                const caster = options.find((o) => o.value === answer.value)?.caster;
+                return report(await pledgeCasting(id, { caster, spell, castings: 1, entry }));
+            }
             const options = actingChoices().flatMap((actor) => actor.items.filter((i) => i.type === "spell")
                 .map((spell) => ({ value: spell.uuid, name: fmt("pf2e-artisans-workshop.Pledge.CasterSpell", { caster: actor.name, spell: spell.name }), caster: actor.uuid })));
             const answer = await askChoice({ title: "pf2e-artisans-workshop.Pledge.Title", label: "pf2e-artisans-workshop.Pledge.Spell", options,
@@ -186,6 +210,20 @@ export async function onPledgeOp(app, target) {
         case "withdraw":
             return report(await withdrawPledge(id, pledge));
         case "buy": {
+            if (listed) {
+                const pick = await askChoice({ title: "pf2e-artisans-workshop.Pledge.BuyTitle", label: "pf2e-artisans-workshop.Pledge.Entry",
+                    options: listedBuyOptions(order, supply), hint: "pf2e-artisans-workshop.Pledge.BuyHint", button: "pf2e-artisans-workshop.Pledge.BuyNext",
+                    icon: "fa-solid fa-coins", app });
+                if (!pick?.value) return null;
+                const [spell, entry] = pick.value.split("|");
+                const price = await castingPrice(id, { spell, castings: 1, entry });
+                if (!price.ok) return report(price);
+                const pay = await askMoney({ kind: "purchase", fixedCp: price.cp, actors: actingChoices(), actor: app.actingActor?.()?.uuid ?? null,
+                    sources: { fundCp: fundAvailableCp() }, app,
+                    intro: fmt("pf2e-artisans-workshop.Prompt.Intro.Casting", { castings: number(1), spell: price.spell.name, rank: String(price.rank), amount: money(price.cp) }) });
+                if (!pay) return null;
+                return report(await buyCasting(id, { payer: pay.actor, paidFrom: pay.source === "fund" ? "fund" : "purse", spell, castings: 1, entry }));
+            }
             // The spell and how many castings first; then its price, and where that is paid from (M5 on M4.1).
             const answer = await askChoice({ title: "pf2e-artisans-workshop.Pledge.BuyTitle", text: { label: "pf2e-artisans-workshop.Pledge.SpellName" },
                 number: { label: "pf2e-artisans-workshop.Pledge.Castings", value: 1, min: 1 }, hint: "pf2e-artisans-workshop.Pledge.BuyHint",

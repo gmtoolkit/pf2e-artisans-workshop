@@ -462,6 +462,15 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .detail-pledges button.small,
 .detail-custody button.small,
 .pf2e-artisans-workshop button.small { min-height: 1.6rem; padding: 0 0.45rem; }
+/* M9: a tattoo's or graft's subject, a fulu's tradition, missives, a staff's listed castings (10.16). */
+.detail-subject,
+.detail-made,
+.detail-tradition { margin: 0.2rem 0; }
+.detail-subject.waiting { border-left: 3px solid var(--paw-escrow); padding-left: 0.4rem; }
+.detail-made.state-decorative,
+.detail-made.state-inactive { border-left: 3px solid var(--paw-line); padding-left: 0.4rem; }
+.detail-entries li.entry-fulfilled .by { font-weight: 600; }
+.detail-missives li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.3rem; }
 
 /* ------------------------------------------------------------------ */
 /*  The Formulas tab (10.1, M5)                                        */
@@ -824,6 +833,12 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .pool-lines li,
 .talisman-picker li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.5rem; padding: 0.1rem 0; }
 .pool-prepared li.expended { opacity: 0.65; }
+/* M9 (7.1): a prepared snare pool's quick-deploy ledger. */
+.snare-ledger { display: flex; flex-wrap: wrap; gap: 0.25rem; margin: 0.25rem 0; }
+.snare-entries { list-style: none; margin: 0; padding: 0; }
+.snare-entries li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.5rem; padding: 0.1rem 0; }
+.snare-entries li.expended { opacity: 0.65; }
+.snare-entries select { width: auto; flex: 0 0 auto; }
 .pool-prepared img,
 .talisman-picker img { width: 1.5rem; height: 1.5rem; border: none; }
 .morning-pool .entry-name { font-weight: 600; }

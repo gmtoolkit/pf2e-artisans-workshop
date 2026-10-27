@@ -165,6 +165,9 @@
                         {{!-- M5 on M4.1: the fix for precious stock, castings and an item to hand over; data-fix tells each from the same button below --}}
                         {{#if (eq action "stock")}}{{#if ../extras.stock}}<button type="button" class="small primary" data-action="custody" data-op="stock" data-fix="requirement"><i class="fa-solid fa-cubes" inert></i>{{localize "pf2e-artisans-workshop.Custody.AddStock"}}</button>{{/if}}{{/if}}
                         {{#if (eq action "castings")}}{{#if ../extras.supply.canPledge}}<button type="button" class="small primary" data-action="pledgeOp" data-op="pledge" data-fix="requirement"><i class="fa-solid fa-scroll" inert></i>{{localize "pf2e-artisans-workshop.Pledge.Pledge"}}</button>{{/if}}{{#if ../extras.supply.canBuy}}<button type="button" class="small" data-action="pledgeOp" data-op="buy" data-fix="requirement"><i class="fa-solid fa-coins" inert></i>{{localize "pf2e-artisans-workshop.Pledge.Buy"}}</button>{{/if}}{{/if}}
+                        {{!-- M9: a tattoo's or graft's subject agrees; a fulu's crafter chooses its tradition --}}
+                        {{#if (eq action "consent")}}{{#if ../extras.subject.canConsent}}<button type="button" class="small primary" data-action="craft" data-op="consent" data-fix="requirement"><i class="fa-solid fa-handshake" inert></i>{{localize "pf2e-artisans-workshop.Subject.Consent"}}</button>{{/if}}{{/if}}
+                        {{#if (eq action "tradition")}}{{#if ../extras.tradition.canChoose}}<button type="button" class="small primary" data-action="craft" data-op="tradition" data-fix="requirement"><i class="fa-solid fa-scroll" inert></i>{{localize "pf2e-artisans-workshop.Fulu.Choose"}}</button>{{/if}}{{/if}}
                         {{#if (eq action "hand-over")}}{{#each ../extras.handOver}}<button type="button" class="small primary" data-action="custody" data-op="hand-over" data-item="{{uuid}}" data-purpose="{{purpose}}" data-fix="requirement"><i class="fa-solid fa-box" inert></i>{{localize "pf2e-artisans-workshop.Custody.HandOverItem" name=name}}</button>{{/each}}{{/if}}
                     </li>
                     {{/each}}
@@ -207,9 +210,46 @@
             {{/if}}
             {{#if deliveryText}}<p class="detail-delivery delivery-{{deliveryState}}"><i class="fa-solid fa-box-open" inert></i> {{deliveryText}}</p>{{/if}}
             {{#with extras}}
+            {{#if subject}}
+            <h4>{{localize "pf2e-artisans-workshop.Subject.Heading"}}</h4>
+            <p class="detail-subject{{#if subject.waiting}} waiting{{/if}}"><i class="fa-solid fa-user-pen" inert></i> {{subject.text}}</p>
+            <p class="hint">{{localize "pf2e-artisans-workshop.Subject.Process" process=subject.process}}{{#if subject.oneAtATime}} {{subject.oneAtATime}}{{/if}}</p>
+            {{#if subject.replaces}}<p class="detail-subject-replaces">{{subject.replaces}}</p>{{/if}}
+            {{#if subject.investiture}}<p class="hint">{{subject.investiture}}</p>{{/if}}
+            {{#with subject.made}}
+            <p class="detail-made state-{{stateKey}}">{{#if icon}}<i class="{{icon}}" inert></i> {{/if}}{{localize "pf2e-artisans-workshop.Subject.Made" name=name state=state}}{{#if until}} · {{until}}{{/if}}{{#if healed}} · {{healed}}{{/if}}{{#if mark}} · {{mark}}{{/if}}</p>
+            {{#if canHeal}}<div class="detail-actions"><button type="button" data-action="craft" data-op="heal" data-item="{{uuid}}"><i class="fa-solid fa-bandage" inert></i>{{localize "pf2e-artisans-workshop.Subject.RecordHealing"}}</button></div>{{/if}}
+            {{/with}}
+            {{#if (or subject.canConsent subject.canWithdraw)}}
+            <div class="detail-actions">
+                {{#if subject.canConsent}}<button type="button" class="primary" data-action="craft" data-op="consent"><i class="fa-solid fa-handshake" inert></i>{{localize "pf2e-artisans-workshop.Subject.Consent"}}</button>{{/if}}
+                {{#if subject.canWithdraw}}<button type="button" data-action="craft" data-op="withdraw-consent"><i class="fa-solid fa-hand" inert></i>{{localize "pf2e-artisans-workshop.Subject.Withdraw"}}</button>{{/if}}
+            </div>
+            {{/if}}
+            {{/if}}
+            {{#if tradition}}
+            <h4>{{localize "pf2e-artisans-workshop.Fulu.Heading"}}</h4>
+            <p class="detail-tradition">{{tradition.text}}</p>
+            <p class="hint">{{tradition.lasts}}</p>
+            {{#if tradition.canChoose}}<div class="detail-actions"><button type="button" data-action="craft" data-op="tradition"><i class="fa-solid fa-scroll" inert></i>{{localize "pf2e-artisans-workshop.Fulu.Choose"}}</button></div>{{/if}}
+            {{/if}}
+            {{#if missives}}
+            <h4>{{localize "pf2e-artisans-workshop.Missive.Heading"}}</h4>
+            <p class="hint">{{missives.hint}}</p>
+            {{#if missives.blank.length}}
+            <ul class="detail-list detail-missives">
+                {{#each missives.blank}}<li><span>{{name}} × {{qty}}</span>{{#if canCompose}}<button type="button" class="small" data-action="craft" data-op="compose" data-item="{{uuid}}"><i class="fa-solid fa-feather" inert></i>{{localize "pf2e-artisans-workshop.Missive.Compose"}}</button>{{/if}}</li>{{/each}}
+            </ul>
+            {{else}}<p class="empty">{{localize "pf2e-artisans-workshop.Missive.NoneBlank"}}</p>{{/if}}
+            {{/if}}
             {{#if supply}}
             <h4>{{localize "pf2e-artisans-workshop.Pledge.Heading"}}</h4>
             <p class="detail-supply">{{supply.text}}</p>
+            {{#if entries.length}}
+            <ul class="detail-list detail-entries" aria-label="{{localize 'pf2e-artisans-workshop.Pledge.Listed'}}">
+                {{#each entries}}<li class="entry-{{state}}"><span>{{spell}} · {{rank}}</span><span class="by">{{stateText}}</span></li>{{/each}}
+            </ul>
+            {{/if}}
             {{#if pledges.length}}
             <ul class="detail-list detail-pledges">
                 {{#each pledges}}

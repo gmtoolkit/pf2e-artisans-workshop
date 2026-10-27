@@ -12,10 +12,14 @@
  * As built in M5 on M4.1: a spell's cost and a bought casting are paid from the source the user picks (`payPurchase`):
  * a character's purse, or the party fund, whose money is earmarked for the order and spent by it in one move, so the
  * order lists it as spent by the party fund. The casting record keeps where it came from (`paidFrom`, `payer`).
+ *
+ * As built in M9: an item that lists its spells (a staff or coda, a spellheart, an item whose Craft Requirements link
+ * spells; `spellNeedsOf`) takes one pledge per listed casting, which names its entry (`entry`); a specialty wand takes one
+ * casting of a spell of its rank, as a wand does, and its spell's cost is not paid either.
  */
 import { idemKey } from "../logic/ids.mjs";
 import { closedAs } from "../logic/orders.mjs";
-import { castingsPriceCp, livePledges, makePledge, pledgeProblem, pledgeTransition, spellSupply } from "../logic/pledges.mjs";
+import { castingsPriceCp, entryFor, livePledges, makePledge, pledgeProblem, pledgeTransition, spellSupply } from "../logic/pledges.mjs";
 import { productFacts } from "./products.mjs";
 import { payPurchase } from "./purchases.mjs";
 import { canWrite } from "./state.mjs";
@@ -46,25 +50,32 @@ export function spellFacts(spell) {
     };
 }
 
+/** The rank a pledge records: a listed casting's (a cantrip's 0), else the item's, else the spell's own. */
+const pledgeRank = (supply, entry, facts) => (entry ? entry.rank ?? facts?.rank ?? null : supply.rank ?? facts?.rank ?? null);
+
 /**
  * Pledge castings of a caster's spell to an order (6.9). The user must own the caster, and the spell must be one of the
  * caster's own spell items. Refusals: `not-ready`, `no-order`, `state`, `not-spell-item`, `not-owner`, `no-spell`, and
  * the rule codes of `pledgeProblem` (`unscribable`, `spell-rank`, `same-spell`, `one-casting`, `scroll-castings`,
- * `castings`).
+ * `castings`; M9: `not-on-list`, `covered`, `any-castings`). M9: for an item that lists its spells, `entry` names the
+ * listed casting it supplies (the first open one the spell matches when none is named).
  */
-export async function pledgeCasting(orderId, { caster, spell, castings = 1 }) {
+export async function pledgeCasting(orderId, { caster, spell, castings = 1, entry = null }) {
     const { order, supply, refusal } = await openOrder(orderId);
     if (refusal) return refusal;
     const actor = actorOf(caster);
     if (!actor?.isOwner) return refuse("not-owner");
     const item = actorOf(spell);
-    if (supply.kind === "scroll" || supply.kind === "wand") {
+    if (supply.kind === "scroll" || supply.kind === "wand" || supply.kind === "wand-special" || supply.entries.length) {
         if (item?.type !== "spell" || item.parent !== actor) return refuse("no-spell");
     }
     const facts = item?.type === "spell" ? spellFacts(item) : null;
-    const problem = pledgeProblem({ supply, spell: facts, castings, existing: livePledges(order) });
+    const existing = livePledges(order);
+    const problem = pledgeProblem({ supply, spell: facts, castings, existing, entry });
     if (problem) return refuse(problem.reason, problem.data ?? {});
-    const pledge = makePledge({ id: newId(), caster: actor.uuid, spell: facts, rank: supply.rank ?? facts?.rank ?? null, castings }, stampNow());
+    const listed = facts ? entryFor(supply, facts, existing, entry) : null;
+    const pledge = makePledge({ id: newId(), caster: actor.uuid, spell: facts, rank: pledgeRank(supply, listed, facts), castings,
+        entry: listed?.key ?? null }, stampNow());
     await write({ set: { [`orders.${orderId}.pledges.${pledge.id}`]: pledge } });
     return { ok: true, pledge: pledge.id };
 }
@@ -83,7 +94,7 @@ export async function fulfilPledge(orderId, pledgeId, { costCp = 0, paidFrom = "
     const step = pledgeTransition(pledge, "fulfil");
     if (!step.ok) return step;
     const path = `orders.${orderId}.pledges.${pledgeId}`;
-    const paid = costCp > 0 && supply.kind !== "wand";
+    const paid = costCp > 0 && supply.kind !== "wand" && supply.kind !== "wand-special";
     const set = { [`${path}.status`]: "fulfilled", [`${path}.costCp`]: paid ? costCp : 0 };
     if (!paid) {
         await write({ set });
@@ -113,18 +124,21 @@ export async function withdrawPledge(orderId, pledgeId) {
  * view): `{ok, cp, rank, spell}`, or the refusals `buyCasting` gives first (`no-spell`, the rule codes of
  * `pledgeProblem`, `no-casting-service` above rank 9).
  */
-export async function castingPrice(orderId, { spell, castings = 1 }) {
+export async function castingPrice(orderId, { spell, castings = 1, entry = null }) {
     const { order, supply, refusal } = await openOrder(orderId);
     if (refusal) return refusal;
     const doc = typeof spell === "string" ? await fromUuid(spell).catch(() => null) : null;
     if (doc?.type !== "spell") return refuse("no-spell");
     const facts = { ...spellFacts(doc), source: doc.uuid };
-    const problem = pledgeProblem({ supply, spell: facts, castings, existing: livePledges(order) });
+    const existing = livePledges(order);
+    const problem = pledgeProblem({ supply, spell: facts, castings, existing, entry });
     if (problem) return refuse(problem.reason, problem.data ?? {});
-    const rank = supply.rank ?? facts.rank;
+    // M9: a listed casting is bought at its own rank; a cantrip has no spellcasting service price.
+    const listed = entryFor(supply, facts, existing, entry);
+    const rank = pledgeRank(supply, listed, facts);
     const cp = castingsPriceCp(rank, castings);
     if (cp === null) return refuse("no-casting-service", { rank });
-    return { ok: true, cp, rank, spell: facts, order, supply };
+    return { ok: true, cp, rank, spell: facts, order, supply, entry: listed?.key ?? null };
 }
 
 /**
@@ -133,14 +147,14 @@ export async function castingPrice(orderId, { spell, castings = 1 }) {
  * in one move, paid from `paidFrom` (As built in M5 on M4.1): `purse`, `payer`'s, or `fund`, the party fund. `spell` is
  * a compendium spell's UUID. Spellcasting services are uncommon, so this is the table's call: the module records it.
  */
-export async function buyCasting(orderId, { payer = null, paidFrom = "purse", spell, castings = 1 }) {
+export async function buyCasting(orderId, { payer = null, paidFrom = "purse", spell, castings = 1, entry = null }) {
     const source = paidFrom === "fund" ? "fund" : "purse";
     if (source === "purse" && !actorOf(payer)?.isOwner) return refuse("not-owner");
-    const price = await castingPrice(orderId, { spell, castings });
+    const price = await castingPrice(orderId, { spell, castings, entry });
     if (!price.ok) return price;
     const purse = source === "purse" ? actorOf(payer).uuid : null;
     const pledge = { ...makePledge({ id: newId(), caster: null, spell: price.spell, rank: price.rank, castings, payer: purse, service: true,
-        costCp: price.cp }, stampNow()), paidFrom: source };
+        costCp: price.cp, entry: price.entry }, stampNow()), paidFrom: source };
     return payPurchase({ source, payer: purse, cp: price.cp, idem: idemKey("purchase", "casting", orderId, pledge.id), order: orderId,
         ledger: { set: { [`orders.${orderId}.pledges.${pledge.id}`]: pledge } } });
 }

@@ -51,6 +51,7 @@ import { EVENT, ROW_KIND, STATUS } from "./labels.mjs";
 import { askMoney, confirm } from "./prompts.mjs";
 import { openRequestForm } from "./request.mjs";
 import { detailExtras, kindText, onCustodyOp, onPledgeOp, onServiceOp, servicesView, targetText } from "./extras.mjs";
+import { onCraftOp } from "./crafts.mjs";
 import { formulasContext, formulasOn, onFormulaChange, onFormulaDrop, onFormulaOp, onFormulaSearch } from "./formulas.mjs";
 import { allServices } from "../foundry/services.mjs";
 import { dayWatcher, downtimeOn, today, worldDate } from "../foundry/downtime.mjs";
@@ -136,6 +137,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             morning: WorkshopApp.#onMorning,
             // M8a: the Afflictions window, from the header's pending count (10.2).
             afflictions: WorkshopApp.#onAfflictions,
+            // M9: a tattoo's subject, a fulu's tradition, healing, missives.
+            craft: WorkshopApp.#onCraft,
         },
     };
 
@@ -878,6 +881,17 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
     static async #onPledgeOp(_event, target) {
         const result = await onPledgeOp(this, target);
         if (result?.ok) this.announce(game.i18n.localize("pf2e-artisans-workshop.Event.Casting"));
+    }
+
+    /** An M9 button: a subject agrees or withdraws, a fulu's tradition, healing recorded, a missive composed. */
+    static async #onCraft(_event, target) {
+        target.disabled = true;
+        try {
+            const result = await onCraftOp(this, target);
+            if (result?.ok) this.announce(game.i18n.localize("pf2e-artisans-workshop.Event.Craft"));
+        } finally {
+            if (target.isConnected) target.disabled = false;
+        }
     }
 
     /** A custody button: hand over an item, add stock, give one back (M5). */

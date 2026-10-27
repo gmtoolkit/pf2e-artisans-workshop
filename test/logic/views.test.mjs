@@ -152,7 +152,9 @@ test("requirements in plain words: met ones counted, unmet ones with the action 
     // M5 on M4.1: precious stock, castings and an item to hand over each have their fix.
     const fix = (gate) => requirementsView([{ ok: false, data: {}, ...gate }]).unmet[0].action;
     assert.deepEqual([fix({ id: "G8", reason: "precious" }), fix({ id: "G9", reason: "spells" }), fix({ id: "G9", reason: "checklist" }),
-        fix({ id: "G10", reason: "target-not-held" }), fix({ id: "G10", reason: "no-consent" })], ["stock", "castings", null, "hand-over", null]);
+        fix({ id: "G10", reason: "target-not-held" }), fix({ id: "G10", reason: "no-consent" })], ["stock", "castings", null, "hand-over", "consent"],
+    "M9: the subject agrees from the Queue (6.14)");
+    assert.equal(fix({ id: "G12", reason: "fulu-tradition" }), "tradition", "M9: the crafter chooses a fulu's tradition");
     assert.deepEqual([requirementsView([]).total, requirementsView([]).allMet], [0, true]);
     const accepted = order({ status: "accepted", crafter: "Actor.c" });
     assert.equal(orderView(accepted, { gates, viewer: viewer(), nameOf }).requirements.met, 11, "an accepted order's view carries them");

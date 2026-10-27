@@ -22,10 +22,11 @@ const HASTE = { uuid: "Actor.c.Item.haste", rank: 3, traits: [], category: "spel
 /* -------------------------------------------- */
 
 test("spell supply: pf2e's base scrolls and wands by rank, staves and spellhearts by trait", () => {
-    assert.deepEqual(spellSupply(SCROLL3), { kind: "scroll", rank: 3 });
-    assert.deepEqual(spellSupply(WAND2), { kind: "wand", rank: 2 });
-    assert.deepEqual(spellSupply({ traits: ["magical", "staff"] }), { kind: "staff", rank: null });
-    assert.deepEqual(spellSupply({ traits: ["magical", "spellheart"] }), { kind: "spellheart", rank: null });
+    assert.deepEqual(spellSupply(SCROLL3), { kind: "scroll", rank: 3, entries: [], any: 0 });
+    assert.deepEqual(spellSupply(WAND2), { kind: "wand", rank: 2, entries: [], any: 0 });
+    // A staff or spellheart whose description was not read (M9: `spellNeeds`) takes any casting, as many as offered (M5).
+    assert.deepEqual(spellSupply({ traits: ["magical", "staff"] }), { kind: "staff", rank: null, entries: [], any: 1, unread: true });
+    assert.deepEqual(spellSupply({ traits: ["magical", "spellheart"] }), { kind: "spellheart", rank: null, entries: [], any: 1, unread: true });
     assert.equal(spellSupply({ traits: ["alchemical"] }), null);
 });
 
@@ -64,7 +65,7 @@ test("castings counted for the batch and for G9; withdrawn pledges drop out", ()
     assert.deepEqual(livePledges(order).map((p) => p.id), ["a", "b"]);
     assert.equal(castingsOf(order), 3);
     assert.equal(castingsOf(order, ["fulfilled"]), 1);
-    assert.deepEqual(spellGate(order, spellSupply(SCROLL3)), { spellsNeeded: true, spellsSupplied: false, needed: 3, fulfilled: 1 });
+    assert.deepEqual(spellGate(order, spellSupply(SCROLL3)), { spellsNeeded: true, spellsSupplied: false, needed: 3, fulfilled: 1, open: [] });
     assert.equal(castingsNeeded(spellSupply(WAND2), 1), 1);
     assert.equal(castingsNeeded(null, 4), 0);
     assert.equal(pledgedSpell(order).uuid, FIREBALL.uuid);

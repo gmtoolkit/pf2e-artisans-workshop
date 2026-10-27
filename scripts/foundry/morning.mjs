@@ -4,7 +4,7 @@
  *
  * - **Sources** (7.1): every pf2e `CraftingAbility` of the character with `isDailyPrep` is a pool (pf2e has merged
  *   same-slug sources already; each source's own numbers come from its rule element, `sourcesOf`); prepared abilities
- *   that are not daily (snares) are listed read-only; the versatile vials resource with its item and material buckets
+ *   that are not daily (snares) are listed with their quick-deploy ledger (M9); the versatile vials resource with its item and material buckets
  *   (7.3); the talisman pools' virtual lists (7.4); frequencies of the daily features the registry names; the gap
  *   registry entries (7.10).
  * - **Preparing** (`applyMorning`): each pool keeps its preparation, takes a loadout's families (7.5) or explicit
@@ -22,6 +22,7 @@
  *   (`rest.mjs`). Preparing again in the same cycle ("prepare for a new day", a downtime day without a rest, 7.2) begins
  *   a new cycle and un-expends the pools with `CraftingAbility#updateFormulas`.
  */
+import { snareLedger } from "./crafts.mjs";
 import { MODULE_ID } from "../constants.mjs";
 import { dcStampFor } from "./affliction-defs.mjs";
 import { RANK } from "../logic/core.mjs";
@@ -191,7 +192,8 @@ export async function morningFacts(actor, rules = rulesFromSettings(), { wildern
         const base = { slug: ability.slug, label: labelOf(ability.label), ability, maxSlots: Number.isInteger(ability.maxSlots) && ability.maxSlots > 0 ? ability.maxSlots : null,
             maxItemLevel: ability.maxItemLevel ?? actor.level ?? 0, prepared };
         if (!ability.isDailyPrep) {
-            if (ability.isPrepared) slots.push({ ...base, byLevel: countsByLevel(prepared) });
+            // M9 (7.1): a prepared snare pool's quick-deploy ledger: what is ready and deployed, giant and broad snares at two.
+            if (ability.isPrepared) slots.push({ ...base, byLevel: countsByLevel(prepared), ledger: snareLedger(actor, { slug: ability.slug, maxSlots: base.maxSlots, prepared }) });
             continue;
         }
         const sources = sourcesOf(actor, ability.slug);

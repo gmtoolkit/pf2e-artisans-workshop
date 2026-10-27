@@ -24,6 +24,7 @@ import { productFacts } from "./products.mjs";
 import * as services from "./services.mjs";
 import { handOver } from "./custody.mjs";
 import * as communal from "./communal.mjs";
+import * as crafts from "./crafts.mjs";
 import * as downtime from "./downtime.mjs";
 import * as jobs from "./jobs.mjs";
 import * as morning from "./morning.mjs";
@@ -102,12 +103,15 @@ export function buildApi() {
         orders: {
             list: (filter = {}) => records("orders").filter((o) => !filter.status || o.status === filter.status),
             get: (id) => read(`orders.${id}`) ?? null,
-            request: ({ uuid, quantity = 1, recipient = null, crafter = null, note = "", actor = null } = {}) => {
+            // M9: a tattoo or graft is made on `subject` (else the recipient, else the requester), upgrading `replaces`.
+            request: ({ uuid, quantity = 1, recipient = null, crafter = null, note = "", actor = null, subject = null, replaces = null } = {}) => {
                 const requester = resolveActor(actor);
                 if (!requester) return Promise.resolve(noActor());
                 if (!uuid) return openRequestForm({ requester: requester.uuid });
-                const target = recipient === "strongbox" ? { kind: "strongbox" } : { kind: "actor", uuid: recipient ?? requester.uuid };
-                return orders.requestOrder({ uuid, quantity, requester: requester.uuid, recipient: target, crafter, note });
+                const on = subject ? resolveActor(subject)?.uuid ?? null : null;
+                const target = recipient === "strongbox" ? { kind: "strongbox" } : { kind: "actor", uuid: on ?? recipient ?? requester.uuid };
+                return orders.requestOrder({ uuid, quantity, requester: requester.uuid, recipient: target, crafter, note, target: on,
+                    variant: replaces ? { replaces } : {} });
             },
             accept: (id, { crafter = null } = {}) => {
                 const actor = resolveActor(crafter);
@@ -196,15 +200,17 @@ export function buildApi() {
         // Casting pledges (6.9). A spell's cost and a bought casting are paid as `pay` says (M5 on M4.1): `{source:
         // "fund"}`, or `{source: "purse", from}`; `buy`'s `from` alone still names the purse.
         pledges: {
-            pledge: (order, { caster = null, spell, castings = 1 } = {}) => pledges.pledgeCasting(order, { caster: resolveActor(caster)?.uuid ?? null, spell, castings }),
+            // M9: `entry` names the listed casting (a staff's, a spellheart's) the pledge supplies.
+            pledge: (order, { caster = null, spell, castings = 1, entry = null } = {}) => pledges.pledgeCasting(order, { caster: resolveActor(caster)?.uuid ?? null, spell,
+                castings, entry }),
             fulfil: (order, pledge, { cost = 0, pay = null } = {}) => {
                 const paying = pay ? payOf(pay) : {};
                 return paying ? pledges.fulfilPledge(order, pledge, { costCp: amountCp(cost) ?? 0, ...paying }) : Promise.resolve(noActor());
             },
             withdraw: (order, pledge) => pledges.withdrawPledge(order, pledge),
-            buy: (order, { spell, castings = 1, from = null, pay = null } = {}) => {
+            buy: (order, { spell, castings = 1, from = null, pay = null, entry = null } = {}) => {
                 const paying = payOf(pay ?? { source: "purse", from }, resolveActor(from));
-                return paying ? pledges.buyCasting(order, { ...paying, spell, castings }) : Promise.resolve(noActor());
+                return paying ? pledges.buyCasting(order, { ...paying, spell, castings, entry }) : Promise.resolve(noActor());
             },
         },
         custody: {
@@ -442,6 +448,29 @@ export function buildApi() {
             candidates: ({ family, actor = null } = {}) => {
                 const who = resolveActor(actor);
                 return who ? consumables.candidatesOf(who, family).map((c) => ({ id: c.id, name: c.item.name, carry: c.carry, qty: c.item.quantity ?? 1, infused: c.infused })) : [];
+            },
+        },
+        // M9 (11.2): tattoos and grafts (6.14), fulus' traditions, missives and quick-deploy snares (7.1).
+        crafts: {
+            consent: (order, { actor = null } = {}) => {
+                const who = resolveActor(actor);
+                return who ? crafts.consent(order, who.uuid) : Promise.resolve(noActor());
+            },
+            withdrawConsent: (order, { actor = null } = {}) => {
+                const who = resolveActor(actor);
+                return who ? crafts.withdrawConsent(order, who.uuid) : Promise.resolve(noActor());
+            },
+            tradition: (order, tradition) => crafts.chooseTradition(order, tradition),
+            recordHealing: (itemUuid) => crafts.recordHealing(itemUuid),
+            compose: (itemUuid, { note = "" } = {}) => crafts.composeMissive(itemUuid, { note }),
+            sweep: () => crafts.subjectSweep(),
+            snareMark: ({ actor = null, pool, key, mark = null } = {}) => {
+                const who = resolveActor(actor);
+                return who ? crafts.setSnareMark(who.uuid, pool, key, mark) : Promise.resolve(noActor());
+            },
+            deploy: ({ actor = null, pool, index } = {}) => {
+                const who = resolveActor(actor);
+                return who ? crafts.deploySnare(who.uuid, pool, index) : Promise.resolve(noActor());
             },
         },
         communal: {

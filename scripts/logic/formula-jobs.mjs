@@ -4,7 +4,7 @@
  * time and check.
  */
 import { FORMULA_COPY_MINUTES, FORMULA_PRICE, FORMULA_PRICE_MAX_LEVEL, SCHEMATIC_SCANNER_MINUTES } from "../data/formulas.mjs";
-import { FEAT, asSet, clamp, requireInteger } from "./core.mjs";
+import { FEAT, asSet, clamp, hasTrait, requireInteger } from "./core.mjs";
 import { craftCost, setupPlan } from "./craft.mjs";
 import { craftDC } from "./dc.mjs";
 import { DEFAULT_RULES } from "./defaults.mjs";
@@ -92,7 +92,8 @@ export function acquisitionRoutes({ item, feats = [], possessesItem = false, all
     if (has.has(FEAT.inventor) && inventable) {
         routes.push({ route: "invent", costCp: price, setupDays: rules.inventorSetupDays, check: "craft", needs: [] });
     }
-    if (possessesItem && !item.noReverseEngineer) {
+    // A fulu's formula cannot be reverse-engineered (Secrets of Magic p.158; M9: read from its trait).
+    if (possessesItem && !item.noReverseEngineer && !hasTrait(item, "fulu")) {
         routes.push({ route: "reverse-engineer", costCp: price, setupDays: reverseSetup(feats, rules), check: "craft", needs: [] });
         if (hasScanner) routes.push({ route: "scanner", costCp: 0, minutes: SCHEMATIC_SCANNER_MINUTES, check: null, needs: [] });
     }

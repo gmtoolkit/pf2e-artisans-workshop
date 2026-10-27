@@ -31,7 +31,7 @@ export function jobName(id) {
 export function activityText(activity) {
     if (!activity) return loc(ACTIVITY.none);
     const key = ACTIVITY[activity.kind] ?? ACTIVITY.other;
-    if (activity.kind === "craft" || activity.kind === "help") return fmt(key, { item: orderName(activity.ref) });
+    if (activity.kind === "craft" || activity.kind === "help" || activity.kind === "subject") return fmt(key, { item: orderName(activity.ref) });
     if (activity.kind === "earn") return fmt(key, { job: jobName(activity.ref) });
     return loc(key);
 }

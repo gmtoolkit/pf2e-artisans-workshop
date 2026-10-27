@@ -53,6 +53,7 @@ import { newId, read, records, stampNow } from "../../scripts/foundry/store.mjs"
 import { refresh } from "../../scripts/foundry/sync.mjs";
 import { COMBAT_SCENARIOS } from "./combat-scenarios.mjs";
 import { AFFLICTION_SCENARIOS } from "./affliction-scenarios.mjs";
+import { CRAFT_SCENARIOS } from "./craft-scenarios.mjs";
 import { DOWNTIME_SCENARIOS } from "./downtime-scenarios.mjs";
 import { FORMULA_SCENARIOS } from "./formula-scenarios.mjs";
 import { MORNING_SCENARIOS } from "./morning-scenarios.mjs";
@@ -343,6 +344,7 @@ const SCENARIOS = {
     ...MORNING_SCENARIOS,
     ...COMBAT_SCENARIOS,
     ...AFFLICTION_SCENARIOS,
+    ...CRAFT_SCENARIOS,
 };
 
 /** Every scenario, its steps and what each does. */

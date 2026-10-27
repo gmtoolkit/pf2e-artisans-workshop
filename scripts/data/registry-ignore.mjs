@@ -851,7 +851,6 @@ export const REGISTRY_IGNORE = deepFreeze({
     "Compendium.pf2e.feats-srd.Item.VOgAiCqC5kpIpLaf": "fp-rune",
     "Compendium.pf2e.feats-srd.Item.VPKBjEy8frqDMxyO": "fp-poison",
     "Compendium.pf2e.feats-srd.Item.VPnkSL25EfrEpPSX": "fp-ammo",
-    "Compendium.pf2e.feats-srd.Item.VRCBTEyrcBf7auGz": "combat",
     "Compendium.pf2e.feats-srd.Item.VaKsW4wjZ9g7UZGh": "fp-incidental",
     "Compendium.pf2e.feats-srd.Item.Vp00zw92L5yGqBHB": "fp-rune",
     "Compendium.pf2e.feats-srd.Item.VzQtyHSjq12E4Dzh": "fp-poison",

@@ -101,7 +101,9 @@ export const blockers = (gates = []) => gates.filter((gate) => !gate.ok).map(({ 
  * underfunded G8 is met by funding the order ("fund"), G8's precious material by handing over stock ("stock"), G9's
  * spells by a casting offered or bought ("castings"), G10 by handing the item over ("hand-over").
  */
-const REQUIREMENT_ACTIONS = Object.freeze({ underfunded: "fund", precious: "stock", spells: "castings", "target-not-held": "hand-over" });
+const REQUIREMENT_ACTIONS = Object.freeze({ underfunded: "fund", precious: "stock", spells: "castings", "target-not-held": "hand-over",
+    // M9: a tattoo's or graft's subject consents (6.14); a fulu's crafter chooses its tradition.
+    "no-consent": "consent", "subject-not-locked": "consent", "fulu-tradition": "tradition" });
 
 /**
  * Which name a requirement goes by for this kind of order (M5 on M4.1), or null for its plain one: G9 is the spells cast
@@ -112,6 +114,8 @@ export function requirementVariant(id, order = null) {
     const type = order?.craftType ?? "item";
     if (id === "G9" && type === "spell-item") return "spells";
     if (id === "G10" && TARGETED.includes(type)) return "target";
+    if (id === "G10" && (type === "tattoo" || type === "graft")) return "subject";
+    if (id === "G11" && (type === "tattoo" || type === "graft")) return "subject";
     if (id === "G10" && order?.product?.type === "formula") return "possession";
     if (id === "G12" && (type === "rune-etch" || type === "rune-transfer")) return "rune";
     if (id === "G12" && type === "upgrade") return "upgrade";

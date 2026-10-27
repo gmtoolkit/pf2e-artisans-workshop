@@ -21,6 +21,9 @@
  *
  * As built in M6: an order's "Work a day" is the day resolver for one day of the crafter's (`resolveDays`,
  * `scripts/foundry/downtime.mjs`), and starting an order makes it the crafter's downtime activity (4.2.3).
+ *
+ * As built in M9: a tattoo or graft (6.14) is filed for its subject, who receives it; the start freezes the tattoo
+ * process and a fulu's tradition on the order, and a graft rolls Medicine; a retry needs the subject's consent still.
  */
 import { MODULE_ID } from "../constants.mjs";
 import { batchMax, splitIntoBatches } from "../logic/batches.mjs";
@@ -33,9 +36,10 @@ import { allPass } from "../logic/gates.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
 import { PC_VERSION } from "../logic/downtime.mjs";
 import {
-    TARGETED, acceptOrder, closedAs, closedRepair, lastEntry, leftAfterSpend, makeOrder, refundClaims, releaseOrder,
+    TARGETED, WITH_SUBJECT, acceptOrder, closedAs, closedRepair, lastEntry, leftAfterSpend, makeOrder, refundClaims, releaseOrder,
     settlementRepair, setupRepair, transitionChange, undoPlan, withdrawableCp,
 } from "../logic/orders.mjs";
+import { consentOf, fuluTradition, selfSubject, subjectProcess, subjectTypeOf } from "../logic/crafts.mjs";
 import { remainingCp } from "../logic/progress.mjs";
 import { seqFor } from "../logic/rows.mjs";
 import { allocationsByContributor } from "../logic/split.mjs";
@@ -49,11 +53,11 @@ import { resolveDays } from "./downtime.mjs";
 import { applyIfResponsible, knownState } from "./formulas.mjs";
 import { freeStacks, lockedWrite, moveCoins, pledge, reverseRows, withdraw } from "./money.mjs";
 import { finishOutputs } from "./outputs.mjs";
-import { crafterFacts, gatesFor, productFacts, snapshotOf } from "./products.mjs";
+import { crafterFacts, gatesFor, productFacts, skillFor, snapshotOf } from "./products.mjs";
 import { isResponsibleFor } from "./responsible.mjs";
 import { rollCraft, settleOrder } from "./rolls.mjs";
 import { members } from "./roster.mjs";
-import { rulesFromSettings } from "./settings.mjs";
+import { rulesFromSettings, setting } from "./settings.mjs";
 import { canWrite } from "./state.mjs";
 import { newId, read, records, stampNow, write } from "./store.mjs";
 
@@ -124,6 +128,9 @@ function writeTransition(order, event, patch) {
  * @param {string|null} [p.crafter]
  * @param {string} [p.note]
  * @param {boolean} [p.gift]
+ * @param {string|null} [p.target]   the item worked on (an etching, an upgrade, a transfer); M9: a tattoo's or graft's
+ *   subject (an actor UUID, the requester by default), who receives it
+ * @param {object} [p.variant]       M9: `replaces`, a tattoo or graft the subject has that this one upgrades
  * @returns {Promise<{ok: boolean, reason?: string, orders?: string[]}>}
  */
 export async function requestOrder({ uuid, quantity = 1, requester, recipient = null, crafter = null, note = "", gift = false,
@@ -137,14 +144,25 @@ export async function requestOrder({ uuid, quantity = 1, requester, recipient = 
     if (!(product.priceCp > 0)) return refuse("no-price");
     if (productType === "formula" && !FORMULA_ORDER_ROUTES.includes(route)) return refuse("no-route");
     const rules = rulesFromSettings();
+    // M9 (6.14): a tattoo or graft is made on its subject, who receives it: one at a time, never for the strongbox.
+    const tattoos = setting("features.tattoos") !== false;
+    const subjectType = !tattoos ? null : productType === "item" && !craftType ? subjectTypeOf(product) : WITH_SUBJECT.includes(craftType) ? craftType : null;
+    if (!tattoos && WITH_SUBJECT.includes(craftType)) return refuse("off");
+    if (subjectType) {
+        // The subject is the one named, else the recipient named, else the requester.
+        target ??= recipient?.kind === "actor" && recipient.uuid ? recipient.uuid : requester;
+        if (!actorOf(target)) return refuse("no-actor");
+        if (recipient && (recipient.kind !== "actor" || recipient.uuid !== target)) return refuse("subject-recipient");
+        recipient = { kind: "actor", uuid: target };
+    }
     const to = recipient ?? { kind: "actor", uuid: requester };
     // A formula job for a book that has the formula, or will once a claim is applied, would teach nothing (5.5).
     const already = productType === "formula" ? knownState(actorOf(to.uuid), uuid) : null;
     if (already) return refuse(already);
     // M5: a scroll, wand, staff or spellheart is a spell-supplied item (6.9); a formula, an upgrade, an etching and a
-    // transfer are one each.
-    const type = craftType ?? (spellSupply(product) ? "spell-item" : "item");
-    const single = productType === "formula" || TARGETED.includes(type);
+    // transfer are one each. M9: so is a tattoo or a graft (6.14).
+    const type = craftType ?? subjectType ?? (spellSupply(product) ? "spell-item" : "item");
+    const single = productType === "formula" || TARGETED.includes(type) || WITH_SUBJECT.includes(type);
     const max = single ? 1 : crafter
         ? (await gatesFor({ id: "probe", quantity: 1, craftType: type }, crafterFacts(actorOf(crafter)), product, [], rules)).plan.batchMax
         : batchMax({ ...product }, { pledgedCastings: 4 }, rules);
@@ -232,7 +250,10 @@ export async function start(id) {
     if (!allPass(gates)) return refuse("gates", { gates: gates.filter((gate) => !gate.ok) });
     const result = startOrder(order, plan);
     if (!result.ok) return result;
-    const patch = { ...result.patch, route: plan.route, skill: order.skill ?? "crafting", product: { ...order.product, snapshot: { ...order.product.snapshot, priceCp: product.priceCp, per: product.per } } };
+    const patch = { ...result.patch, route: plan.route, skill: skillFor(order), product: { ...order.product, snapshot: { ...order.product.snapshot, priceCp: product.priceCp, per: product.per } } };
+    // M9: the tattoo process and a fulu's tradition are frozen with the plan, so a settings change mid-Craft changes nothing.
+    const frozen = startFreeze(order, product, crafter, rules);
+    if (frozen) patch.variant = { ...(patch.variant ?? order.variant ?? {}), ...frozen };
     // Earmarked material items count toward the up-front half at their Price (M5, 6.6): the coins commit the rest.
     const commit = result.rows.map((row) => ({ kind: "commit", idem: idemKey("commit", id, patch.attempt, seqFor(rows, idemKey("commit", id, patch.attempt))),
         cp: Math.max(0, row.cp - materialsCp(order)), order: id })).filter((row) => row.cp > 0);
@@ -247,8 +268,22 @@ export async function start(id) {
     return { ok: true };
 }
 
+/**
+ * What a start freezes on an M9 order's `variant`, or null: a tattoo's process (6.14) and a fulu's tradition (Secrets of
+ * Magic p.158: its creator's, the crafter's only one or the one chosen).
+ */
+function startFreeze(order, product, crafter, rules) {
+    const out = {};
+    if (order.craftType === "tattoo") out.process = subjectProcess("tattoo", rules, order.variant?.process ?? null).process;
+    if (product.traits.includes("fulu")) {
+        const tradition = fuluTradition({ chosen: order.variant?.tradition ?? null, traditions: crafterFacts(crafter).traditions });
+        if (tradition) out.tradition = tradition;
+    }
+    return Object.keys(out).length ? out : null;
+}
+
 /** Why a work day planned nothing, as a refusal: the planner's stop (`planDays`). */
-const WORK_STOPS = Object.freeze({ "paid-off": "paid-off", locked: "helper-locked" });
+const WORK_STOPS = Object.freeze({ "paid-off": "paid-off", locked: "helper-locked", sitting: "subject" });
 
 /**
  * The crafter works one day on the order: "Work a day" (M4), now the day resolver for one day (M6, 9.1): the crafter's
@@ -318,6 +353,8 @@ export async function retry(id) {
     if (refusal) return refusal;
     if (!owns(order.crafter)) return refuse("not-owner");
     const rows = orderRows(id);
+    // M9 (6.14): a tattoo or graft is retried on a subject who still consents (the consent may be withdrawn after a failure).
+    if (WITH_SUBJECT.includes(order.craftType) && !selfSubject(order) && !consentOf(order)?.consented) return refuse("no-consent");
     const result = retryOrder(order, { expendedCp: expendedFromRows(rows) });
     if (!result.ok) return result;
     const escrow = rows.reduce((sum, row) => sum + (row.alloc ?? 0), 0);

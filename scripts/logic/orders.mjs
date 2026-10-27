@@ -68,6 +68,10 @@ export function makeOrder({ id, party = null, requester, recipient, product, qua
     if (productType !== "item" && productType !== "formula") throw new RangeError(`unknown product type ${productType}`);
     if (productType === "formula" && (recipient.kind !== "actor" || quantity !== 1)) throw new RangeError("a formula goes into one actor's book");
     if (TARGETED.includes(craftType) && !target) throw new TypeError(`a ${craftType} order names the item it works on`);
+    // M9 (6.14): a tattoo or graft names its subject, who receives it.
+    if (WITH_SUBJECT.includes(craftType) && (!target || recipient.kind !== "actor" || recipient.uuid !== target || quantity !== 1)) {
+        throw new TypeError(`a ${craftType} order names its subject, who receives one`);
+    }
     return {
         id, v: ORDER_VERSION, party, requester, recipient: { kind: recipient.kind, uuid: recipient.uuid ?? null },
         product: { type: productType, uuid: product.uuid, family: product.family ?? null, snapshot: { ...product.snapshot } },
@@ -79,8 +83,10 @@ export function makeOrder({ id, party = null, requester, recipient, product, qua
     };
 }
 
-/** Craft types the order machine runs in M5 (4.2.1); the variant ones (6.16) arrive with M9a. */
-export const CRAFT_TYPES = Object.freeze(["item", "upgrade", "rune-etch", "rune-transfer", "spell-item"]);
+/** Craft types the order machine runs (4.2.1): M5's, and M9's tattoos and grafts; the variant ones (6.16) arrive with M9a. */
+export const CRAFT_TYPES = Object.freeze(["item", "upgrade", "rune-etch", "rune-transfer", "spell-item", "tattoo", "graft"]);
+/** Craft types with a subject, who consents and receives the item (6.14, M9; `scripts/logic/crafts.mjs`). */
+export const WITH_SUBJECT = Object.freeze(["tattoo", "graft"]);
 /** Craft types that work on an item the crafter must hold for the whole job (G10, GM Core p.225). */
 export const TARGETED = Object.freeze(["upgrade", "rune-etch", "rune-transfer"]);
 
