@@ -3908,6 +3908,7 @@ export const M9A = Object.freeze({
     breastplate: "Compendium.pf2e.equipment-srd.Item.r0ifJfoz8aqf0mwk", // Breastplate, level 0, 8 gp
     latches: "Compendium.pf2e.equipment-srd.Item.HuC6uonXt6YXePjb",     // Armor Latches, a common adjustment applied to armor, level 1, 4 gp
     quickSetup: "Compendium.pf2e.feats-srd.Item.bcEI0iIFhZXqjoaR",      // Quick Setup (Treasure Vault), skill feat 7, master in Crafting
+    alchemicalCrafting: "Compendium.pf2e.feats-srd.Item.is3Oz9wt11lNq62K", // Alchemical Crafting, skill feat 1 (a fighter's alchemist's fire)
 });
 
 /** The keys of the notes the M9a plans read from the pages' notification logs. */
@@ -3955,8 +3956,10 @@ async function m9aNotice(h, w) {
  * 13a. Complex Crafting rushed in setup and in finishing (6.16.1). Player Two's fighter (master, level 10) makes a Cloak of
  * Feline Rest without its formula: Table 5-1 gives 2 days, rushed by one to 1 day at +5 DC, frozen at the start; after the
  * check, one finishing day is rushed and the finish's flat check (DC 10 + 1 - 16) cannot fail, so no die is rolled. Then the
- * legacy alchemist fixture (expert, level 3) rushes Alchemist's Fire (Lesser) to 4 hours (Set up now) and rushes a finishing
- * day: its flat check is DC 4, rolled once, and the outcome follows the die.
+ * legacy alchemist fixture (expert, level 3) rushes Alchemist's Fire (Lesser) to 4 hours, which takes its downtime day on the
+ * order (only Quick Setup's 2-hour consumable setup fits into an adventuring day, TV-R p.159), so Set up now is refused and
+ * Work a day records the setup; then it rushes a finishing day: its flat check is DC 4, rolled once, and the outcome follows
+ * the die.
  */
 async function m9aComplex(h, w) {
     const alchemist = fixtureOf(h, w, "legacy-alchemist-3");
@@ -3991,10 +3994,10 @@ async function m9aComplex(h, w) {
     const begun = await h.step("gm", "m9a", "start", { order: fire.order, crafter: alchemist, payer: w.pcs.p1.uuid, pledge: 150 });
     h.check("rushed below a day: 4 hours, +5 DC", begun.start?.ok === true && begun.order.setup?.days === 0 && begun.order.setup?.hours === 4 && begun.order.dc?.adjust === 5,
         begun);
-    const now = await h.step("gm", "m9a", "setUpNow", { order: fire.order });
-    h.check("Set up now: a setup-hours record and the order at its check", now.result?.ok === true && now.order.status === "check" &&
-        now.order.days.some((d) => d.kind === "setup-hours"), now);
-    h.check("once", (await h.step("gm", "m9a", "setUpNow", { order: fire.order })).result?.reason === "state");
+    h.check("4 hours is no adventuring-day setup: Set up now is refused", (await h.step("gm", "m9a", "setUpNow", { order: fire.order })).result?.reason === "downtime-day");
+    const now = await h.step("gm", "m9a", "work", { order: fire.order, count: 1, while: ["setup"] });
+    h.check("Work a day: the crafter's own day record is the setup-hours record, and the order is at its check", now.order.status === "check" &&
+        now.order.days.some((d) => d.kind === "setup-hours" && d.hours === 4 && !d.id.endsWith(`-${fire.order}`)), now);
     await h.step("gm", "m9a", "roll", { order: fire.order });
     const settled = await h.step("gm", "m9a", "work", { order: fire.order, count: 1 });
     out.fire = settled.order;
@@ -4012,24 +4015,33 @@ async function m9aComplex(h, w) {
 }
 
 /**
- * 13b. Quick Setup (TV-R p.159) on a day spent on something else: Player Two's fighter, given Quick Setup, rushes a Cloak of
- * Feline Rest it has the formula for (1 day, 8 levels below) to 4 hours; it is in downtime subsisting. The day is logged and
- * resolved as subsistence, and Set up now records the hours on the same day under its own key: two records, neither
- * overwriting the other.
+ * 13b. Quick Setup (TV-R p.159) on a day spent on something else: Player Two's fighter, given Quick Setup and Alchemical
+ * Crafting, is in downtime subsisting. A Cloak of Feline Rest it has the formula for (1 day, 9 levels below) rushed to 4 hours
+ * is no adventuring-day setup: Set up now is refused (the feat lets only a batch of consumables be set up in 2 hours during an
+ * adventuring day). Alchemist's Fire (Lesser) rushed to 2 hours is: the day is logged and resolved as subsistence, and Set up
+ * now records the hours on the same day under its own key: two records, neither overwriting the other.
  */
 async function m9aQuickSetup(h, w) {
     await m9aReset(h, w, { on: { "variants.complexCrafting": true } });
     const fighter = w.pcs.p2.uuid;
     await h.step("gm", "m9", "give", { actor: fighter, uuid: M9A.quickSetup });
-    await h.step("gm", "m9", "learn", { actor: fighter, uuids: [M9A.cloak] });
+    await h.step("gm", "m9", "give", { actor: fighter, uuid: M9A.alchemicalCrafting });
+    await h.step("gm", "m9", "learn", { actor: fighter, uuids: [M9A.cloak, M9A.fire] });
     await h.only(["gm", "p2"]);
     await h.settle("ready");
     await h.step("p2", "m6", "downtime", { on: true });
     await h.step("p2", "m6", "activity", { activity: "subsist" });
-    const filed = await h.step("p2", "m9", "request", { uuid: M9A.cloak, requester: fighter, crafter: fighter });
+    const cloak = await h.step("p2", "m9", "request", { uuid: M9A.cloak, requester: fighter, crafter: fighter });
+    await h.step("p2", "m9a", "rush", { order: cloak.order, rush: 1 });
+    const permanent = await h.step("p2", "m9a", "start", { order: cloak.order, crafter: fighter, payer: fighter, pledge: 1000 });
+    h.check("Quick Setup: 4 hours for a permanent item", permanent.start?.ok === true && permanent.order.setup?.days === 0 && permanent.order.setup?.hours === 4 &&
+        permanent.order.variant.complex?.quick === true, permanent);
+    h.check("a permanent item's 4 hours take a downtime day: Set up now is refused",
+        (await h.step("p2", "m9a", "setUpNow", { order: cloak.order })).result?.reason === "downtime-day");
+    const filed = await h.step("p2", "m9", "request", { uuid: M9A.fire, quantity: 4, requester: fighter, crafter: fighter });
     await h.step("p2", "m9a", "rush", { order: filed.order, rush: 1 });
-    const begun = await h.step("p2", "m9a", "start", { order: filed.order, crafter: fighter, payer: fighter, pledge: 1000 });
-    h.check("Quick Setup: 4 hours for a permanent item", begun.start?.ok === true && begun.order.setup?.days === 0 && begun.order.setup?.hours === 4 &&
+    const begun = await h.step("p2", "m9a", "start", { order: filed.order, crafter: fighter, payer: fighter, pledge: 600 });
+    h.check("Quick Setup: 2 hours for a batch of consumables", begun.start?.ok === true && begun.order.setup?.days === 0 && begun.order.setup?.hours === 2 &&
         begun.order.variant.complex?.quick === true, begun);
     const logged = await h.step("p2", "m9a", "logDays", { days: 1 });
     const resolved = await h.step("p2", "m6", "resolve", { activity: "subsist", count: 1 });
@@ -4037,11 +4049,11 @@ async function m9aQuickSetup(h, w) {
     const days = await h.step("gm", "m9a", "actorDays", { actor: fighter, ms: 1500 });
     const own = days.find((d) => d.day === logged.to && !d.order);
     const hours = days.find((d) => d.day === logged.to && d.kind === "setup-hours");
-    h.check("the day is the fighter's subsistence and the order's setup hours, two records", now.result?.ok === true && !!own && !!hours && own.id !== hours.id &&
+    h.check("the day is the fighter's subsistence and the batch's setup hours, two records", now.result?.ok === true && !!own && !!hours && own.id !== hours.id &&
         hours.id.endsWith(`-${filed.order}`), { resolved, now, days });
-    h.check("the order is at its check", now.order.status === "check", now.order);
+    h.check("the batch is at its check", now.order.status === "check", now.order);
     await checkStatuses(h);
-    return { begun, now, days };
+    return { permanent, begun, now, days };
 }
 
 /**

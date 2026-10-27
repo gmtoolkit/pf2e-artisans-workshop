@@ -168,14 +168,18 @@ All notable changes to this module are documented here. The format follows
   the Morning tab; inventors have access to uncommon gadgets. Live-harness plans `m9-*`.
 - Treasure Vault (Remastered) crafting variants (milestone M9a), each a world setting that is off by default and costs
   nothing while off, with a notice in Settings when variants of more than one group are on: Complex Crafting with Quick
-  Setup (Table 5-1 setups, rushed setups frozen at the start, "Set up now" for setups of hours, rushed finishing with its
-  flat check, quirks and ruined or cursed items); items crafted with their adjustments, delivered together; crafting
-  downtime events rolled once by worked days, optionally pausing the order; Critical Crafting on special items, with secret
-  (blind) rolls while a GM is connected, recorded results and the crafter's curse; Deconstruct, which turns an item into
-  components for a similar item or raw materials and counts its day toward a follow-on order; Grow with Nature or the
-  hybrid skills, left untended across seasons with a season check each; Gardens of Wonder funded by the party and harvested
-  once a day; bestowed gifts that lie dormant in the wrong hands; crafting quests gathered by the party and delivered once
-  every component is found. Live-harness plans `m9a-*`.
+  Setup (Table 5-1 setups, rushed setups frozen at the start, "Set up now" for Quick Setup's 2-hour batches of
+  consumables, up to 8 hours a day, while any other setup of hours takes a downtime day, rushed finishing with its flat
+  check, quirks and ruined or cursed items); items crafted with their adjustments, delivered together; crafting downtime
+  events rolled once by worked days, optionally pausing the order, whispered to the crafter's side; Critical Crafting on
+  special items, with secret (blind) rolls while a GM is connected, recorded results (a critical failure can still make the
+  item, secretly cursed or failing in use, and a secret one reads as a success to the players) and the crafter's curse;
+  Deconstruct, which turns an item into components for a similar item or raw materials and counts its day toward a
+  follow-on order, and whose damage stays with the item; Grow with Nature or the hybrid skills, left untended across seasons
+  with a season check each; Gardens of Wonder funded by the party up to their seed cost, with the money taken back on
+  request, and harvested once a day; bestowed gifts that lie dormant in the wrong hands; crafting quests gathered by the
+  party and delivered once every component is found. An order started under a variant finishes as it started if the
+  variant is turned off. Live-harness plans `m9a-*`.
 
 ### Changed
 

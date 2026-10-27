@@ -17,11 +17,11 @@ import { closedAs } from "../logic/orders.mjs";
 import { seasonLink } from "../logic/rolls.mjs";
 import { allocationsByContributor } from "../logic/split.mjs";
 import {
-    gardenRoom, harvestKey, makeGarden, plantKey, produceStamp, seasonIndexOf, seasonKey, seasonRecord, seasonsDue,
+    gardenRoom, gardenSlotLockId, harvestKey, makeGarden, plantKey, produceStamp, seasonIndexOf, seasonKey, seasonRecord, seasonsDue,
 } from "../logic/variants.mjs";
 import { runRequest } from "./batch.mjs";
 import { dayOffset, secondsPerDay, today } from "./downtime.mjs";
-import { lockedWrite, pledge, spend } from "./money.mjs";
+import { lockedWrite, pledge, spend, withdraw } from "./money.mjs";
 import { productFacts } from "./products.mjs";
 import { isElected, isResponsibleFor, isResponsibleForShared } from "./responsible.mjs";
 import { members } from "./roster.mjs";
@@ -211,7 +211,9 @@ export async function addGarden({ name = "", kind = "", uuid }) {
 /**
  * Fund a garden (6.16.7) as an order is funded (M4.1): from a character's purse (a `pledge` with `garden` set, the coins
  * into the strongbox) or from the party fund (an `allocate` pair, no coins move, behind the fund slot). Earn Income wages
- * are pledged like any other coins. Refused: `variant-off`, `no-garden`, `planted`, `nothing`, `fund-short`, the coin move's.
+ * are pledged like any other coins. Never more than the seed cost still lacks (`over-seed`): what a planting does not spend
+ * would only wait to be taken back (review fix of M9a). Refused: `variant-off`, `no-garden`, `planted`, `nothing`, `over-seed`,
+ * `fund-short`, the coin move's.
  */
 export async function fundGarden(gardenId, { source, actor = null, cp }) {
     if (!canWrite()) return refuse("not-ready");
@@ -220,6 +222,8 @@ export async function fundGarden(gardenId, { source, actor = null, cp }) {
     if (!garden) return refuse("no-garden");
     if (Number.isInteger(garden.plantedDay)) return refuse("planted");
     if (!(Number.isSafeInteger(cp) && cp > 0)) return refuse("nothing");
+    const lacking = Math.max(0, garden.seedCostCp - gardenFunds(gardenId).heldCp);
+    if (cp > lacking) return refuse("over-seed", { maxCp: lacking });
     if (source === "purse") {
         const who = actorOf(actor);
         if (!who?.isOwner) return refuse("not-owner");
@@ -236,7 +240,8 @@ export async function fundGarden(gardenId, { source, actor = null, cp }) {
 /**
  * Plant a garden whose allocation reached its seed cost (6.16.7): one lock-first move (5.4) with the lock page of
  * `plant:<gardenId>`, the `plant` rows (pro rata per contributor) and the strongbox coins they spend, and `plantedDay`. Two
- * pledges that complete the cost together may both call this; the second stops at the lock. Refused: `variant-off`, `no-garden`,
+ * pledges that complete the cost together may both call this; the second stops at the lock. It takes the garden's slot too
+ * (`gardenSlotLockId`), so a take-back planned from the same copy cannot also land. Refused: `variant-off`, `no-garden`,
  * `planted`, `underfunded`.
  */
 export async function plantGarden(gardenId) {
@@ -251,7 +256,42 @@ export async function plantGarden(gardenId) {
     if (exists(`rows.${hashId(`${key}:${allocations[0]?.actor ?? "fund"}`)}`)) return { ok: true, outcome: "already" };
     const day = today().day;
     return spend({ kind: "plant", stem: key, cp: garden.seedCostCp, allocations, link: { garden: gardenId, day },
-        ledger: { set: { [`gardens.${gardenId}.plantedDay`]: day, [`gardens.${gardenId}.planted`]: stampNow() } }, locks: [hashId(key)] });
+        ledger: { set: { [`gardens.${gardenId}.plantedDay`]: day, [`gardens.${gardenId}.planted`]: stampNow() } },
+        locks: [hashId(key), gardenSlotLockId(gardenId, records("rows"))] });
+}
+
+/** What of a garden's money `actorUuid` may take back (6.16.7): their own remaining allocation; `null` is the party fund's share. */
+export function gardenShareOf(gardenId, actorUuid) {
+    return gardenFunds(gardenId).allocations.find((a) => a.actor === actorUuid)?.cp ?? 0;
+}
+
+/**
+ * Take money back off a garden (6.16.7, review fix of M9a): a member takes back their own remaining allocation into the purse
+ * it came from (a `withdraw` with `garden` set), or the party fund's share goes back to the unallocated fund (an `unearmark`
+ * pair, no coins move; any member, or a GM). Before the planting all of it; after it, whatever the planting did not spend.
+ * It takes the garden's slot (`gardenSlotLockId`), which the planting takes too. Money goes back whatever the variant says
+ * now, so a garden left funded when gardens were turned off can still be emptied and removed. Refused: `no-garden`,
+ * `not-owner`, `nothing`, `too-much`, the coin move's.
+ */
+export async function withdrawGarden(gardenId, { source = "purse", actor = null, cp }) {
+    if (!canWrite()) return refuse("not-ready");
+    const garden = read(`gardens.${gardenId}`);
+    if (!garden) return refuse("no-garden");
+    if (!(Number.isSafeInteger(cp) && cp > 0)) return refuse("nothing");
+    const rows = records("rows");
+    const lock = gardenSlotLockId(gardenId, rows);
+    if (source === "fund") {
+        if (!game.user.isGM && !members().some((a) => a.isOwner)) return refuse("not-owner");
+        const max = gardenShareOf(gardenId, null);
+        if (cp > max) return refuse("too-much", { maxCp: max });
+        const inputs = earmarkInputs({ orderId: gardenId, cp, nonce: newId(), back: true }).map((row) => (row.order ? { ...row, order: null, garden: gardenId } : row));
+        return lockedWrite([lock], inputs);
+    }
+    const who = actorOf(actor);
+    if (!who?.isOwner) return refuse("not-owner");
+    const max = gardenShareOf(gardenId, who.uuid);
+    if (cp > max) return refuse("too-much", { maxCp: max });
+    return withdraw({ actor: who, cp, garden: gardenId, nonce: newId(), locks: [lock] });
 }
 
 /**
@@ -328,7 +368,7 @@ async function postHarvest(garden, actor) {
 
 /**
  * Remove a garden (6.16.7) that is not planted and holds nothing: any member, or a GM. Refused: `variant-off`, `no-garden`,
- * `planted`, `funded` (give the money back first).
+ * `planted`, `funded` (take the money back first, `withdrawGarden`).
  */
 export async function removeGarden(gardenId) {
     if (!canWrite()) return refuse("not-ready");

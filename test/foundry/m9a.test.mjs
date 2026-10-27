@@ -13,16 +13,21 @@ import { MOD, addDocument, coin, installFoundry, resetWorld, setUsers, sharedWor
 
 installFoundry();
 const { REGISTRY } = await import("../../scripts/data/registry.mjs");
-const { RANK } = await import("../../scripts/logic/core.mjs");
+const { DEGREE, RANK } = await import("../../scripts/logic/core.mjs");
+const { committedFromRows } = await import("../../scripts/logic/craft.mjs");
+const { shownDegree } = await import("../../scripts/logic/variants.mjs");
 const { DEFAULT_RULES } = await import("../../scripts/logic/defaults.mjs");
 const { itemOptions } = await import("../../scripts/logic/registry.mjs");
 const { orderLink } = await import("../../scripts/logic/rolls.mjs");
+const { orderActions } = await import("../../scripts/logic/orders.mjs");
+const { unallocatedCp } = await import("../../scripts/logic/funds.mjs");
 const { setupDaysDone, reductionCp } = await import("../../scripts/logic/progress.mjs");
 const { materialsCp } = await import("../../scripts/logic/materials.mjs");
 const { registerBatchWatcher } = await import("../../scripts/foundry/batch.mjs");
 const claims = await import("../../scripts/foundry/claims.mjs");
 const { setCoinTemplates } = await import("../../scripts/foundry/coins.mjs");
 const { handOver } = await import("../../scripts/foundry/custody.mjs");
+const funds = await import("../../scripts/foundry/funds.mjs");
 const deconstruct = await import("../../scripts/foundry/deconstruct.mjs");
 const { registerExpiryHooks } = await import("../../scripts/foundry/expiry.mjs");
 const { requestLease, resetLease } = await import("../../scripts/foundry/lease.mjs");
@@ -35,6 +40,7 @@ const settings = await import("../../scripts/foundry/settings.mjs");
 const state = await import("../../scripts/foundry/state.mjs");
 const { read, records, write } = await import("../../scripts/foundry/store.mjs");
 const variants = await import("../../scripts/foundry/variants.mjs");
+const { fundsVariants } = await import("../../scripts/ui/variants.mjs");
 
 settings.registerSettings({ enabled: () => {}, docs: () => {} });
 const realNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
@@ -52,13 +58,34 @@ foundry.utils.mergeObject = (a, b) => deepMerge(a, b);
 let nextRandom = 0;
 foundry.utils.randomID = () => `rnd${String(nextRandom++).padStart(13, "0")}`;
 
+/** Foundry 14's chat message modes (`CONFIG.ChatMessage.modes`, client/config.mjs). */
+const MESSAGE_MODES = ["public", "gm", "blind", "self", "ic"];
+
 /** The d20s the next `Roll`s give (a flat check, an event), and the messages posted with them. */
 const dice = [];
 const posted = [];
+/**
+ * Foundry 14's `ChatMessage.applyMode` as far as a card's audience goes (client/documents/chat-message.mjs): public clears the
+ * whisper list, gm and blind keep a non-empty one (or whisper to the GMs), self whispers to the author.
+ */
+function applyMode(data, mode) {
+    let whisper = [...(data.whisper ?? [])];
+    if (mode === "public") whisper = [];
+    else if (mode === "self") whisper = [game.user.id];
+    else if (!whisper.length && (mode === "gm" || mode === "blind")) whisper = game.users.filter((u) => u.isGM).map((u) => u.id);
+    return { ...data, whisper, blind: mode === "blind" };
+}
+/** The user's own chat mode, as Roll#toMessage and RollTable#toMessage read it when given none: public by default. */
+const coreMode = () => game.settings.get("core", "messageMode") ?? "public";
 globalThis.Roll = class {
     constructor(formula) { this.formula = formula; }
     async evaluate() { this.total = dice.shift() ?? 10; return this; }
-    async toMessage(data) { posted.push(data); return data; }
+    /** Roll#toMessage (client/dice/roll.mjs): `messageMode ||= core`, then `applyMode`. */
+    async toMessage(data, { messageMode } = {}) {
+        const message = applyMode(data, messageMode || coreMode());
+        posted.push(message);
+        return message;
+    }
 };
 
 const C = (id) => `Compendium.pf2e.equipment-srd.Item.${id}`;
@@ -334,6 +361,61 @@ test("Complex Crafting: Table 5-1, a rush chosen and frozen at start with its DC
     assert.equal((await variants.setUpNow(id)).reason, "state", "once");
 });
 
+test("Set up now records only Quick Setup's 2-hour consumable setup, 8 hours a day at most; a 4-hour setup takes a downtime day (review fix of M9a)", async () => {
+    await turnOn("complexCrafting");
+    /** An elixir batch rushed by a day: 2 hours with Quick Setup (6 levels below a master), 4 hours without it. */
+    const rushed = async () => {
+        const [id] = (await orders.requestOrder({ uuid: ELIXIR, quantity: 4, requester: vera.uuid, crafter: vera.uuid })).orders;
+        assert.equal((await variants.chooseRush(id, 1)).ok, true);
+        await orders.pledgeTo(id, vera.uuid, 1000);
+        assert.equal((await orders.start(id)).ok, true);
+        return id;
+    };
+    const quick = [];
+    for (let i = 0; i < 5; i++) quick.push(await rushed());
+    assert.deepEqual(read(`orders.${quick[0]}.setup`), { days: 0, hours: 2 });
+    for (const id of quick.slice(0, 4)) assert.equal((await variants.setUpNow(id)).ok, true);
+    const full = await variants.setUpNow(quick[4]);
+    assert.deepEqual([full.reason, full.data], ["hours", { have: 8, max: 8 }], "a fifth 2-hour setup does not fit the day");
+    assert.equal(read(`orders.${quick[4]}.status`), "setup");
+    // Without Quick Setup the batch takes 4 hours: no adventuring-day setup (TV-R p.159), so it takes the crafter's downtime day.
+    const feat = vera.items.find((i) => i.sourceId === REGISTRY["quick-setup"].uuid);
+    vera.items.delete(feat.id);
+    const plain = await rushed();
+    assert.deepEqual([read(`orders.${plain}.setup`), read(`orders.${plain}.variant.complex.quick`)], [{ days: 0, hours: 4 }, false]);
+    assert.equal((await variants.setUpNow(plain)).reason, "downtime-day");
+    const day = await orders.workDay(plain);
+    assert.equal(day.ok, true, JSON.stringify(day));
+    const record = records("days").find((d) => d.order === plain && d.kind === "setup-hours");
+    assert.deepEqual([record.id, record.hours, read(`orders.${plain}.status`)], [`${vera.id}-${day.day}`, 4, "check"], "the crafter's own day record");
+});
+
+test("an order started under Complex Crafting keeps working once the variant is off: Set up now, the rushed finish's flat check (review fix of M9a)", async () => {
+    await turnOn("complexCrafting");
+    const [elixir] = (await orders.requestOrder({ uuid: ELIXIR, quantity: 4, requester: vera.uuid, crafter: vera.uuid })).orders;
+    await variants.chooseRush(elixir, 1);
+    await orders.pledgeTo(elixir, vera.uuid, 1000);
+    await orders.start(elixir);
+    vera.skills.crafting.modifiers = [{ slug: "proficiency", modifier: 4 }];
+    const ring = await started(RING);
+    await toCheck(ring);
+    await recordCheck(ring, 2);
+    await orders.workDay(ring);
+    assert.equal((await variants.setRushFinish(ring, true)).ok, true);
+    await orders.workDay(ring);
+    assert.equal(records("days").filter((d) => d.order === ring && d.rushed).length, 1);
+    await game.settings.set(MOD, "variants.complexCrafting", false);
+    // The frozen 2-hour setup is still recorded; nothing else would ever move the order on.
+    const now = await variants.setUpNow(elixir);
+    assert.equal(now.ok, true, JSON.stringify(now));
+    assert.equal(read(`orders.${elixir}.status`), "check");
+    // The rushed day is in the ledger at twice the reduction: the finish still rolls its flat check.
+    dice.push(5);
+    assert.equal((await orders.finish(ring)).ok, true);
+    assert.deepEqual([read(`orders.${ring}.check.rushFlat.die`), read(`orders.${ring}.check.rushFlat.outcome`)], [5, "quirk"]);
+    assert.equal(docs.strongbox.items.find((i) => i.flags?.[MOD]?.crafted?.order === ring).flags[MOD].quirk.from, "rushed-finish");
+});
+
 test("rushed finishing: doubled days while the crafter rushes, then the flat check: a quirk on a failure, nothing on a critical failure", async () => {
     await turnOn("complexCrafting");
     vera.skills.crafting.modifiers = [{ slug: "proficiency", modifier: 4 }];   // DC 10 + 4 - 4 = 10
@@ -414,6 +496,41 @@ test("crafting events: rolled once on the 7th day by the crafter's responsible c
     assert.equal(read(`orders.${id}.events.1-1.note`), "the shipment came");
 });
 
+test("event and flat-check cards and a world table's draw keep their whisper list on Foundry 14 (review fix of M9a)", async () => {
+    await turnOn("events", "complexCrafting");
+    const gm = "gm00000000000000";
+    const id = await started(BOOTS);
+    dice.push(12);
+    assert.equal((await variants.rollEvent(id, { k: 1 })).ok, true);
+    const event = posted.find((p) => p.flags?.[MOD]?.card?.kind === "event");
+    assert.ok(event.whisper.includes(gm) && event.whisper.includes("p1"), `whispered to the GMs and the crafter's side: ${JSON.stringify(event.whisper)}`);
+    // The rushed finish's flat check (6.16.1), posted by `rollDie`.
+    vera.skills.crafting.modifiers = [{ slug: "proficiency", modifier: 4 }];
+    dice.push(15);
+    assert.equal((await variants.rushFlatCheck(read(`orders.${id}`))).ok, true);
+    const flat = posted.find((p) => p.flags?.[MOD]?.rushFlat);
+    assert.ok(flat.whisper.includes(gm) && flat.whisper.includes("p1"), JSON.stringify(flat.whisper));
+    // A world table the GM built: RollTable#toMessage sets `messageOptions.messageMode ??= core` and creates with that mode.
+    const table = { documentName: "RollTable", draw: async () => ({ roll: { total: 7 }, results: [{ name: "A rival" }] }),
+        toMessage: async (results, { messageData = {}, messageOptions = {} } = {}) => {
+            const message = applyMode({ ...messageData, table: true }, messageOptions.messageMode ?? coreMode());
+            posted.push(message);
+            return message;
+        } };
+    world.uuids.set("RollTable.events", table);
+    await game.settings.set(MOD, "variants.events.table", "RollTable.events");
+    assert.equal((await variants.rollEvent(id, { k: 2 })).ok, true);
+    const drawn = posted.find((p) => p.table);
+    assert.ok(drawn.whisper.includes(gm) && drawn.whisper.includes("p1"), JSON.stringify(drawn.whisper));
+    // Under `chat.visibility: public` the cards are public.
+    await game.settings.set(MOD, "chat.visibility", "public");
+    posted.length = 0;
+    dice.push(9);
+    await game.settings.set(MOD, "variants.events.table", "");
+    assert.equal((await variants.rollEvent(id, { k: 3 })).ok, true);
+    assert.deepEqual(posted.find((p) => p.flags?.[MOD]?.card?.kind === "event").whisper, []);
+});
+
 test("an event rolled by two clients at once is recorded once (its lock)", async () => {
     await turnOn("events");
     const id = await started(BOOTS);
@@ -467,6 +584,63 @@ test("Critical Crafting: a special order's natural 20 is stamped at settlement; 
     assert.equal(read(`orders.${plain}.check.critical`), undefined, "not special");
 });
 
+test("Critical Crafting: a secret natural 1 recorded as secretly cursed is made anyway, and players read a success (review fix of M9a)", async () => {
+    await turnOn("criticalCrafting");
+    await game.settings.set(MOD, "variants.critical.secret", true);
+    const id = (await orders.requestOrder({ uuid: RING, requester: vera.uuid, crafter: vera.uuid, variant: { special: true } })).orders[0];
+    await orders.pledgeTo(id, vera.uuid, 20000);
+    await orders.start(id);
+    await toCheck(id);
+    await recordCheck(id, 0, 1);
+    await write({ set: { [`orders.${id}.check.secret`]: true } });   // rolled blind (`message.blind`)
+    // The crafter's player cannot see it, so cannot record it; the GM, who sees the blind roll, records it before the settlement.
+    assert.equal((await variants.recordCritical(id, { category: "secret-curse" })).reason, "not-owner");
+    as("gm00000000000000");
+    const recorded = await variants.recordCritical(id, { category: "secret-curse", note: "it hates its maker" });
+    assert.deepEqual([recorded.ok, recorded.made], [true, true], "made by default for a secret curse");
+    as("p1");
+    assert.equal((await orders.settle(id)).ok, true);
+    assert.equal(read(`orders.${id}.status`), "finishing", "settled as a success would be");
+    const settled = records("rows").filter((r) => r.order === id && ["expend", "ruin", "release"].includes(r.kind)).map((r) => [r.kind, r.cp]);
+    assert.deepEqual(settled, [["expend", 5000]], "the materials went into the item; nothing ruined or released");
+    const check = read(`orders.${id}.check`);
+    assert.deepEqual([shownDegree(check, { isGM: false }), shownDegree(check, { isGM: true })], [DEGREE.success, DEGREE.critFail]);
+    assert.equal((await orders.workDay(id)).ok, true);
+    assert.ok(reductionCp(read(`orders.${id}`), records("days").filter((d) => d.order === id), settings.rulesFromSettings()) > 0, "its days count, at the success rate");
+    assert.equal((await orders.finish(id)).ok, true);
+    const item = docs.strongbox.items.find((i) => i.flags?.[MOD]?.crafted?.order === id);
+    assert.deepEqual(item.flags[MOD].curse, { from: "critical-crafting", order: id, crafter: "Vera", category: "secret-curse", note: "it hates its maker" });
+});
+
+test("Critical Crafting: a critical failure settled, then recorded as failing in use, is made anyway by an undoable step (review fix of M9a)", async () => {
+    await turnOn("criticalCrafting");
+    const id = (await orders.requestOrder({ uuid: RING, requester: vera.uuid, crafter: vera.uuid, variant: { special: true } })).orders[0];
+    await orders.pledgeTo(id, vera.uuid, 20000);
+    await orders.start(id);
+    await toCheck(id);
+    await recordCheck(id, 0, 1);
+    assert.equal((await orders.settle(id)).ok, true);
+    assert.equal(read(`orders.${id}.status`), "failed");
+    // Not made: a category whose example makes nothing.
+    assert.deepEqual(await variants.recordCritical(id, { category: "pollution" }), { ok: true, made: false });
+    assert.equal(read(`orders.${id}.status`), "failed");
+    const made = await variants.recordCritical(id, { category: "fails-in-use", note: "the clasp gives way" });
+    assert.equal(made.ok, true, JSON.stringify(made));
+    assert.equal(read(`orders.${id}.status`), "finishing");
+    const live = () => records("rows").filter((r) => r.order === id && !r.reversedBy && r.kind !== "reversal");
+    assert.deepEqual(live().filter((r) => ["ruin", "release", "commit", "expend"].includes(r.kind)).map((r) => [r.kind, r.cp]).sort(),
+        [["commit", 4500], ["commit", 5000], ["expend", 4500], ["release", 4500], ["ruin", 500]], "the 10% stays ruined; the rest goes into the item");
+    assert.equal(committedFromRows(live()), 0);
+    // Undone, it is failed again with its rows reversed.
+    assert.equal((await orders.undo(id)).ok, true);
+    assert.deepEqual([read(`orders.${id}.status`), read(`orders.${id}.check.critical.made`) ?? false], ["failed", false]);
+    assert.equal(committedFromRows(live()), 0);
+    assert.equal((await variants.recordCritical(id, { category: "fails-in-use", note: "the clasp gives way" })).ok, true, "made again");
+    await orders.workDay(id);
+    assert.equal((await orders.finish(id)).ok, true);
+    assert.equal(docs.strongbox.items.find((i) => i.flags?.[MOD]?.crafted?.order === id).flags[MOD].curse.category, "fails-in-use");
+});
+
 test("secret checks: rolled blind for a special order while a GM is connected, never without one", async () => {
     await turnOn("criticalCrafting");
     await game.settings.set(MOD, "variants.critical.secret", true);
@@ -478,10 +652,14 @@ test("secret checks: rolled blind for a special order while a GM is connected, n
     const product = world.compendium[RING];
     product.toObject = () => structuredClone(SOURCES[RING]);
     await rolls.rollCraft(id, { skipDialog: true });
-    assert.equal(rolled.rollMode, "blindroll");
+    // pf2e 8.6.1's Statistic#roll reads `messageMode` only (a key of CONFIG.ChatMessage.modes); a `rollMode` is ignored and the
+    // roll falls back to the user's own chat mode, public by default (review fix of M9a).
+    assert.equal(rolled.messageMode, "blind");
+    assert.equal("rollMode" in rolled, false, "pf2e ignores rollMode");
+    assert.ok(MESSAGE_MODES.includes(rolled.messageMode), "a mode Foundry 14 knows");
     world.collections.User.get("gm00000000000000").active = false;
     await rolls.rollCraft(id, { skipDialog: true });
-    assert.equal(rolled.rollMode, undefined, "no GM to see it: an ordinary roll");
+    assert.equal(rolled.messageMode, undefined, "no GM to see it: an ordinary roll");
 });
 
 /* -------------------------------------------- */
@@ -556,6 +734,109 @@ test("Deconstruct: a critical failure damages the item; a retry needs a repair o
         "no-target");
 });
 
+test("Deconstruct: the damage stays with the item: cancelling the failed order and filing a new one does not shed it (review fix of M9a)", async () => {
+    await turnOn("deconstruct");
+    const ring = vera.addItem({ type: "equipment", name: "Ring of Warding", sourceId: RING, system: structuredClone(SOURCES[RING].system) });
+    const file = async () => {
+        const [id] = (await orders.requestOrder({ uuid: RING, requester: vera.uuid, crafter: vera.uuid, craftType: "deconstruct", target: ring.uuid })).orders;
+        await deconstruct.confirmChecklist(id, "workshop");
+        return id;
+    };
+    const first = await file();
+    assert.equal((await orders.start(first)).ok, true);
+    await toCheck(first);
+    await recordCheck(first, 0);
+    assert.equal((await orders.settle(first)).ok, true);
+    assert.deepEqual([ring.flags[MOD].deconstructDamage.damaged, ring.flags[MOD].deconstructDamage.lossPct], [true, 0], "written on the item");
+    assert.equal((await orders.cancel(first)).ok, true);
+    const second = await file();
+    assert.deepEqual([read(`orders.${second}.variant.deconstruct.damaged`), read(`orders.${second}.variant.deconstruct.lossPct`)], [true, 0], "inherited");
+    assert.equal((await orders.start(second)).reason, "damaged", "repair it or accept the loss");
+    assert.equal((await orders.start(second, { acceptLoss: true })).ok, true);
+    assert.deepEqual([read(`orders.${second}.variant.deconstruct.lossPct`), ring.flags[MOD].deconstructDamage.lossPct, ring.flags[MOD].deconstructDamage.damaged],
+        [5, 5, false], "the loss is on the order and the item");
+    await toCheck(second);
+    await recordCheck(second, 2);
+    assert.equal((await orders.settle(second)).ok, true);
+    assert.equal(ring.flags[MOD].components.rawCp, 4750, "50% of 95 gp, not of 100 gp");
+});
+
+test("a Craft's critical failure takes its 10% off the components item too: given back and handed over again, it counts less (review fix of M9a)", async () => {
+    await turnOn("deconstruct");
+    const run = async ({ uuid, similar }) => {
+        const parts = vera.addItem({ type: "equipment", name: "Ring of Warding (components)", system: { quantity: 1, price: { value: { gp: 100 } } },
+            flags: { [MOD]: { components: { valueCp: 7500, rawCp: 5000, purpose: "similar", from: RING, order: "old" } } } });
+        const [id] = (await orders.requestOrder({ uuid, requester: vera.uuid, crafter: vera.uuid })).orders;
+        if (similar) await deconstruct.confirmChecklist(id, "similar");
+        assert.equal((await handOver({ order: id, item: parts.uuid, purpose: "material" })).ok, true);
+        await orders.pledgeTo(id, vera.uuid, 8000);
+        assert.equal((await orders.start(id)).ok, true);
+        await toCheck(id);
+        await recordCheck(id, 0);
+        assert.equal((await orders.settle(id)).ok, true);
+        const line = Object.values(read(`orders.${id}.materials`))[0];
+        const boxed = docs.strongbox.items.get(line.itemId).flags[MOD].components;
+        assert.equal((await orders.cancel(id)).ok, true);
+        as("p1");
+        await claims.sweepClaims({ force: true });
+        const back = vera.items.find((i) => i.flags?.[MOD]?.components && i.name === "Ring of Warding (components)" && i.id !== parts.id) ?? parts;
+        return { ruinedCp: line.ruinedCp, boxed: [boxed.valueCp, boxed.rawCp], back: back.flags[MOD].components, uuid: back.uuid };
+    };
+    // Boots (160 gp, half 80 gp) on the similar credit: 5 gp of coins committed, so 10% of them is ruined with 75 gp of the 750.
+    const boots = await run({ uuid: BOOTS, similar: true });
+    assert.equal(boots.ruinedCp, 750);
+    assert.deepEqual(boots.boxed, [6750, 4250], "both shares less what was ruined");
+    assert.deepEqual([boots.back.valueCp, boots.back.rawCp], [6750, 4250], "the item given back carries it");
+    const [again] = (await orders.requestOrder({ uuid: BOOTS, requester: vera.uuid, crafter: vera.uuid })).orders;
+    assert.equal((await handOver({ order: again, item: boots.uuid, purpose: "material" })).ok, true);
+    assert.equal(materialsCp(read(`orders.${again}`)), 4250, "not the 5000 it had before the ruin");
+    // A ring (100 gp, half 50 gp) the raw credit covers: no coins committed, so no coins ruined; the item still loses its 10%.
+    const ring = await run({ uuid: RING, similar: false });
+    assert.equal(ring.ruinedCp, 500);
+    assert.deepEqual(ring.boxed, [7000, 4500]);
+});
+
+test("the 'similar' confirmation is frozen with what the start committed: no taking it back, no adding it after (review fix of M9a)", async () => {
+    await turnOn("deconstruct");
+    const components = { valueCp: 7500, rawCp: 5000, purpose: "similar", from: RING, order: "old" };
+    const make = async (similar) => {
+        const parts = vera.addItem({ type: "equipment", name: "Ring of Warding (components)", system: { quantity: 1, price: { value: { gp: 100 } } },
+            flags: { [MOD]: { components: structuredClone(components) } } });
+        const [id] = (await orders.requestOrder({ uuid: BOOTS, requester: vera.uuid, crafter: vera.uuid })).orders;
+        if (similar) assert.equal((await deconstruct.confirmChecklist(id, "similar")).ok, true);
+        assert.equal((await handOver({ order: id, item: parts.uuid, purpose: "material" })).ok, true);
+        await orders.pledgeTo(id, vera.uuid, 8000);
+        assert.equal((await orders.start(id)).ok, true);
+        return id;
+    };
+    const similar = await make(true);
+    const committed = records("rows").filter((r) => r.order === similar && r.kind === "commit").reduce((sum, r) => sum + r.cp, 0);
+    assert.equal(committed, 8000 - 7500, "the half less the similar credit");
+    assert.equal((await deconstruct.confirmChecklist(similar, "similar", false)).reason, "state", "taking it back would underpay the half");
+    assert.equal(materialsCp(read(`orders.${similar}`)), 7500);
+    const raw = await make(false);
+    assert.equal((await deconstruct.confirmChecklist(raw, "similar")).reason, "state", "adding it after the start would lose the extra credit");
+    assert.equal(materialsCp(read(`orders.${raw}`)), 5000);
+});
+
+test("a Deconstruct and a quest take no money: no pledge, no party-fund earmark, no Fund button (review fix of M9a)", async () => {
+    await turnOn("deconstruct", "quests");
+    const ring = vera.addItem({ type: "equipment", name: "Ring of Warding", sourceId: RING, system: structuredClone(SOURCES[RING].system) });
+    const [breakdown] = (await orders.requestOrder({ uuid: RING, requester: vera.uuid, crafter: vera.uuid, craftType: "deconstruct", target: ring.uuid })).orders;
+    const [quest] = (await orders.requestOrder({ uuid: RING, requester: vera.uuid, crafter: vera.uuid, craftType: "quest" })).orders;
+    assert.equal((await funds.deposit(vera.uuid, 2000)).ok, true);
+    for (const id of [breakdown, quest]) {
+        assert.equal((await orders.pledgeTo(id, vera.uuid, 1000)).reason, "moneyless");
+        assert.equal((await funds.fundOrder(id, { source: "fund", cp: 1000 })).reason, "moneyless");
+        assert.equal(orderActions(read(`orders.${id}`), orders.viewer()).fund, false);
+        assert.deepEqual(records("rows").filter((r) => r.order === id), [], "nothing allocated to it");
+    }
+    // An ordinary order still takes both.
+    const [plain] = (await orders.requestOrder({ uuid: RING, requester: vera.uuid, crafter: vera.uuid })).orders;
+    assert.equal(orderActions(read(`orders.${plain}`), orders.viewer()).fund, true);
+    assert.equal((await funds.fundOrder(plain, { source: "fund", cp: 1000 })).ok, true);
+});
+
 /* -------------------------------------------- */
 /*  Grow (6.16.6)                                */
 /* -------------------------------------------- */
@@ -620,6 +901,34 @@ test("a garden: the party's limit, funded by two members, planted once, harveste
     assert.equal((await nature.harvest(gardenId, bo.uuid)).reason, "harvested", "one a day");
     await logDays(harvested.day + 1);
     assert.equal((await nature.harvest(gardenId, bo.uuid)).ok, true, "the next day's");
+});
+
+test("garden money comes back: no funding past the seed cost; a member's share and the fund's go back, with gardens off too (review fix of M9a)", async () => {
+    await turnOn("gardens");
+    const { garden } = await nature.addGarden({ name: "Herbs", uuid: ELIXIR });
+    assert.equal((await nature.fundGarden(garden, { source: "purse", actor: vera.uuid, cp: 4000 })).outcome, "ok");
+    const over = await nature.fundGarden(garden, { source: "purse", actor: vera.uuid, cp: 3000 });
+    assert.deepEqual([over.reason, over.data], ["over-seed", { maxCp: 2000 }], "60 gp in all");
+    assert.equal((await nature.removeGarden(garden)).reason, "funded");
+    as("p2");
+    assert.equal((await nature.withdrawGarden(garden, { actor: vera.uuid, cp: 1000 })).reason, "not-owner", "only Vera's owner takes Vera's share");
+    as("p1");
+    assert.equal((await nature.withdrawGarden(garden, { actor: vera.uuid, cp: 4001 })).reason, "too-much");
+    const purse = () => vera.items.filter((i) => i.isCoinage).reduce((sum, i) => sum + i.quantity * { pp: 1000, gp: 100, sp: 10, cp: 1 }[i.unit], 0);
+    const before = purse();
+    assert.equal((await nature.withdrawGarden(garden, { actor: vera.uuid, cp: 4000 })).ok, true);
+    assert.equal(nature.gardenFunds(garden).heldCp, 0);
+    assert.equal(purse() - before, 4000, "back in Vera's purse");
+    // The party fund's share, given back with gardens off: the Funds tab still offers it.
+    assert.equal((await funds.deposit(vera.uuid, 3000)).ok, true);
+    assert.equal((await nature.fundGarden(garden, { source: "fund", cp: 2500 })).ok, true);
+    await game.settings.set(MOD, "variants.gardens", false);
+    const shown = fundsVariants().gardens.list[0];
+    assert.deepEqual([shown.canReturn, shown.canFund, shown.canRemove], [true, false, false]);
+    assert.equal((await nature.withdrawGarden(garden, { source: "fund", cp: 2500 })).ok, true);
+    assert.equal(nature.gardenFunds(garden).heldCp, 0);
+    assert.equal(unallocatedCp(records("rows")), 3000, "the fund has it back");
+    assert.equal(fundsVariants(), null, "nothing held, gardens off: nothing shown");
 });
 
 /* -------------------------------------------- */
@@ -690,6 +999,29 @@ test("a quest's assembly: a failure delivers it with a quirk; a critical failure
     assert.equal((await orders.retry(lost)).reason, "state", "a destroyed quest is over");
 });
 
+test("a quest under way keeps going once crafting quests are off: its components marked, moved on and assembled (review fix of M9a)", async () => {
+    await turnOn("quests");
+    const [id] = (await orders.requestOrder({ uuid: RING, requester: vera.uuid, crafter: vera.uuid, craftType: "quest", variant: { quest: { encounters: 2 } } })).orders;
+    assert.equal((await orders.start(id)).ok, true);
+    assert.equal((await quests.markFound(id, "c1")).ok, true);
+    await game.settings.set(MOD, "variants.quests", false);
+    assert.equal((await quests.configureQuest(id, { encounters: 3 })).reason, "variant-off", "a new choice needs the variant");
+    as("p2");
+    assert.equal((await quests.markFound(id, "c2")).ok, true, "any member still marks a component");
+    as("p1");
+    assert.equal(await quests.questSweep(), 1, "the crafter's client still moves it on");
+    assert.equal(read(`orders.${id}.status`), "check");
+    await recordCheck(id, 2);
+    assert.equal((await orders.settle(id)).ok, true);
+    assert.equal(read(`orders.${id}.status`), "complete");
+    assert.ok(docs.strongbox.items.some((i) => i.flags?.[MOD]?.crafted?.order === id), "delivered");
+    // A quest not started yet stays refused while the variant is off.
+    await game.settings.set(MOD, "variants.quests", true);
+    const [later] = (await orders.requestOrder({ uuid: RING, requester: vera.uuid, crafter: vera.uuid, craftType: "quest" })).orders;
+    await game.settings.set(MOD, "variants.quests", false);
+    assert.equal((await quests.markFound(later, "c1")).reason, "variant-off");
+});
+
 /** A character's downtime activity, or null. */
 const downtimeActivity = (actor) => read(`pcs.${actor.id}.activity`) ?? null;
 
@@ -724,4 +1056,23 @@ test("an item with its adjustments: one Price, the highest level; made together 
     const boHost = onBo.find((i) => i.name === "Breastplate");
     assert.equal(onBo.find((i) => i.name === "Armor Latches").flags[MOD].appliedTo.host, boHost.id, "the recipient's copy of the host");
     assert.equal(docs.strongbox.items.filter((i) => i.flags?.[MOD]?.crafted?.order === id).length, 0);
+});
+
+test("adjustments are made as the start priced them, whatever the setting says at the finish (review fix of M9a)", async () => {
+    await turnOn("adjustments");
+    const run = async ({ offBeforeStart }) => {
+        const [id] = (await orders.requestOrder({ uuid: ARMOR, requester: vera.uuid, crafter: vera.uuid, variant: { adjustments: [LATCHES] } })).orders;
+        await orders.pledgeTo(id, vera.uuid, 3400);
+        await game.settings.set(MOD, "variants.adjustments", !offBeforeStart);
+        assert.equal((await orders.start(id)).ok, true);
+        // The setting flips between the start and the finish.
+        await game.settings.set(MOD, "variants.adjustments", offBeforeStart);
+        await toCheck(id);
+        await recordCheck(id, 2);
+        await orders.workDay(id);
+        assert.equal((await orders.finish(id)).ok, true);
+        return { priceCp: read(`orders.${id}.priceCp`), made: docs.strongbox.items.filter((i) => i.flags?.[MOD]?.crafted?.order === id).map((i) => i.name).sort() };
+    };
+    assert.deepEqual(await run({ offBeforeStart: false }), { priceCp: 3400, made: ["Armor Latches", "Breastplate"] }, "paid for with its latches: made with them");
+    assert.deepEqual(await run({ offBeforeStart: true }), { priceCp: 3000, made: ["Breastplate"] }, "paid for alone: made alone");
 });

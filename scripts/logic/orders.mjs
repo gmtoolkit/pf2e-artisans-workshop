@@ -32,8 +32,11 @@ export const CLOSED = Object.freeze(["complete", "cancelled", "archived"]);
 /** States in which a crafter works on the order: they hold escrow that is committed or about to be. */
 export const STARTED = Object.freeze(["setup", "gathering", "check", "rolled", "finishing", "paused", "failed"]);
 
-/** Transitions undo can take back (4.2.3). Finishing, cancelling and day records are not undone in M4. */
-export const UNDOABLE = Object.freeze(["accept", "release", "start", "settle", "pause", "resume", "retry"]);
+/**
+ * Transitions undo can take back (4.2.3). Finishing, cancelling and day records are not undone in M4. M9a: `made`, a settled
+ * critical failure whose Critical Crafting record makes the item anyway (6.16.4).
+ */
+export const UNDOABLE = Object.freeze(["accept", "release", "start", "settle", "pause", "resume", "retry", "made"]);
 /** Transitions that close an order: nothing happens to it after one. */
 export const CLOSING = Object.freeze(["finish", "cancel"]);
 
@@ -396,8 +399,9 @@ export function orderActions(order, viewer, { withdrawable = 0, gatesPass = fals
         resume: s === "paused" && crafter,
         retry: s === "failed" && crafter,
         cancel: open && s !== "rolled" && party,
-        // "Fund this order" (As built in M4.1): from the party fund or a purse, by any member, while the order is open.
-        fund: open && s !== "rolled" && viewer.hasCharacter,
+        // "Fund this order" (As built in M4.1): from the party fund or a purse, by any member, while the order is open; never
+        // a Deconstruct or a quest, which move no money (M9a).
+        fund: open && s !== "rolled" && viewer.hasCharacter && !MONEYLESS.includes(order.craftType),
         withdraw: withdrawable > 0,
         undo: undoPlan(order, viewer).ok,
     };

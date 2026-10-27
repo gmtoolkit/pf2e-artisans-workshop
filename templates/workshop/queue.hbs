@@ -308,11 +308,14 @@
             {{#if category}}<p class="detail-variant-line">{{category}}</p>{{/if}}
             {{#if note}}<p class="detail-notes">{{note}}</p>{{/if}}
             {{#if curse}}<p class="detail-variant-line"><i class="fa-solid fa-skull" inert></i> {{curse}}</p>{{/if}}
+            {{#if made}}<p class="detail-variant-line"><i class="fa-solid fa-hammer" inert></i> {{made}}</p>{{/if}}
             {{/with}}
             <div class="detail-actions">
                 {{#if critical.special.can}}<button type="button" data-action="variant" data-op="special" aria-pressed="{{#if critical.special.on}}true{{else}}false{{/if}}"><i class="fa-solid fa-gem" inert></i>{{#if critical.special.on}}{{localize "pf2e-artisans-workshop.Variant.Critical.Unmark"}}{{else}}{{localize "pf2e-artisans-workshop.Variant.Critical.Mark"}}{{/if}}</button>{{/if}}
                 {{#if critical.secret.canReveal}}<button type="button" data-action="variant" data-op="reveal"><i class="fa-solid fa-eye" inert></i>{{localize "pf2e-artisans-workshop.Variant.Critical.Reveal"}}</button>{{/if}}
                 {{#if critical.record.canRecord}}<button type="button" data-action="variant" data-op="critical"><i class="fa-solid fa-star" inert></i>{{localize "pf2e-artisans-workshop.Variant.Critical.Record"}}</button>{{/if}}
+                {{#if critical.canRecordNow}}<button type="button" data-action="variant" data-op="critical"><i class="fa-solid fa-star" inert></i>{{localize "pf2e-artisans-workshop.Variant.Critical.Record"}}</button>{{/if}}
+                {{#if critical.record.canMake}}<button type="button" data-action="variant" data-op="made"><i class="fa-solid fa-hammer" inert></i>{{localize "pf2e-artisans-workshop.Variant.Critical.MakeAnyway"}}</button>{{/if}}
                 {{#if critical.record.canCurse}}<button type="button" data-action="variant" data-op="curse"><i class="fa-solid fa-skull" inert></i>{{localize "pf2e-artisans-workshop.Variant.Critical.Curse"}}</button>{{/if}}
             </div>
             {{/if}}

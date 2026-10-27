@@ -26,7 +26,7 @@ import { DEGREE } from "../logic/core.mjs";
 import { critFailRuinCp } from "../logic/craft.mjs";
 import { lastEntry, undoPlan } from "../logic/orders.mjs";
 import { parseLink } from "../logic/rolls.mjs";
-import { checkHidden, criticalOf } from "../logic/variants.mjs";
+import { checkHidden, criticalHidden, criticalOf, madeDespite, shownDegree } from "../logic/variants.mjs";
 import { allocationsByContributor } from "../logic/split.mjs";
 import * as orders from "../foundry/orders.mjs";
 import { members } from "../foundry/roster.mjs";
@@ -298,9 +298,10 @@ async function renderAugment(message, html, link) {
     if (!content) return;
     const context = await orderContext(order);
     const stored = order.check?.messageId === message.id ? order.check : order.conflict?.messageId === message.id ? order.conflict : null;
-    // M9a (6.16.4): a secret check shows players no degree until it settles or a GM reveals it.
+    // M9a (6.16.4): a secret check shows players no degree until it settles or a GM reveals it; one whose critical failure made
+    // the item anyway shows them a success (review fix of M9a).
     const hidden = checkHidden(stored, orders.viewer());
-    const degree = hidden ? null : stored?.degree ?? null;
+    const degree = hidden || !stored ? null : shownDegree(stored, orders.viewer());
     const sameAttempt = link.attempt === order.attempt;
     const settled = sameAttempt && order.settlement?.attempt === order.attempt;
     const isCheck = sameAttempt && order.check?.messageId === message.id;
@@ -309,13 +310,15 @@ async function renderAugment(message, html, link) {
     const markup = await foundry.applications.handlebars.renderTemplate(TEMPLATES.augment, {
         view: context,
         degreeText: degree === null ? null : game.i18n.localize(DEGREE_KEY[degree]), degreeClass: degree === null ? null : DEGREE_CLASS[degree],
-        success: degree >= DEGREE.success, failure: degree === DEGREE.fail, critFailure: degree === DEGREE.critFail,
+        // A critical failure made anyway (6.16.4) moves its money as a success does.
+        success: degree >= DEGREE.success || madeDespite(stored?.critical), failure: degree === DEGREE.fail,
+        critFailure: degree === DEGREE.critFail && !madeDespite(stored?.critical),
         salvage: money(committed), ruined: money(degree === DEGREE.critFail ? critFailRuinCp(committed) : 0),
         alchemical: (order.product?.snapshot?.traits ?? []).includes("alchemical"),
         fortune: !!stored?.warn, stale: !sameAttempt,
         canSettle: isCheck && order.status === "rolled" && orders.owns(order.crafter) && canWrite(), secret: hidden,
         // M9a (6.16.4): a critical that Critical Crafting applies to is recorded on the order's detail.
-        critical: !hidden && isCheck && !!criticalOf(stored, order, rulesFromSettings()),
+        critical: !hidden && isCheck && !criticalHidden(stored, orders.viewer()) && !!criticalOf(stored, order, rulesFromSettings()),
         notUsed, conflict: order.conflict?.messageId === message.id && sameAttempt,
         // "Undo settlement" only while the settlement is the order's last transition (a pause after it is not undone here).
         canUndo: (notUsed || order.conflict?.messageId === message.id) && lastEntry(order)?.event === "settle"

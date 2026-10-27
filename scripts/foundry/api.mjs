@@ -512,6 +512,7 @@ export function buildApi() {
                 confirm: (order, key, on = true) => deconstruct.confirmChecklist(order, key, on),
                 followOn: (order, followOn) => deconstruct.chooseFollowOn(order, followOn),
                 retry: (order, { acceptLoss = false } = {}) => orders.retry(order, { acceptLoss }),
+                start: (order, { acceptLoss = false } = {}) => orders.start(order, { acceptLoss }),
                 useComponents: (order, item) => handOver({ order, item, purpose: "material" }),
             },
             grow: {
@@ -523,6 +524,7 @@ export function buildApi() {
                 list: () => nature.gardensOf(),
                 add: ({ name = "", kind = "", uuid } = {}) => nature.addGarden({ name, kind, uuid }),
                 fund: (garden, { source = "purse", actor = null, cp } = {}) => nature.fundGarden(garden, { source, actor: actor ?? resolveActor(null)?.uuid ?? null, cp }),
+                withdraw: (garden, { source = "purse", actor = null, cp } = {}) => nature.withdrawGarden(garden, { source, actor: actor ?? resolveActor(null)?.uuid ?? null, cp }),
                 plant: (garden) => nature.plantGarden(garden),
                 harvest: (garden, { actor = null } = {}) => {
                     const who = resolveActor(actor);

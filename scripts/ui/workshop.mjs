@@ -356,8 +356,9 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
                 option("blocked", "pf2e-artisans-workshop.Queue.Filter.Blocked", this.filters.scope),
             ],
             statusOptions: [option("any", "pf2e-artisans-workshop.Queue.Filter.AnyStatus", this.filters.status),
-                // M9a (6.16.9): `gathering` exists only while crafting quests are on.
-                ...Object.entries(STATUS).filter(([id]) => id !== "archived" && (id !== "gathering" || rulesFromSettings().variants.quests))
+                // M9a (6.16.9): `gathering` exists only while crafting quests are on, or a quest started under them still gathers.
+                ...Object.entries(STATUS).filter(([id]) => id !== "archived" && (id !== "gathering" || rulesFromSettings().variants.quests ||
+                    all.some((o) => o.status === "gathering")))
                     .map(([id, s]) => option(id, s.key, this.filters.status))],
             crafterOptions: [option("any", "pf2e-artisans-workshop.Queue.Filter.AnyCrafter", this.filters.crafter),
                 option("none", "pf2e-artisans-workshop.Queue.Filter.NoCrafter", this.filters.crafter),

@@ -10,7 +10,7 @@ import { DEGREE } from "./core.mjs";
 import { DEFAULT_RULES } from "./defaults.mjs";
 import { helperForfeits, helperPresent, helperRate } from "./communal.mjs";
 import { incomePerDay } from "./income.mjs";
-import { componentsExcessCp, moneyDegree } from "./variants.mjs";
+import { componentsExcessCp, moneyDegree, settledAsSuccess } from "./variants.mjs";
 
 /**
  * The records of `kind` for the order's current attempt, one per actor and day: should two records for the
@@ -91,7 +91,8 @@ export function extraDayRecord(order, day, { crafter, rateLevel = null }, rules 
  * left: forfeited while leaving is retroactive, kept otherwise.
  */
 export function reductionCp(order, days, rules = DEFAULT_RULES) {
-    if (!(order.check?.settled && order.check.degree >= DEGREE.success)) return 0;
+    // A success, or (M9a, 6.16.4) a critical failure made despite, whose extra days run at the success rate.
+    if (!settledAsSuccess(order.check)) return 0;
     const extra = recordsOf(order, days, "extra").reduce((sum, d) => sum + dayReductionCp(order, d, rules), 0);
     // M9a (6.16.6): an untended Grow order's season checks, each one day of Income at its degree.
     return extra + seasonRecordsOf(order, days).reduce((sum, d) => sum + (d.crafterCp ?? 0), 0);

@@ -55,7 +55,7 @@ function brief(id) {
         check: check && { degree: check.degree, die: check.die ?? null, settled: !!check.settled, secret: !!check.secret, revealed: !!check.revealed,
             critical: plain(check.critical ?? null), rushFlat: plain(check.rushFlat ?? null) },
         days: records("days").filter((d) => d.order === id).map((d) => ({ id: d.id, day: d.day, kind: d.kind, actor: d.actor ?? null, rushed: !!d.rushed,
-            season: d.season ?? null, attempt: d.attempt })),
+            season: d.season ?? null, attempt: d.attempt, hours: d.hours ?? null })),
         log: logEntries(order).map((e) => ({ seq: e.seq, event: e.event, from: e.from, to: e.to })),
         shelf: (shared().strongbox?.items ?? []).filter((i) => i.flags?.[MODULE_ID]?.crafted?.order === id).map((i) => i.name),
         flatCards: game.messages.contents.filter((m) => m.flags?.[MODULE_ID]?.rushFlat?.order === id).length,

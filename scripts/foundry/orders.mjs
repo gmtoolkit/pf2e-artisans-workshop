@@ -36,7 +36,7 @@ import { allPass } from "../logic/gates.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
 import { PC_VERSION } from "../logic/downtime.mjs";
 import {
-    TARGETED, WITH_SUBJECT, acceptOrder, closedAs, closedRepair, lastEntry, leftAfterSpend, makeOrder, refundClaims, releaseOrder,
+    MONEYLESS, TARGETED, WITH_SUBJECT, acceptOrder, closedAs, closedRepair, lastEntry, leftAfterSpend, makeOrder, refundClaims, releaseOrder,
     settlementRepair, setupRepair, transitionChange, undoPlan, withdrawableCp,
 } from "../logic/orders.mjs";
 import { consentOf, fuluTradition, selfSubject, subjectProcess, subjectTypeOf } from "../logic/crafts.mjs";
@@ -51,8 +51,8 @@ import { postCard } from "../ui/chat.mjs";
 import { givingBack, heldLines } from "./custody.mjs";
 import { resolveDays } from "./downtime.mjs";
 import { applyIfResponsible, knownState } from "./formulas.mjs";
-import { craftTypeOn, makeQuest, rushedInAttempt } from "../logic/variants.mjs";
-import { retryPatch } from "./deconstruct.mjs";
+import { craftTypeOn, madeDespite, makeQuest, rushedInAttempt } from "../logic/variants.mjs";
+import { inheritedDamage, noteItemDamage, retryPatch } from "./deconstruct.mjs";
 import { today } from "./downtime.mjs";
 import { rushFlatCheck } from "./variants.mjs";
 import { freeStacks, lockedWrite, moveCoins, pledge, reverseRows, withdraw } from "./money.mjs";
@@ -157,6 +157,8 @@ export async function requestOrder({ uuid, quantity = 1, requester, recipient = 
         if (!item?.isOfType?.("physical") || !item.parent) return refuse("no-target");
         if (quantity !== 1) return refuse("quantity");
         recipient = { kind: "actor", uuid: item.parent === shared().strongbox ? requester : item.parent.uuid };
+        // The damage an earlier Deconstruct's critical failure left on the item comes with it (review fix of M9a).
+        variant.deconstruct = { ...variant.deconstruct, ...inheritedDamage(item) };
     }
     // M9 (6.14): a tattoo or graft is made on its subject, who receives it: one at a time, never for the strongbox.
     const tattoos = setting("features.tattoos") !== false;
@@ -245,12 +247,17 @@ export async function release(id) {
 /*  Funding                                      */
 /* -------------------------------------------- */
 
-/** Pledge `cp` from `actor` (a character this user owns) to an order: coins into the strongbox (4.6 `pledge`). */
+/**
+ * Pledge `cp` from `actor` (a character this user owns) to an order: coins into the strongbox (4.6 `pledge`). M9a: a
+ * Deconstruct or a quest moves no money (`MONEYLESS`), so it takes none: its completion would leave the coins allocated to a
+ * closed order with no refund (review fix of M9a).
+ */
 export async function pledgeTo(id, actorUuid, cp) {
     const { order, refusal } = orderOrRefuse(id);
     if (refusal) return refusal;
     const actor = actorOf(actorUuid);
     if (!actor?.isOwner) return refuse("not-owner");
+    if (MONEYLESS.includes(order.craftType)) return refuse("moneyless");
     if (["complete", "cancelled", "archived", "rolled"].includes(order.status)) return refuse("state", { status: order.status });
     return pledge({ actor, cp, order: id, nonce: newId() });
 }
@@ -274,13 +281,16 @@ export async function withdrawFrom(id, actorUuid, cp) {
 
 /**
  * Start an accepted order (4.2.3): every gate must pass (P1); the plan is frozen (Price, up-front half, DC, setup,
- * route), a new attempt opens and the up-front half is committed.
+ * route), a new attempt opens and the up-front half is committed. M9a: a Deconstruct of an item an earlier one damaged starts
+ * once it was repaired, or with `acceptLoss` (5% of its value lost, 6.16.5), as a retry does.
  */
-export async function start(id) {
+export async function start(id, { acceptLoss = false } = {}) {
     const { order, refusal } = orderOrRefuse(id);
     if (refusal) return refusal;
     const crafter = actorOf(order.crafter);
     if (!crafter?.isOwner) return refuse("not-owner");
+    const damage = order.craftType === "deconstruct" && order.status === "accepted" ? retryPatch(order, { acceptLoss: acceptLoss === true }) : { ok: true, variant: null };
+    if (!damage.ok) return damage;
     const product = await productFacts(order.product.uuid);
     if (!product) return refuse("no-product");
     const rules = rulesFromSettings();
@@ -297,6 +307,10 @@ export async function start(id) {
     // equivalent cost is kept for the Funds tab.
     if (order.craftType === "quest") Object.assign(patch, { status: "gathering", quest: plan.quest ?? null });
     if (order.craftType === "grow") patch.variant = { ...(patch.variant ?? order.variant ?? {}), grow: { mode: "tended", since: null, startDay: today().day } };
+    // M9a (6.16.2): whether the plan priced the item with its adjustments is frozen with the Price, so the finish makes what
+    // was paid for whatever the setting says by then (review fix of M9a).
+    if (order.variant?.adjustments?.length) patch.variant = { ...(patch.variant ?? order.variant ?? {}), adjusted: !!plan.change?.parts?.length };
+    if (damage.variant) patch.variant = { ...(patch.variant ?? order.variant ?? {}), deconstruct: damage.variant.deconstruct };
     // Earmarked material items count toward the up-front half at their Price (M5, 6.6): the coins commit the rest.
     const commit = result.rows.map((row) => ({ kind: "commit", idem: idemKey("commit", id, patch.attempt, seqFor(rows, idemKey("commit", id, patch.attempt))),
         cp: Math.max(0, row.cp - materialsCp(order)), order: id })).filter((row) => row.cp > 0);
@@ -308,6 +322,7 @@ export async function start(id) {
     const posted = await lockedWrite([change.lock, returnSlotLockId(order, rows)], commit,
         { set: { ...change.set, ...status }, replace: { ...change.replace, ...activity } });
     if (!posted.ok) return posted;
+    if (damage.variant) await noteItemDamage(read(`orders.${id}`));
     await postCard("started", read(`orders.${id}`));
     return { ok: true };
 }
@@ -417,6 +432,7 @@ export async function retry(id, { acceptLoss = false } = {}) {
     const commit = need > 0 ? [{ kind: "commit", idem: idemKey("commit", id, attempt, seqFor(rows, idemKey("commit", id, attempt))), cp: need, order: id }] : [];
     const change = transitionChange(order, "retry", result.patch, { rows: commit.map((row) => hashId(row.idem)) }, stampNow());
     const posted = await lockedWrite([change.lock, returnSlotLockId(order, rows)], commit, { set: change.set, replace: change.replace });
+    if (posted.ok && damage.variant) await noteItemDamage(read(`orders.${id}`));
     return posted.ok ? { ok: true } : posted;
 }
 
@@ -447,16 +463,22 @@ export async function finish(id) {
     const escrow = allocations.reduce((sum, a) => sum + a.cp, 0);
     if (escrow < remainder) return refuse("underfunded", { shortCp: remainder - escrow });
     // M9a (6.16.1): a finish after a rushed day rolls the flat check first (kept on the check, so it is rolled once): a failure
-    // delivers the item with a quirk to describe, a critical failure ruins it or delivers it cursed.
+    // delivers the item with a quirk to describe, a critical failure ruins it or delivers it cursed. The rushed days are in the
+    // ledger at twice the reduction, so the check is rolled whatever the setting says now (review fix of M9a).
     let rush = null;
-    if (rules.variants.complexCrafting && rushedInAttempt(order, orderDays(id))) {
+    if (rushedInAttempt(order, orderDays(id))) {
         const flat = await rushFlatCheck(order);
         if (!flat.ok) return flat;
         rush = flat.flat;
     }
     const crafterName = actorOf(order.crafter)?.name ?? "";
-    const flags = rush?.outcome === "quirk" ? { quirk: { from: "rushed-finish", order: id, note: "" } }
-        : rush?.outcome === "cursed" ? { curse: { from: "rushed-finish", order: id, crafter: crafterName, note: "" } } : {};
+    // M9a (6.16.4): an item made despite a critical failure carries what the Critical Crafting record says happened (review fix
+    // of M9a); a rushed finish's own curse, if any, is the one the item keeps.
+    const critical = order.check?.critical;
+    const made = madeDespite(critical)
+        ? { curse: { from: "critical-crafting", order: id, crafter: crafterName, category: critical.category ?? null, note: critical.note ?? "" } } : {};
+    const flags = rush?.outcome === "quirk" ? { ...made, quirk: { from: "rushed-finish", order: id, note: "" } }
+        : rush?.outcome === "cursed" ? { curse: { from: "rushed-finish", order: id, crafter: crafterName, note: "" } } : made;
     const outputs = await finishOutputs(order, { flags, make: rush?.outcome !== "ruined" });
     if (outputs.refuse) return refuse(outputs.refuse);
     const stem = idemKey("remainder", id, order.attempt);

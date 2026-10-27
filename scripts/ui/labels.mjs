@@ -305,13 +305,17 @@ export const REFUSAL = Object.freeze({
     "not-deployed": "pf2e-artisans-workshop.Refusal.NotDeployed",
     // M9a (6.16): the variants.
     "variant-off": "pf2e-artisans-workshop.Refusal.VariantOff",
+    moneyless: "pf2e-artisans-workshop.Refusal.Moneyless",
     rush: "pf2e-artisans-workshop.Refusal.Rush",
     "no-hours": "pf2e-artisans-workshop.Refusal.NoHours",
     "setup-days": "pf2e-artisans-workshop.Refusal.SetupDays",
+    "downtime-day": "pf2e-artisans-workshop.Refusal.DowntimeDay",
+    hours: "pf2e-artisans-workshop.Refusal.SetupHoursFull",
     rank: "pf2e-artisans-workshop.Refusal.Rank",
     "no-event": "pf2e-artisans-workshop.Refusal.NoEvent",
     "not-member": "pf2e-artisans-workshop.Refusal.NotMember",
     "no-critical": "pf2e-artisans-workshop.Refusal.NoCritical",
+    made: "pf2e-artisans-workshop.Refusal.Made",
     cursed: "pf2e-artisans-workshop.Refusal.Cursed",
     "no-check": "pf2e-artisans-workshop.Refusal.NoCheck",
     gifted: "pf2e-artisans-workshop.Refusal.Gifted",
@@ -330,6 +334,7 @@ export const REFUSAL = Object.freeze({
     "garden-limit": "pf2e-artisans-workshop.Refusal.GardenLimit",
     "not-consumable": "pf2e-artisans-workshop.Refusal.NotConsumable",
     funded: "pf2e-artisans-workshop.Refusal.Funded",
+    "over-seed": "pf2e-artisans-workshop.Refusal.OverSeed",
     encounters: "pf2e-artisans-workshop.Refusal.Encounters",
     "no-component": "pf2e-artisans-workshop.Refusal.NoComponent",
     found: "pf2e-artisans-workshop.Refusal.Found",
@@ -545,6 +550,8 @@ export const EVENT = Object.freeze({
     // M9a (6.16): a Deconstruct that made components, a quest assembled or delivered.
     deconstruct: "pf2e-artisans-workshop.Event.Deconstruct",
     assemble: "pf2e-artisans-workshop.Event.Assemble",
+    // M9a (6.16.4): a critical failure whose item is made anyway (review fix of M9a).
+    made: "pf2e-artisans-workshop.Event.Made",
     other: "pf2e-artisans-workshop.Event.Other",
 });
 

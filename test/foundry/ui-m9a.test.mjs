@@ -140,6 +140,21 @@ test("while every variant is off, the window shows nothing of them", async () =>
     assert.deepEqual(kindsNow(), ["item", "upgrade", "rune-etch", "rune-transfer", "service"]);
 });
 
+test("an order frozen under a variant that is off now keeps the controls it needs: Set up now, a quest's marks (review fix of M9a)", async () => {
+    const setup = await stored({}, { status: "setup", attempt: 1, setup: { days: 0, hours: 2 }, variant: { complex: { rush: 1, band: 2, quick: true } } });
+    const detail = await variantDetail(setup, await productFacts(ELIXIR));
+    assert.equal(detail.complex.setUpNow, true);
+    assert.equal(detail.complex.rushFinish, null, "nothing new is offered");
+    wellWritten(detail);
+    const quest = await stored({ craftType: "quest", quantity: 1, product: { uuid: RING, snapshot: { name: "Ring of Warding", priceCp: 10000 } },
+        variant: { quest: makeQuest({ encounters: 2 }) } }, { status: "gathering" });
+    assert.equal((await variantDetail(quest, await productFacts(RING))).quest.components[0].canMark, true);
+    // A 4-hour setup takes a downtime day: no Set up now.
+    await turnOn("complexCrafting");
+    const four = await stored({}, { status: "setup", attempt: 1, setup: { days: 0, hours: 4 }, variant: { complex: { rush: 1, band: 2, quick: false } } });
+    assert.equal((await variantDetail(four, await productFacts(ELIXIR))).complex.setUpNow, false);
+});
+
 test("Complex Crafting on the detail: the setup in words, the rush the crafter may choose, and the choice from the Queue", async () => {
     await turnOn("complexCrafting");
     const order = await stored();
@@ -183,6 +198,31 @@ test("events, Critical Crafting and a secret check on the detail and in the Queu
     assert.equal(asGm.checkText, "PF2E.Check.Result.Degree.Check.criticalSuccess");
     const gmDetail = await variantDetail(secret, await productFacts(ELIXIR));
     assert.equal(gmDetail.critical.secret.canReveal, true);
+});
+
+test("a secret critical failure made anyway reads as a success to players and shows them nothing of it; a failed one offers 'Make it anyway' (review fix of M9a)", async () => {
+    await turnOn("criticalCrafting");
+    const critical = { kind: "failure", natural: true, mode: "alongside", category: "secret-curse", note: "it hates its maker", made: true };
+    const made = await stored({}, { status: "finishing", attempt: 1, priceCp: 1200, upfrontCp: 600, variant: { special: true },
+        check: { degree: 0, die: 1, settled: true, secret: true, level: 7, rank: 3, attempt: 1, critical } });
+    world.currentUser = "p2";
+    const viewer = { userId: "p2", isGM: false, owns: () => false, hasCharacter: true };
+    const asPlayer = decorate(orderView(made, { viewer, nameOf: () => "Vera" }), made);
+    assert.equal(asPlayer.checkText, "PF2E.Check.Result.Degree.Check.success");
+    const playerDetail = await variantDetail(made, await productFacts(ELIXIR));
+    assert.equal(playerDetail?.critical?.record ?? null, null, "no critical record");
+    assert.equal(playerDetail?.note ?? null, null, "no note");
+    world.currentUser = "gm00000000000000";
+    const asGm = decorate(orderView(made, { viewer: { ...viewer, isGM: true }, nameOf: () => "Vera" }), made);
+    assert.equal(asGm.checkText, "PF2E.Check.Result.Degree.Check.criticalFailure");
+    const gmDetail = await variantDetail(made, await productFacts(ELIXIR));
+    assert.deepEqual([gmDetail.critical.record.made, gmDetail.critical.secret.canReveal], ["The item is made despite the critical failure.", true]);
+    wellWritten(gmDetail);
+    // A settled critical failure the record does not make yet: the crafter's side is offered to make it anyway.
+    world.currentUser = "p1";
+    const failed = await stored({}, { status: "failed", attempt: 1, variant: { special: true }, settlement: { attempt: 1, status: "failed" },
+        check: { degree: 0, die: 1, settled: true, level: 7, rank: 3, attempt: 1, critical: { ...critical, category: "pollution", made: false } } });
+    assert.equal((await variantDetail(failed, await productFacts(ELIXIR))).critical.record.canMake, true);
 });
 
 test("Deconstruct, Grow and a quest on the detail", async () => {
@@ -239,19 +279,23 @@ test("M9a's gates and refusals read as sentences; every M9a label is a key; the 
     assert.equal(refusalText({ reason: "garden-limit", data: { max: 2 } }), "The party already keeps as many gardens as it can (2).");
     const keys = [
         labels.CRAFT_TYPE.deconstruct, labels.CRAFT_TYPE.grow, labels.CRAFT_TYPE.quest, labels.DAY_STOP.event, labels.DAY_STOP["event-due"], labels.DAY_STOP["setup-hours"],
-        labels.EVENT.deconstruct, labels.EVENT.assemble, ...Object.values(labels.THREAT), ...Object.values(labels.CRITICAL_CATEGORY), ...Object.values(labels.ITEM_OUTCOME),
+        labels.EVENT.deconstruct, labels.EVENT.assemble, labels.EVENT.made, ...Object.values(labels.THREAT), ...Object.values(labels.CRITICAL_CATEGORY), ...Object.values(labels.ITEM_OUTCOME),
         ...["hard-to-destroy", "consumable", "workshop", "grow-tools", "quest-components", "adjustment-fit"].map((code) => labels.GATE[code]),
         ...["variant-off", "rush", "no-hours", "setup-days", "rank", "no-event", "not-member", "no-critical", "cursed", "no-check", "gifted", "dormant", "damaged", "raw",
             "not-similar", "purpose", "key", "expired", "one-components", "no-garden", "planted", "not-planted", "harvested", "garden-limit", "not-consumable", "funded",
-            "encounters", "no-component", "found", "missing", "not-due", "adjustment-fit"].map((code) => labels.REFUSAL[code]),
+            "encounters", "no-component", "found", "missing", "not-due", "adjustment-fit",
+            // The review fixes of M9a.
+            "moneyless", "downtime-day", "hours", "over-seed", "made"].map((code) => labels.REFUSAL[code]),
     ];
     assert.deepEqual(keys.filter((key) => !moduleKeys.has(key)), []);
     const queue = readFileSync(join(ROOT, "templates/workshop/queue.hbs"), "utf8");
     for (const op of ["rush", "setup-now", "rush-finish", "roll-event", "resolve-event", "special", "reveal", "critical", "curse", "purpose", "checklist", "follow-on",
-        "retry-loss", "components", "untended", "season", "found", "unfound", "component", "quest-config", "note"]) {
+        "retry-loss", "components", "untended", "season", "found", "unfound", "component", "quest-config", "note", "made"]) {
         assert.match(queue, new RegExp(`data-action="variant" data-op="${op}"`), op);
     }
     const funds = readFileSync(join(ROOT, "templates/workshop/funds.hbs"), "utf8");
-    for (const op of ["garden-add", "garden-fund", "garden-remove", "bestow", "heir"]) assert.match(funds, new RegExp(`data-op="${op}"`), op);
+    for (const op of ["garden-add", "garden-fund", "garden-withdraw", "garden-return", "garden-remove", "bestow", "heir"]) assert.match(funds, new RegExp(`data-op="${op}"`), op);
+    assert.equal(refusalText({ reason: "hours", data: { have: 8, max: 8 } }), "This crafter has set up 8 hours today already; at most 8 hours of setups fit into one day.");
+    assert.equal(refusalText({ reason: "over-seed", data: { maxCp: 2000 } }), "That is more than the garden still needs (at most 20 gp).");
     assert.match(readFileSync(join(ROOT, "templates/workshop/downtime.hbs"), "utf8"), /data-op="harvest"/);
 });

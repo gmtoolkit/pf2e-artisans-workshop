@@ -14,7 +14,7 @@
 import { MODULE_ID } from "../constants.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
 import { closedAs, lastEntry, settlementRecord, transitionChange } from "../logic/orders.mjs";
-import { allFound, assemblyOutcome, makeQuest } from "../logic/variants.mjs";
+import { allFound, assemblyOutcome, makeQuest, questUnderway } from "../logic/variants.mjs";
 import { QUEST_THREATS } from "../data/variants.mjs";
 import { lockedWrite, moveCoins } from "./money.mjs";
 import { finishOutputs } from "./outputs.mjs";
@@ -30,11 +30,18 @@ const refuse = (reason, data = {}) => ({ ok: false, reason, data });
 const actorOf = (uuid) => (typeof uuid === "string" ? fromUuidSync(uuid, { strict: false }) : null);
 const owns = (uuid) => actorOf(uuid)?.isOwner === true;
 
-/** A quest order, or a refusal (`off`, `no-order`, `state` for a closed one). */
-function questFor(id) {
+/** Whether an order is a quest under way (`questUnderway`) that its log does not say is closed. */
+export const questGoing = (order) => questUnderway(order) && !closedAs(order);
+
+/**
+ * A quest order, or a refusal (`variant-off`, `no-order`, `state` for a closed one). With `going`, a quest that has started
+ * keeps going once the variant is off: its components are still marked and it is still moved on, since nothing else could
+ * finish it (review fix of M9a); a new quest and its configuration need the variant on.
+ */
+function questFor(id, { going = false } = {}) {
     if (!canWrite()) return { refusal: refuse("not-ready") };
-    if (!variantOn("quests")) return { refusal: refuse("variant-off") };
     const order = read(`orders.${id}`);
+    if (!variantOn("quests") && !(going && questGoing(order))) return { refusal: refuse("variant-off") };
     if (!order || order.craftType !== "quest") return { refusal: refuse("no-order") };
     const closed = closedAs(order);
     return closed ? { refusal: refuse("state", { status: closed }) } : { order };
@@ -83,7 +90,7 @@ export async function setComponent(orderId, componentId, { threat = null, label 
  * names its author (5.10). Refused: `variant-off`, `state` (not gathering), `no-component`, `found` (already), `not-member`.
  */
 export async function markFound(orderId, componentId, { actor = null } = {}) {
-    const { order, refusal } = questFor(orderId);
+    const { order, refusal } = questFor(orderId, { going: true });
     if (refusal) return refusal;
     if (order.status !== "gathering") return refuse("state", { status: order.status });
     const component = order.variant?.quest?.components?.[componentId];
@@ -99,7 +106,7 @@ export async function markFound(orderId, componentId, { actor = null } = {}) {
  * `no-component`, `not-yours`.
  */
 export async function unmarkFound(orderId, componentId) {
-    const { order, refusal } = questFor(orderId);
+    const { order, refusal } = questFor(orderId, { going: true });
     if (refusal) return refusal;
     if (order.status !== "gathering") return refuse("state", { status: order.status });
     const found = order.variant?.quest?.components?.[componentId]?.found;
@@ -134,7 +141,7 @@ async function deliver(order, { event, patch = {}, flags = {} }) {
  * the crafter's owner. Refused: `variant-off`, `state`, `missing` (a component is still to be found).
  */
 export async function advanceQuest(orderId) {
-    const { order, refusal } = questFor(orderId);
+    const { order, refusal } = questFor(orderId, { going: true });
     if (refusal) return refusal;
     if (order.status !== "gathering") return refuse("state", { status: order.status });
     if (!allFound(order.variant?.quest)) return refuse("missing");
@@ -177,10 +184,11 @@ export async function settleQuest(order) {
 
 /**
  * Quests whose components are all found and that still say `gathering` (P5): moved on by the crafter's responsible
- * client. Returns how many moved. Nothing while the variant is off.
+ * client. Returns how many moved. A quest that started while the variant was on is still moved on once it is off (review fix
+ * of M9a); with no quest going, nothing is read or written.
  */
 export async function questSweep() {
-    if (!canWrite() || !variantOn("quests")) return 0;
+    if (!canWrite()) return 0;
     let moved = 0;
     for (const order of records("orders")) {
         if (order.craftType !== "quest" || order.status !== "gathering" || closedAs(order) || !allFound(order.variant?.quest)) continue;

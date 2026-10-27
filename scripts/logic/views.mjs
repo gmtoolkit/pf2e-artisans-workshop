@@ -16,6 +16,7 @@ import {
 } from "./progress.mjs";
 import { memberBalances } from "./reconcile.mjs";
 import { allocationsByContributor, splitProRata } from "./split.mjs";
+import { madeDespite, settledAsSuccess } from "./variants.mjs";
 
 export { estimateOf };
 
@@ -89,7 +90,8 @@ export function orderProgress(order, { rows = [], days = [], rules = DEFAULT_RUL
  */
 export function perDayCp(order, crafterToday, rules = DEFAULT_RULES) {
     if (!crafterToday) return null;
-    if (order.check?.degree >= DEGREE.success) return crafterRate(order.check, crafterToday, null, rules);
+    // M9a (6.16.4): a critical failure made despite runs at the success rate (`crafterRate`).
+    if (order.check?.degree >= DEGREE.success || madeDespite(order.check?.critical)) return crafterRate(order.check, crafterToday, null, rules);
     return incomePerDay(crafterToday.level, crafterToday.rank, DEGREE.success);
 }
 
@@ -147,7 +149,7 @@ export function workDaysView(order, days = [], rules = DEFAULT_RULES) {
     const byDay = (a, b) => a.day - b.day || (a.actor < b.actor ? -1 : a.actor > b.actor ? 1 : 0);
     const setup = recordsOf(order, days, "setup").sort(byDay);
     const extra = recordsOf(order, days, "extra").sort(byDay);
-    const counted = !!(order.check?.settled && order.check.degree >= DEGREE.success);
+    const counted = settledAsSuccess(order.check);
     let left = Number.isInteger(order.priceCp) ? Math.max(0, order.priceCp - order.upfrontCp) : 0;
     const out = setup.map((d, i) => ({ kind: "setup", n: i + 1, of: Math.max(order.setup?.days ?? 0, setup.length), day: d.day }));
     extra.forEach((d, i) => {

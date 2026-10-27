@@ -39,10 +39,14 @@ function orderFor(id) {
     return closed ? { refusal: refuse("state", { status: closed }) } : { order };
 }
 
+/** States in which a checklist item may change: before an attempt commits (the start, or a retry after a failure). */
+const CHECKLIST_OPEN = Object.freeze(["requested", "accepted", "failed"]);
+
 /**
  * Confirm a checklist item of an order, or take it back (P1: the crafter confirms the narrative requirements): the
  * workshop a Deconstruct needs, the tools a Grow uses, or that the product is similar to the components it takes. The
- * crafter's owner, before the start (a `similar` confirmation until the finish, since it changes what components count for).
+ * crafter's owner, before an attempt commits (the start, or a retry): a `similar` confirmation changes what a components line
+ * counts for, and the coins committed at the start were reckoned against it, so it is frozen with them (review fix of M9a).
  * Refused: `variant-off`, `not-owner`, `state`, `key`.
  */
 export async function confirmChecklist(orderId, key, on = true) {
@@ -52,8 +56,7 @@ export async function confirmChecklist(orderId, key, on = true) {
     const variant = key === "grow-tools" ? "grow" : "deconstruct";
     if (!variantOn(variant)) return refuse("variant-off");
     if (!order.crafter || !owns(order.crafter)) return refuse("not-owner");
-    const open = key === "similar" ? ["requested", "accepted", "setup", "check", "rolled", "finishing", "paused", "failed"] : ["requested", "accepted", "failed"];
-    if (!open.includes(order.status)) return refuse("state", { status: order.status });
+    if (!CHECKLIST_OPEN.includes(order.status)) return refuse("state", { status: order.status });
     const path = `orders.${orderId}.checklist.${key}`;
     if (on) await write({ replace: { [path]: { confirmedBy: game.user.id, ...stampNow() } } });
     else await write({ del: [path] });
@@ -134,6 +137,8 @@ function deconstructDay(order) {
  *   check is rolled after the day.
  * - Failure: the day is wasted; the order fails and may be retried.
  * - Critical failure: the item is damaged (`variant.deconstruct.damaged`); a retry needs a Repair first or accepts a 5% loss.
+ *   The damage is written on the item too (`flags.MOD.deconstructDamage`, `itemDamage`), so a new order for the same item
+ *   inherits it and cancelling the failed one does not shed it (review fix of M9a).
  * One request behind the order's log slot: the item's update and the order's change land together or not at all.
  */
 export async function settleDeconstruct(order) {
@@ -155,6 +160,14 @@ export async function settleDeconstruct(order) {
     const ops = [{ op: "lock", ids: [change.lock] }];
     const ledger = { set: { ...change.set }, replace: { ...change.replace } };
     let components = null;
+    if (degree === DEGREE.critFail) {
+        const item = targetOf(order);
+        if (item?.parent) {
+            const inBox = item.parent === shared().strongbox;
+            ops.push({ op: "updateItems", target: inBox ? "strongbox" : item.parent.uuid,
+                updates: [{ _id: item.id, [`flags.${MODULE_ID}.deconstructDamage`]: itemDamage({ ...d, damaged: true, damagedAt: stamp.at }, order.id) }] });
+        }
+    }
     if (success) {
         const item = targetOf(order);
         const facts = liveItemFacts(item);
@@ -217,10 +230,39 @@ export function repairedSince(order) {
         (!since || compareRows({ id: "", at: since }, { id: "", at: s.at }) < 0));
 }
 
+/** The damage a Deconstruct's critical failure left on an item (`flags.MOD.deconstructDamage`), or null. */
+export const damageOf = (item) => item?.flags?.[MODULE_ID]?.deconstructDamage ?? null;
+
+/** The item's damage record (6.16.5) from an order's `variant.deconstruct`: damaged or not, since when, the loss accepted so far. */
+const itemDamage = (d, orderId) => ({ damaged: d.damaged === true, at: d.damagedAt ?? null, lossPct: d.lossPct ?? 0, order: orderId });
+
 /**
- * What a retry of a Deconstruct changes (6.16.5): a damaged item needs a Repair first (which clears the damage) or the
- * crafter accepts losing 5% of its value for this retry (`lossPct` + 5, per retry, interpretation OQ-45). Returns the
- * `variant` patch, or a refusal `damaged` when neither.
+ * The damage a new Deconstruct of `item` starts with (6.16.5, review fix of M9a): what the item's last critical failure left
+ * (`damageOf`), so cancelling the failed order and filing a new one neither repairs it nor forgets the loss accepted so far.
+ */
+export function inheritedDamage(item) {
+    const damage = damageOf(item);
+    return damage ? { damaged: damage.damaged === true, damagedAt: damage.at ?? null, lossPct: Number(damage.lossPct) || 0 } : {};
+}
+
+/**
+ * Write an order's damage state back onto its item (6.16.5) once a start or a retry cleared it (a repair, or a loss accepted),
+ * so a later order for the item inherits that. Best effort: the order holds the truth for itself.
+ */
+export async function noteItemDamage(order) {
+    const item = targetOf(order);
+    if (!damageOf(item)) return;
+    try {
+        await item.update({ [`flags.${MODULE_ID}.deconstructDamage`]: itemDamage(order.variant?.deconstruct ?? {}, order.id) });
+    } catch (error) {
+        console.warn(`${MODULE_ID} | could not note the item's damage`, error);
+    }
+}
+
+/**
+ * What a retry (or the start) of a Deconstruct changes (6.16.5): a damaged item needs a Repair first (which clears the
+ * damage) or the crafter accepts losing 5% of its value for this attempt (`lossPct` + 5, per attempt, interpretation OQ-45).
+ * Returns the `variant` patch, or a refusal `damaged` when neither.
  */
 export function retryPatch(order, { acceptLoss = false } = {}) {
     const d = order.variant?.deconstruct ?? {};

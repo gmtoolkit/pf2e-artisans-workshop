@@ -2,6 +2,34 @@
 
 Newest first.
 
+## 2026-10-27: Treasure Vault (Remastered) variants after the second M9a review
+
+**Decision:** six rules settled while fixing the second M9a review (DESIGN 6.16, 10.17, After the second M9a review):
+
+- Only Quick Setup's 2-hour setup of a batch of consumables is recorded outside downtime ("Set up now"), at most 8 hours of
+  such setups per crafter per day; any other setup of hours (a consumable's 4 hours, Quick Setup's 4 hours for a permanent
+  item) takes the crafter's downtime day on the order.
+- A Critical Crafting critical failure can still make the item: its record says so (`made`), by default for the categories
+  whose example makes it (secretly cursed, draining the crafter, a malevolent mind, failing when used). It then settles as a
+  success would; recorded after a failed settlement it moves the order on by an undoable step. A GM may record it before the
+  settlement, and a secret one reads as a success to players.
+- A Deconstruct and a crafting quest take no money at all (no pledge, no party-fund earmark).
+- Garden funding stops at the seed cost, and members take their money back (the party fund's share too) whenever they ask,
+  with gardens off too.
+- An order started under a variant finishes under the rules it started with: its frozen setup of hours, its rushed days'
+  flat check, its quest, its adjustments, its components credit (the "similar" confirmation is frozen with the commit).
+- A Deconstruct's damage and the 10% a critical failure ruins of components are written on the item, not only the order.
+
+**Why:** Quick Setup's text ties the adventuring day to the consumable case only (TV-R p.159), and the book gives no daily
+number, so a working day bounds it; the book says the critical failure examples "tend towards possibilities where the item
+is still created" (TV-R p.161) and suggests secret rolls so that a player does not know; money allocated to an order that
+completes without a remainder has no refund path; a variant switched off mid-order must not strand money or work; anything
+kept only on the order is shed by cancelling it.
+
+**Consequences:** DESIGN 4.2.3 (the `made` transition), 6.16.1-6.16.9 and 10.17; refusal codes `downtime-day`, `hours`,
+`moneyless`, `over-seed`, `made`; `withdrawGarden` and the garden's slot lock; the low findings are in 10.17, Follow-ups (M9a,
+low).
+
 ## 2026-10-27: Tattoos and spell-supplied items after the M9 review
 
 **Decision:** four rules settled while fixing the M9 review (DESIGN 10.16, After the M9 review):

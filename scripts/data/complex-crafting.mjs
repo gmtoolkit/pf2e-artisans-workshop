@@ -21,4 +21,11 @@ export const COMPLEX_RUSH_DC = 5;
  * 4 hours, for items at least `QUICK_SETUP_LEVELS_BELOW` levels below the crafter).
  */
 export const COMPLEX_SUBDAY_HOURS = Object.freeze({ consumable: 4, quickConsumable: 2, quickPermanent: 4 });
+
+/**
+ * Hours of sub-day setups one crafter may record on one day (review fix of M9a). Only Quick Setup's 2-hour consumable
+ * setup fits into an adventuring day (Treasure Vault (Remastered) p.159); the book gives no number for how many, so a working
+ * day of 8 hours bounds them (interpretation, OQ-42).
+ */
+export const SETUP_HOURS_PER_DAY = 8;
 export const QUICK_SETUP_LEVELS_BELOW = 6;

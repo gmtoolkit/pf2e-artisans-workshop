@@ -5,8 +5,9 @@
  * component, gardens whose seed cost is funded). Deconstruct is in `deconstruct.mjs`, Grow and gardens in `nature.mjs`,
  * quests in `quests.mjs`; the pure parts are `scripts/logic/variants.mjs`.
  *
- * Every variant is a world setting that is off by default (14.4). While one is off its functions refuse as `off` and its
- * hooks and sweep steps return at once, so it writes nothing and shows nothing.
+ * Every variant is a world setting that is off by default (14.4). While one is off its functions refuse as `variant-off` and
+ * its hooks and sweep steps return at once, so it writes nothing and shows nothing; an order started under a variant still
+ * finishes under what it froze (a setup of hours, rushed days, a quest under way: review fix of M9a).
  *
  * Who writes what (4.2.4, P2): the crafter's owner chooses the rush, records a sub-day setup, rolls the rushed finish's
  * flat check (with the finish) and records a Critical Crafting result; the requester or the crafter marks an order
@@ -16,13 +17,15 @@
  */
 import { MODULE_ID } from "../constants.mjs";
 import { DEGREE, RANK } from "../logic/core.mjs";
+import { makeDespite } from "./rolls.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
 import { closedAs } from "../logic/orders.mjs";
 import { setupDaysDone } from "../logic/progress.mjs";
 import {
-    anyVariantOn, canRushFinish, curseEffectData, eventKey, eventRecord, eventResult, eventSlot, eventsDue, eventsOf, flatCheckDegree, giftDormant, giftRecord,
-    mixedGroups, rushFinishOutcome, rushedFinishDC, setupHoursRecord, variantGroupsOn, workedDays,
+    anyVariantOn, canRushFinish, checkHidden, criticalHidden, criticalRecord, curseEffectData, eventKey, eventRecord, eventResult, eventSlot, eventsDue, eventsOf, flatCheckDegree, giftDormant, giftRecord,
+    madeByDefault, madeDespite, mixedGroups, questUnderway, rushFinishOutcome, rushedFinishDC, setupAnywhere, setupHoursOn, setupHoursRecord, variantGroupsOn, workedDays,
 } from "../logic/variants.mjs";
+import { SETUP_HOURS_PER_DAY } from "../data/complex-crafting.mjs";
 import { VARIANT_UUIDS } from "../data/variants.mjs";
 import { today } from "./downtime.mjs";
 import { lockedWrite } from "./money.mjs";
@@ -69,11 +72,19 @@ export function whisperTo(uuids) {
     return [...users];
 }
 
+/**
+ * The chat mode a variant card is posted in (`chat.visibility`): whispered to `whisper` as "gm" (Foundry 14's
+ * `ChatMessage.applyMode` keeps a non-empty whisper list in that mode), or public when it names nobody. Roll#toMessage and
+ * RollTable#toMessage apply the user's own chat mode when given none, and the public mode clears the whisper list.
+ */
+export const cardMode = (whisper) => (whisper?.length ? "gm" : "public");
+
 /** Roll a die and post it as an ordinary roll card (the event's d20, the rushed finish's flat check). */
 async function rollDie(faces, { flavor, whisper, actor = null, flags = {} }) {
     const roll = await new Roll(`1d${faces}`).evaluate();
     if (typeof roll.toMessage === "function") {
-        await roll.toMessage({ flavor, whisper, speaker: ChatMessage.implementation.getSpeaker(actor ? { actor } : {}), flags: { [MODULE_ID]: flags } })
+        await roll.toMessage({ flavor, whisper, speaker: ChatMessage.implementation.getSpeaker(actor ? { actor } : {}), flags: { [MODULE_ID]: flags } },
+            { messageMode: cardMode(whisper) })
             .catch((error) => console.warn(`${MODULE_ID} | could not post a roll`, error));
     }
     return roll.total;
@@ -149,27 +160,38 @@ export async function setRushFinish(orderId, on) {
 }
 
 /**
- * "Set up now" (6.16.1): a setup rushed below one day takes hours, not a downtime day. The crafter's owner records it as a
- * `setup-hours` variant record for today, keyed `days.<actorId>-<day>-<orderId>` so it never overwrites the crafter's
- * own day record (an adventuring day, or a day spent on another activity), stamped with world time; it completes the setup
- * and the order moves to `check` in the same write. The module never moves the clock. Behind a lock per attempt, so it
- * is recorded once. Refused: `variant-off`, `not-owner`, `state`, `no-hours` (the setup takes days), `setup-days` (setup days are
- * still owed first).
+ * "Set up now" (6.16.1, TV-R p.159): Quick Setup's 2-hour setup of a batch of consumables fits into an adventuring day, so it
+ * takes no downtime day. The crafter's owner records it as a `setup-hours` variant record for today, keyed
+ * `days.<actorId>-<day>-<orderId>` so it never overwrites the crafter's own day record (an adventuring day, or a day spent on
+ * another activity), stamped with world time; it completes the setup and the order moves to `check` in the same write. The
+ * module never moves the clock. Any other setup of hours takes the crafter's downtime day on the order, which "Work a day" and
+ * the day resolver write (`downtime-day`). A crafter records at most `SETUP_HOURS_PER_DAY` hours of setups on one day, over every
+ * order (`hours`). Behind a lock per attempt, so it is recorded once, and the day's slot (`setup-day:<actorId>:<day>:<n>`), so
+ * two setups planned from the same copy cannot both fit the day. The frozen setup decides, not the setting: an order started
+ * under Complex Crafting is set up even once the variant is off (review fix of M9a). Refused: `variant-off` (no setup of hours,
+ * and the variant off), `not-owner`, `state`, `no-hours` (the setup takes days), `setup-days` (setup days are still owed
+ * first), `downtime-day`, `hours`.
  */
 export async function setUpNow(orderId) {
-    const { order, refusal } = orderFor(orderId, "complexCrafting");
+    const { order, refusal } = orderFor(orderId);
     if (refusal) return refusal;
+    const hours = order.setup?.hours ?? 0;
+    if (!(hours > 0)) return refuse(variantOn("complexCrafting") ? "no-hours" : "variant-off");
     const crafter = actorOf(order.crafter);
     if (!crafter?.isOwner) return refuse("not-owner");
     if (order.status !== "setup") return refuse("state", { status: order.status });
-    if (!((order.setup?.hours ?? 0) > 0)) return refuse("no-hours");
-    const days = records("days").filter((d) => d.order === orderId);
+    const all = records("days");
+    const days = all.filter((d) => d.order === orderId);
     if (setupDaysDone(order, days) < order.setup.days) return refuse("setup-days");
+    if (!setupAnywhere(order)) return refuse("downtime-day");
     const day = today().day;
-    const record = setupHoursRecord({ actorId: crafter.id, day, order, hours: order.setup.hours, worldTime: game.time.worldTime ?? 0 }, stampNow());
-    const written = await lockedWrite([hashId(idemKey("setup-hours", orderId, order.attempt))], [],
+    const used = setupHoursOn(all, crafter.id, day);
+    if (used + hours > SETUP_HOURS_PER_DAY) return refuse("hours", { have: used, max: SETUP_HOURS_PER_DAY });
+    const slot = all.filter((d) => d.kind === "setup-hours" && d.actor === crafter.id && d.day === day).length;
+    const record = setupHoursRecord({ actorId: crafter.id, day, order, hours, worldTime: game.time.worldTime ?? 0 }, stampNow());
+    const written = await lockedWrite([hashId(idemKey("setup-hours", orderId, order.attempt)), hashId(idemKey("setup-day", crafter.id, day, slot))], [],
         { set: { [`orders.${orderId}.status`]: "check" }, replace: { [`days.${record.id}`]: record } });
-    return written.ok ? { ok: true, day, hours: order.setup.hours } : written;
+    return written.ok ? { ok: true, day, hours } : written;
 }
 
 /** The crafter's Crafting proficiency bonus (pf2e's `proficiency` modifier of the skill's statistic), or null. */
@@ -261,7 +283,7 @@ async function postEvent(order, record, crafter, { table, drawn, roll }) {
     const item = order.product?.snapshot?.name ?? "";
     try {
         if (table && drawn) {
-            await table.toMessage(drawn.results, { roll: drawn.roll, messageData: { whisper, speaker } });
+            await table.toMessage(drawn.results, { roll: drawn.roll, messageData: { whisper, speaker }, messageOptions: { messageMode: cardMode(whisper) } });
             return;
         }
         const result = eventResult(record.roll);
@@ -269,7 +291,8 @@ async function postEvent(order, record, crafter, { table, drawn, roll }) {
             ? game.i18n.format("pf2e-artisans-workshop.Variant.Event.GmCore", { item })
             : game.i18n.format("pf2e-artisans-workshop.Variant.Event.Row", { item, row: String(result.row) });
         if (typeof roll?.toMessage === "function") {
-            await roll.toMessage({ flavor, whisper, speaker, flags: { [MODULE_ID]: { card: { kind: "event", order: order.id } } } });
+            await roll.toMessage({ flavor, whisper, speaker, flags: { [MODULE_ID]: { card: { kind: "event", order: order.id } } } },
+                { messageMode: cardMode(whisper) });
         }
     } catch (error) {
         console.warn(`${MODULE_ID} | could not post an event card`, error);
@@ -335,20 +358,43 @@ export async function setSpecial(orderId, on) {
 }
 
 /**
- * Record a Critical Crafting result (6.16.4): its category (from the author's list) and a note, on the critical the
- * settlement stamped. The crafter's owner, or a GM. Refused: `variant-off`, `no-critical`, `not-owner`.
+ * Record a Critical Crafting result (6.16.4): its category (from the author's list), a note and, for a critical failure,
+ * whether the item is made anyway (`made`; by default for the categories whose book example makes it, `MADE_DESPITE`, review
+ * fix of M9a). Recorded on the critical the settlement stamped, or before the settlement on a check that triggers Critical
+ * Crafting (a GM who sees a secret roll records what happened before anyone settles it); a made critical failure then settles
+ * as a success would (`settleCheck`). Recorded after a settlement that failed the order, a made one moves it on to `finishing`
+ * (`makeDespite`, undoable). The crafter's owner, or a GM; only a GM while the check is hidden from players. Refused:
+ * `variant-off`, `no-critical`, `not-owner`, `made` (the item is already being made: undo that first), and `makeDespite`'s.
  */
-export async function recordCritical(orderId, { category = null, note = "" } = {}) {
-    const { order, refusal } = orderFor(orderId, "criticalCrafting");
-    if (refusal && refusal.reason !== "state") return refusal;
-    const current = order ?? read(`orders.${orderId}`);
-    const critical = current?.check?.critical;
+export async function recordCritical(orderId, { category = null, note = "", made = null } = {}) {
+    if (!canWrite()) return refuse("not-ready");
+    if (!variantOn("criticalCrafting")) return refuse("variant-off");
+    const current = read(`orders.${orderId}`);
+    if (!current) return refuse("no-order");
+    const check = current.check;
+    const viewer = { isGM: game.user.isGM };
+    const unsettled = current.status === "rolled" && !!check && !check.settled && !closedAs(current) && !["deconstruct", "quest"].includes(current.craftType);
+    const critical = check?.critical ?? (unsettled ? criticalRecord(check, current, rulesFromSettings(), {}) : null);
     if (!critical) return refuse("no-critical");
-    if (!(game.user.isGM || owns(current.crafter))) return refuse("not-owner");
+    if (!(game.user.isGM || (owns(current.crafter) && !checkHidden(check, viewer) && !criticalHidden(check, viewer)))) return refuse("not-owner");
+    const failure = critical.kind === "failure";
+    const goingOn = madeDespite(critical) && current.status !== "failed" && !unsettled;
+    const wantMade = failure && (made ?? (goingOn || madeByDefault(category))) === true;
+    if (goingOn && !wantMade) return refuse("made");
     const stamp = stampNow();
-    await write({ set: { [`orders.${orderId}.check.critical.category`]: category, [`orders.${orderId}.check.critical.note`]: String(note ?? ""),
+    const record = { ...critical, category, note: String(note ?? ""), made: wantMade, by: stamp.by, at: stamp.at };
+    if (unsettled) {
+        await write({ replace: { [`orders.${orderId}.check.critical`]: record } });
+        return { ok: true, made: wantMade };
+    }
+    if (wantMade && !goingOn && !closedAs(current) && current.status === "failed") {
+        const moved = await makeDespite(orderId, record);
+        return moved.ok ? { ok: true, made: true, status: "finishing" } : moved;
+    }
+    await write({ set: { [`orders.${orderId}.check.critical.category`]: category, [`orders.${orderId}.check.critical.note`]: record.note,
+        [`orders.${orderId}.check.critical.made`]: goingOn,
         [`orders.${orderId}.check.critical.by`]: stamp.by, [`orders.${orderId}.check.critical.at`]: stamp.at } });
-    return { ok: true };
+    return { ok: true, made: goingOn };
 }
 
 /** The crafter's curse effects on an actor (6.16.4). */
@@ -501,9 +547,12 @@ export async function variantSweep() {
 }
 
 let sweepTimer = null;
-/** Run the variants' catch-up once changes settle. */
+/**
+ * Run the variants' catch-up once changes settle: while a variant is on, or a quest that started under one is still under
+ * way (it is still moved on once its variant is off, review fix of M9a).
+ */
 function scheduleVariantSweep(ms = 800) {
-    if (!anyVariantOn(rulesFromSettings())) return;
+    if (!anyVariantOn(rulesFromSettings()) && !records("orders").some(questUnderway)) return;
     clearTimeout(sweepTimer);
     sweepTimer = setTimeout(() => {
         variantSweep().catch((error) => console.error(`${MODULE_ID} | variant sweep failed`, error));

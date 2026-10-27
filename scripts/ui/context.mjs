@@ -7,7 +7,7 @@
 import { MODULE_ID } from "../constants.mjs";
 import { CLOSED } from "../logic/orders.mjs";
 import { orderView } from "../logic/views.mjs";
-import { checkHidden } from "../logic/variants.mjs";
+import { checkHidden, shownDegree } from "../logic/variants.mjs";
 import { shelfItemsFor } from "../foundry/claims.mjs";
 import { orderDays, orderRows, owns, viewer as currentViewer } from "../foundry/orders.mjs";
 import { crafterFacts, gatesFor, planEstimate, productFacts } from "../foundry/products.mjs";
@@ -17,6 +17,9 @@ import { DEGREE_CLASS, DEGREE_KEY, DELIVERY, ROUTE, STATUS } from "./labels.mjs"
 
 const loc = (key) => game.i18n.localize(key);
 const fmt = (key, data) => game.i18n.format(key, data);
+
+/** A check's degree as the Queue shows it (`checkText`, `checkClass`), or nothing. */
+const degreeText = (degree) => ({ checkText: degree === null ? null : loc(DEGREE_KEY[degree]), checkClass: degree === null ? null : DEGREE_CLASS[degree] });
 
 /** The crafter's level and rank in the order's skill today, or null. */
 function crafterToday(order) {
@@ -145,10 +148,11 @@ export function decorate(view, order) {
         finishLabel: p.phase === "crafting" ? "pf2e-artisans-workshop.Detail.FinishNow" : "pf2e-artisans-workshop.Detail.StillNeeded",
         withdrawText: view.withdrawableCp > 0 ? money(view.withdrawableCp) : null,
         fundReturnText: view.fundReturnableCp > 0 ? money(view.fundReturnableCp) : null,
-        // M9a (6.16.4): a secret check reads "rolled (secret)" to players until it settles or a GM reveals it.
+        // M9a (6.16.4): a secret check reads "rolled (secret)" to players until it settles or a GM reveals it; one whose critical
+        // failure made the item anyway reads as a success to them (review fix of M9a).
         ...(checkHidden(order.check, currentViewer())
             ? { checkText: loc("pf2e-artisans-workshop.Variant.Critical.Secret"), checkClass: null, secretCheck: true }
-            : { checkText: view.check ? loc(DEGREE_KEY[view.check.degree]) : null, checkClass: view.check ? DEGREE_CLASS[view.check.degree] : null }),
+            : degreeText(view.check ? shownDegree(order.check, currentViewer()) : null)),
         conflictText: view.conflict ? loc(DEGREE_KEY[view.conflict.degree]) : null,
         contributorsText: view.contributors.map((c) => ({ ...c, amount: money(c.cp), name: sourceName(c.actor) })),
         // Material stock earmarked for the order, by who handed it over, at Price (M5 on M4.1).

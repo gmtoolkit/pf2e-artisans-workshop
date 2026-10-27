@@ -20,15 +20,15 @@ import { CLOSED } from "../logic/orders.mjs";
 import { setupDaysDone } from "../logic/progress.mjs";
 import { holds } from "../logic/registry.mjs";
 import {
-    CRITICAL_CATEGORIES, anyVariantOn, canRushFinish, checkHidden, criticalOf, eventResult, eventSlot, eventsOf, gardenLimit, questBudget, questComponents,
-    questCost,
+    CRITICAL_CATEGORIES, anyVariantOn, canMakeDespite, canRushFinish, checkHidden, criticalHidden, criticalOf, madeDespite, eventResult, eventSlot, eventsOf, gardenLimit, questBudget, questComponents,
+    questCost, questUnderway, setupAnywhere,
 } from "../logic/variants.mjs";
 import { QUEST_THREATS, VARIANT_UUIDS } from "../data/variants.mjs";
 import { handOver } from "../foundry/custody.mjs";
 import * as deconstruct from "../foundry/deconstruct.mjs";
 import { today } from "../foundry/downtime.mjs";
 import * as nature from "../foundry/nature.mjs";
-import { actingChoices, retry, viewer as currentViewer } from "../foundry/orders.mjs";
+import { actingChoices, retry, start, viewer as currentViewer } from "../foundry/orders.mjs";
 import { crafterFacts, routeFor, skillFor, targetOf } from "../foundry/products.mjs";
 import * as quests from "../foundry/quests.mjs";
 import { members } from "../foundry/roster.mjs";
@@ -66,24 +66,37 @@ const BEFORE_START = Object.freeze(["requested", "accepted"]);
  */
 export async function variantDetail(order, product) {
     const { v, any } = switches();
-    if (!any) return null;
+    const frozen = frozenUnder(order);
+    if (!any && !frozen.complex && !frozen.quest) return null;
     const viewer = currentViewer();
     const crafterOwned = !!order.crafter && owns(order.crafter);
     const rules = rulesFromSettings();
     const out = {
-        complex: v.complexCrafting ? await complexView(order, product, crafterOwned, rules) : null,
+        complex: v.complexCrafting || frozen.complex ? await complexView(order, product, crafterOwned, rules) : null,
         events: v.events ? eventsView(order, viewer, crafterOwned) : null,
         critical: v.criticalCrafting ? criticalView(order, viewer, crafterOwned, rules) : null,
         deconstruct: v.deconstruct && order.craftType === "deconstruct" ? deconstructView(order, viewer, crafterOwned) : null,
         components: v.deconstruct && order.craftType !== "deconstruct" ? componentsView(order, crafterOwned) : null,
         grow: v.grow && order.craftType === "grow" ? growView(order, crafterOwned, rules) : null,
-        quest: v.quests && order.craftType === "quest" ? questView(order, product, viewer, crafterOwned) : null,
+        quest: (v.quests || frozen.quest) && order.craftType === "quest" ? questView(order, product, viewer, crafterOwned) : null,
         adjustments: v.adjustments && order.variant?.adjustments?.length
             ? order.variant.adjustments.map((uuid) => fromUuidSync(uuid, { strict: false })?.name ?? uuid.split(".").pop()) : null,
         bestow: v.gifts && order.variant?.bestow ? fmt("pf2e-artisans-workshop.Variant.Gift.Bestowed", { giver: order.variant.bestow.giver || loc("pf2e-artisans-workshop.Variant.Gift.Unnamed") }) : null,
         note: noteView(order, viewer, crafterOwned),
     };
     return Object.values(out).some(Boolean) ? out : null;
+}
+
+/**
+ * What an open order froze under a variant that may be off now and still needs to finish (review fix of M9a): a Complex
+ * Crafting setup of hours still to record, and a quest under way. Their controls stay while the order needs them.
+ */
+function frozenUnder(order) {
+    const open = !CLOSED.includes(order.status);
+    return {
+        complex: open && order.status === "setup" && (order.setup?.hours ?? 0) > 0,
+        quest: open && questUnderway(order),
+    };
 }
 
 /** Complex Crafting on the detail (6.16.1). */
@@ -103,12 +116,13 @@ async function complexView(order, product, crafterOwned, rules) {
         const frozen = order.variant?.complex ?? { rush: 0 };
         out.lines.push(setupText({ days: order.setup.days, hours: order.setup.hours ?? 0, rush: frozen.rush ?? 0, dcAdd: 5 * (frozen.rush ?? 0), quick: !!frozen.quick }));
     }
-    if (order.status === "setup" && (order.setup?.hours ?? 0) > 0 && crafterOwned) {
+    // "Set up now" records Quick Setup's 2-hour consumable setup only; any other setup of hours takes a downtime day ("Work a day").
+    if (order.status === "setup" && setupAnywhere(order) && crafterOwned) {
         const days = records("days").filter((d) => d.order === order.id);
         out.setUpNow = setupDaysDone(order, days) >= order.setup.days;
     }
     const rank = crafter?.skills?.[order.skill ?? "crafting"]?.rank ?? 0;
-    if (WORKING.includes(order.status) && (canRushFinish(rank, rules) || order.variant?.rushFinish)) {
+    if (rules.variants.complexCrafting && WORKING.includes(order.status) && (canRushFinish(rank, rules) || order.variant?.rushFinish)) {
         out.rushFinish = { on: order.variant?.rushFinish === true, can: crafterOwned };
     }
     const flat = order.check?.rushFlat;
@@ -145,14 +159,21 @@ function eventsView(order, viewer, crafterOwned) {
 
 /** Critical Crafting on the detail (6.16.4). */
 function criticalView(order, viewer, crafterOwned, rules) {
-    const out = { special: null, pending: null, record: null, secret: null };
+    const out = { special: null, pending: null, record: null, secret: null, canRecordNow: false };
     if (BEFORE_START.includes(order.status)) {
         out.special = { on: order.variant?.special === true, can: viewer.isGM || owns(order.requester) || crafterOwned };
     } else if (order.variant?.special) out.special = { on: true, can: false };
     const check = order.check;
+    // A secret critical failure that made the item reads as a success to players (review fix of M9a): nothing of it shows.
+    if (check && criticalHidden(check, viewer)) return out.special ? { ...out } : null;
     if (check && checkHidden(check, viewer)) out.secret = { text: loc("pf2e-artisans-workshop.Variant.Critical.Secret") };
-    if (check?.secret && !check.settled && !check.revealed && viewer.isGM) out.secret = { text: loc("pf2e-artisans-workshop.Variant.Critical.SecretGm"), canReveal: true };
-    if (check && !check.settled && !checkHidden(check, viewer) && criticalOf(check, order, rules)) out.pending = loc("pf2e-artisans-workshop.Variant.Critical.Pending");
+    if (check?.secret && !check.revealed && viewer.isGM && (!check.settled || madeDespite(check.critical))) {
+        out.secret = { text: loc(check.settled ? "pf2e-artisans-workshop.Variant.Critical.SecretMadeGm" : "pf2e-artisans-workshop.Variant.Critical.SecretGm"), canReveal: true };
+    }
+    const triggers = !!check && !check.settled && !!criticalOf(check, order, rules) && !["deconstruct", "quest"].includes(order.craftType);
+    if (triggers && !checkHidden(check, viewer)) out.pending = loc("pf2e-artisans-workshop.Variant.Critical.Pending");
+    // Recorded before the settlement (review fix of M9a): a GM who sees a secret roll, or the crafter's side who sees the check.
+    out.canRecordNow = triggers && !check.critical && (viewer.isGM || (crafterOwned && !checkHidden(check, viewer)));
     const critical = check?.critical;
     if (critical) {
         const categories = CRITICAL_CATEGORIES[critical.kind] ?? [];
@@ -164,9 +185,12 @@ function criticalView(order, viewer, crafterOwned, rules) {
             note: critical.note || null, canRecord: crafterOwned || viewer.isGM, categories,
             curse: critical.curse ? fmt("pf2e-artisans-workshop.Variant.Critical.Cursed", { n: number(critical.curse.size) }) : null,
             canCurse: critical.kind === "failure" && crafterOwned && !critical.curse,
+            // Made despite the failure (review fix of M9a): said so, and offered while the failed settlement is the last step.
+            made: madeDespite(critical) ? loc("pf2e-artisans-workshop.Variant.Critical.Made") : null,
+            canMake: canMakeDespite(order) && (crafterOwned || viewer.isGM),
         };
     }
-    return out.special || out.pending || out.record || out.secret ? out : null;
+    return out.special || out.pending || out.record || out.secret || out.canRecordNow ? out : null;
 }
 
 /** Deconstruct on the detail (6.16.5). */
@@ -184,7 +208,8 @@ function deconstructView(order, viewer, crafterOwned) {
         workshop: { on: !!order.checklist?.workshop, can: crafterOwned && (before || order.status === "failed") },
         followOn: d.purpose === "similar" ? { name: followOn?.product?.snapshot?.name ?? null, can: crafterOwned && [...BEFORE_START, "setup", "check", "rolled"].includes(order.status) } : null,
         damaged: d.damaged ? loc("pf2e-artisans-workshop.Variant.Deconstruct.Damaged") : null,
-        canRetryLoss: !!d.damaged && order.status === "failed" && crafterOwned,
+        // A damaged item (by this order's critical failure or an earlier one's, review fix of M9a) is retried or started at a loss.
+        canRetryLoss: !!d.damaged && (order.status === "failed" || order.status === "accepted") && crafterOwned,
         loss: d.lossPct > 0 ? fmt("pf2e-artisans-workshop.Variant.Deconstruct.Loss", { pct: number(d.lossPct) }) : null,
         result: order.status === "complete" && components
             ? fmt("pf2e-artisans-workshop.Variant.Deconstruct.Result", { credit: money(components.valueCp), raw: money(components.rawCp),
@@ -202,7 +227,8 @@ function componentsView(order, crafterOwned) {
     const open = ["requested", "accepted", "failed"].includes(order.status);
     const canHandOver = open && !lines.length && deconstruct.componentsChoices(actingChoices()).length > 0;
     if (!lines.length && !canHandOver) return null;
-    return { lines, canHandOver, similar: { on: !!order.checklist?.similar, can: crafterOwned && !CLOSED.includes(order.status) } };
+    // The "similar" confirmation is frozen with the coins an attempt commits (review fix of M9a): before the start or a retry.
+    return { lines, canHandOver, similar: { on: !!order.checklist?.similar, can: crafterOwned && open } };
 }
 
 /** Grow on the detail (6.16.6). */
@@ -256,6 +282,7 @@ function questView(order, product, viewer, crafterOwned) {
 
 /** A note on a quirk, a curse or a critical, which the crafter writes (6.16.1, 6.16.4, 6.16.9). */
 function noteView(order, viewer, crafterOwned) {
+    if (order.check && criticalHidden(order.check, viewer)) return null;
     const outcome = order.check?.rushFlat?.outcome ?? order.check?.outcome ?? null;
     const needs = ["quirk", "cursed"].includes(outcome) || !!order.check?.critical;
     if (!needs && !order.variantNote) return null;
@@ -267,18 +294,26 @@ function noteView(order, viewer, crafterOwned) {
 /*  The Funds tab: gardens and gifts             */
 /* -------------------------------------------- */
 
-/** The Funds tab's gardens (6.16.7) and bestowed gifts (6.16.8), or null while both are off. */
+/**
+ * The Funds tab's gardens (6.16.7) and bestowed gifts (6.16.8), or null while both are off. A garden that still holds money
+ * shows with gardens off too, so the money can be taken back (review fix of M9a).
+ */
 export function fundsVariants() {
     const { v } = switches();
-    if (!v.gardens && !v.gifts) return null;
-    return { gardens: v.gardens ? gardensView() : null, gifts: v.gifts ? giftsView() : null };
+    const holding = !v.gardens && nature.gardensOf().some((g) => nature.gardenFunds(g.id).heldCp > 0);
+    if (!v.gardens && !v.gifts && !holding) return null;
+    return { gardens: v.gardens || holding ? gardensView(v.gardens) : null, gifts: v.gifts ? giftsView() : null };
 }
 
-/** The party's gardens, each with its seed cost and what it holds toward it. */
-export function gardensView() {
+/**
+ * The party's gardens, each with its seed cost and what it holds toward it, and what this user may take back of it: a
+ * character's own share, or the party fund's (review fix of M9a). With gardens off (`on` false) only the take-backs remain.
+ */
+export function gardensView(on = true) {
     const pcs = members().length;
     const list = nature.gardensOf();
-    const member = game.user.isGM || actingChoices().length > 0;
+    const acting = actingChoices();
+    const member = game.user.isGM || acting.length > 0;
     return {
         list: list.map((g) => {
             const held = nature.gardenFunds(g.id).heldCp;
@@ -286,11 +321,12 @@ export function gardensView() {
             return {
                 id: g.id, name: g.name, kind: g.kind || null, product: g.product?.name ?? "", img: g.product?.img ?? null,
                 seed: money(g.seedCostCp), held: money(held), planted: planted ? fmt("pf2e-artisans-workshop.Variant.Garden.PlantedOn", { day: number(g.plantedDay) }) : null,
-                canFund: !planted && member, canRemove: !planted && held === 0 && member,
+                canFund: on && !planted && member, canRemove: on && !planted && held === 0 && member,
+                canWithdraw: acting.some((a) => nature.gardenShareOf(g.id, a.uuid) > 0), canReturn: member && nature.gardenShareOf(g.id, null) > 0,
             };
         }),
         limit: fmt("pf2e-artisans-workshop.Variant.Garden.Limit", { n: number(list.length), max: number(gardenLimit(pcs)) }),
-        canAdd: member && list.length < gardenLimit(pcs),
+        canAdd: on && member && list.length < gardenLimit(pcs),
     };
 }
 
@@ -378,8 +414,10 @@ export async function onVariantOp(app, target) {
             return answer ? report(await variants.resolveEvent(id, data.slot, { note: answer.text ?? "" })) : null;
         }
         case "special": return report(await variants.setSpecial(id, order?.variant?.special !== true));
+        case "made": return report(await variants.recordCritical(id, { category: order?.check?.critical?.category ?? null, note: order?.check?.critical?.note ?? "",
+            made: true }));
         case "critical": {
-            const kind = order?.check?.critical?.kind ?? "success";
+            const kind = order?.check?.critical?.kind ?? (order?.check ? criticalOf(order.check, order, rulesFromSettings())?.kind : null) ?? "success";
             const answer = await askChoice({ title: "pf2e-artisans-workshop.Variant.Critical.Record", label: "pf2e-artisans-workshop.Variant.Critical.CategoryLabel",
                 options: (CRITICAL_CATEGORIES[kind] ?? []).map((c) => ({ value: c, name: loc(CRITICAL_CATEGORY[`${kind}.${c}`]) })),
                 text: { label: "pf2e-artisans-workshop.Variant.Note" }, button: "pf2e-artisans-workshop.Variant.Critical.Record", icon: "fa-solid fa-star", app });
@@ -415,7 +453,8 @@ export async function onVariantOp(app, target) {
         }
         case "retry-loss": {
             const ok = await confirm({ title: "pf2e-artisans-workshop.Variant.Deconstruct.RetryLoss", content: "pf2e-artisans-workshop.Variant.Deconstruct.RetryLossContent", app });
-            return ok ? report(await retry(id, { acceptLoss: true })) : null;
+            if (!ok) return null;
+            return report(order?.status === "accepted" ? await start(id, { acceptLoss: true }) : await retry(id, { acceptLoss: true }));
         }
         case "components": {
             const options = deconstruct.componentsChoices(actingChoices()).map((c) => ({ value: c.uuid,
@@ -452,6 +491,17 @@ export async function onVariantOp(app, target) {
         case "garden-fund": {
             const answer = await askMoney({ kind: "fund", actors: actingChoices(), actor: acting?.uuid ?? null, sources: { fundCp: unallocatedCp(records("rows")) }, app });
             return answer ? report(await nature.fundGarden(data.garden, answer)) : null;
+        }
+        case "garden-withdraw": {
+            const actors = actingChoices().filter((a) => nature.gardenShareOf(data.garden, a.uuid) > 0);
+            const max = Math.max(0, ...actors.map((a) => nature.gardenShareOf(data.garden, a.uuid)));
+            const answer = await askMoney({ kind: "withdraw", actors, maxCp: max, fill: { cp: max, key: "pf2e-artisans-workshop.Prompt.FillAll" }, app });
+            return answer ? report(await nature.withdrawGarden(data.garden, { source: "purse", actor: answer.actor, cp: answer.cp })) : null;
+        }
+        case "garden-return": {
+            const max = nature.gardenShareOf(data.garden, null);
+            const answer = await askMoney({ kind: "return", maxCp: max, fill: { cp: max, key: "pf2e-artisans-workshop.Prompt.FillAll" }, prefill: true, app });
+            return answer ? report(await nature.withdrawGarden(data.garden, { source: "fund", cp: answer.cp })) : null;
         }
         case "garden-remove": return report(await nature.removeGarden(data.garden));
         case "harvest": return acting ? report(await nature.harvest(data.garden, acting.uuid)) : null;

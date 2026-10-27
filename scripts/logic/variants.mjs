@@ -13,12 +13,13 @@ import {
     GARDEN_PCS_PER_GARDEN, PERMANENT_PRICE_MAX, QUEST_FLOOR_PCT, QUEST_FREE_ASSEMBLY, QUEST_REDUCTION_PCT, QUEST_THREATS,
     RUSH_FINISH_MULTIPLIER, RUSH_FLAT_BASE, THREAT_COLUMN, TREASURE_BY_ENCOUNTER, VARIANT_GROUPS,
 } from "../data/variants.mjs";
+import { COMPLEX_SUBDAY_HOURS } from "../data/complex-crafting.mjs";
 import { DEGREE, FEAT, RANK, RARITIES, clamp, hasTrait, isMagical, rarityRank, requireCp, requireDegree, requireInteger } from "./core.mjs";
 import { DEFAULT_RULES } from "./defaults.mjs";
 import {
     gateAvailable, gateFeats, gateLevel, gateProficiency, gateTools, gateTrained,
 } from "./gates.mjs";
-import { idemKey } from "./ids.mjs";
+import { hashId, idemKey } from "./ids.mjs";
 import { incomePerDay } from "./income.mjs";
 import { componentsCp, materialsCp } from "./materials.mjs";
 
@@ -124,6 +125,21 @@ export function setupHoursRecord({ actorId, day, order, hours, worldTime = null 
     };
 }
 
+/**
+ * Whether a sub-day setup may be recorded outside the crafter's downtime day on the order ("Set up now", 6.16.1): only Quick
+ * Setup's 2-hour setup of a batch of consumables, which the feat lets the crafter do "during an adventuring day" (TV-R p.159).
+ * Any other setup of hours (a consumable's 4 hours, Quick Setup's 4 hours for a permanent item) takes the crafter's downtime
+ * day on the order, which the day planner writes as its `setup-hours` record (review fix of M9a).
+ */
+export function setupAnywhere(order) {
+    return order?.variant?.complex?.quick === true && order.setup?.days === 0 && order.setup?.hours === COMPLEX_SUBDAY_HOURS.quickConsumable;
+}
+
+/** The hours of sub-day setups `actorId` has recorded on `day`, over every order (`setup-hours` records, 6.16.1). */
+export function setupHoursOn(days, actorId, day) {
+    return days.filter((d) => d?.kind === "setup-hours" && d.actor === actorId && d.day === day).reduce((sum, d) => sum + (Number(d.hours) || 0), 0);
+}
+
 /** The id of a variant record (4.8): for an order other than the one a PC's day record is about. */
 export const variantRecordId = (actorId, day, orderId) => `${actorId}-${day}-${orderId}`;
 
@@ -198,6 +214,47 @@ export const CRITICAL_CATEGORIES = Object.freeze({
     success: Object.freeze(["intelligent", "beyond-level", "minor-ability", "durable", "beautiful", "distracting", "relic", "other"]),
     failure: Object.freeze(["secret-curse", "life-drain", "lasting-harm", "malevolent", "fails-in-use", "crafter-cursed", "pollution", "other"]),
 });
+
+/**
+ * Critical failure categories whose book example still makes the item (TV-R p.162: secretly cursed, draining the crafter,
+ * completed by a malevolent mind, failing when used). Recording one makes the item by default (review fix of M9a); the
+ * crafter or a GM may say otherwise, and may make the item under any other category too.
+ */
+export const MADE_DESPITE = Object.freeze(["secret-curse", "life-drain", "malevolent", "fails-in-use"]);
+
+/** Whether a critical failure's category makes the item by default (`MADE_DESPITE`). */
+export const madeByDefault = (category) => MADE_DESPITE.includes(category);
+
+/** Whether a Critical Crafting record makes the item despite the critical failure (6.16.4, its `made` choice). */
+export const madeDespite = (critical) => critical?.kind === "failure" && critical.made === true;
+
+/**
+ * Whether a settled check counts as a success for the order's materials and days (6.2.3, 6.16.4): a success, or a critical
+ * failure whose Critical Crafting record makes the item anyway, whose extra days then run at the success rate.
+ */
+export const settledAsSuccess = (check) => !!check?.settled && (check.degree >= DEGREE.success || madeDespite(check.critical));
+
+/**
+ * The degree a viewer reads for a check (6.16.4): a secret check's critical failure that made the item reads as a success to
+ * players, as the book's secretly cursed item looks fine, until a GM reveals it; anyone else reads the degree rolled.
+ */
+export function shownDegree(check, viewer) {
+    if (madeDespite(check?.critical) && check.secret && !check.revealed && !viewer?.isGM) return DEGREE.success;
+    return check?.degree ?? null;
+}
+
+/**
+ * Whether a settled critical failure can still be made into the item (6.16.4, review fix of M9a): the order failed by this
+ * attempt's settlement, which its log has not moved past (no retry, no cancel), and its record does not make it yet.
+ */
+export function canMakeDespite(order) {
+    const check = order?.check;
+    return order?.status === "failed" && !!check?.settled && check.critical?.kind === "failure" && !madeDespite(check.critical) &&
+        order.settlement?.attempt === order.attempt && order.settlement.status === "failed";
+}
+
+/** Whether a viewer is kept from a check's Critical Crafting record (6.16.4): a secret critical failure that made the item. */
+export const criticalHidden = (check, viewer) => shownDegree(check, viewer) !== (check?.degree ?? null);
 
 /**
  * Whether a check triggers Critical Crafting (6.16.4): the variant on; with `criticalSpecialOnly`, only an order flagged
@@ -425,7 +482,7 @@ export function seasonCp(degree, level, rank) {
 export function seasonsDue({ order, days = [], today, seasonOf }) {
     const grow = order?.variant?.grow;
     if (order?.craftType !== "grow" || order.status !== "finishing" || grow?.mode !== "untended") return [];
-    if (!(order.check?.settled && order.check.degree >= DEGREE.success)) return [];
+    if (!settledAsSuccess(order.check)) return [];
     const current = seasonOf(today);
     const recorded = new Set(days.filter((d) => d.order === order.id && d.attempt === order.attempt && d.kind === "season").map((d) => d.season));
     const worked = days.filter((d) => d.order === order.id && d.attempt === order.attempt && (d.kind === "setup" || d.kind === "extra"));
@@ -484,6 +541,17 @@ export function makeGarden({ id, party = null, name, kind = "", product }, stamp
 export function gardenRoom(gardens, pcCount, party = null) {
     const kept = gardens.filter((g) => g && (party === null || g.party === party || g.party === null)).length;
     return kept < gardenLimit(pcCount) ? { ok: true } : { ok: false, reason: "garden-limit", data: { max: gardenLimit(pcCount) } };
+}
+
+/**
+ * A garden's slot (review fix of M9a): the lock page taken by every write that takes money off a garden (a member's take-back,
+ * the party fund's share given back) and by its planting, which spends what it holds. Its slot is the number of the garden's
+ * rows that took money off it so far, so two such writes planned from the same copy name the same page and only the first
+ * lands: a take-back and a planting cannot both spend the same coins.
+ */
+export function gardenSlotLockId(gardenId, rows) {
+    const takenOff = rows.filter((row) => row.garden === gardenId && (row.alloc ?? 0) < 0).length;
+    return hashId(idemKey("garden-slot", gardenId, takenOff));
 }
 
 /** The lock keys of a garden's planting and of a day's harvest (6.16.7). */
@@ -557,6 +625,15 @@ export function makeQuest({ encounters, threats = [], labels = [], differentLoca
     return { encounters, components, differentLocations: differentLocations !== false,
         assemblyCheck: assemblyCheck ?? assemblyNeeded({ encounters, differentLocations }), assemblySkill };
 }
+
+/** The states of a quest that has started and is not over (6.16.9): it gathers its components, then is assembled. */
+export const QUEST_GOING = Object.freeze(["gathering", "check", "rolled"]);
+
+/**
+ * Whether an order is a quest under way (`QUEST_GOING`): one that started while crafting quests were on keeps going once they
+ * are off, since nothing else could finish it (review fix of M9a).
+ */
+export const questUnderway = (order) => order?.craftType === "quest" && QUEST_GOING.includes(order?.status);
 
 /** A quest's components, by number. */
 export const questComponents = (quest) => Object.values(quest?.components ?? {}).filter(Boolean).sort((a, b) => (a.n ?? 0) - (b.n ?? 0));

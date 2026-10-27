@@ -173,6 +173,14 @@ async function adjustedSources(host, order) {
 }
 
 /**
+ * Whether the start priced an order with its adjustments (6.16.2, `variant.adjusted`, frozen with the Price): then the finish
+ * makes them, even with the variant off since; and never when it did not, even with the variant on since. An order started
+ * before the field existed follows the setting.
+ */
+const adjustedAtStart = (order, rules) => (order.variant?.adjustments?.length ?? 0) > 0 &&
+    (order.variant.adjusted ?? rules.variants?.adjustments === true) === true;
+
+/**
  * The outputs of finishing an order, or `{refuse}`: "no-product", "no-spell" (a scroll or wand with no spell pledged),
  * "no-target" (the item an etching, upgrade or transfer works on is gone or out of custody), or the plan's reason.
  *
@@ -250,8 +258,9 @@ export async function finishOutputs(order, { flags: extra = {}, make = true } = 
         // A specialty wand that names no spell of its own holds the one cast into it; one with its own spell keeps that.
         if (supply?.kind === "wand-special" && !supply.entries.length && !made.system?.spell) made = await chosenSpellSource(made, order, supply);
         made = withFlags(made, flags);
-        // M9a (6.16.2): the host and its adjustments, as one delivery.
-        const data = rules.variants?.adjustments && order.variant?.adjustments?.length ? await adjustedSources(made, order) : [made];
+        // M9a (6.16.2): the host and its adjustments, as one delivery, when the start priced them in (`variant.adjusted`, frozen
+        // with the Price), whatever the setting says now.
+        const data = adjustedAtStart(order, rules) ? await adjustedSources(made, order) : [made];
         if (!data) return { refuse: "no-product" };
         if (make) {
             out.items.push({ target: "strongbox", data });

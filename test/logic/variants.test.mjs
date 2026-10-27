@@ -21,7 +21,7 @@ import {
     deconstructGates, encounterBudgetCp, eventKey, eventPause, eventRecord, eventResult, eventSlot, eventsDue, flatCheckDegree, followOnCredit,
     gardenLimit, gardenRoom, gardenSeedCostCp, giftDormant, giftRecord, growSkill, makeGarden, makeQuest, mixedGroups, moneyDegree, openEvent,
     produceStamp, questBudget, questCost, rushDay, rushFinishOutcome, rushedFinishDC, rushedInAttempt, seasonCp, seasonIndexOf, seasonRecord,
-    seasonsDue, secretRoll, setupHoursRecord, variantGroupsOn, variantRecordId, workedDays,
+    seasonsDue, secretRoll, setupAnywhere, madeByDefault, shownDegree, canMakeDespite, setupHoursOn, setupHoursRecord, variantGroupsOn, variantRecordId, workedDays,
 } from "../../scripts/logic/variants.mjs";
 
 const stamp = { by: "u1", at: { world: 0, real: 1 } };
@@ -113,14 +113,34 @@ test("a sub-day setup stays in setup until its setup-hours record exists, even o
     assert.equal(setupComplete(order, [other, hours]), true);
 });
 
-test("the planner stops at a sub-day setup for its Set up now, and lets the day go once the hours are recorded", () => {
+test("the planner stops at Quick Setup's 2-hour consumable setup for its Set up now, and lets the day go once the hours are recorded", () => {
     const rules = on({ complexCrafting: true });
-    const order = { id: "o", crafter: "Actor.a", attempt: 1, status: "setup", setup: { days: 0, hours: 4 }, helpers: {}, skill: "crafting" };
+    const order = { id: "o", crafter: "Actor.a", attempt: 1, status: "setup", setup: { days: 0, hours: 2 }, helpers: {}, skill: "crafting",
+        variant: { complex: { rush: 1, band: 2, quick: true } } };
+    assert.equal(setupAnywhere(order), true);
     const plan = planDays({ actorId: "a", actorUuid: "Actor.a", days: [3], activity: { kind: "craft", ref: "o" }, orders: [order] }, stamp, rules);
     assert.deepEqual([plan.records.length, plan.stop?.reason], [0, "setup-hours"]);
-    const hours = setupHoursRecord({ actorId: "a", day: 2, order, hours: 4 }, stamp);
+    const hours = setupHoursRecord({ actorId: "a", day: 2, order, hours: 2 }, stamp);
     const after = planDays({ actorId: "a", actorUuid: "Actor.a", days: [3], activity: { kind: "craft", ref: "o" }, orders: [order], records: [hours] }, stamp, rules);
     assert.deepEqual([after.records.length, after.stop?.reason, after.status.o], [0, "check", "check"], "the setup is done: the check is due");
+});
+
+test("any other setup of hours takes the crafter's downtime day on the order: its day record is the setup-hours record (review fix of M9a)", () => {
+    const rules = on({ complexCrafting: true });
+    // A consumable rushed to 4 hours without Quick Setup, and Quick Setup's 4 hours for a permanent item (TV-R p.159: only the
+    // 2-hour consumable setup fits into an adventuring day).
+    for (const variant of [{ complex: { rush: 1, band: 2, quick: false } }, { complex: { rush: 1, band: 2, quick: true } }]) {
+        const order = { id: "o", crafter: "Actor.a", attempt: 1, status: "setup", setup: { days: 0, hours: 4 }, helpers: {}, skill: "crafting", variant };
+        assert.equal(setupAnywhere(order), false);
+        const plan = planDays({ actorId: "a", actorUuid: "Actor.a", days: [3, 4], activity: { kind: "craft", ref: "o" }, orders: [order] }, stamp, rules);
+        assert.deepEqual(plan.records.map((r) => [r.id, r.kind, r.hours, r.order]), [["a-3", "setup-hours", 4, "o"]]);
+        assert.deepEqual([plan.status.o, plan.stop?.reason], ["check", "check"], "set up: the check is due the next day");
+        assert.equal(setupComplete(order, plan.records), true);
+    }
+    // The day's budget of setups: hours over every order of the crafter on that day.
+    const days = [{ kind: "setup-hours", actor: "a", day: 3, hours: 2 }, { kind: "setup-hours", actor: "a", day: 3, hours: 4 }, { kind: "setup-hours", actor: "b", day: 3, hours: 2 },
+        { kind: "setup-hours", actor: "a", day: 4, hours: 2 }, { kind: "setup", actor: "a", day: 3 }];
+    assert.equal(setupHoursOn(days, "a", 3), 6);
 });
 
 /* -------------------------------------------- */
@@ -201,6 +221,28 @@ test("replace versus alongside in the reduction totals and the ruin (6.16.4)", (
     const usual = settleCheck({ status: "rolled", check: fail }, { committedCp: 1000 });
     assert.deepEqual(usual.rows, [{ kind: "ruin", cp: 100 }, { kind: "release", cp: 900 }]);
     assert.equal(criticalRecord({ ...crit, critical: replace.critical }, {}, DEFAULT_RULES), replace.critical, "a record is kept, whatever the setting says now");
+});
+
+test("a critical failure made anyway (TV-R p.162) settles as a success: materials used, days at the success rate, a success to players (review fix of M9a)", () => {
+    assert.deepEqual(["secret-curse", "life-drain", "malevolent", "fails-in-use", "pollution", "crafter-cursed"].map(madeByDefault), [true, true, true, true, false, false]);
+    const fail = { degree: DEGREE.critFail, die: 1, level: 5, rank: RANK.expert, secret: true };
+    const made = { ...fail, critical: { kind: "failure", natural: true, mode: "alongside", category: "secret-curse", made: true } };
+    const settled = settleCheck({ status: "rolled", check: made }, { committedCp: 1000 });
+    assert.deepEqual([settled.patch.status, settled.rows], ["finishing", [{ kind: "expend", cp: 1000 }]]);
+    const order = { id: "o", attempt: 1, status: "finishing", priceCp: 4000, upfrontCp: 2000, check: { ...made, settled: true }, helpers: {}, materials: {} };
+    const day = workDayRecord(order, 3, { actorId: "a", level: 5, rank: RANK.expert }, [], stamp);
+    assert.equal(day.record.crafterCp, 100, "the success rate, not the critical's");
+    assert.equal(reductionCp(order, [day.record]), 100, "its days count");
+    assert.deepEqual([shownDegree(order.check, { isGM: false }), shownDegree(order.check, { isGM: true }), shownDegree({ ...order.check, revealed: true }, {})],
+        [DEGREE.success, DEGREE.critFail, DEGREE.critFail]);
+    assert.equal(shownDegree({ ...order.check, secret: false }, {}), DEGREE.critFail, "an open roll reads as rolled");
+    // Not made: the usual ruin; and it can still be made while the failed settlement stands.
+    const notMade = { ...fail, critical: { ...made.critical, category: "pollution", made: false } };
+    assert.deepEqual(settleCheck({ status: "rolled", check: notMade }, { committedCp: 1000 }).patch.status, "failed");
+    const failed = { status: "failed", attempt: 2, check: { ...notMade, settled: true }, settlement: { attempt: 2, status: "failed" } };
+    assert.equal(canMakeDespite(failed), true);
+    assert.equal(canMakeDespite({ ...failed, attempt: 3 }), false, "retried");
+    assert.equal(canMakeDespite({ ...failed, check: { ...failed.check, critical: { kind: "success" } } }), false);
 });
 
 test("secret rolls: only with a GM connected; players see 'rolled (secret)' until it settles or a GM reveals it", () => {
