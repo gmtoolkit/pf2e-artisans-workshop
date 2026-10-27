@@ -4395,3 +4395,365 @@ Object.assign(BEHAVIOURS, {
     "m9a-shots": m9aShots,
     "m9a-off": m9aOff,
 });
+
+/* -------------------------------------------- */
+/*  M11: the integration surface                 */
+/* -------------------------------------------- */
+
+/**
+ * Every M11 plan starts here (DESIGN.md 10.4, 11.1): the world reset, an alchemist's lab in the strongbox, and an order of
+ * Player One's alchemist waiting for its Craft check, so the strip, the card and the macros have something to show. Returns
+ * the order's id.
+ */
+async function m11Reset(h, w, { online = ["gm", "p1"] } = {}) {
+    await resetWorld(h, w);
+    await h.evaluate("gm", pageStoreItem, { mod: MOD, uuid: LAB }, "an alchemist's lab in the strongbox");
+    await h.only(online);
+    await h.settle("ready");
+    await h.step("p1", "m11", "cleanup", {});
+    const own = await h.step("p1", "m4", "request", { product: ELIXIR, quantity: 1, crafter: w.pcs.p1.uuid });
+    await h.step("p1", "m4", "pledge", { order: own.order, cp: 150 });
+    await h.step("p1", "m4", "start", { order: own.order });
+    await h.step("p1", "m4", "work", { order: own.order, until: "check" });
+    return own.order;
+}
+
+/** PF2e Toolbelt and PF2e Workbench on or off for the plans that follow: every page reloads so they load (or not). */
+async function m11Companions(h, { toolbelt, workbench }) {
+    await h.only(["gm"]);
+    const set = await h.step("gm", "m11", "modules", { toolbelt, workbench });
+    await h.closeAll();
+    await h.only(["gm"]);
+    await h.settle("ready");
+    const active = await h.step("gm", "m11", "active", {});
+    h.check(`Toolbelt ${toolbelt ? "active" : "inactive"} and Workbench ${workbench ? "active" : "inactive"} after the reload`,
+        active.toolbelt === toolbelt && active.workbench === workbench, { set, active });
+    return set.before;
+}
+
+/** The checks every strip must pass, with or without the companions: once, first in the tab, nothing of pf2e's or theirs. */
+function checkStrip(h, label, sheet) {
+    h.check(`${label}: one Workshop button in the sheet's header`, sheet.header === 1, sheet.header);
+    h.check(`${label}: one strip, first in the Crafting tab`, sheet.strips === 1 && sheet.first === true, { strips: sheet.strips, first: sheet.first });
+    h.check(`${label}: no formula row, item id or data-action in the strip, and no Workbench class`, sheet.stripFormulaItems === 0 && sheet.stripWorkbench === 0,
+        { stripFormulaItems: sheet.stripFormulaItems, stripWorkbench: sheet.stripWorkbench });
+    h.check(`${label}: the strip's controls have names and no positive tab index`, sheet.audit && sheet.audit.unnamed.length === 0 && sheet.audit.positive.length === 0,
+        sheet.audit);
+}
+
+/**
+ * The character sheet without companions (10.4): the header button, the strip at the top of the Crafting tab with the
+ * order waiting for its check, its Workshop button opening the window acting as the character; Player Two's own sheet
+ * has its strip too, with nothing to do.
+ */
+async function m11Sheet(h, w) {
+    const before = await m11Companions(h, { toolbelt: false, workbench: false });
+    const order = await m11Reset(h, w, { online: ["gm", "p1", "p2"] });
+    const sheet = await h.step("p1", "m11", "sheet", { actor: w.pcs.p1.uuid, click: "open" });
+    checkStrip(h, "Player One's alchemist", sheet);
+    h.check("the strip counts the order and the check waiting on the alchemist", /Crafting: 1/.test(sheet.stripText ?? "") && /roll or settlement: 1/.test(sheet.stripText ?? ""),
+        sheet.stripText);
+    h.check("Workshop, Request and Morning buttons", ["open", "request", "morning"].every((op) => sheet.stripButtons.includes(op)), sheet.stripButtons);
+    h.check("its Workshop button opens the window acting as the alchemist", sheet.clicked?.workshop && sheet.clicked.acting === w.pcs.p1.uuid, sheet.clicked);
+    await h.step("p1", "m11", "close", {});
+    const request = await h.step("p1", "m11", "sheet", { actor: w.pcs.p1.uuid, click: "request" });
+    h.check("its Request button opens the request form", request.clicked?.requestForm === true, request.clicked);
+    await h.step("p1", "m11", "close", {});
+    const other = await h.step("p2", "m11", "sheet", { actor: w.pcs.p2.uuid });
+    checkStrip(h, "Player Two's fighter", other);
+    h.check("the fighter's strip has nothing waiting", /No Workshop jobs right now|Orders for this character/.test(other.stripText ?? ""), other.stripText);
+    await checkStatuses(h);
+    if (before.toolbelt || before.workbench) await m11Companions(h, { toolbelt: before.toolbelt, workbench: before.workbench });
+    return { order, sheet, request: request.clicked, other };
+}
+
+/**
+ * The same sheet with PF2e Toolbelt (its crafting sort buttons on) and PF2e Workbench (its formula rarity colours on)
+ * active (13): Toolbelt's buttons and Workbench's classes are where they put them, the strip is still once and first, and
+ * none of theirs is in it. The world's module configuration is put back afterwards.
+ */
+async function m11CompanionsPlan(h, w) {
+    const before = await m11Companions(h, { toolbelt: true, workbench: true });
+    await m11Reset(h, w);
+    const settings = { gm: await h.step("gm", "m11", "companions", {}), p1: await h.step("p1", "m11", "companions", {}) };
+    h.check("Toolbelt's crafting sort setting found and on for Player One", !!settings.p1.sortList, settings);
+    const sheet = await h.step("p1", "m11", "sheet", { actor: w.pcs.p1.uuid, ms: 1500 });
+    checkStrip(h, "with Toolbelt and Workbench", sheet);
+    h.check("Toolbelt's sort buttons are on the formula headers, Workbench's rows are untouched by the strip",
+        sheet.toolbeltSort >= 1 && sheet.formulaItems >= 1, { toolbeltSort: sheet.toolbeltSort, formulaItems: sheet.formulaItems, workbenchRarity: sheet.workbenchRarity });
+    const party = await h.step("p1", "m11", "party", {});
+    h.check("the Party card is there with the companions too", party.first.cards === 1 || !party.first.region, party.first);
+    await checkStatuses(h);
+    await m11Companions(h, { toolbelt: before.toolbelt, workbench: before.workbench });
+    return { settings, sheet, party };
+}
+
+/**
+ * The Party sheet (10.4): the card after pf2e's summary in the Overview, as Player One and the GM; still once after pf2e
+ * renders the members' regions again (no render hook); with pf2e's "party stats" off a player has no Overview and keeps the
+ * header button.
+ */
+async function m11Party(h, w) {
+    await m11Reset(h, w);
+    const views = { gm: await h.step("gm", "m11", "party", {}), p1: await h.step("p1", "m11", "party", {}) };
+    for (const [role, view] of Object.entries(views)) {
+        h.check(`${role}: one Workshop button in the Party sheet's header`, view.first.header === 1, view.first.header);
+        if (!view.first.region) {
+            h.check(`${role}: no Overview (pf2e's party stats off): no card, the header button stays`, view.first.cards === 0, view.first);
+            continue;
+        }
+        h.check(`${role}: one card, after pf2e's summary`, view.first.cards === 1 && view.first.afterSummary, view.first);
+        h.check(`${role}: the card counts one open order being crafted`, view.first.facts[0] === "1" && view.first.facts[2] === "1", view.first.facts);
+        h.check(`${role}: still one card after pf2e renders the region again`, view.again.cards === 1 && view.again.afterSummary, view.again);
+        h.check(`${role}: the card's controls have names`, view.audit?.unnamed.length === 0, view.audit);
+    }
+    await checkStatuses(h);
+    return views;
+}
+
+/** Right-click an Actors directory entry and pick "Open Workshop" from core's context menu, with real clicks. */
+async function contextOpen(h, role, actorId) {
+    const { page } = h.clients.get(role);
+    await h.evaluate(role, () => ui.sidebar.changeTab("actors", "primary"), null, "the Actors tab");
+    await sleep(500);
+    await page.click(`#actors .directory-item[data-entry-id="${actorId}"]`, { button: "right" });
+    await sleep(400);
+    const label = await page.locator("#context-menu .context-item").allTextContents().catch(() => []);
+    await page.locator("#context-menu .context-item", { hasText: "Open Workshop" }).first().click();
+    await sleep(1200);
+    return { label, open: await h.step(role, "m11", "open", {}) };
+}
+
+/** The Actors directory's context menu (10.4): "Open Workshop" on the party and, acting as it, on the user's own member. */
+async function m11Context(h, w) {
+    await m11Reset(h, w);
+    const party = await contextOpen(h, "p1", w.party.id);
+    h.check("Open Workshop is in the party's context menu and opens the window", party.label.some((l) => l.includes("Open Workshop")) && party.open.open, party);
+    await h.step("p1", "m11", "close", {});
+    const own = await contextOpen(h, "p1", w.pcs.p1.id);
+    h.check("on Player One's own character it opens the window acting as that character", own.open.open && own.open.acting === w.pcs.p1.uuid, own);
+    await h.step("p1", "m11", "close", {});
+    await checkStatuses(h);
+    return { party, own };
+}
+
+/**
+ * The macro shelf (11.1, 10.6): opened from the status bar; a tile dragged onto the hotbar with real drag and drop makes one
+ * world script macro, dragged again it is reused; "Add to hotbar" (the keyboard path) takes the first free slot; the
+ * hotbar's slot runs the macro.
+ */
+async function m11Shelf(h, w) {
+    await m11Reset(h, w);
+    const shelf = await h.step("p1", "m11", "shelf", {});
+    h.check("the shelf lists the catalogue's tiles, draggable for a role with script macros", shelf.open && shelf.tiles.length >= 15 && shelf.canScript &&
+        shelf.draggable === shelf.tiles.length && shelf.hotbarButtons === shelf.tiles.length, { tiles: shelf.tiles.length, canScript: shelf.canScript });
+    h.check("the shelf's controls have names", shelf.audit?.unnamed.length === 0 && shelf.audit.positive.length === 0, shelf.audit);
+    const { page } = h.clients.get("p1");
+    await page.dragAndDrop('.macro-tile[data-macro="open-workshop"]', '#hotbar .slot[data-slot="5"]');
+    await sleep(1500);
+    const first = await h.step("p1", "m11", "hotbar", {});
+    h.check("one world script macro, flagged, holding the catalogue's line, in slot 5", first.macros.length === 1 && first.macros[0].type === "script" &&
+        first.macros[0].macro === "open-workshop" && first.macros[0].command.includes('macros.run("open-workshop"') && first.slots.some((s) => s.slot === 5), first);
+    await page.dragAndDrop('.macro-tile[data-macro="open-workshop"]', '#hotbar .slot[data-slot="6"]');
+    await sleep(1500);
+    const second = await h.step("p1", "m11", "hotbar", {});
+    h.check("dragged again: the same macro, now in slots 5 and 6", second.macros.length === 1 && second.slots.filter((s) => s.id === first.macros[0].id).length === 2, second);
+    await page.click('.macro-tile[data-macro="post-summary"] button[data-action="hotbar"]');
+    await sleep(1500);
+    const third = await h.step("p1", "m11", "hotbar", {});
+    h.check("Add to hotbar makes the Post queue summary macro in the first free slot", third.macros.some((m) => m.macro === "post-summary") && third.slots.length === 3, third);
+    await h.step("p1", "m11", "close", {});
+    await page.click('#hotbar .slot[data-slot="5"]');
+    await sleep(1500);
+    const ran = await h.step("p1", "m11", "open", {});
+    h.check("the hotbar's slot runs the macro: the Workshop opens", ran.open === true, ran);
+    await h.step("p1", "m11", "close", {});
+    const cleaned = await h.step("p1", "m11", "cleanup", {});
+    h.check("the plan's macros and slots are cleaned up", cleaned.deleted === 2 && cleaned.slots === 3, cleaned);
+    await checkStatuses(h);
+    return { shelf: shelf.tiles, first, second, third, ran };
+}
+
+/** What a catalogue run may answer: a window or question, an ok, or a refusal the user is told in words. */
+const RUN_OK = (r) => r.asked || r.windows.length > 0 || r.result?.ok === true || r.result?.app || (r.result?.ok === false && r.result.reason && r.result.reason !== "macro-error" && r.result.reason !== "no-macro");
+
+/**
+ * Every catalogue macro runs once (11.1) on Player One's client, with the arguments it needs where it has them (the order in
+ * check, the one to pledge to) and without them otherwise: each opens what asks for the rest, does its step, or refuses with
+ * a sentence; none errors, none shows a raw key; the order waiting for its check is rolled by "Roll Craft check" with no
+ * order named.
+ */
+async function m11Macros(h, w) {
+    const order = await m11Reset(h, w);
+    const other = await h.step("p1", "m4", "request", { product: HEALING_POTION, quantity: 1 });
+    const errorsBefore = h.console.filter((c) => c.client === "p1" && c.type === "pageerror").length;
+    const runs = await h.step("p1", "m11", "run", { args: {
+        "roll-craft": { skipDialog: true }, pledge: { order: other.order, amount: "1 gp" }, "improvise-admixture": { skipDialog: true },
+        "post-summary": { whisper: true }, "roll-pending": { skipDialog: true },
+    } });
+    const byId = Object.fromEntries(runs.map((r) => [r.id, r]));
+    h.check("all 23 macros ran", runs.length === 23, runs.map((r) => r.id));
+    h.check("each opened what asks for the rest, did its step, or refused in words", runs.every(RUN_OK), runs.filter((r) => !RUN_OK(r)));
+    h.check("no macro errored or showed a raw key", runs.every((r) => !r.notes.some((n) => /pf2e-artisans-workshop\./.test(n.message ?? "")) && r.result?.reason !== "macro-error"),
+        runs.filter((r) => r.result?.reason === "macro-error" || r.notes.some((n) => /pf2e-artisans-workshop\./.test(n.message ?? ""))));
+    h.check("the windows that ask: the request form, the Workshop's tabs, the panel, the wizard", byId["request-item"].windows.length > 0 && byId["earn-income"].windows.length > 0 &&
+        byId["learn-formula"].windows.length > 0 && byId["advance-days"].windows.length > 0 && byId["open-workshop"].windows.length > 0, runs.map((r) => [r.id, r.windows]));
+    h.check("Pledge with an order and an amount pledged", byId.pledge.result?.ok === true, byId.pledge);
+    h.check("Post queue summary posted", byId["post-summary"].result?.ok === true, byId["post-summary"]);
+    const rolled = await h.step("p1", "m4", "state", { order, ms: 1500 });
+    h.check("Roll Craft check with no order named rolled the alchemist's order waiting for its check", ["rolled", "finishing", "failed"].includes(rolled.order?.status), rolled.order);
+    const errors = h.console.filter((c) => c.client === "p1" && c.type === "pageerror").slice(errorsBefore);
+    h.check("no page errors on Player One's client", errors.length === 0, errors);
+    await checkStatuses(h);
+    return { runs };
+}
+
+/** The Open Workshop keybinding (10.4): unbound by default; bound for the plan, the keys open the Workshop; unbound again. */
+async function m11Keys(h, w) {
+    await m11Reset(h, w);
+    const unbound = await h.step("p1", "m11", "keybinding", { bind: false });
+    h.check("Open Workshop, Open Bandolier and Quick Alchemy are registered, Open Workshop unbound", unbound.registered && unbound.bindings.length === 0 &&
+        unbound.others.every(Boolean), unbound);
+    await h.step("p1", "m11", "keybinding", { bind: true });
+    const { page } = h.clients.get("p1");
+    await page.mouse.click(5, 300);
+    await page.keyboard.press("Alt+Shift+KeyW");
+    await sleep(1500);
+    const opened = await h.step("p1", "m11", "open", {});
+    h.check("Alt+Shift+W opens the Workshop", opened.open === true, opened);
+    await h.step("p1", "m11", "keybinding", { bind: false });
+    await h.step("p1", "m11", "close", {});
+    return { unbound, opened };
+}
+
+/** Press `key` until `until(focus)` or `max` presses; the focus states seen. */
+async function pressUntil(h, role, key, until, max = 60) {
+    const { page } = h.clients.get(role);
+    let focus = await h.step(role, "m11", "focus", {});
+    for (let i = 0; i < max && !until(focus); i++) {
+        await page.keyboard.press(key);
+        await sleep(60);
+        focus = await h.step(role, "m11", "focus", {});
+    }
+    return focus;
+}
+
+/**
+ * A keyboard-only walkthrough of the Workshop (15.3 scenario 10, 10.9): opened with the keybinding; the tabs by the arrow keys;
+ * the order list's tab stop and Enter for the detail; in the medium tier Tab stays inside the detail and Escape gives focus
+ * back to its row; the status bar's Macros button by Tab and Enter, and a tile added to the hotbar with Enter; the audit of
+ * the window and the shelf finds no control without a name and no positive tab index.
+ */
+async function m11Keyboard(h, w) {
+    const order = await m11Reset(h, w);
+    await h.step("p1", "m11", "keybinding", { bind: true });
+    const { page } = h.clients.get("p1");
+    await page.mouse.click(5, 300);
+    await page.keyboard.press("Alt+Shift+KeyW");
+    await sleep(1500);
+    const toTabs = await pressUntil(h, "p1", "Tab", (f) => f.inWorkshop && f.tab, 250);
+    h.check("Tab reaches the Workshop's tabs", toTabs.inWorkshop && !!toTabs.tab, toTabs);
+    await page.keyboard.press("ArrowDown");
+    await sleep(600);
+    const funds = await h.step("p1", "m11", "focus", {});
+    h.check("ArrowDown moves to the next tab and shows it", funds.currentTab === "funds" && funds.tab === "funds", funds);
+    await page.keyboard.press("ArrowUp");
+    await sleep(600);
+    const toRow = await pressUntil(h, "p1", "Tab", (f) => f.inWorkshop && f.orderId && f.tag === "LI", 40);
+    h.check("Tab reaches the order list's one tab stop", toRow.orderId === order, toRow);
+    await page.keyboard.press("Enter");
+    await sleep(900);
+    const detail = await h.step("p1", "m11", "focus", {});
+    h.check("Enter opens the order's detail and puts focus in it", detail.selected === order && detail.inDetail, detail);
+    await h.step("p1", "m11", "size", { width: 900 });
+    const seen = [];
+    for (let i = 0; i < 25; i++) {
+        await page.keyboard.press("Tab");
+        await sleep(40);
+        seen.push((await h.step("p1", "m11", "focus", {})).inDetail);
+    }
+    h.check("in the medium tier Tab stays inside the detail (the slide-over traps focus)", seen.every(Boolean), seen);
+    await page.keyboard.press("Escape");
+    await sleep(800);
+    const back = await h.step("p1", "m11", "focus", {});
+    h.check("Escape closes the detail and gives focus back to its row", !back.detailOpen && back.orderId === order && back.tag === "LI", back);
+    const sized = await h.step("p1", "m11", "size", { width: 1100 });
+    h.check("the resize is remembered for the next window", sized.saved?.width === 1100, sized);
+    const toMacros = await pressUntil(h, "p1", "Tab", (f) => f.action === "macros", 120);
+    h.check("Tab reaches the status bar's Macros button", toMacros.action === "macros", toMacros);
+    await page.keyboard.press("Enter");
+    await sleep(1500);
+    const toHotbar = await pressUntil(h, "p1", "Tab", (f) => f.inShelf && f.action === "hotbar", 40);
+    h.check("Tab reaches a tile's Add to hotbar in the shelf", toHotbar.inShelf && toHotbar.action === "hotbar", toHotbar);
+    await page.keyboard.press("Enter");
+    await sleep(1500);
+    const hotbar = await h.step("p1", "m11", "hotbar", {});
+    h.check("Enter on Add to hotbar puts the macro on the hotbar, no drag needed", hotbar.macros.length === 1 && hotbar.slots.length === 1, hotbar);
+    const audit = await h.step("p1", "m11", "audit", {});
+    h.check("the Workshop and the shelf: no control without a name, no positive tab index, no tab outside its tablist",
+        ["workshop", "shelf"].every((k) => audit[k] && audit[k].unnamed.length === 0 && audit[k].positive.length === 0 && audit[k].looseTabs === 0), audit);
+    await h.step("p1", "m11", "keybinding", { bind: false });
+    await h.step("p1", "m11", "close", {});
+    await h.step("p1", "m11", "cleanup", {});
+    return { toTabs, funds, toRow, detail, seen, back, toMacros, toHotbar, hotbar, audit };
+}
+
+/**
+ * Both colour schemes and Parchment (10.9): with the Queue and an order's detail open, and the shelf, the text in the
+ * Workshop reaches 4.5:1 against what is behind it (3:1 for large text) in the dark scheme, the light one and Parchment;
+ * Parchment's classes come and go with the setting at once.
+ */
+async function m11Themes(h, w) {
+    const order = await m11Reset(h, w);
+    const results = {};
+    for (const scheme of ["dark", "light", "parchment"]) {
+        await h.step("p1", "m4", "theme", { scheme: scheme === "parchment" ? "dark" : scheme });
+        const parchment = await h.step("p1", "m11", "parchment", { on: scheme === "parchment" });
+        await h.step("p1", "m4", "open", { tab: "queue", order });
+        await sleep(800);
+        const audit = await h.step("p1", "m11", "audit", {});
+        results[scheme] = { parchment, audit };
+        h.check(`${scheme}: no text in the Workshop below its contrast (4.5:1, large text 3:1)`, audit.workshop?.lowContrastCount === 0, audit.workshop?.lowContrast);
+        if (scheme === "parchment") h.check("Parchment: core's light theme and the parchment class on the open window", ["themed", "theme-light", "paw-parchment"]
+            .every((c) => audit.classes.includes(c)), audit.classes);
+        await h.step("p1", "m11", "close", {});
+    }
+    const off = await h.step("p1", "m11", "parchment", { on: false });
+    h.check("Parchment off again", off.on === false, off);
+    await h.step("p1", "m4", "theme", { scheme: "dark" });
+    return results;
+}
+
+/** Screenshots (17.1): the Crafting tab strip, the Party card and the macro shelf, dark and light, into `--shots`. */
+async function m11Shots(h, w) {
+    await m11Reset(h, w);
+    const size = { width: 1440, height: 900 };
+    const taken = [];
+    for (const scheme of ["dark", "light"]) {
+        await h.step("p1", "m4", "theme", { scheme });
+        await h.screenshot("p1", `m11-strip-${scheme}.png`, size, async () => taken.push(await h.step("p1", "m11", "sheet", { actor: w.pcs.p1.uuid, keep: true })),
+            { selector: ".tab.crafting.crafting-pane" });
+        await h.evaluate("p1", (uuid) => fromUuidSync(uuid)?.sheet?.close(), w.pcs.p1.uuid, "close the sheet");
+        await h.screenshot("p1", `m11-party-${scheme}.png`, size, async () => taken.push(await h.step("p1", "m11", "party", { keep: true })),
+            { selector: ".pf2e-artisans-workshop-party-card" });
+        await h.evaluate("p1", () => game.actors.party?.sheet?.close(), null, "close the party sheet");
+        await h.screenshot("p1", `m11-shelf-${scheme}.png`, size, async () => taken.push(await h.step("p1", "m11", "shelf", {})), { selector: "#pf2e-artisans-workshop-macros" });
+        await h.step("p1", "m11", "close", {});
+    }
+    await h.step("p1", "m4", "theme", { scheme: "dark" });
+    h.check("the strip, the card and the shelf were there for every capture", taken.every((t) => t.strips === 1 || t.first?.cards === 1 || t.first?.region === false || t.open), taken);
+    return { shots: h.shots.filter((s) => s.label === h.label).map((s) => s.file) };
+}
+
+Object.assign(BEHAVIOURS, {
+    "m11-sheet": m11Sheet,
+    "m11-companions": m11CompanionsPlan,
+    "m11-party": m11Party,
+    "m11-context": m11Context,
+    "m11-shelf": m11Shelf,
+    "m11-macros": m11Macros,
+    "m11-keys": m11Keys,
+    "m11-keyboard": m11Keyboard,
+    "m11-themes": m11Themes,
+    "m11-shots": m11Shots,
+});

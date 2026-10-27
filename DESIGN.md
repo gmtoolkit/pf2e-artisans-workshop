@@ -4153,7 +4153,9 @@ the module falls back to the header button and macros.
 | Keybindings | `game.keybindings.register` | Open Workshop, Open Bandolier, Quick Alchemy; unbound by default |
 
 Render hooks receive jQuery from AppV1 and an HTMLElement from AppV2; the module normalizes with an
-element-instance check.
+element-instance check. As built in M11: every row of this table (10.18); the Party sheet's card is put back by an observer when pf2e renders
+its Overview region again without a hook, and "Open Workshop" is in the context menu of the party and of the user's own
+members.
 
 ### 10.5 Chat cards
 
@@ -4439,8 +4441,8 @@ tests for the Foundry and window parts (`test/foundry/funds.test.mjs`, `ui.test.
 
 #### Follow-ups (M4, low)
 
-- No context menu (10.3): secondary actions are in the detail drawer. The slide-over and narrow detail do not trap focus.
-- The window's size is not remembered per client (`ui.windowSize`), and the Parchment client setting is not built.
+- No context menu (10.3): secondary actions are in the detail drawer. The slide-over and narrow detail do not trap focus. (Fixed in M11, 10.18.)
+- The window's size is not remembered per client (`ui.windowSize`), and the Parchment client setting is not built. (Fixed in M11, 10.18.)
 - The party selector and the workshop day and world date in the header (10.2) wait for M6's day and multi-party use.
   (M6 shows the workshop day and pf2e's World Clock date; the party selector still waits for multi-party use.)
 - The Party-stash strongbox (4.7, `strongbox: party`) is not built.
@@ -4464,7 +4466,7 @@ tests for the Foundry and window parts (`test/foundry/funds.test.mjs`, `ui.test.
 - Fixed in M4.1: the detail's Requirements list showed each gate by its code; each now has a short name (C).
 - With the applications in the dark scheme and the interface in the light one, chat cards take the dark `--paw-*`
   tokens (`body.theme-dark`) on the light chat background, and the degree colours lose their contrast. Scope the dark
-  card tokens to the nearest themed ancestor.
+  card tokens to the nearest themed ancestor. (Fixed in M11, 10.18.)
 - "Funded by" listed each contributor's remaining allocation, not what they put in. M4.1 labels it "Earmarked for this
   order" and adds "Spent, by source"; what each source put in over the order's life is still not shown.
 - A cancelled order still shows its funding bar and text, and the Funds ledger lists item rows (delivered, shelved) as
@@ -4476,13 +4478,13 @@ tests for the Foundry and window parts (`test/foundry/funds.test.mjs`, `ui.test.
   from the recipient's owners).
 - Found in the M4 live pass (2026-10-26):
   - The check augment of a complete order still shows the success sentence ("0 more days to pay nothing more, or
-    finish now for 0 gp"). Show it only while the order is `rolled` or `finishing`.
+    finish now for 0 gp"). Show it only while the order is `rolled` or `finishing`. (Fixed in M11, 10.18.)
   - Fixed in M4.1: an order for the strongbox booked its `shelved` row as "Put on the pickup shelf"; it now reads "Put
     in the strongbox", and item rows show no amount.
   - Counts are not made singular: "1 days at 8 gp" in the request form's candidates, "1 of 1 days" for the detail's
-    setup. Give each a key for one.
-  - The request form's candidates keep the DC column, empty, for a player who may not see DCs. Leave the column out.
-  - "Acting as" cuts long character names short at every width, with no tooltip holding the whole name.
+    setup. Give each a key for one. (Fixed in M11, 10.18.)
+  - The request form's candidates keep the DC column, empty, for a player who may not see DCs. Leave the column out. (Fixed in M11, 10.18.)
+  - "Acting as" cuts long character names short at every width, with no tooltip holding the whole name. (Fixed in M11, 10.18.)
   - Every live plan rolls the Craft check with `skipDialog`; only the imported-character pass clicked "Roll Craft check" through
     pf2e's dialog, which is how the dev-world throw (15.1) went unseen. Add that click to `m4-ui`.
   - The driver's closing world reset throws, and the run exits non-zero, when a session it did not open is connected
@@ -4520,7 +4522,7 @@ tests for the Foundry and window parts (`test/foundry/funds.test.mjs`, `ui.test.
     fund"; the requirement's button says "Fund it" where everything else says "Fund this order". Reword together. (M5
     on M4.1: the funding line says "earmarked", and M5's custody button reads "Give the item back"; the rest stands.)
   - Unmet requirements read as met to a screen reader: the names are positive statements and the only fail marker is an
-    inert icon. Label the unmet list ("Not met") or add a visually hidden prefix.
+    inert icon. Label the unmet list ("Not met") or add a visually hidden prefix. (Fixed in M11, 10.18.)
   - A met G1 always reads "Trained in Crafting", also for an item whose registry entry substitutes another skill; pass
     the skill in G1's pass data.
   - Take back and Take out cap the amount and "Fill in all of it" at the largest across the user's characters, not the
@@ -4805,7 +4807,7 @@ One pass of every plan, once each, at `7504433` (M0-M5 with M4.1's fund accounti
     reached its check (complete or failed), as `m5-scroll` now does.
   - The Funds ledger's row for a formula bought outside an order has an empty "For": name the formula and whose book.
   - The Buy dialog says the price twice ("The formula for Antidote (Lesser) costs 1 gp." and "Price: 1 gp").
-  - The break-even reads "pays for itself after 1 Crafts" (the counts not made singular, M4 live pass follow-up).
+  - The break-even reads "pays for itself after 1 Crafts" (the counts not made singular, M4 live pass follow-up). (Fixed in M11, 10.18.)
   - 17.1's README screenshots fall due with this pass, and `npm run screenshots` (`tools/harness/screenshots.mjs`, a
     demo party with generic names) is not built yet; `m4-shots` and `m5-shots` show the fixture names.
 
@@ -5110,7 +5112,7 @@ One pass at `9da0312` (M0-M6), then once more after the fixes below:
   - Screen readers: the per-PC "N days to resolve" and "calendar was set back" are `role="status"` regions made again on
     every render; each PC's activity select is labelled only "Spending days on" with no name; the Start/End downtime
     button has `aria-pressed` and a label that changes. Announce once through `announce()`, name the PC in an
-    `aria-label`, drop `aria-pressed`.
+    `aria-label`, drop `aria-pressed`. (Fixed in M11 but the single announcement: the regions are plain text now, the select names its PC, the button has no `aria-pressed`; 10.18.)
   - Saving or deleting a settlement profile does not render other clients' open Workshop windows (no `onChange` on the
     `settlements`, `features.downtime` and `features.income` settings).
   - `Job.Conflict` tells the player to "undo the paid days first", which no UI or API can do (wage rows are not
@@ -5460,7 +5462,7 @@ One pass at `1130d98` (M0-M7), then once more after the fix below:
 - From the M7 live pass:
   - The affix board offers every host to each loose talisman: Copper Penny (affixed to an unarmored defense item) was
     offered the longsword, and "Affix" then refuses it (`wrong-host`). Offer only the hosts `affixHostKinds` allows.
-  - "Affixing the loose talismans takes about 1 minutes" (`Morning.Affix.Minutes` has no singular).
+  - "Affixing the loose talismans takes about 1 minutes" (`Morning.Affix.Minutes` has no singular). (Fixed in M11, 10.18.)
   - pf2e-dailies' window cuts the talisman pool's "Keep the current preparation and the last talismans made" to "... and
     the la" in its narrow select; shorten `Dailies.KeepTalismans`.
   - A standing order's chip names the grade asked for ("1 Elixir of Life (Minor) for Doran Vell") while the pool makes
@@ -5470,7 +5472,7 @@ One pass at `1130d98` (M0-M7), then once more after the fix below:
     the Advanced Alchemy card beside it stretches to its height with empty space (`morning.png`). A filter, or the picked
     ones first with the rest collapsed.
   - A tab button's tooltip repeats its visible word in the wide tier (it is for the narrow tier, where the word is
-    hidden); after a click, "Morning" covers the Formulas button below it until the pointer moves.
+    hidden); after a click, "Morning" covers the Formulas button below it until the pointer moves. (Fixed in M11, 10.18.)
   - A party rest from the party sheet deletes the temporary items of every rested holder (pf2e), so an infused item handed
     to a member who rests too is gone rather than inert; only holders that do not rest (the party stash, an NPC) show the
     module's inert mark. As the rules want; noted because the Expiry card then has nothing to say for those holders.
@@ -6103,7 +6105,7 @@ One pass at `1a444c0` (M0-M8a), then once more after the fixes below:
 - The inhaled cloud is a card with a button for a minute of world time; no region or template (OQ-29), and a strong wind is the
   table's.
 - `reExposure: "table"` (Grolna) rolls nothing and says the item's own text decides.
-- The time words are drafts with plural trouble ("in 1 rounds"), as M4's "Setup 1 of 1 days".
+- The time words are drafts with plural trouble ("in 1 rounds"), as M4's "Setup 1 of 1 days". (Fixed in M11, 10.18.)
 - A tracker on an unlinked token's actor is processed only while its scene's tokens are loaded (`game.scenes`).
 - Affliction Forge's controller and template matching is read from its documentation, not run (OQ-41).
 - The Bandolier's "Apply poison" is gone with the Bandolier while Duct Tape is active; the item card and the API remain (8.10.9
@@ -6414,7 +6416,7 @@ One pass at `d420496` (M0-M9), then once more after the fixes below:
     offline; nothing tells the player on their next login.
 - From the M9 live pass:
   - A cantrip's offered casting reads "rank 0" in the Queue's list of offers (`Pledge.Line`, with `castingRank` 0), while the
-    staff's list of castings above it says "cantrip"; and "1 castings".
+    staff's list of castings above it says "cantrip"; and "1 castings". ("1 castings" fixed in M11, 10.18; "rank 0" stands.)
   - Once a tattoo or graft is finished the subject stays in downtime with its activity on the closed order (above): the GM's
     Advance days wizard then shows "This character is no longer the subject of that order. Choose another activity." for it
     and resolves nothing for that day.
@@ -6423,7 +6425,7 @@ One pass at `d420496` (M0-M9), then once more after the fixes below:
     nothing left to take off still offers "Work a day", which is refused (`Refusal.PaidOff`); changing "Acting as" redraws
     the header, Queue and Funds but not the Morning tab, which keeps showing the previous acting character (when none was
     picked on the tab) until it is drawn again; a complete order's row says "Paid 20 gp" where its cost summary says 17 gp
-    were spent (a work day covered 3 gp).
+    were spent (a work day covered 3 gp). ("1 orders filed." fixed in M11, 10.18; the rest stands.)
 
 ### 10.17 As built in M9a
 
@@ -6685,13 +6687,121 @@ One pass at `1b26ae3` (M0-M9a), then once more after the fixes below:
   - A Deconstruct's detail and the request form's "Who can make it" carry Craft-only text: "Per extra day 6 gp", the Work days
     rule about extra days, "0 days at 8 gp", and "What it cost: ... 0 work days covered 0 gp".
   - Counts not made singular: the check augment's "1 more days to pay nothing more" and the Funds tab's "1 of 1 gardens" (the
-    class of "1 orders filed.", M9 live pass).
+    class of "1 orders filed.", M9 live pass). (Fixed in M11, 10.18.)
   - Before a secret check settles, the players' Queue shows the rate it implies ("10 gp per day" for an alchemist whose plain
     rate is 8 gp), so a critical success shows through (the second review's `perDayCp` item, seen live).
   - After a GM reveals a secret check, pf2e's own card stays "???" to the players; only the Workshop's augment line and the Queue
     say the degree.
   - "Rush the finishing" is offered from the start, during the setup days, before there is a check; it is harmless (the toggle
     only counts in finishing days) but reads as if the finish could be rushed now.
+
+### 10.18 As built in M11
+
+M11 builds the integration surface of 10.4, 11.1 and 10.9: the sheet and party entry points, the macro catalogue and its shelf,
+the keybinding, the theming pass and the accessibility pass, and fixes the UI lows of M4-M9a that were cheap and safe. Unit
+tests over pure parts (`test/logic/macros.test.mjs`), stub tests over a small DOM and a faithful ApplicationV2
+(`test/foundry/dom.mjs`, `test/foundry/ui-m11.test.mjs`), the stylesheet's contrast (`test/theme.test.mjs`) and the
+copy-paste macros (`test/macros.test.mjs`); live plans `m11-*` written, not yet run.
+
+- **Character sheet** (`scripts/ui/entry.mjs`): a "Workshop" header button through `getCharacterSheetPF2eHeaderButtons`
+  (pf2e 8.6.1's sheets are Application V1) and the same control through `getHeaderControlsCharacterSheetPF2e` (the hook an
+  ApplicationV2 sheet will fire, OQ-30); it opens the Workshop acting as that character. In `renderCharacterSheetPF2e` (the
+  html normalised from jQuery or an element, `elementOf`), for a member the user owns, one `section` is prepended to
+  `.tab.crafting.crafting-pane`: the character's orders being crafted, how many wait on its roll or settlement, open orders
+  filed for it (a gift hidden from it is not counted), its items on the pickup shelf, its downtime days to resolve, and whether
+  a rest left it waiting to prepare (`stripView`, `scripts/logic/entry.mjs`), with Workshop, Request and Morning buttons. The
+  strip holds no `li`, no `.formula-item`, no `data-item-*` and no `data-action` (its buttons carry
+  `data-pf2e-artisans-workshop-entry`), so pf2e's sheet listeners, PF2e Toolbelt's sort buttons (prepended to the formula
+  headers) and PF2e Workbench's rarity classes (`h4` inside `.crafting-pane .formula-item`) never reach it. A sheet without the
+  tab, a character the user does not own or one outside the party gets no strip; the header button stays.
+- **Party sheet**: the M4 header button, and a card in the Overview region after pf2e's summary: open orders, those waiting for
+  a crafter, those being crafted, the finished ones, the shelf for the user's characters and the strongbox (`partyCardView`).
+  pf2e renders the members' regions again on its own when a member changes (`render(false, {actors: true})`, no render hook),
+  so a `MutationObserver` on the region puts the card back. A player for whom pf2e hides the Overview (its `partyStats` off)
+  has the header button only. The strip and the card are filled again in place, debounced, when the ledger, the strongbox or
+  its items change, the day moves or a preparation lands; those of closed sheets are let go.
+- **Actors directory**: "Open Workshop" in the context menu (`getActorContextOptions`) of the party and of each member the user
+  owns, the latter acting as that member; it follows the master switch, as the header button does.
+- **Keybinding**: "Open the Workshop" (`openWorkshop`), unbound by default, beside M8's Open Bandolier and Quick Alchemy.
+- **Setting** `features.sheetEntryPoints` (W, on): the sheet header buttons, the strip and the card; off renders the open
+  sheets again without them.
+- **Macros** (11.1 As built in M11): the catalogue `scripts/logic/macros.mjs` holds the 23 macros of 11.1, each with its API
+  call, its arguments and their defaults, the arguments it needs, its feature and its icons. Every macro is the one line
+  `game.modules.get("pf2e-artisans-workshop")?.api?.macros.run(id, {args})` (`macroCommand`), which stops quietly while the
+  module or its API is missing. `api.macros.run` (`scripts/ui/macros.mjs`) calls the member with the arguments over the
+  defaults and reports the result: a refusal as its sentence, a step already taken (`outcome: "already"`) as "Already done.",
+  nothing for an opened window. A run without an argument the macro needs asks for it instead (11.1's "opens the form unless
+  every field is given"): the request form, the order's funding prompt (or the open orders), the crafter's one finishable
+  order (or the Queue on "mine"), the Downtime or Formulas tab, the Quick Alchemy panel on bombs, or a question (which family,
+  which poison, which item). "Advance days" opens the wizard with its days (`openAdvance({count, advanceClock})`; moving the
+  clock stays a GM's), "Affix talismans" opens the Morning tab on the affix board. A macro whose feature is off refuses
+  `macro-off`. The copy-paste files `macros/<id>.js` hold the same line under a comment naming the call (`npm run macros`
+  writes them; `test/macros.test.mjs` holds them to the catalogue).
+- **The shelf** (`MacroShelf`): every macro whose feature is on (combat's leave while Duct Tape is active), by group, with who
+  it is for, what it does and the call it stands for; Run, and Add to hotbar (the first free slot: the drag's keyboard
+  alternative). It opens from the status bar's Macros button (in the window the Workshop is in) and `api.ui.macros()`. A tile
+  dragged onto the hotbar (`hotbarDrop`, drag type `pf2e-artisans-workshop.macro`) becomes a world script macro with the
+  catalogue's line, the catalogue's name and a Foundry core icon, flagged `flags.MOD.macro = id`; the user's own macro of that
+  id is reused, and two drops at once make one. Without core's `MACRO_SCRIPT` (Player by default) the shelf says so, the tiles
+  are not draggable and only Run is offered; a drop is refused `no-script`.
+- **API** (11.2): `ui.macros()`, `macros.{list(), command(id, args), run(id, args), toHotbar(id, slot), open()}`,
+  `orders.postSummary({whisper})` (the open orders as a card: whispered to the poster, a gift named only to those who may see
+  it in the Queue, and to nobody on a card for everyone), and `orders.rollCheck({order, actor, skipDialog})`, which without an
+  order rolls the actor's oldest order waiting for its check (`nextCheckOrder`).
+- **Theming** (10.9, `scripts/ui/theme.mjs`): the client setting `ui.parchment` (Parchment, off) gives the module's windows
+  core's `themed theme-light` classes and `paw-parchment`, which lays pf2e's sheet background (`systems/pf2e/assets/sheet/
+  background.webp`) under them in either scheme; a change applies to open windows at once. Chat cards take the light tokens
+  under a light-themed interface whose body is dark (`.themed.theme-light X` outranks `.theme-dark X`: the M4 follow-up). The
+  sheet entries keep the light tokens in either scheme (pf2e's sheets are light). The light focus ring is the module's own
+  `#9e3d00` (core's highlight is 2.5:1 on the light panel); `test/theme.test.mjs` holds every text token at 4.5:1 and the
+  focus ring and bar segments at 3:1 against the light panel, a dark parchment, the dark panel and a lighter dark ground.
+  Labels set no text shadow.
+- **Window size** (10.8, `ui.windowSize`, C, hidden): a resize (not a move, not while detached) is saved, debounced, and the
+  next window opens at that size, clamped to the screen (`openingSize`).
+- **Accessibility** (10.9): the order rows have a context menu (core's, `jQuery: false`) with Open, Fund this order, Pause,
+  Resume, Release, Undo and Cancel, each where the row's actions allow it; every one is also in the detail drawer, its
+  keyboard path. While the detail covers the list (the medium tier's slide-over, the narrow tier's full view) Tab and
+  Shift+Tab stay inside it (`trapStep`, `focusablesIn`, `tierOf`); Escape closes it and gives focus back to its row, as
+  before. A tab's tooltip shows only in the narrow tier, where its word is hidden. "Acting as" stays on one line and its
+  select holds the whole "Name (level n)" as its tooltip. Unmet requirements carry a hidden "Not met:" and their list a name.
+  The Downtime tab's per-PC lines are no longer `role="status"` regions made again on every render, each PC's activity
+  select names the PC, and the Start/End downtime button has no `aria-pressed` beside its changing label.
+- **Lows fixed** (each marked in its follow-up list): counts of one ("1 day at 8 gp", "Setup 1 of 1 day", "1 casting", "after 1
+  Craft", "about 1 minute", "1 of 1 garden", "1 order filed.", "1 more day to pay nothing more", "in 1 round", "1 round"); the
+  check augment's days only while the order is `rolled` or `finishing`; the request form's DC column only for those who may
+  see DCs; the Formulas routes table's Route column keeps a readable width; "Spent, by source" in a fixed order (the party fund
+  first, then by name); the quantity in the detail's heading in the sans font.
+- **Not built** in M11, though 10.1 lists them with it: the Workshop's own Settings tab (user and client settings, world
+  settings, integrations and conflicts, data tools, "view as player"); the module's settings stay in Foundry's settings
+  window. The Party-stash strongbox and the party selector are unchanged (10.10 Follow-ups).
+- **Live plans** (15.3 scenarios 8 and 10, `tools/harness/integration-scenarios.mjs`, scenario `m11`): `m11-sheet` (the header
+  button, the strip and its buttons, Player Two's own strip, without companions), `m11-companions` (the same with PF2e
+  Toolbelt's crafting sort and PF2e Workbench's formula rarity colours on, the module configuration put back afterwards),
+  `m11-party` (the card as the GM and Player One, after pf2e renders the region again), `m11-context` (the directory's
+  context menu with real right-clicks), `m11-shelf` (real drag and drop onto the hotbar twice making one macro, Add to hotbar,
+  the slot running the macro), `m11-macros` (every catalogue macro once: none errors or shows a raw key, the ones that ask
+  open what asks, Roll Craft check with no order rolls the waiting one), `m11-keys` (the keybinding bound for the plan opens
+  the Workshop), `m11-keyboard` (a keyboard-only walkthrough: the keybinding, the tabs by arrows, the row's tab stop, the detail
+  by Enter, Tab trapped in the medium tier, Escape back to the row, the Macros button and Add to hotbar by Tab and Enter, and an
+  audit of names, tab indexes and tab lists), `m11-themes` (no text below its contrast in the dark and light schemes and with
+  Parchment) and `m11-shots` (the strip, the card and the shelf, dark and light). None has run yet.
+- **Screenshots** (17.1): `macro-shelf.png` and `sheet-strip.png` wait in `NEXT_CAPTURES` (`screenshots.mjs` opens the shelf
+  from the status bar and the demo alchemist's sheet on its Crafting tab), to be checked by eye and linked after the next run.
+
+#### Follow-ups (M11, low)
+
+- The rows' context menu is core's, which has no keyboard navigation of its own; keyboard users take the detail's buttons.
+  With `fixed: true` it is placed in the main window, so a detached Workshop's right-click menu may open in the wrong window.
+- The strip and the card count; they do not list the orders, nor say which order waits on the character (the Workshop does).
+- `macros.run` with `uuid` given files the request at once with the other fields' defaults (the API's behaviour since M4); 11.1
+  says the form opens unless every field is given. A macro that wants the form prefilled calls `api.ui.requestForm(uuid)`.
+- `income.start` takes no `settlement` or `lengthDays` (M6 follow-up) and `consumables.useBest` no `target`, so the catalogue
+  leaves them out of macros 10 and 20; "Advance days" takes no `actors` (the wizard's Who step chooses).
+- A macro run reports refusals; a run whose API call throws reports `macro-error` and logs the error, so a bug behind a macro
+  shows as one notice.
+- Parchment's background and colours are fixed light: a dark sheet look (pf2e has none) is not offered.
+- The Settings tab of 10.1 (with its data tools, among them releasing a stuck log slot, 10.10 Follow-ups) is not built.
+- `ui.lastTab` is still written on every tab change, one user-document write each (M4 follow-up).
 
 ---
 
@@ -6731,6 +6841,39 @@ Delivery: tiles in the macro shelf that a `hotbarDrop` handler turns into world 
 | 23 | Roll pending saves | owner | `api.afflictions.rollPending({actor})`; rolls every due save the user may roll, in order (8.10.8) |
 
 All macros are idempotent: a double click returns "already done".
+
+As built in M11 (10.18): every macro is `game.modules.get("pf2e-artisans-workshop")?.api?.macros.run(id, args)`, the line the
+shelf's hotbar macro and the copy-paste file `macros/<id>.js` hold; `macros.run` calls the member below with `args` over the
+defaults shown, reports a refusal or "Already done.", and without a required argument (*) does what the last column says.
+
+| # | Id | Call and arguments as built (defaults) | Without a required argument |
+|---|---|---|---|
+| 1 | `open-workshop` | `ui.open({tab: "queue", actor: null, filter: null})` | |
+| 2 | `request-item` | `orders.request({uuid*: null, quantity: 1, recipient: null, crafter: null, note: ""})` | the request form |
+| 3 | `pledge` | `funds.pledge({order*: null, amount*: null, from: null})` | the order's funding prompt, or the Queue on open orders |
+| 4 | `roll-craft` | `orders.rollCheck({order: null, actor: null})`; without `order`, the actor's oldest order in `check` | |
+| 5 | `finish-order` | `orders.finish({order*: null})` | the crafter's one finishable order's detail, else the Queue on "mine" |
+| 6 | `take-deliveries` | `funds.claimAll({actor: null})` | |
+| 7 | `morning` | `prep.open({actor: null, loadout: null, apply: false})` | |
+| 8 | `resolve-downtime` | `downtime.resolve({actor: null})` | |
+| 9 | `advance-days` | the wizard, `openAdvance({count: days, advanceClock})`; arguments `{days: 1, advanceClock: false}` | |
+| 10 | `earn-income` | `income.start({actor: null, skill*: null, taskLevel: null})` | the Downtime tab |
+| 11 | `learn-formula` | `formulas.acquire({uuid*: null, route*: null, actor: null, from: null})` | the Formulas tab |
+| 12 | `quick-alchemy` | `alchemy.quickAlchemy({actor: null, uuid: null, second: null, additive: null, then: "hand"})`; no `uuid`: the panel | |
+| 13 | `quick-bomb` | `alchemy.quickBomb({actor: null, family*: null, damageType: null, createIfNone: true})` | the panel on bombs |
+| 14 | `quick-vial` | `alchemy.quickVial({actor: null, damageType: null, material: null})` | |
+| 15 | `healing-bomb` | `alchemy.healingBomb({actor: null, grade: "best", target: null})` | |
+| 16 | `gather-reagents` | `alchemy.gatherReagents({actor: null, minutes: 10})` | |
+| 17 | `improvise-admixture` | `alchemy.improviseAdmixture({actor: null})` | |
+| 18 | `affix-talismans` | `prep.affixBoard({actor: null})`, then the Morning tab on the affix board | |
+| 19 | `post-summary` | `orders.postSummary({whisper: true})` | |
+| 20 | `use-best` | `consumables.useBest({family*: null, actor: null, partyWide: false})` | asks which family the actor holds |
+| 21 | `apply-poison` | `afflictions.applyPoison({poison*: null, weapon*: null, actor: null})` | asks which poison, then which item to coat |
+| 22 | `expose` | `afflictions.expose({item*: null, targets: "targeted", delivery: null, dc: null})` | asks which of the actor's items |
+| 23 | `roll-pending` | `afflictions.rollPending({actor: null})` | |
+
+Arguments a member takes beyond these pass through (`skipDialog`, `map`). A macro whose feature is off (14.1; combat's also
+while Duct Tape is active) refuses `macro-off`; the shelf leaves it out.
 
 ### 11.2 API surface
 
@@ -6772,6 +6915,10 @@ adjust(itemOrUuid, {stage, end, endOnset, undo}), repair(itemOrUuid), process(),
 As built in M10: `ext.{apiVersion, activities, incomeSources, sinks, modifierSources, modules, store, partyLevel, roll, runs,
 run, openAids, income, incomePaid, spend, sinkItems, spends, modifiers}`, `funds.post(row)`, `funds.posted({source, key})` and
 `rules.levelDC(level)` (12.6; `incomePaid` and `funds.posted` from the M10 review).
+
+As built in M11: `ui.macros()`, `macros.{list(), command(id, args), run(id, args), toHotbar(id, slot), open()}`,
+`orders.postSummary({whisper})` and `orders.rollCheck({order, actor, skipDialog})` with the actor's next order in `check` when
+none is named (10.18).
 
 As built in M8: `alchemy.{facts(actor), quickAlchemy({actor, uuid, second, additive, combine, then, map}) (the panel without a
 uuid), quickBomb({actor, family, uuid, damageType, material, createIfNone, map}), quickVial({actor, damageType, material,
@@ -7124,8 +7271,8 @@ two members ending a show at once). Its live harness plan is written and has not
 | Module | Detection | Behaviour |
 |---|---|---|
 | pf2e-dailies | `game.modules.get("pf2e-dailies")?.active`; API `game.dailies.api` | custom daily (7.9); post-rest pipeline waits for its `rested` flag (7.8); its built-in dailies are never duplicated. As built in M7: registered at `ready` (pf2e-dailies 4.23.1 keeps `registerCustomDailies` at `game.dailies.api`, the module's global name being its id without `pf2e-`), its rows without pf2e-dailies' `save` (10.13) |
-| PF2e Toolbelt | active flag | coexist: its Better Sheet adds sort buttons to the crafting tab, so the strip is appended above without touching formula rows; its Better Merchant services are an ordinary way to buy materials; no API use |
-| PF2e Workbench | active flag | coexist: keep `li.formula-item` markup so its rarity colouring works; respect its chat-card collapse setting |
+| PF2e Toolbelt | active flag | coexist: its Better Sheet adds sort buttons to the crafting tab, so the strip is appended above without touching formula rows; its Better Merchant services are an ordinary way to buy materials; no API use. As built in M11: Toolbelt 3.59.2 prepends its sort buttons to each crafting entry's header and `.known-formulas > header`; the strip is the tab's first child and holds no header of theirs; live plan `m11-companions` turns its `sortList` setting on (10.18) |
+| PF2e Workbench | active flag | coexist: keep `li.formula-item` markup so its rarity colouring works; respect its chat-card collapse setting. As built in M11: Workbench 7.7.5 adds `xdy-pf2e-workbench-rarity-<rarity>` to the `h4` of each `.crafting-pane .formula-item` it can read; the strip has no `.formula-item` and leaves pf2e's rows alone; live plan `m11-companions` turns `playerCraftingRarityColour` on (10.18) |
 | Item Piles | `game.itempiles` | no dependency; materials bought from an Item Piles merchant are ordinary items that can be earmarked; reading merchant prices is OQ-32 |
 | Calendar modules (Calendaria, Simple Calendar Reborn) | none needed | time is read only from `game.time.worldTime` and `updateWorldTime`; dates display through `game.time.calendar` or the pf2e world clock; that these modules drive core world time is to be tested (OQ-18). Seasons & Stars is not verified for v14. |
 | PF2e Convenient Consumables | active flag | "Use best consumable" (8.9) covers the same ground; both are user-triggered, so nothing competes; Settings notes the overlap |
@@ -7164,7 +7311,7 @@ variants (14.4) are variant rules and are all off until a GM turns them on.
 | `features.afflictions` | W | on | the affliction tracker (8.10); independent of `features.combat` and of Duct Tape |
 | `features.vialGathering` | W | off | 8.7; writes to actors as world time passes |
 | `features.tattoos` | W | on | tattoo and graft orders (process per `rules.tattooProcess`) |
-| `features.sheetEntryPoints` | W | on | sheet strips and header buttons |
+| `features.sheetEntryPoints` | W | on | sheet strips and header buttons (as built in M11: the character and Party sheet header buttons, the Crafting tab strip and the Party card, 10.18) |
 | `members` | W | `party` | Workshop members: active pf2e party, or all player characters |
 | `strongbox` | W | `module` | `module` or `party` (requires players to own the Party actor) |
 | `chat.visibility` | W | `involved` | whisper to involved users, or public |
@@ -7250,7 +7397,9 @@ read them, with the defaults listed here; `strongbox: party` comes with the Fund
 encounter's items one round of world time from its end), `bandolier.autoOpen` (U, on) and the hidden `bandolier.position`
 (U, `{left, top}`) (10.14). As built in M8a: `features.afflictions` (W, on) and every setting of 14.5 with its default (10.15). As
 built in M9: `features.tattoos` (W, on; off, a tattoo or graft is crafted as a plain item), `rules.tattooSubjectLocked` (W, on) and
-`rules.tattooHealingDays` (W, 30) (10.16). As built in M9a: every setting of 14.4 with its default, all off (10.17).
+`rules.tattooHealingDays` (W, 30) (10.16). As built in M9a: every setting of 14.4 with its default, all off (10.17). As built in M11:
+`features.sheetEntryPoints` (W, on), `ui.parchment` (C, off; a change applies to open windows at once) and the hidden
+`ui.windowSize` (C, `{}` until the user resizes the Workshop; then `{width, height}`) (10.18).
 
 ### 14.4 Treasure Vault (Remastered) variants
 
@@ -7392,6 +7541,11 @@ World settings unless marked U.
   Hooks let a test land a change on the client before it sends, on the server before its dry run, and between
   the server's operations; `test/foundry/races.test.mjs` holds one device's request in flight while another's
   lands. Node 24 has `navigator.locks`, so the lease runs on the real API.
+- As built in M11: `test/theme.test.mjs` reads the stylesheet's `--paw-*` tokens and holds the text colours at 4.5:1 and the
+  focus ring and bar segments at 3:1 against the light panel, a dark parchment, the dark panel and a lighter dark ground;
+  `test/foundry/dom.mjs` is a small DOM (selectors, `isConnected`, a `MutationObserver` that hears `replaceChildren`) with an
+  ApplicationV2 whose read-only properties are getters, for the sheet entries, the shelf and the window's size and focus
+  trap (`test/foundry/ui-m11.test.mjs`).
 - Development runs set `CONFIG.compatibility.mode` to FAILURE with `includePatterns` for this module. A
   development run is a world with the hidden `dev` setting on (14.3). Core matches the patterns against
   the whole stack, so any deprecation warning whose stack passes through this module's files throws,
@@ -7598,6 +7752,14 @@ read fully, 110 overridden, 5 ignored, none failing (10.15); `spells` and `besti
   client's writes) and flags the key paths only a variant writes (`VARIANT_WRITE`), a variant setting and a variant card;
   `markers` opens each tab of the Workshop and the request form and reads the variant markers (buttons, sections, fields) and
   any variant string that no other key shares, there and in the chat cards posted since the audit began.
+- As built in M11: scenario `m11` (`tools/harness/integration-scenarios.mjs`) and the behaviours `m11-sheet`, `m11-companions`,
+  `m11-party`, `m11-context`, `m11-shelf`, `m11-macros`, `m11-keys`, `m11-keyboard`, `m11-themes` and `m11-shots`, described in
+  10.18. They are scenarios 8 (keyboard) and 10 (accessibility) of the list above, and the Toolbelt and Workbench rows of the
+  companions axis (15.5). `m11-companions` switches the two modules in the world's `core.moduleConfiguration` (with lib-wrapper)
+  and reloads every page, as `m7-dailies` does, and puts the configuration back; `m11-shelf` drags with Playwright's
+  `dragAndDrop`, which dispatches the HTML drag events the hotbar reads; `m11-keyboard` binds Open Workshop for the plan only.
+  The steps `audit` (names, tab indexes, images, tab lists and the contrast of every text node against what is behind it) and
+  `focus` read the page as a user meets it. Not run yet.
 - As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
   counts the rows that are new since `purseBefore` by id, not by a server-time cut-off (two devices' estimates of
   the server's time differ by milliseconds, and one real row was left out); the `claim` step reports its own rows
@@ -7797,7 +7959,7 @@ draft; the letters keep the existing milestone numbers stable.
 | M9 | Tattoos and remaining crafts | tattoo process and toggle, grafts, spellhearts, fulus, missives, snares and gadgets specifics, spell-supplied items beyond scrolls and wands; harness scenario 14; built, first live pass run (10.16) | M5, M6 |
 | M9a | Treasure Vault (Remastered) variants | 6.16 behind their settings: Complex Crafting and Quick Setup (setup, rush, sub-day setups, rushed finishing), crafting with adjustments, downtime events, Critical Crafting, Deconstruct and components, Grow with untended growth and seasons, gardens, bestowed gifts, crafting quests; the one-group-at-a-time notice; harness scenario 13; built, live plans passed (10.17, M9a live pass) | M5 (service orders, materials, Repair), M6 (day resolver, seasons, events), M7 (expiry stamps and the inert guard for produce, components and gifts) |
 | M10 | Extension API | registration, interfaces, hooks, extension store; the separate circus module built against it as acceptance test; built, live plans not yet run (12.6) | M6 |
-| M11 | Integration surface | sheet and party entry points, macros and shelf, keybindings, theming, accessibility pass | M4-M9a |
+| M11 | Integration surface | sheet and party entry points, macros and shelf, keybindings, theming, accessibility pass; built, live plans not yet run (10.18) | M4-M9a |
 | M12 | Hardening | full section 15 matrix, performance, pre-release to a test table by manifest URL; the first pre-release run at a real table hosted on the Forge is the Forge smoke test (15.6) | M10, M11 |
 | M13 | Listing | author rewrites every string, README and description; sign-off gate passes; notices final; release workflow dry run; listing submission; 1.0.0 | M12 |
 
@@ -7855,22 +8017,22 @@ no overflow, no fixture names; the follow-ups above still show.
 **Follow-ups seen in the first captures** (all low, all in the window's layout or wording):
 
 - Formulas tab, "Learn a formula": at the default window width the routes table squeezes its Route column to a word per
-  line ("no formula (2 setup days)") while the Cost column's hint takes the room (`formulas.png`).
+  line ("no formula (2 setup days)") while the Cost column's hint takes the room (`formulas.png`). (Fixed in M11, 10.18.)
 - Header: "Acting as" wraps onto two lines beside a character name with its level, "Ilsa Marrow (level 11)" (every
-  capture).
-- Order detail: "Setup 1 of 1 days" (a plural with one; `queue.png`, `queue-light.png`).
+  capture). (Fixed in M11, 10.18.)
+- Order detail: "Setup 1 of 1 days" (a plural with one; `queue.png`, `queue-light.png`). (Fixed in M11, 10.18.)
 - Light theme: the order detail's labels (`.detail-facts dt`) carry a 1px black text shadow (computed
   `rgb(0, 0, 0) 1px 1px 0px`, from outside the module's stylesheet) that reads as smudged on the parchment
-  (`queue-light.png`); `text-shadow: none` on them would fix it.
+  (`queue-light.png`); `text-shadow: none` on them would fix it. (Fixed in M11, 10.18.)
 - "Spent, by source" lists its sources in no fixed order: two runs of the same staging showed the party fund and Wren
-  Ashdown in either order.
+  Ashdown in either order. (Fixed in M11, 10.18.)
 - Order detail heading: the quantity sits inside the `<h3>` (`templates/workshop/queue.hbs`, the detail's title), so
   "× 2" is set in pf2e's `--serif` (Eczar) and its "×" reads as an asterisk, "Antidote (Moderate) ⁎ 2" (`queue.png`,
   `queue-light.png`); in the list, where the quantity is outside the title, it reads as "× 2". Setting `.order-qty` in
-  the heading in the sans font would fix it.
+  the heading in the sans font would fix it. (Fixed in M11, 10.18.)
 - Request form, "Who can make it": a player in a world where pf2e hides DCs (its metagame "show DCs" off, as in the dev
   world) gets the DC column's header over empty cells (`request.mjs` blanks `dc` when `showDcs()` is false, the
-  template always draws the column; `request-form.png`). Leave the column out when DCs are hidden.
+  template always draws the column; `request-form.png`). Leave the column out when DCs are hidden. (Fixed in M11, 10.18.)
 
 The README puts each caption after its image with a hard line break (a trailing `\`): with a plain newline GitHub
 renders the caption on the image's line, beside the 560 px request form (`test/screenshots.test.mjs` holds it).
@@ -7911,6 +8073,11 @@ with no additive (10.14, Follow-ups).
 Tattoo Artist and Eye Slash's formula, and Player Two files Eye Slash made on Ilsa with Doran crafting, which waits for
 her agreement (G10). A capture may name a part of the order's detail (`scroll`): the detail is scrolled to it and the list
 to the order's row (`pageScrollDetail`). All eleven captures were looked at: no raw keys, no overflow, no fixture names.
+
+**Staged in M11 (2026-10-27).** `macro-shelf.png` (the shelf from the status bar) and `sheet-strip.png` (the demo alchemist's
+Crafting tab with the strip at its top, the captured element `.tab.crafting.crafting-pane`) wait in `NEXT_CAPTURES`: after the
+next run, check them by eye, move them into `CAPTURES` and add their captions to the README. The live plan `m11-shots` takes the
+strip, the Party card and the shelf in both schemes into `--shots`.
 
 ---
 

@@ -174,6 +174,27 @@ export function registerSettings(handlers) {
         },
     });
     game.settings.register(MODULE_ID, "ui.lastTab", { scope: "user", config: false, type: String, default: "queue" });
+    // M11 (DESIGN.md 14.1, 14.3): the sheet entry points (the character sheet's header button and Crafting tab strip, the
+    // Party sheet's header button and card); the Parchment look in either colour scheme; the Workshop window's size, kept
+    // per client.
+    game.settings.register(MODULE_ID, "features.sheetEntryPoints", {
+        name: "pf2e-artisans-workshop.Settings.FeaturesSheetEntryPoints.Name",
+        hint: "pf2e-artisans-workshop.Settings.FeaturesSheetEntryPoints.Hint",
+        scope: "world", config: true, type: Boolean, default: true,
+        // The open character and party sheets (Application V1 in pf2e 8.6.1, in `ui.windows`) render again with or without them.
+        onChange: () => {
+            for (const app of Object.values(ui.windows ?? {})) {
+                if (["character", "party"].includes(app?.actor?.type) && app.rendered) app.render(false);
+            }
+        },
+    });
+    game.settings.register(MODULE_ID, "ui.parchment", {
+        name: "pf2e-artisans-workshop.Settings.Parchment.Name",
+        hint: "pf2e-artisans-workshop.Settings.Parchment.Hint",
+        scope: "client", config: true, type: Boolean, default: false,
+        onChange: async (value) => (await import("../ui/theme.mjs")).applyParchment(value === true),
+    });
+    game.settings.register(MODULE_ID, "ui.windowSize", { scope: "client", config: false, type: Object, default: {} });
     // M5 (DESIGN.md 14.1): the Formulas tab, formula jobs and services; off hides the tab and the formula routes.
     game.settings.register(MODULE_ID, "features.formulas", {
         name: "pf2e-artisans-workshop.Settings.FeaturesFormulas.Name",

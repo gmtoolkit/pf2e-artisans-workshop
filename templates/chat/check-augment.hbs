@@ -7,7 +7,7 @@
     {{#if secret}}<p class="augment-line"><i class="fa-solid fa-eye-slash" inert></i> {{localize "pf2e-artisans-workshop.Variant.Critical.Secret"}}</p>{{/if}}
     {{#if degreeText}}<p class="augment-line degree {{degreeClass}}">{{localize "pf2e-artisans-workshop.Augment.Degree" degree=degreeText}}</p>{{/if}}
     {{#if critical}}<p class="augment-line"><i class="fa-solid fa-star" inert></i> {{localize "pf2e-artisans-workshop.Variant.Critical.Augment"}}</p>{{/if}}
-    {{#if success}}<p class="augment-line">{{localize "pf2e-artisans-workshop.Augment.Success" perDay=view.perDayText days=view.daysToZero left=view.finishText}}</p>{{/if}}
+    {{#if success}}{{#if working}}<p class="augment-line">{{#if oneDay}}{{localize "pf2e-artisans-workshop.Augment.SuccessOneDay" perDay=view.perDayText left=view.finishText}}{{else}}{{localize "pf2e-artisans-workshop.Augment.Success" perDay=view.perDayText days=view.daysToZero left=view.finishText}}{{/if}}</p>{{/if}}{{/if}}
     {{#if failure}}<p class="augment-line">{{localize "pf2e-artisans-workshop.Augment.Failure" amount=salvage}}</p>{{/if}}
     {{#if critFailure}}<p class="augment-line">{{localize "pf2e-artisans-workshop.Augment.CritFailure" amount=ruined}}</p>
     {{#if alchemical}}<p class="augment-line hazard"><i class="fa-solid fa-flask" inert></i> {{localize "pf2e-artisans-workshop.Augment.Hazard"}}</p>{{/if}}{{/if}}

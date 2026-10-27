@@ -141,7 +141,7 @@
                 <dt>{{localize "pf2e-artisans-workshop.Detail.Escrow"}}</dt><dd>{{escrowText}}</dd>
                 {{#if routeText}}<dt>{{localize "pf2e-artisans-workshop.Detail.Route"}}</dt><dd>{{routeText}}</dd>{{/if}}
                 {{#if dc}}<dt>{{localize "pf2e-artisans-workshop.Detail.Dc"}}</dt><dd>{{dc}}</dd>{{/if}}
-                {{#if setup}}<dt>{{localize "pf2e-artisans-workshop.Detail.Setup"}}</dt><dd>{{localize "pf2e-artisans-workshop.Detail.SetupDays" done=setup.done days=setup.days}}</dd>{{/if}}
+                {{#if setup}}<dt>{{localize "pf2e-artisans-workshop.Detail.Setup"}}</dt><dd>{{#if (eq setup.days 1)}}{{localize "pf2e-artisans-workshop.Detail.SetupDaysOne" done=setup.done}}{{else}}{{localize "pf2e-artisans-workshop.Detail.SetupDays" done=setup.done days=setup.days}}{{/if}}</dd>{{/if}}
                 {{#if checkText}}<dt>{{localize "pf2e-artisans-workshop.Detail.Check"}}</dt><dd class="degree {{checkClass}}">{{checkText}}</dd>{{/if}}
                 {{#if perDayText}}<dt>{{localize "pf2e-artisans-workshop.Detail.PerDay"}}</dt><dd>{{perDayText}}</dd>{{/if}}
                 {{#unless isClosed}}<dt>{{localize finishLabel}}</dt><dd>{{finishText}}</dd>{{/unless}}
@@ -154,10 +154,11 @@
             <section class="detail-requirements" aria-label="{{localize 'pf2e-artisans-workshop.Detail.Gates'}}">
                 <h4>{{localize "pf2e-artisans-workshop.Detail.Gates"}}</h4>
                 {{#if requirementsText.unmet.length}}
-                <ul class="detail-gates unmet">
+                <ul class="detail-gates unmet" aria-label="{{localize 'pf2e-artisans-workshop.Detail.NotMet'}}">
                     {{#each requirementsText.unmet}}
                     <li class="fail">
                         <i class="fa-solid fa-xmark" inert></i>
+                        <span class="sr-only">{{localize "pf2e-artisans-workshop.Detail.NotMetPrefix"}}</span>
                         <span class="gate-name">{{name}}</span>
                         <span class="gate-why">{{text}}</span>
                         {{!-- data-op tells this button from the actions' Fund button, so focus comes back to the right one --}}
@@ -254,7 +255,7 @@
             <ul class="detail-list detail-pledges">
                 {{#each pledges}}
                 <li class="pledge-{{statusKey}}" data-op-row="{{id}}">
-                    <span>{{localize "pf2e-artisans-workshop.Pledge.Line" caster=caster spell=spell rank=rank castings=castings}}</span>
+                    <span>{{#if castingsOne}}{{localize "pf2e-artisans-workshop.Pledge.LineOne" caster=caster spell=spell rank=rank}}{{else}}{{localize "pf2e-artisans-workshop.Pledge.Line" caster=caster spell=spell rank=rank castings=castings}}{{/if}}</span>
                     <span class="by">{{status}}{{#if cost}} {{cost}}{{/if}}</span>
                     {{#if canFulfil}}<button type="button" class="small" data-action="pledgeOp" data-op="fulfil" data-pledge="{{id}}"{{#if askCost}} data-cost="ask"{{/if}}>{{localize "pf2e-artisans-workshop.Pledge.Fulfil"}}</button>{{/if}}
                     {{#if canWithdraw}}<button type="button" class="small" data-action="pledgeOp" data-op="withdraw" data-pledge="{{id}}">{{localize "pf2e-artisans-workshop.Pledge.Withdraw"}}</button>{{/if}}

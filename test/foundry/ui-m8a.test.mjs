@@ -128,12 +128,12 @@ test("the window: the stage list with its parsed parts, the next save, the owner
     const tracker = view.actors[0].trackers[0];
     assert.equal(tracker.runId, runId);
     assert.equal(tracker.stageText, "Stage 1 of 3");
-    assert.equal(tracker.nextText, "Next save in 1 rounds.");
+    assert.equal(tracker.nextText, "Next save in 1 round.");
     assert.equal(tracker.maxText, "Ends in 6 rounds at most.");
     assert.equal(tracker.stages.length, 3);
     assert.equal(tracker.stages[0].current, true);
     assert.match(tracker.stages[0].parts, /1d6/);
-    assert.equal(tracker.stages[0].interval, "1 rounds");
+    assert.equal(tracker.stages[0].interval, "1 round");
     assert.equal(tracker.canEdit, true);
     world.currentUser = "p2";
     assert.deepEqual((await ui.afflictionsView()).actors, [], "Player Two owns nothing here");

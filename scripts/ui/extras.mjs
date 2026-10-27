@@ -92,7 +92,7 @@ export async function detailExtras(order) {
         };
         extras.pledges = livePledges(order).concat(Object.values(order.pledges ?? {}).filter((p) => p?.status === "withdrawn")).map((p) => ({
             id: p.id, caster: p.caster ? nameOf(p.caster) : loc("pf2e-artisans-workshop.Pledge.Service"), spell: p.spell?.name ?? "",
-            rank: p.rank ?? "", castings: number(p.castings), status: loc(PLEDGE_STATUS[p.status] ?? PLEDGE_STATUS.offered), statusKey: p.status,
+            rank: p.rank ?? "", castings: number(p.castings), castingsOne: p.castings === 1, status: loc(PLEDGE_STATUS[p.status] ?? PLEDGE_STATUS.offered), statusKey: p.status,
             // What it cost and who paid (M5 on M4.1): the party fund, or a member's purse.
             cost: p.costCp ? fmt("pf2e-artisans-workshop.Pledge.CostFrom", { amount: money(p.costCp), source: sourceName(paidBy(p)) }) : null,
             canFulfil: open && p.status === "offered" && owns(p.caster), canWithdraw: open && p.status === "offered" && (viewer.isGM || owns(p.caster)),

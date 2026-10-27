@@ -94,6 +94,7 @@ npm run signoff -- --keys <key> [<key> ...]   # sign off strings the author has 
 npm run harness:live     # the sync scenarios in a running dev world (below)
 npm run screenshots      # the README screenshots, from a running dev world (below)
 npm run validate:registry -- --pf2e <checkout>   # the rules registry against a pf2e checkout
+npm run macros           # write macros/ from the macro catalogue (DESIGN.md 11.1)
 ```
 
 Every user-facing string lives in `lang/en.json` under `pf2e-artisans-workshop.` keys.
@@ -113,7 +114,9 @@ is the code that talks to Foundry (storage and sync so far), tested in `test/fou
 against the small fake of Foundry in `test/foundry/stubs.mjs`. `scripts/ui/` is the
 Workshop window, its chat cards and entry points (M4), with its Handlebars templates in `templates/` (no literal text:
 every word is a key) and its stylesheet in `styles/`; `scripts/logic/views.mjs` holds the window's view models as pure
-functions. A later milestone adds `macros/` (copy-paste macros; the lint rules and key check already cover that folder).
+functions. `macros/` holds the copy-paste macros (DESIGN.md 11.1), one file per entry of the catalogue in
+`scripts/logic/macros.mjs`, each the same line a hotbar macro made from the Workshop's macro shelf holds; `npm run macros`
+writes them and `npm test` fails while a file and the catalogue disagree.
 The extension API (`DESIGN.md` 12) is `scripts/foundry/extensions.mjs` with its pure parts in `scripts/logic/extensions.mjs`;
 `test/foundry/ext-fixture.mjs` is a small extension module, registered the way a real one is, that the tests run the
 Workshop against. An extension module of your own can use the Workshop checkout as a development dependency by path
@@ -163,6 +166,7 @@ npm run harness:live -- --scenarios none --behaviours m8a-cloud,m8a-once,m8a-pow
 npm run harness:live -- --scenarios none --behaviours m8a-strike --runs 1 --canvas
 npm run harness:live -- --scenarios none --behaviours m9-tattoo,m9-simple,m9-graft,m9-fulu-missive,m9-staff,m9-snares,m9-gadget,m9-shots --runs 1 --shots /tmp/m9-shots
 npm run harness:live -- --scenarios none --behaviours m9a-notice,m9a-complex,m9a-quick-setup,m9a-deconstruct,m9a-grow,m9a-garden,m9a-quest,m9a-adjust,m9a-secret,m9a-shots,m9a-off --runs 1 --shots /tmp/m9a-shots
+npm run harness:live -- --scenarios none --behaviours m11-sheet,m11-companions,m11-party,m11-context,m11-shelf,m11-macros,m11-keys,m11-keyboard,m11-themes,m11-shots --runs 1 --shots /tmp/m11-shots
 ```
 
 The registry check also reads every pf2e item with stages, onset or a maximum duration as an affliction (`DESIGN.md`
@@ -220,6 +224,16 @@ Grow; `m9a-grow` logs off the GM and logs 100 days in the ledger (it never moves
 or grow fix the die so the order gets where their later checks look. `m9a-off` runs `m4-lifecycle` with every variant off,
 under a write audit on the GM's client, and checks that nothing a variant writes is written and that no tab, request form or
 chat card on any client shows a variant.
+
+The M11 behaviours (DESIGN 10.18) drive the integration surface as Player One: the character sheet's header button and
+Crafting tab strip without companions (`m11-sheet`) and with PF2e Toolbelt and PF2e Workbench switched on in the world's module
+configuration, their crafting settings on, every page reloaded and the configuration put back afterwards (`m11-companions`); the
+Party sheet's card, also after pf2e renders its overview again (`m11-party`); "Open Workshop" from the Actors directory's
+context menu with real right-clicks (`m11-context`); the macro shelf, a tile dragged onto the hotbar twice (one macro) and
+Add to hotbar (`m11-shelf`); every catalogue macro once (`m11-macros`); the keybinding, bound for the plan only (`m11-keys`);
+a keyboard-only walkthrough with an accessibility audit (`m11-keyboard`); the contrast of the window's text in the dark and
+light schemes and with Parchment (`m11-themes`); and screenshots of the strip, the card and the shelf (`m11-shots`). The macros
+the plans make are deleted again with their hotbar slots.
 
 `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN.md 17.1) takes the README's screenshots in the same dev
 world, through the same driver. It copies four fixture actors into a demo party with generic names (Player One plays the

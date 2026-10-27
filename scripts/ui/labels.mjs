@@ -105,6 +105,13 @@ export const REFUSAL = Object.freeze({
     "not-ready": "pf2e-artisans-workshop.Refusal.NotReady",
     "no-order": "pf2e-artisans-workshop.Refusal.NoOrder",
     "not-owner": "pf2e-artisans-workshop.Refusal.NotOwner",
+    // M11: macros and the shelf (11.1).
+    "no-macro": "pf2e-artisans-workshop.Refusal.NoMacro",
+    "macro-off": "pf2e-artisans-workshop.Refusal.MacroOff",
+    "macro-error": "pf2e-artisans-workshop.Refusal.MacroError",
+    "no-script": "pf2e-artisans-workshop.Refusal.NoScript",
+    "hotbar-full": "pf2e-artisans-workshop.Refusal.HotbarFull",
+    "no-card": "pf2e-artisans-workshop.Refusal.NoCard",
     state: "pf2e-artisans-workshop.Refusal.State",
     gates: "pf2e-artisans-workshop.Refusal.Gates",
     quantity: "pf2e-artisans-workshop.Refusal.Quantity",

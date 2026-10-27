@@ -178,7 +178,7 @@
                 {{#with breakEven}}
                 <p class="learn-break-even"><i class="fa-solid fa-scale-balanced" inert></i>
                     {{#if needed}}{{localize "pf2e-artisans-workshop.Formulas.BreakEvenNeeded" formula=formula}}
-                    {{else if crafts}}{{localize "pf2e-artisans-workshop.Formulas.BreakEven" formula=formula day=day crafts=crafts}}
+                    {{else if crafts}}{{#if craftsOne}}{{localize "pf2e-artisans-workshop.Formulas.BreakEvenOne" formula=formula day=day}}{{else}}{{localize "pf2e-artisans-workshop.Formulas.BreakEven" formula=formula day=day crafts=crafts}}{{/if}}
                     {{else}}{{localize "pf2e-artisans-workshop.Formulas.BreakEvenNever" formula=formula}}{{/if}}</p>
                 {{/with}}
                 {{#if pickable}}

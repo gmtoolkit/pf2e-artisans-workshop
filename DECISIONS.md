@@ -2,6 +2,36 @@
 
 Newest first.
 
+## 2026-10-27: The integration surface as built (M11)
+
+**Decision:** six rules settled while building DESIGN 10.4, 10.9 and 11.1 (10.18):
+
+- Every macro is one call, `api.macros.run(id, args)`, not the bare API member 11.1 names. `run` calls that member with the
+  arguments over the catalogue's defaults and tells the user what came of it: a refusal in words, "Already done." for a step
+  already taken. A bare API call returns its result to its caller and says nothing, which a hotbar slot cannot use.
+- A macro run without an argument it needs opens what asks for it (the form, the order's funding, the tab, or a question)
+  instead of refusing. The API members keep their behaviour, so scripts and the harness are unaffected.
+- A tile dragged onto the hotbar becomes a world script macro the user owns, flagged with the catalogue's id, and is reused
+  for later drops: one macro per user and macro. It needs core's `MACRO_SCRIPT` (Player by default); without it the shelf
+  offers Run only. No compendium pack (11.1).
+- The Crafting tab strip and the Party card are elements of our own with their own attribute for buttons (never
+  `data-action`, `li`, `.formula-item` or `data-item-*`), prepended or inserted, never changing pf2e's markup, and only for a
+  member the user owns. The Party card is put back by an observer of pf2e's Overview region, which pf2e renders again without
+  a hook.
+- Parchment uses core's own `themed theme-light` classes on the window, so Foundry's light colours apply inside it in either
+  scheme, plus pf2e's sheet background. The sheet entries keep the light tokens in either scheme.
+- The light focus ring is the module's own colour, not core's highlight, which is 2.5:1 on the light panel; a test holds the
+  module's colours to WCAG 4.5:1 (text) and 3:1 (focus ring, bar segments).
+
+**Why:** a macro is pressed by a player who sees nothing but the notice it raises, and a double press must be harmless (11.1).
+A macro that needs an order or an item is still useful on the hotbar if it asks. Players without script-macro permission are
+a GM's choice; the shelf must not pretend otherwise. pf2e, Toolbelt and Workbench all read the Crafting tab's rows, and pf2e's
+sheets bind every `data-action` in them. Contrast and focus visibility are what 10.9 promises in both schemes.
+
+**Consequences:** DESIGN 10.4, 10.9, 10.18, 11.1 (as built), 11.2, 13, 14.1, 14.3, 15.1, 15.3, 17 and 17.1. New settings
+`features.sheetEntryPoints` (W), `ui.parchment` (C), `ui.windowSize` (C, hidden); new refusal codes `no-macro`, `macro-off`,
+`macro-error`, `no-script`, `hotbar-full`, `no-card`. The Workshop's own Settings tab of 10.1 is not built in M11.
+
 ## 2026-10-27: The extension API after the M10 review
 
 **Decision:** four changes to the extension API and one addition, found by building the circus module against it and

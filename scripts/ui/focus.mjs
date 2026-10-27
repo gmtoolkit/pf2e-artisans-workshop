@@ -71,3 +71,38 @@ export function restoreFocus(root, state) {
     }
     return true;
 }
+
+/**
+ * The layout tier of a window this wide (10.8): `wide` at 1040 px and more, `medium` from 720 px, `narrow` below. The
+ * stylesheet's container queries draw the same lines; a width of 0 (not rendered) reads as wide.
+ */
+export function tierOf(width) {
+    if (!(width > 0) || width >= 1040) return "wide";
+    return width >= 720 ? "medium" : "narrow";
+}
+
+/** What Tab can reach inside `root`: enabled controls, links and anything given a tab stop, in document order. */
+const TABBABLE = "button:not([disabled]), a[href], input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex='-1'])";
+
+/** The elements of `root` that Tab reaches, without hidden ones. */
+export function focusablesIn(root) {
+    return [...(root?.querySelectorAll?.(TABBABLE) ?? [])].filter((el) => !el.hidden && !el.closest?.("[hidden], [inert]") && el.getClientRects?.().length !== 0);
+}
+
+/**
+ * A focus trap's step (10.9: drawers trap focus): from the last of `focusables` Tab goes to the first, from the first (or
+ * the container itself) Shift+Tab goes to the last. Null when the browser's own step stays inside.
+ *
+ * @param {Element[]} focusables
+ * @param {Element} active
+ * @param {boolean} shift
+ */
+export function trapStep(focusables, active, shift) {
+    if (!focusables.length) return null;
+    const first = focusables[0];
+    const last = focusables.at(-1);
+    const index = focusables.indexOf(active);
+    if (shift && index <= 0) return last;
+    if (!shift && (index === -1 || active === last)) return first;
+    return null;
+}

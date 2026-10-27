@@ -77,6 +77,12 @@ flag scope on the ledger, extension activity runs in the day planner and resolve
 pure parts in `scripts/logic/extensions.mjs`; `scripts/foundry/extensions.mjs`, `events.mjs`; a test extension of every
 interface in `test/foundry/ext-fixture.mjs`); DESIGN 12.6 says what was built. The circus module is a separate repository
 built against it; no live plan has run yet.
+M11 is in place: the integration surface (the character sheet's header button and Crafting tab strip, the Party sheet's card,
+the Actors directory's context menu and the Open Workshop keybinding, `scripts/ui/entry.mjs`; the macro catalogue,
+`scripts/logic/macros.mjs`, run through `api.macros.run`, the macro shelf and the hotbar drop, `scripts/ui/macros.mjs`, and the
+copy-paste macros in `macros/`, written by `npm run macros`; Parchment and the window's remembered size, `scripts/ui/theme.mjs`;
+the accessibility and contrast pass); DESIGN 10.18 says what was built, and the live plans `m11-*`
+(`tools/harness/integration-scenarios.mjs`) have not run yet.
 README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
 world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every

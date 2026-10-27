@@ -45,7 +45,7 @@
     {{#if acting.length}}
     <label class="workshop-acting">
         <span class="label">{{localize "pf2e-artisans-workshop.Window.ActingAs"}}</span>
-        <select name="acting">
+        <select name="acting"{{#if actingText}} data-tooltip="{{actingText}}"{{/if}}>
             {{#each acting}}
             <option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{localize "pf2e-artisans-workshop.Window.ActingOption" name=name level=level}}</option>
             {{/each}}

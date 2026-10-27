@@ -79,11 +79,13 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
      * @param {"advance"|"resolve"} [options.mode]
      * @param {string|null} [options.actor]   the PC the resolver is for
      */
-    constructor({ mode = "advance", actor = null, ...options } = {}) {
+    constructor({ mode = "advance", actor = null, count = 1, advanceClock = false, ...options } = {}) {
         super(options);
-        // Not `state`: that is ApplicationV2's render state, a getter with no setter (Foundry 14).
+        // Not `state`: that is ApplicationV2's render state, a getter with no setter (Foundry 14). `count` and `advanceClock`
+        // prefill the first step (M11: the "Advance days" macro's `days` and `advanceClock`, 11.1); moving the clock stays a GM's.
         this.wizard = {
-            mode, actor, step: STEPS[mode][0], kind: "days", count: 1, advanceClock: false, assignments: {}, result: null, toDay: null, busy: false,
+            mode, actor, step: STEPS[mode][0], kind: "days", count: Number.isInteger(count) && count > 0 ? count : 1,
+            advanceClock: advanceClock === true && game.user.isGM, assignments: {}, result: null, toDay: null, busy: false,
             pin: null, notice: null, skipped: [],
         };
     }
@@ -449,10 +451,10 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
  * Open the wizard (`mode` "advance") or the day resolver for one PC (`mode` "resolve"). From the Workshop (`parent`) it is
  * that window's child, so it opens in the browser window the Workshop is in (10.1, detached windows).
  */
-export async function openAdvance({ mode = "advance", actor = null, parent = null } = {}) {
+export async function openAdvance({ mode = "advance", actor = null, parent = null, count = 1, advanceClock = false } = {}) {
     // One wizard at a time, under one id: the old window is gone before the new one renders.
     await AdvanceDaysApp.instance?.close({ animate: false });
-    const app = new AdvanceDaysApp({ mode, actor });
+    const app = new AdvanceDaysApp({ mode, actor, count, advanceClock });
     if (parent?.renderChild) parent.renderChild(app);
     else app.render({ force: true });
     return app;

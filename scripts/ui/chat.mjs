@@ -38,7 +38,7 @@ import { shortfallNow, fundOrder } from "../foundry/funds.mjs";
 import { unallocatedCp } from "../logic/funds.mjs";
 import { orderContext } from "./context.mjs";
 import { money, report } from "./format.mjs";
-import { DEGREE_CLASS, DEGREE_KEY, PROVENANCE } from "./labels.mjs";
+import { DEGREE_CLASS, DEGREE_KEY, PROVENANCE, STATUS } from "./labels.mjs";
 import { askMoney } from "./prompts.mjs";
 import { dayLines, spanText, stopText } from "./days.mjs";
 
@@ -211,6 +211,43 @@ export async function postExpiryCard(holder, list) {
 }
 
 /**
+ * The queue summary card (11.1 macro 19, `api.orders.postSummary`, M11): the party's open orders, oldest first, with their
+ * status, recipient and crafter, under a line of counts. A gift's product is named only to those who may see it in the
+ * Queue (not the recipient's owners), and to nobody on a card posted for everyone. `whisper` (the default) sends it to the
+ * poster only; false posts it to everyone.
+ */
+export async function postQueueSummary({ whisper = true } = {}) {
+    try {
+        const { queueOrder, queueSummary } = await import("../logic/views.mjs");
+        const { summaryLines } = await import("../logic/entry.mjs");
+        const all = orders.allOrders();
+        const counts = queueSummary(all);
+        // A card posted for everyone names no gift (its recipient reads it too); a whisper to the poster names what they see in the Queue.
+        const seeGift = whisper === false ? () => false : (order) => !(order.recipient?.kind === "actor" && orders.owns(order.recipient.uuid)) || game.user.isGM;
+        const lines = summaryLines(queueOrder(all), seeGift).map((line) => game.i18n.format(line.crafter ? "pf2e-artisans-workshop.Card.QueueLine"
+            : "pf2e-artisans-workshop.Card.QueueLineOpen", {
+            no: String(line.no), item: line.name ?? game.i18n.localize("pf2e-artisans-workshop.Queue.Gift"), qty: String(line.quantity),
+            for: line.toStrongbox ? game.i18n.localize("pf2e-artisans-workshop.Queue.ForStrongbox") : actorOf(line.recipient)?.name ?? "",
+            status: game.i18n.localize(STATUS[line.status]?.key ?? STATUS.requested.key), crafter: actorOf(line.crafter)?.name ?? "",
+        }));
+        const content = await foundry.applications.handlebars.renderTemplate(TEMPLATES.morning, {
+            kind: "queue", heading: game.i18n.localize("pf2e-artisans-workshop.Card.Queue"), img: null,
+            summary: game.i18n.format("pf2e-artisans-workshop.Card.Summary.Queue", { open: String(counts.open), requested: String(counts.requested),
+                working: String(counts.working), complete: String(counts.complete) }),
+            lines, notes: lines.length ? [] : [{ icon: "fa-solid fa-inbox", text: game.i18n.localize("pf2e-artisans-workshop.Card.QueueEmpty") }],
+        });
+        const message = await ChatMessage.implementation.create({
+            content, speaker: ChatMessage.implementation.getSpeaker({ alias: game.i18n.localize("pf2e-artisans-workshop.Window.Title") }),
+            whisper: whisper === false ? [] : [game.user.id], flags: { [MODULE_ID]: { card: { kind: "queue", order: null } } },
+        });
+        return { ok: true, message: message?.id ?? null, open: counts.open };
+    } catch (error) {
+        console.warn(`${MODULE_ID} | could not post the queue summary`, error);
+        return { ok: false, reason: "no-card" };
+    }
+}
+
+/**
  * The "Formula learned" card (10.5, M5): the formula, whose book and how it came (provenance, 4.13). A summary only, from
  * the client that wrote the formula, whispered to the learner's owners and GMs (or public by `chat.visibility`).
  */
@@ -312,6 +349,9 @@ async function renderAugment(message, html, link) {
         degreeText: degree === null ? null : game.i18n.localize(DEGREE_KEY[degree]), degreeClass: degree === null ? null : DEGREE_CLASS[degree],
         // A critical failure made anyway (6.16.4) moves its money as a success does.
         success: degree >= DEGREE.success || madeDespite(stored?.critical), failure: degree === DEGREE.fail,
+        // M11: the days left only while they still matter (not on a complete order: "0 more days"), one day said as one.
+        working: ["rolled", "finishing"].includes(order.status) || (order.status === "paused" && order.resumeTo === "finishing"),
+        oneDay: context.daysToZero === 1,
         critFailure: degree === DEGREE.critFail && !madeDespite(stored?.critical),
         salvage: money(committed), ruined: money(degree === DEGREE.critFail ? critFailRuinCp(committed) : 0),
         alchemical: (order.product?.snapshot?.traits ?? []).includes("alchemical"),

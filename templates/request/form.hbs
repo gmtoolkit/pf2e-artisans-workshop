@@ -211,7 +211,7 @@
             <th scope="col">{{localize "pf2e-artisans-workshop.Request.Member"}}</th>
             <th scope="col">{{localize "pf2e-artisans-workshop.Detail.Route"}}</th>
             <th scope="col">{{localize "pf2e-artisans-workshop.Detail.Setup"}}</th>
-            <th scope="col">{{localize "pf2e-artisans-workshop.Detail.Dc"}}</th>
+            {{#if showDcs}}<th scope="col">{{localize "pf2e-artisans-workshop.Detail.Dc"}}</th>{{/if}}
             {{#if single}}<th scope="col">{{localize "pf2e-artisans-workshop.Detail.Price"}}</th>{{else}}<th scope="col">{{localize "pf2e-artisans-workshop.Request.Batches"}}</th>{{/if}}
             <th scope="col">{{localize "pf2e-artisans-workshop.Request.DaysToZero"}}</th>
         </tr></thead>
@@ -220,11 +220,11 @@
             <tr class="{{#if ok}}ok{{else}}blocked{{/if}}">
                 <th scope="row"><i class="fa-solid {{#if ok}}fa-check{{else}}fa-lock{{/if}}" inert></i> {{name}}</th>
                 {{#if ok}}
-                <td>{{route}}</td><td>{{setup}}</td><td>{{dc}}</td>
+                <td>{{route}}</td><td>{{setup}}</td>{{#if ../showDcs}}<td>{{dc}}</td>{{/if}}
                 {{#if ../single}}<td class="money">{{price}}</td>{{else}}<td>{{localize "pf2e-artisans-workshop.Request.BatchesOf" count=batches max=batchMax}}</td>{{/if}}
-                <td>{{#if daysToZero}}{{localize "pf2e-artisans-workshop.Request.DaysAt" days=daysToZero perDay=perDay}}{{/if}}</td>
+                <td>{{#if daysToZero}}{{#if oneDay}}{{localize "pf2e-artisans-workshop.Request.DaysAtOne" perDay=perDay}}{{else}}{{localize "pf2e-artisans-workshop.Request.DaysAt" days=daysToZero perDay=perDay}}{{/if}}{{/if}}</td>
                 {{else}}
-                <td colspan="5">{{#each reasons}}<span class="blocker">{{this}}</span> {{/each}}</td>
+                <td colspan="{{#if ../showDcs}}5{{else}}4{{/if}}">{{#each reasons}}<span class="blocker">{{this}}</span> {{/each}}</td>
                 {{/if}}
             </tr>
             {{/each}}

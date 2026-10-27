@@ -9,9 +9,18 @@
  * resizable and can be detached. Sizes are in rem, so Foundry's font scale applies.
  */
 
+/*
+ * Light tokens: the default, and (M11) a card inside a light-themed interface whose body is dark: the interface's own
+ * `themed theme-light` is the card's nearest scheme, so it wins over `.theme-dark` on the body (M4 follow-up: chat cards
+ * took the dark tokens on the light chat background). The sheet entries (the Crafting tab strip, the Party card) live on
+ * pf2e's light sheets and keep the light tokens in either scheme.
+ */
 .pf2e-artisans-workshop,
 .pf2e-artisans-workshop-card,
-.pf2e-artisans-workshop-augment {
+.pf2e-artisans-workshop-augment,
+.pf2e-artisans-workshop-entry,
+.themed.theme-light .pf2e-artisans-workshop-card,
+.themed.theme-light .pf2e-artisans-workshop-augment {
     --paw-accent: var(--color-pf-primary, #5e0000);
     --paw-accent-text: #ffffff;
     --paw-surface: rgba(0, 0, 0, 0.04);
@@ -26,14 +35,17 @@
     --paw-failure: #8f3a0b;
     --paw-crit-failure: #9b0000;
     --paw-warning: #7a4f00;
-    --paw-focus: var(--color-border-highlight, #ff6400);
+    /* Darker than core's highlight (#ff6400 is 2.5:1 on the panel): a focus ring needs 3:1 against what it sits on (M11). */
+    --paw-focus: #9e3d00;
     --paw-panel: #f1ede4;
 }
 
 body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .pf2e-artisans-workshop.themed.theme-dark,
 .theme-dark .pf2e-artisans-workshop-card,
-.theme-dark .pf2e-artisans-workshop-augment {
+.theme-dark .pf2e-artisans-workshop-augment,
+.themed.theme-dark .pf2e-artisans-workshop-card,
+.themed.theme-dark .pf2e-artisans-workshop-augment {
     --paw-accent: var(--color-pf-tertiary, #e9d7a1);
     --paw-accent-text: #1c1c1c;
     --paw-surface: rgba(255, 255, 255, 0.05);
@@ -47,6 +59,7 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
     --paw-failure: #ffb27d;
     --paw-crit-failure: #ff9393;
     --paw-warning: #f3c662;
+    --paw-focus: var(--color-border-highlight, #ff6400);
     --paw-panel: #1d1a1c;
 }
 
@@ -213,7 +226,9 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .workshop-header .workshop-shelf button.take { color: inherit; font-weight: inherit; padding: 0.15rem 0.5rem; }
 .workshop-header .workshop-shelf button.take .collect { padding-left: 0.4rem; border-left: 1px solid currentColor; }
 .workshop-header .workshop-acting { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; }
-.workshop-header .workshop-acting select { max-width: 16rem; }
+/* "Acting as" on one line beside a long name (M11, from the first captures); the select holds the whole name as its tooltip. */
+.workshop-header .workshop-acting .label { white-space: nowrap; flex: 0 0 auto; }
+.workshop-header .workshop-acting select { max-width: 16rem; min-width: 8rem; text-overflow: ellipsis; }
 .workshop-header > div { display: flex; align-items: center; gap: 0.35rem; }
 
 /* The nav is core's `.tabs` (ApplicationV2#changeTab finds the buttons there); its row layout and borders are undone. */
@@ -264,6 +279,12 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
     min-height: 1.8rem;
 }
 .workshop-status p { margin: 0; }
+/* M11: the status bar's own buttons (the macro shelf) beside the live region. */
+.workshop-status { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; }
+.workshop-status .workshop-live { flex: 1 1 auto; min-width: 0; }
+.workshop-status .workshop-banner { flex: 1 1 100%; }
+.workshop-status .status-actions { margin-left: auto; display: flex; gap: 0.35rem; }
+.workshop-status .status-actions button { min-height: 1.75rem; padding: 0.1rem 0.5rem; }
 .workshop-banner {
     margin: 0;
     padding: 0.35rem 0.5rem;
@@ -346,6 +367,8 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .detail-header { display: flex; align-items: center; gap: 0.5rem; }
 .detail-header img { width: 2.5rem; height: 2.5rem; border: none; }
 .detail-header h3 { flex: 1; margin: 0; border: none; font-size: var(--font-size-16, 1rem); }
+/* The quantity in the serif heading read "⁎ 2": it takes the sans font the list's "× 2" has (M11, from the first captures). */
+.detail-header h3 .order-qty { font-family: var(--font-sans, sans-serif); font-size: var(--font-size-14, 0.875rem); font-weight: 400; }
 .detail-header button.icon { min-width: 2rem; justify-content: center; }
 .detail-state { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0.4rem 0; }
 .detail-state p { margin: 0; flex-basis: 100%; }
@@ -555,6 +578,12 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .learn-item header .tags { margin: 0; }
 .learn-routes .note { display: block; color: var(--color-text-subtle, #555); font-size: var(--font-size-12, 0.75rem); font-weight: 400; }
 .learn-routes td button { margin: 0.1rem 0; }
+/* The Route column kept its words on one line per word at the default width while the Cost hint took the room (M11, from
+   formulas.png): the route keeps a readable width, the cost's hint wraps under the amount. */
+.learn-routes { table-layout: auto; width: 100%; }
+.learn-routes th[scope="row"] { min-width: 9rem; }
+.learn-routes td.money { white-space: normal; }
+.learn-routes td.money .note { white-space: normal; max-width: 14rem; }
 .learn-seller,
 .learn-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0.35rem 0; }
 .learn-copy label { display: flex; align-items: center; gap: 0.35rem; }
@@ -1064,3 +1093,114 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .pf2e-artisans-workshop .funds-gifts li.dormant > span:first-child { opacity: 0.75; }
 .request-form .request-adjustments label.checkbox { display: flex; align-items: center; gap: 0.375rem; }
 .request-form .request-adjustments .money { margin-left: auto; }
+
+/* ------------------------------------------------------------------ */
+/*  M11: theming, the macro shelf, the sheet entries                   */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Labels in the light scheme carried a 1px black text shadow from outside the module's stylesheet, which reads as smudged
+ * on parchment (M11, from queue-light.png). The module's own labels set none.
+ */
+.pf2e-artisans-workshop dt,
+.pf2e-artisans-workshop th,
+.pf2e-artisans-workshop label,
+.pf2e-artisans-workshop .label,
+.pf2e-artisans-workshop-entry dt { text-shadow: none; }
+
+/*
+ * Parchment (14.3 `ui.parchment`): the pf2e character sheet's background under the window, with core's light colours
+ * (`themed theme-light` on the window) whatever the scheme. The image is pf2e's own (P14), resolved from this stylesheet's
+ * folder (modules/pf2e-artisans-workshop/styles/).
+ */
+.pf2e-artisans-workshop.paw-parchment .window-content {
+    background: url("../../../systems/pf2e/assets/sheet/background.webp") repeat, #efe6d0;
+    color: #1c1c1c;
+}
+.pf2e-artisans-workshop.paw-parchment {
+    --paw-panel: #f6efdc;
+    --paw-surface: rgba(80, 50, 10, 0.05);
+    --paw-surface-strong: rgba(80, 50, 10, 0.1);
+}
+
+/* The macro shelf (11.1): tiles in groups, each with what it calls and its buttons. */
+.macro-shelf-window .window-content { padding: 0.5rem 0.75rem; }
+.macro-shelf .shelf-note { color: var(--paw-warning); }
+.macro-tiles { list-style: none; margin: 0 0 0.5rem; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.macro-tile {
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--paw-line);
+    border-radius: 5px;
+    background: var(--paw-surface);
+}
+.macro-tile[draggable="true"] { cursor: grab; }
+.macro-tile .tile-icon { font-size: 1.25rem; text-align: center; color: var(--paw-accent); }
+.macro-tile .tile-text { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.macro-tile .tile-who,
+.macro-tile .tile-hint { font-size: var(--font-size-12, 0.75rem); color: var(--color-text-secondary, inherit); }
+.macro-tile .tile-on { font-size: var(--font-size-12, 0.75rem); color: var(--paw-crit-success); font-weight: 600; }
+.macro-tile .tile-call {
+    font-size: var(--font-size-11, 0.6875rem);
+    overflow-wrap: anywhere;
+    color: var(--color-text-secondary, inherit);
+    background: none;
+    border: none;
+    padding: 0;
+}
+.macro-tile .tile-actions { display: flex; flex-direction: column; gap: 0.25rem; }
+.macro-tile .tile-actions button { min-height: 2rem; justify-content: center; }
+
+/*
+ * The sheet entries (10.4): the Crafting tab strip and the Party sheet's card sit on pf2e's own sheets. They take pf2e's
+ * text colours and a light surface of their own; nothing in them is a list item of pf2e's (Toolbelt and Workbench style
+ * those).
+ */
+.pf2e-artisans-workshop-entry {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.75rem;
+    margin: 0 0 0.5rem;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--paw-line);
+    border-left: 4px solid var(--paw-accent);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.35);
+    font-size: var(--font-size-13, 0.8125rem);
+}
+.pf2e-artisans-workshop-entry h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0;
+    border: none;
+    font-size: var(--font-size-14, 0.875rem);
+    font-family: var(--serif, var(--font-h2, serif));
+}
+.pf2e-artisans-workshop-strip .strip-facts { list-style: none; display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; margin: 0; padding: 0; flex: 1 1 auto; }
+.pf2e-artisans-workshop-strip .strip-fact { display: inline-flex; align-items: center; gap: 0.3rem; }
+.pf2e-artisans-workshop-strip .strip-fact.waiting { color: var(--paw-warning); font-weight: 600; }
+.pf2e-artisans-workshop-entry .strip-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-left: auto; }
+.pf2e-artisans-workshop-entry button.paw-entry-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    width: auto;
+    height: auto;
+    min-height: 1.75rem;
+    padding: 0.1rem 0.5rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    font-size: var(--font-size-12, 0.75rem);
+}
+.pf2e-artisans-workshop-entry :focus-visible { outline: 2px solid var(--paw-focus); outline-offset: 1px; }
+.pf2e-artisans-workshop-party-card { flex-direction: column; align-items: stretch; margin: 0.5rem 0; }
+.pf2e-artisans-workshop-party-card .card-heading { display: flex; align-items: center; gap: 0.4rem; }
+.pf2e-artisans-workshop-party-card .card-heading h3 { flex: 1; }
+.pf2e-artisans-workshop-party-card .card-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.1rem 0.75rem; margin: 0; }
+.pf2e-artisans-workshop-party-card .card-facts dt { font-weight: 600; }
+.pf2e-artisans-workshop-party-card .card-facts dd { margin: 0; font-variant-numeric: tabular-nums; }

@@ -3,4 +3,11 @@
     <p class="workshop-banner" role="status"><i class="fa-solid fa-triangle-exclamation" inert></i> {{localize banner}}</p>
     {{/if}}
     <p class="workshop-live" aria-live="polite" aria-atomic="true">{{lastEvent}}</p>
+    {{#if ready}}
+    <div class="status-actions">
+        <button type="button" class="small" data-action="macros" aria-haspopup="dialog">
+            <i class="fa-solid fa-scroll" inert></i><span>{{localize "pf2e-artisans-workshop.Macro.Shelf.Button"}}</span>
+        </button>
+    </div>
+    {{/if}}
 </footer>

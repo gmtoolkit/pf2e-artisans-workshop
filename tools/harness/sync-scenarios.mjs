@@ -20,6 +20,9 @@
  *        `downtime-scenarios.mjs`)
  *   m7   daily preparations: the Morning, loadouts, standing orders, expiry, rest ordering with and without pf2e-dailies,
  *        affixing (M7, `morning-scenarios.mjs`)
+ *   m11  the integration surface: sheet buttons and strips with and without Toolbelt and Workbench, the Party card, the
+ *        directory's context menu, the macro shelf and the hotbar, every catalogue macro, the keybinding, an accessibility
+ *        and contrast audit, Parchment (M11, `integration-scenarios.mjs`)
  *
  * They run in a dev world (`game.settings.set("pf2e-artisans-workshop", "dev", true)`), in each user's own
  * browser profile, from the console or from Playwright through `page.evaluate`:
@@ -55,6 +58,7 @@ import { COMBAT_SCENARIOS } from "./combat-scenarios.mjs";
 import { AFFLICTION_SCENARIOS } from "./affliction-scenarios.mjs";
 import { CRAFT_SCENARIOS } from "./craft-scenarios.mjs";
 import { VARIANT_SCENARIOS } from "./variant-scenarios.mjs";
+import { INTEGRATION_SCENARIOS } from "./integration-scenarios.mjs";
 import { DOWNTIME_SCENARIOS } from "./downtime-scenarios.mjs";
 import { FORMULA_SCENARIOS } from "./formula-scenarios.mjs";
 import { MORNING_SCENARIOS } from "./morning-scenarios.mjs";
@@ -347,6 +351,7 @@ const SCENARIOS = {
     ...AFFLICTION_SCENARIOS,
     ...CRAFT_SCENARIOS,
     ...VARIANT_SCENARIOS,
+    ...INTEGRATION_SCENARIOS,
 };
 
 /** Every scenario, its steps and what each does. */

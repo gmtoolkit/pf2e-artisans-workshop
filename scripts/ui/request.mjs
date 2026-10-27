@@ -185,6 +185,8 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
         const mark = (list, current) => list.map((i) => ({ ...i, selected: i.uuid === current }));
         return Object.assign(context, {
             formId: this.id, ready: canWrite(), state: s, product, service, single, canBrowse: !!game.pf2e?.compendiumBrowser,
+            // M11: the DC column only for those who may see DCs (pf2e's metagame "show DCs"; M4 live pass).
+            showDcs: showDcs(),
             kinds: kindsNow(rules).map((k) => option(k, k === "service" ? "pf2e-artisans-workshop.Request.Kind.Service" : CRAFT_TYPE[k], s.kind)),
             noItemPick: deconstructKind, variantFields: await this.#variantFields(product, rules),
             serviceKinds: SERVICE_KINDS.map((k) => option(k, SERVICE[k], s.serviceKind)),
@@ -250,7 +252,7 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
                 route: plan.route ? game.i18n.localize(ROUTE[plan.route] ?? ROUTE.none) : null,
                 setup: plan.setup ? number(plan.setup.days) : null, dc: showDcs() ? plan.dc?.final ?? null : null,
                 batchMax: number(plan.batchMax ?? 1), batches: number(batches.length),
-                perDay: money(perDay), daysToZero: Number.isFinite(days) ? number(days) : null,
+                perDay: money(perDay), daysToZero: Number.isFinite(days) ? number(days) : null, oneDay: days === 1,
                 price: single && plan.ok ? money(plan.priceCp) : null,
             });
         }
@@ -373,7 +375,7 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
             const result = report(await requestOrder({ uuid: sourceUuidOf(s.target), quantity: 1, requester: s.requester, crafter: s.crafter || null, note: s.note,
                 craftType: "deconstruct", target: s.target, variant: { deconstruct: { purpose: s.purpose === "similar" ? "similar" : "raw" } } }));
             if (result?.ok) {
-                ui.notifications.info("pf2e-artisans-workshop.Request.Filed", { format: { count: String(result.orders.length) } });
+                ui.notifications.info(result.orders.length === 1 ? "pf2e-artisans-workshop.Request.FiledOne" : "pf2e-artisans-workshop.Request.Filed", { format: { count: String(result.orders.length) } });
                 await this.close();
             }
             return;
@@ -395,7 +397,7 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
             const result = report(await requestOrder({ uuid: s.uuid, quantity: 1, requester: s.requester, recipient: { kind: "actor", uuid: subject },
                 crafter: s.crafter || null, note: s.note, gift: s.gift === true, target: subject, variant: s.replaces ? { replaces: s.replaces } : {} }));
             if (result?.ok) {
-                ui.notifications.info("pf2e-artisans-workshop.Request.Filed", { format: { count: String(result.orders.length) } });
+                ui.notifications.info(result.orders.length === 1 ? "pf2e-artisans-workshop.Request.FiledOne" : "pf2e-artisans-workshop.Request.Filed", { format: { count: String(result.orders.length) } });
                 await this.close();
             }
             return;
@@ -413,7 +415,7 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
             target: single ? s.target : null, variant,
         }));
         if (result?.ok) {
-            ui.notifications.info("pf2e-artisans-workshop.Request.Filed", { format: { count: String(result.orders.length) } });
+            ui.notifications.info(result.orders.length === 1 ? "pf2e-artisans-workshop.Request.FiledOne" : "pf2e-artisans-workshop.Request.Filed", { format: { count: String(result.orders.length) } });
             await this.close();
         }
     }

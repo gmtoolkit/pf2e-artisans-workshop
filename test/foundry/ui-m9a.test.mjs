@@ -254,7 +254,7 @@ test("the Funds tab's gardens and gifts, and the Downtime tab's harvests", async
         perDay: 1, seedCostCp: 6000, plantedDay: 0, harvests: {}, by: "p1" } } });
     const funds = fundsVariants();
     assert.deepEqual(funds.gardens.list.map((g) => [g.name, g.seed, g.planted, g.canFund]), [["Herbs", "60 gp", "planted on day 0", false]]);
-    assert.equal(funds.gardens.limit, "1 of 1 gardens");
+    assert.equal(funds.gardens.limit, "1 of 1 garden");
     assert.equal(funds.gardens.canAdd, false, "the party is at its limit");
     vera.addItem({ type: "equipment", name: "Cloak", system: { quantity: 1 }, flags: { [MOD]: { gift: { bound: bo.uuid, heirs: [], giver: "a nymph" } } } });
     const gifts = fundsVariants().gifts;
