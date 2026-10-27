@@ -1,0 +1,199 @@
+# The pf2e churn watch (DESIGN.md 3.3, 16.9), daily and on demand: what changed in pf2e since the release CI pins
+# (ci.yml's `ref: <sha> # pf2e-x.y.z` line). tools/pf2e-watch.mjs lists the pf2e-<version> releases since the pin with
+# the lines of their notes that name a watched word, and the commits on pf2e's dev branch since the pin that touch a
+# watched path; the registry validation then runs against the pinned release, the newest release and the dev head (with
+# the pinned run as the baseline for affliction readings), report mode, so a failure is reported rather than stopping the
+# run. When anything is new, the job opens the "pf2e churn watch" issue or updates the open one (once per set of
+# findings: closing it without moving the pin keeps it closed until something else changes). It installs nothing:
+# the watch and the validator use Node's own modules only, so no third-party code runs with the issues permission.
+# Actions are pinned by commit SHA; the comment names the release.
+name: pf2e churn watch
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pf2e-watch
+  cancel-in-progress: true
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    defaults:
+      run:
+        working-directory: module
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: module
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Collect pf2e releases, the dev head and the watched paths
+        id: collect
+        run: node tools/pf2e-watch.mjs collect --out ../watch
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Check out the pinned pf2e release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: foundryvtt/pf2e
+          ref: ${{ steps.collect.outputs.pinned-sha }}
+          path: pf2e-pinned
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /system.pf2e.json
+            /src/module/dc.ts
+            /src/scripts/macros/earn-income.ts
+            /packs/pf2e/actions/
+            /packs/pf2e/adventure-specific-actions/
+            /packs/pf2e/ancestries/
+            /packs/pf2e/ancestry-features/
+            /packs/pf2e/backgrounds/
+            /packs/pf2e/bestiary-ability-glossary-srd/
+            /packs/pf2e/bestiary-effects/
+            /packs/pf2e/bestiary-family-ability-glossary/
+            /packs/pf2e/boons-and-curses/
+            /packs/pf2e/campaign-effects/
+            /packs/pf2e/class-features/
+            /packs/pf2e/classes/
+            /packs/pf2e/conditions/
+            /packs/pf2e/deities/
+            /packs/pf2e/equipment/
+            /packs/pf2e/equipment-effects/
+            /packs/pf2e/familiar-abilities/
+            /packs/pf2e/feat-effects/
+            /packs/pf2e/feats/
+            /packs/pf2e/heritages/
+            /packs/pf2e/journals/
+            /packs/pf2e/kingmaker-features/
+            /packs/pf2e/other-effects/
+            /packs/pf2e/pathfinder-society-boons/
+            /packs/pf2e/spell-effects/
+            /packs/pf2e/spells/
+
+      - name: Check out the newest pf2e release
+        if: steps.collect.outputs.newest-sha != '' && steps.collect.outputs.newest-sha != steps.collect.outputs.pinned-sha
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: foundryvtt/pf2e
+          ref: ${{ steps.collect.outputs.newest-sha }}
+          path: pf2e-newest
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /system.pf2e.json
+            /src/module/dc.ts
+            /src/scripts/macros/earn-income.ts
+            /packs/pf2e/actions/
+            /packs/pf2e/adventure-specific-actions/
+            /packs/pf2e/ancestries/
+            /packs/pf2e/ancestry-features/
+            /packs/pf2e/backgrounds/
+            /packs/pf2e/bestiary-ability-glossary-srd/
+            /packs/pf2e/bestiary-effects/
+            /packs/pf2e/bestiary-family-ability-glossary/
+            /packs/pf2e/boons-and-curses/
+            /packs/pf2e/campaign-effects/
+            /packs/pf2e/class-features/
+            /packs/pf2e/classes/
+            /packs/pf2e/conditions/
+            /packs/pf2e/deities/
+            /packs/pf2e/equipment/
+            /packs/pf2e/equipment-effects/
+            /packs/pf2e/familiar-abilities/
+            /packs/pf2e/feat-effects/
+            /packs/pf2e/feats/
+            /packs/pf2e/heritages/
+            /packs/pf2e/journals/
+            /packs/pf2e/kingmaker-features/
+            /packs/pf2e/other-effects/
+            /packs/pf2e/pathfinder-society-boons/
+            /packs/pf2e/spell-effects/
+            /packs/pf2e/spells/
+
+      - name: Check out pf2e's dev head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: foundryvtt/pf2e
+          ref: ${{ steps.collect.outputs.dev-sha }}
+          path: pf2e-dev
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /system.pf2e.json
+            /src/module/dc.ts
+            /src/scripts/macros/earn-income.ts
+            /packs/pf2e/actions/
+            /packs/pf2e/adventure-specific-actions/
+            /packs/pf2e/ancestries/
+            /packs/pf2e/ancestry-features/
+            /packs/pf2e/backgrounds/
+            /packs/pf2e/bestiary-ability-glossary-srd/
+            /packs/pf2e/bestiary-effects/
+            /packs/pf2e/bestiary-family-ability-glossary/
+            /packs/pf2e/boons-and-curses/
+            /packs/pf2e/campaign-effects/
+            /packs/pf2e/class-features/
+            /packs/pf2e/classes/
+            /packs/pf2e/conditions/
+            /packs/pf2e/deities/
+            /packs/pf2e/equipment/
+            /packs/pf2e/equipment-effects/
+            /packs/pf2e/familiar-abilities/
+            /packs/pf2e/feat-effects/
+            /packs/pf2e/feats/
+            /packs/pf2e/heritages/
+            /packs/pf2e/journals/
+            /packs/pf2e/kingmaker-features/
+            /packs/pf2e/other-effects/
+            /packs/pf2e/pathfinder-society-boons/
+            /packs/pf2e/spell-effects/
+            /packs/pf2e/spells/
+
+      - name: Registry validation against each checkout (report mode)
+        run: |
+          for target in pinned newest dev; do
+            [ -d "../pf2e-$target" ] || continue
+            baseline=()
+            if [ "$target" != pinned ] && [ -s ../watch/pinned.json ]; then baseline=(--affliction-baseline ../watch/pinned.json); fi
+            if node tools/validate-registry.mjs --pf2e "../pf2e-$target" "${baseline[@]}" --json "../watch/$target.json" > "../watch/$target.log" 2>&1; then
+              echo pass > "../watch/$target.status"
+            else
+              echo fail > "../watch/$target.status"
+            fi
+            echo "::group::Registry validation: $target"
+            cat "../watch/$target.log"
+            echo "::endgroup::"
+          done
+
+      - name: Write the report
+        id: report
+        run: |
+          node tools/pf2e-watch.mjs report --dir ../watch
+          cat ../watch/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open or update the churn issue
+        if: steps.report.outputs.changed == 'true'
+        run: node tools/pf2e-watch.mjs issue --dir ../watch
+        env:
+          GH_TOKEN: ${{ github.token }}

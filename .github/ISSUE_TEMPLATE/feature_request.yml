@@ -1,0 +1,38 @@
+# Draft wording (DESIGN.md 16.8, 16.9); the author may rewrite the text.
+name: Feature request
+description: Something the Workshop could do for your table.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The Workshop builds on the PF2e system's own crafting and works beside pf2e-dailies, PF2e Toolbelt, PF2e Workbench
+        and Item Piles rather than repeating what they do. Adventure-path subsystems belong in their own modules, built on
+        the Workshop's extension API.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The situation at the table, and what gets in the way today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like the Workshop to do
+    validations:
+      required: true
+
+  - type: textarea
+    id: rules
+    attributes:
+      label: Rules involved
+      description: Book and page of any rule it touches. Please do not paste rules text.
+
+  - type: textarea
+    id: other-modules
+    attributes:
+      label: Other modules
+      description: Does another module already do some of this? Which one, and what is missing?

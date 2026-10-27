@@ -1,0 +1,43 @@
+# Draft wording (DESIGN.md 16.7, 16.8, 16.9); the author may rewrite the text.
+name: Translation
+description: Offer or improve a translation of the Workshop's text.
+labels: ["translation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Translations arrive as a pull request adding or changing `lang/<code>.json`, with the same keys as `lang/en.json`.
+        The English text is still being rewritten before 1.0, so a full translation is best started after that.
+        Foundry's AI content policy allows machine translation only when a fluent speaker has reviewed every string.
+
+  - type: input
+    id: language
+    attributes:
+      label: Language
+      description: Its name and code, for example "Deutsch (de)".
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What you are offering
+      options:
+        - A new translation
+        - Corrections to an existing translation
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: review
+    attributes:
+      label: Review
+      options:
+        - label: I speak this language fluently, and I wrote or reviewed every string myself.
+          required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Terms you were unsure of, or pf2e terms that have an established translation in your language.

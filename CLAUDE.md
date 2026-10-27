@@ -83,6 +83,13 @@ the Actors directory's context menu and the Open Workshop keybinding, `scripts/u
 copy-paste macros in `macros/`, written by `npm run macros`; Parchment and the window's remembered size, `scripts/ui/theme.mjs`;
 the accessibility and contrast pass); DESIGN 10.18 says what was built, and the live plans `m11-*`
 (`tools/harness/integration-scenarios.mjs`) have not run yet.
+M12's release engineering is in place, not run yet (DESIGN 16.9): the release workflow (`.github/workflows/release.yml`:
+`tools/release-plan.mjs` picks enforce or report mode by the release's pre-release flag, `tools/package-release.mjs` stamps
+`module.json` and builds `module.zip` with `tools/zip.mjs`, `tools/publish-foundry.mjs` registers stable releases, a dry run
+until `FOUNDRY_RELEASE_LIVE`), the local dry run (`npm run release:dry-run -- --version <x.y.z> [--prerelease]`), the pf2e
+churn watch (`.github/workflows/pf2e-watch.yml`, `tools/pf2e-watch.mjs`), issue forms, the README's For GMs, `CONTRIBUTING.md`
+and `NOTICE`, whose `AUTHOR-TODO` placeholders (licensors' text) block a stable release. The author's steps before 1.0 are
+listed in DESIGN 16.9.
 README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
 world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every

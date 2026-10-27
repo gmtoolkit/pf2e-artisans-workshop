@@ -1,0 +1,6 @@
+# Issue forms only (DESIGN.md 16.8): every report goes through one of the forms beside this file.
+blank_issues_enabled: false
+contact_links:
+  - name: Read "For GMs" first
+    url: https://github.com/gmtoolkit/pf2e-artisans-workshop#for-gms
+    about: What the module changes in a world, every setting, how to turn it off and how to remove its data.

@@ -2,6 +2,38 @@
 
 Newest first.
 
+## 2026-10-27: Release engineering (M12)
+
+**Decision:** how releases are built and gated, ahead of the M12 test-table pre-release (DESIGN 16.9):
+
+- GitHub's pre-release flag picks the channel. The tag is the bare semver; `0.0.0` is never released, and a stable release
+  may not carry a pre-release suffix. Stable: strings gate and registry completeness enforced, `releases/latest` manifest
+  URL, registered with foundryvtt.com when the `FOUNDRY_RELEASE_TOKEN` secret exists. Pre-release: both in report mode,
+  its own manifest URL, never registered.
+- The Package Release API's first-run dry run (16.3) is a switch, not a one-off: every request carries `"dry-run": true`
+  until the repository variable `FOUNDRY_RELEASE_LIVE` is `true`, which the author sets after a dry run has passed.
+- The zip is built by the repository's own script on Node's zlib, byte-for-byte reproducible, with `NOTICE` in it and
+  `lang/review/` out of it; the same script without `--out` is the local dry run.
+- `LICENSE` is the MIT text alone. The Community Use Policy, ORC and OGL notices live in `NOTICE` (shipped), with the
+  same notices in the README and the package description. Text that must come verbatim from a licensor, or is the
+  author's legal choice, is an `AUTHOR-TODO` placeholder, and a stable release refuses to package while one is left.
+- Only the job that uploads to the release can write to the repository, and it installs nothing; only the job that
+  registers the release sees the token; the churn watch, which can write issues, installs nothing either.
+- The churn watch measures against the pf2e release CI pins, counts only `pf2e-<x.y.z>` tags, lists commits on the dev
+  branch by watched path instead of diffing, and keeps one rolling issue that a digest of the findings keeps from
+  reopening on the same findings.
+
+**Why:** the M12 test table needs a pre-release before the author's rewrite (16.2), and nothing must reach the listing
+by accident: a stable release is the only thing that enforces the gates and talks to foundryvtt.com, and even then it
+validates first. A plain MIT `LICENSE` is what GitHub and package indexes read as MIT. The notice text cannot be written
+from memory: it has to be the licensors' own words. A reproducible zip lets a local dry run show exactly what CI will
+ship. In pf2e's repository "starts with `pf2e-`" also matches the `pf2e-anachronism-*` tags, and a diff of the dev branch
+since a release is mostly pack data.
+
+**Consequences:** DESIGN 16.9 (as built, the author's list before 1.0, follow-ups), 3.3 and 15.2 (as built in M12), 16.2
+and 16.6 (`NOTICE`, `lang/review/`), the M12 and M13 rows of 17. CI's pf2e checkout gains `packs/pf2e/journals/`, which a
+PF2E_SRC test has read since M9a (the `registry` job failed on main without it).
+
 ## 2026-10-27: The integration surface after the M11 review
 
 **Decision:** five rules for the module's windows and entry points, found reviewing M11:

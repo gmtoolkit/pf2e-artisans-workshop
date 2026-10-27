@@ -1,5 +1,6 @@
 # Checks for every pull request and every push to main (DESIGN.md 16.2), and the registry validation against a
-# pinned pf2e release (6.11, 15.2). The release workflow and the churn watch (3.3) come later.
+# pinned pf2e release (6.11, 15.2). The release workflow (release.yml, 16.9) runs the same checks with the same pf2e pin,
+# and the churn watch (pf2e-watch.yml, 3.3) reads the pin from this file: keep the `ref:` line below as it is written.
 name: CI
 
 on:
@@ -51,7 +52,9 @@ jobs:
     # type, remaster flag and the rule elements the module relies on are unchanged. The sparse checkout takes every Item
     # pack of the manifest (25 at pf2e-8.6.1), so the completeness scan reads them all. Completeness is reported, not
     # enforced (enforce mode is the stable-release workflow's, 16.2). The same checkout runs the PF2E_SRC tests. The
-    # module goes into module/ and pf2e beside it, so the module's own checks never scan the pf2e tree.
+    # module goes into module/ and pf2e beside it, so the module's own checks never scan the pf2e tree. The checkout also
+    # takes every pack folder a PF2E_SRC test reads (journals, for the M9a variants' journal page);
+    # test/release-workflows.test.mjs holds this list, release.yml's and pf2e-watch.yml's to that.
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -96,6 +99,7 @@ jobs:
             /packs/pf2e/feat-effects/
             /packs/pf2e/feats/
             /packs/pf2e/heritages/
+            /packs/pf2e/journals/
             /packs/pf2e/kingmaker-features/
             /packs/pf2e/other-effects/
             /packs/pf2e/pathfinder-society-boons/

@@ -1,0 +1,219 @@
+# The release workflow (DESIGN.md 16.2, 16.3, 16.9), run when a GitHub release is published. Tag the release with the
+# bare version ("0.12.0", "0.12.0-rc.1"; no "v"). GitHub fires this for pre-releases too, and the channel decides:
+#
+# - a pre-release runs the strings gate and the registry completeness check in report mode, keeps its version-specific
+#   manifest URL (testers stay on the pre-release channel) and is never registered with foundryvtt.com, so the M12 test
+#   table can install it by manifest URL before the author's rewrite (M13);
+# - a stable release runs both in enforce mode, refuses to package while a notice placeholder is left, gets the
+#   `releases/latest` manifest URL, and is registered with the Package Release API when the repository has the
+#   FOUNDRY_RELEASE_TOKEN secret: as a dry run (foundryvtt.com validates, nothing changes) until the repository variable
+#   FOUNDRY_RELEASE_LIVE is "true".
+#
+# tools/release-plan.mjs reads the event and decides; tools/package-release.mjs stamps module.json and builds module.zip
+# (`npm run release:dry-run -- --version <x.y.z> [--prerelease]` builds the same package locally into a scratch folder);
+# tools/publish-foundry.mjs registers it. The release exists before this runs, so a failed run leaves it without assets:
+# delete the release and its tag, fix, and publish again. Actions are pinned by commit SHA; the comment names the release.
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+      strings-mode: ${{ steps.plan.outputs.strings-mode }}
+      registry-mode: ${{ steps.plan.outputs.registry-mode }}
+      publish: ${{ steps.plan.outputs.publish }}
+      notes-url: ${{ steps.plan.outputs.notes-url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Plan the release (channel, gate modes, whether to register it)
+        id: plan
+        run: node tools/release-plan.mjs
+        env:
+          # Only whether the secret exists reaches this step, never its value.
+          FOUNDRY_TOKEN_PRESENT: ${{ secrets.FOUNDRY_RELEASE_TOKEN != '' }}
+
+  check:
+    needs: plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dev dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Strings gate (${{ needs.plan.outputs.strings-mode }} mode)
+        run: node tools/check-strings.mjs --mode "$STRINGS_MODE"
+        env:
+          STRINGS_MODE: ${{ needs.plan.outputs.strings-mode }}
+
+      - name: Asset check
+        run: npm run check:assets
+
+      - name: Manifest check
+        run: npm run check:manifest
+
+  registry:
+    # As CI's registry job (same pf2e pin, same sparse checkout), with completeness enforced for a stable release.
+    needs: plan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: module
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: module
+          persist-credentials: false
+
+      - name: Check out pf2e (packs and the source files the tests read)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: foundryvtt/pf2e
+          ref: 28d9d156f252d084371d994dc359509b49eadf18 # pf2e-8.6.1
+          path: pf2e
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /system.pf2e.json
+            /src/module/dc.ts
+            /src/scripts/macros/earn-income.ts
+            /packs/pf2e/actions/
+            /packs/pf2e/adventure-specific-actions/
+            /packs/pf2e/ancestries/
+            /packs/pf2e/ancestry-features/
+            /packs/pf2e/backgrounds/
+            /packs/pf2e/bestiary-ability-glossary-srd/
+            /packs/pf2e/bestiary-effects/
+            /packs/pf2e/bestiary-family-ability-glossary/
+            /packs/pf2e/boons-and-curses/
+            /packs/pf2e/campaign-effects/
+            /packs/pf2e/class-features/
+            /packs/pf2e/classes/
+            /packs/pf2e/conditions/
+            /packs/pf2e/deities/
+            /packs/pf2e/equipment/
+            /packs/pf2e/equipment-effects/
+            /packs/pf2e/familiar-abilities/
+            /packs/pf2e/feat-effects/
+            /packs/pf2e/feats/
+            /packs/pf2e/heritages/
+            /packs/pf2e/journals/
+            /packs/pf2e/kingmaker-features/
+            /packs/pf2e/other-effects/
+            /packs/pf2e/pathfinder-society-boons/
+            /packs/pf2e/spell-effects/
+            /packs/pf2e/spells/
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: module/package-lock.json
+
+      - name: Install dev dependencies
+        run: npm ci
+
+      - name: Registry validation (${{ needs.plan.outputs.registry-mode }} completeness)
+        run: |
+          if [ "$REGISTRY_MODE" = enforce ]; then
+            node tools/validate-registry.mjs --pf2e ../pf2e --enforce
+          else
+            node tools/validate-registry.mjs --pf2e ../pf2e
+          fi
+        env:
+          REGISTRY_MODE: ${{ needs.plan.outputs.registry-mode }}
+
+      - name: Unit tests against the pf2e source
+        run: npm test
+        env:
+          PF2E_SRC: ../pf2e
+
+  package:
+    # The only job that can write to the repository, so it installs nothing: packaging uses Node's own modules only.
+    needs: [plan, check, registry]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Stamp module.json and build module.zip
+        run: |
+          if [ "$PRERELEASE" = true ]; then
+            node tools/package-release.mjs --version "$VERSION" --prerelease --out dist
+          else
+            node tools/package-release.mjs --version "$VERSION" --out dist
+          fi
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+
+      - name: Upload module.json and module.zip to the release
+        run: gh release upload "$VERSION" dist/module.json dist/module.zip --clobber --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+
+  publish:
+    # Stable releases only, and only with the FOUNDRY_RELEASE_TOKEN secret (release-plan.mjs). A dry run until the
+    # repository variable FOUNDRY_RELEASE_LIVE is "true".
+    needs: [plan, package]
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Register the release with foundryvtt.com
+        run: node tools/publish-foundry.mjs --version "$VERSION" --notes "$NOTES_URL"
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          NOTES_URL: ${{ needs.plan.outputs.notes-url }}
+          FOUNDRY_RELEASE_TOKEN: ${{ secrets.FOUNDRY_RELEASE_TOKEN }}
+          FOUNDRY_RELEASE_LIVE: ${{ vars.FOUNDRY_RELEASE_LIVE }}

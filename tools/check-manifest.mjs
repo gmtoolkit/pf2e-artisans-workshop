@@ -13,7 +13,8 @@ export const LATEST_MANIFEST = `${REPOSITORY}/releases/latest/download/module.js
 /** `module.json` and `module.zip` of the release tagged `version` (the tag is the bare version). */
 export const releaseUrl = (version, file) => `${REPOSITORY}/releases/download/${version}/${file}`;
 
-const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+/** A version as the manifest and the release tag write it: semver, with no "v". */
+export const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const FOUNDRY_BUILD = /^\d+\.\d+$/; // generation.build, e.g. "14.361"
 
 /** @returns {string[]} one line per problem with `manifest`, read from `root` */

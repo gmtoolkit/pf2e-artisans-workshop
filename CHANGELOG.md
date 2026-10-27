@@ -199,6 +199,13 @@ All notable changes to this module are documented here. The format follows
   right-click menu, the order detail keeps keyboard focus inside it while it covers the list, and the light theme's focus
   ring and chat cards keep their contrast. A window opened from the keyboard (the keybinding, the sheet's and the card's
   buttons, the Macros button) puts focus in it, and focus stays where it was when the shelf, the strip or the card update.
+- Release engineering (milestone M12), built but not yet run: a release workflow for published GitHub releases (pre-releases
+  with their own manifest URL and the strings and registry checks in report mode; stable releases with both enforced,
+  uploaded with the stamped `module.json` and `module.zip`, and registered with foundryvtt.com as a dry run until switched
+  on), a local dry run that builds the same package into a scratch folder (`npm run release:dry-run`), a daily pf2e churn
+  watch that reports new pf2e releases, changes to the pf2e code the module relies on and the registry validation against
+  them, issue forms, a "For GMs" section in the README, `CONTRIBUTING.md`, and a `NOTICE` file for the Community Use
+  Policy, ORC and OGL notices (their licensors' text still to be pasted in by the author).
 
 ### Changed
 
