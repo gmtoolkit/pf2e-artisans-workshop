@@ -9,9 +9,11 @@
 /**
  * A control's own data attributes that tell it apart, in the order a selector names them. The Downtime tab and the
  * wizard repeat a control per character, job, settlement or skill, told apart by `actor`, `job`, `profile`, `skill`,
- * and a check's `kind` and `ref` (M6); the Morning tab's by `pool`, `standing`, `loadout`, `talisman`, `gap` and `morning` (M7).
+ * and a check's `kind` and `ref` (M6); the Morning tab's by `pool`, `standing`, `loadout`, `talisman`, `gap` and `morning` (M7); the
+ * Bandolier's and the Quick Alchemy panel's by `bandolier`, `quick` and a Strike's `map` (M8).
  */
-const OWN = Object.freeze(["filter", "action", "op", "tab", "uuid", "toggle", "fix", "item", "actor", "job", "profile", "skill", "kind", "ref", "pool", "standing", "loadout", "talisman", "gap", "morning"]);
+const OWN = Object.freeze(["filter", "action", "op", "tab", "uuid", "toggle", "fix", "item", "actor", "job", "profile", "skill", "kind", "ref", "pool", "standing",
+    "loadout", "talisman", "gap", "morning", "bandolier", "quick", "map"]);
 /** Data attributes of the container a control belongs to: an order (its row or its detail), a ledger row. */
 const SCOPE = Object.freeze(["orderId", "rowId"]);
 

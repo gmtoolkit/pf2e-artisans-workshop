@@ -4,12 +4,18 @@
  * - `CraftingAbility`: `getPreparedCraftingFormulas` drops prepared formulas the book does not know; `setFormulaQuantity`
  *   refuses an increase or a new formula once the slots are spent, clamps an increase to the slots left and refuses one
  *   the pool cannot craft, and rounds an existing formula's quantity up to whole batches (0 unprepares);
- *   `updateFormulas` replaces the prepared list; `craft(uuid, {consume: false})` makes one batch of a temporary item,
- *   infused when alchemical, and adds to an identical stack WITHOUT waiting for the update (pf2e does not await it).
+ *   `updateFormulas` replaces the prepared list; `craft(uuid, {consume, destination})` makes one batch of a temporary item,
+ *   infused when alchemical, and adds to an identical stack WITHOUT waiting for the update (pf2e does not await it). With a
+ *   `resource` (M8: Quick Alchemy's versatile vials) and `consume`, it takes one through `actor.updateResource`, and makes
+ *   nothing, with pf2e's warning, at 0; `destination: "hand"` makes it held, and a held item stacks only with a held stack
+ *   of quantity 0 (pf2e's `isStackableWith`).
  * - `CharacterCrafting#performDailyCrafting`: every daily pool's prepared, unexpended formulas, made at once (nothing, with a
  *   warning, when any pool asks for more than its slots); formulas expended; `flags.pf2e.dailyCraftingComplete` set; items added with stacking that compares only `system` data, so a
  *   new output merges into an identical stack whatever its flags (7.1).
- * - Compendium items (`compendiumItem`) with `toObject`, `getRollOptions("item")`, `slug`, `level`.
+ * - Compendium items (`compendiumItem`) with `toObject`, `getRollOptions("item")`, `slug`, `level`, and Foundry's `clone(data,
+ *   {keepId})` (14.368 `Document#clone`: the source with `data` merged in, below the top level new keys included, as an
+ *   in-memory document of the same pack), which `craft` accepts in place of a UUID as pf2e's does (it makes the new item from
+ *   the item's `toObject`).
  */
 import { world } from "./stubs.mjs";
 
@@ -31,12 +37,27 @@ export function compendiumItem({ id, name, level = 1, type = "consumable", categ
         toObject() {
             return structuredClone({ _id: id, name, type, img: item.img, system: { ...item.system, slug: item.slug }, flags: {} });
         },
+        clone(changes = {}, { keepId = false } = {}) {
+            const source = mergeSource(item.toObject(), structuredClone(changes));
+            if (!keepId) delete source._id;
+            return { ...item, uuid: keepId ? uuid : null, system: source.system, flags: source.flags, toObject: () => structuredClone(source), clone: undefined };
+        },
     };
     world.uuids.set(uuid, item);
     (world.compendium ??= {})[uuid] = item;
     (world.index ??= []).push({ uuid, name, img: item.img, type, system: { level: { value: level }, traits: { value: [...traits], rarity, otherTags },
         category, slug: item.slug, usage: { value: usage }, publication: { title: book }, price: { value: { gp: level }, per: 1 }, material: {} } });
     return item;
+}
+
+/** Foundry's `mergeObject` as `clone` uses it: objects merged, anything else (arrays included) replaced. */
+function mergeSource(target, changes) {
+    for (const [key, value] of Object.entries(changes)) {
+        const plain = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+        if (plain(value) && plain(target[key])) mergeSource(target[key], value);
+        else target[key] = value;
+    }
+    return target;
 }
 
 /** A source an actor's item makes from a compendium item, as `ability.calculateDailyCrafting` and `craft` build it. */
@@ -57,8 +78,8 @@ function stackOf(actor, source) {
 
 export class FakeAbility {
     constructor(actor, { slug, label = slug, isDailyPrep = true, isPrepared = true, maxSlots = 4, maxItemLevel = 20, batchSize = 1,
-        craftableItems = [predicate("item:trait:alchemical")], prepared = [] }) {
-        Object.assign(this, { actor, slug, label, isDailyPrep, isPrepared, maxSlots, maxItemLevel, batchSize,
+        craftableItems = [predicate("item:trait:alchemical")], prepared = [], resource = null }) {
+        Object.assign(this, { actor, slug, label, isDailyPrep, isPrepared, maxSlots, maxItemLevel, batchSize, resource,
             craftableItems: craftableItems.map((c) => (c.predicate ? c : { predicate: c })), preparedFormulaData: prepared.map((p) => ({ ...p })) });
         this.calls = [];
     }
@@ -122,12 +143,24 @@ export class FakeAbility {
         this.preparedFormulaData = formulas.map((f) => ({ ...f }));
     }
 
-    async craft(uuid, { consume = true } = {}) {
-        this.calls.push(["craft", uuid, consume]);
-        const item = world.compendium[uuid];
+    async craft(itemOrUuid, { consume = true, destination } = {}) {
+        const item = typeof itemOrUuid === "string" ? world.compendium[itemOrUuid] : itemOrUuid;
+        this.calls.push(["craft", typeof itemOrUuid === "string" ? itemOrUuid : itemOrUuid?.uuid ?? null, consume, destination ?? null]);
         if (!item) return null;
+        if (this.resource && consume) {
+            const value = this.actor.getResource(this.resource)?.value ?? 0;
+            if (!value) {
+                ui.notifications.warn("PF2E.Actor.Character.Crafting.MissingResource", { localize: true });
+                return null;
+            }
+            await this.actor.updateResource(this.resource, value - 1);
+        }
         const source = sourceOf(item, this.batchFor(item));
-        const stack = stackOf(this.actor, source);
+        if (destination === "hand") source.system.equipped = { carryType: "held", handsHeld: 1 };
+        const held = (i) => i.system?.equipped?.carryType === "held";
+        const stack = destination === "hand"
+            ? this.actor.items.find((i) => held(i) && i.quantity === 0 && i.type === source.type && i.name === source.name) ?? null
+            : stackOf(this.actor, source);
         if (stack) {
             // pf2e: `stackable.update({...})` without await, then returns the stack.
             setTimeout(() => stack.update({ "system.quantity": stack.quantity + source.system.quantity }), 5);
@@ -195,6 +228,8 @@ export function asCharacter(actor, { level = 5, formulas = [], classDc = null, s
     actor.rules = rules;
     actor.synthetics = { resources: vials ? { versatileVials: { itemUUID: vials.itemUUID } } : {} };
     actor.getResource = (slug) => (slug === "versatile-vials" && vials ? { slug, value: vials.value, max: vials.max, label: "Versatile Vials" } : null);
+    // Every Foundry actor has a prototype token (`name`, `actor`).
+    actor.prototypeToken ??= { name: actor.name, get actor() { return actor; } };
     // pf2e's book is `system.crafting.formulas`; the module appends with `actor.update`, as the crafting tab does.
     const update = actor.update.bind(actor);
     actor.update = async (data, options) => {

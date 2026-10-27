@@ -141,6 +141,8 @@ npm run harness:live -- --scenarios none --behaviours m4-lifecycle,m4-no-gm,m4-c
 npm run harness:live -- --scenarios none --behaviours m5-buy,m5-ally-copy,m5-pick,m5-jobs,m5-etch,m5-upgrade-transfer,m5-precious,m5-scroll,m5-fund,m5-services,m5-ui,m5-shots --runs 1 --shots /tmp/m5-shots
 npm run harness:live -- --scenarios none --behaviours m6-clock,m6-wizard-gm,m6-wizard-players,m6-communal,m6-income,m6-settlement --runs 1
 npm run harness:live -- --scenarios none --behaviours m7-morning,m7-expiry,m7-rest,m7-dailies,m7-standing,m7-affix,m7-shots --runs 1 --shots /tmp/m7-shots
+npm run harness:live -- --scenarios none --behaviours m8-panel,m8-bandolier,m8-turn,m8-vials,m8-healing-bomb,m8-duct-tape,m8-use-best,m8-shots --runs 1 --shots /tmp/m8-shots
+npm run harness:live -- --scenarios none --behaviours m8-hud,m8-bandolier,m8-panel --runs 1 --canvas
 ```
 
 The M4 behaviours run the order lifecycle with a GM and two players (`m4-lifecycle`), with two players and no GM, the
@@ -172,6 +174,19 @@ loadout in the Workshop's row, and puts the configuration back), deliver a stand
 affix talismans with and without Talismanic Sage (`m7-affix`), and photograph the Morning tab (`m7-shots`). Items they
 give are marked `flags.world.pf2e-artisans-workshop-m7`; each plan puts the characters' formula books and prepared lists
 back first.
+
+The M8 behaviours (DESIGN 10.14) use Player One's bomber (level 11: Double Brew, Alchemical Expertise, the field discovery,
+Advanced Vials). Without a canvas: `m8-panel` lists what Quick Alchemy makes, makes it through pf2e (one vial; refused at 0;
+two with Double Brew) and drives the panel with real keys; `m8-bandolier` reads the vial pips, makes a quick vial (the vial
+count unchanged) and throws it through pf2e's own Strike, and checks the window reopens where it was dragged; `m8-turn` runs
+a token-less encounter of the fighter and the bomber and checks each Quick Alchemy item ends at its turn, on the client of
+whoever holds it, and at the encounter's end; `m8-vials` turns vial gathering on, moves the clock and has two clients gather
+at the cap; `m8-healing-bomb` throws a Healing Bomb at Player Two's hurt fighter; `m8-duct-tape` stands Duct Tape in on every
+client (a stand-in package entry when it is not installed); `m8-use-best` uses Player Two's potions in order; `m8-shots`
+photographs the Bandolier and the panel. `m8-hud` needs `--canvas` and a scene with Player One's bomber token on it (it says
+it was skipped without one): the alchemy palette in the token HUD, opened by core's own palette toggle, kept open while the
+token moves. Items and feats they give, and the encounters they make, are marked `flags.world.pf2e-artisans-workshop-m8`;
+each plan takes them back and refills the vials first.
 
 `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN.md 17.1) takes the README's screenshots in the same dev
 world, through the same driver. It copies four fixture actors into a demo party with generic names (Player One plays the

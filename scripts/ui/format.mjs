@@ -124,6 +124,8 @@ export function refusalText(result) {
         gates: (data.gates ?? []).map(gateText).join(" "),
         // M6: pending days, and why a PC may not help (6.7).
         count: String(data.count ?? ""), day: String(data.day ?? ""), reasons: (data.reasons ?? []).map((r) => loc(HELPER_REASON[r] ?? REFUSAL.other)).join(" "),
+        // M8: vials an action needs and has, an item or choice it names.
+        n: String(data.n ?? ""), have: String(data.have ?? ""), item: String(data.item ?? ""),
     });
 }
 

@@ -135,6 +135,35 @@ export function registerSettings(handlers) {
         scope: "world", config: true, type: String, default: "inert",
         choices: { inert: "pf2e-artisans-workshop.Settings.ExpiryAction.Inert", delete: "pf2e-artisans-workshop.Settings.ExpiryAction.Delete" },
     });
+    // M8 (DESIGN.md 8, 14.1-14.3): the combat tools (which step aside by themselves while PF2e Alchemist Remaster Duct
+    // Tape is active), "Use best consumable" (which does not), vial gathering as world time passes (off: it writes to
+    // actors on its own), what the end of an encounter does to Quick Alchemy items, and the Bandolier's own settings.
+    game.settings.register(MODULE_ID, "features.combat", {
+        name: "pf2e-artisans-workshop.Settings.FeaturesCombat.Name",
+        hint: "pf2e-artisans-workshop.Settings.FeaturesCombat.Hint",
+        scope: "world", config: true, type: Boolean, default: true,
+    });
+    game.settings.register(MODULE_ID, "features.consumables", {
+        name: "pf2e-artisans-workshop.Settings.FeaturesConsumables.Name",
+        hint: "pf2e-artisans-workshop.Settings.FeaturesConsumables.Hint",
+        scope: "world", config: true, type: Boolean, default: true,
+    });
+    game.settings.register(MODULE_ID, "features.vialGathering", {
+        name: "pf2e-artisans-workshop.Settings.FeaturesVialGathering.Name",
+        hint: "pf2e-artisans-workshop.Settings.FeaturesVialGathering.Hint",
+        scope: "world", config: true, type: Boolean, default: false,
+    });
+    game.settings.register(MODULE_ID, "expiry.quickAlchemyAtCombatEnd", {
+        name: "pf2e-artisans-workshop.Settings.QuickAlchemyAtCombatEnd.Name",
+        hint: "pf2e-artisans-workshop.Settings.QuickAlchemyAtCombatEnd.Hint",
+        scope: "world", config: true, type: Boolean, default: true,
+    });
+    game.settings.register(MODULE_ID, "bandolier.autoOpen", {
+        name: "pf2e-artisans-workshop.Settings.BandolierAutoOpen.Name",
+        hint: "pf2e-artisans-workshop.Settings.BandolierAutoOpen.Hint",
+        scope: "user", config: true, type: Boolean, default: true,
+    });
+    game.settings.register(MODULE_ID, "bandolier.position", { scope: "user", config: false, type: Object, default: {} });
     game.settings.register(MODULE_ID, "claims.auto", {
         name: "pf2e-artisans-workshop.Settings.AutoClaim.Name",
         hint: "pf2e-artisans-workshop.Settings.AutoClaim.Hint",

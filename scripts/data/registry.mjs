@@ -72,8 +72,28 @@
  * - `vialSource {regain}`: a source of versatile vials, and whether it regains vials during the day (7.3, 8.7).
  * - `expiryRule {rule, when}`: an exception to party-wide expiry (7.7): `designate`, items matching `when` the holder may
  *   designate to outlast the next preparations.
- * The other kinds of 6.11 (`additive`, `materialSource`, `gate`, `conflict`, `afflictionModifier`, `delivery`) arrive with
- * the milestones that read them.
+ * Effect kinds built in M8 (8.3-8.8):
+ * - `additive {when, vials?, toggle?, combine?}`: an additive feat (Player Core 2's additive trait); Quick Alchemy items
+ *   matching `when` may take it (one per item, one per round); `vials` is the extra versatile vials it costs; `toggle`
+ *   `{domain, option}` the pf2e roll option a Strike with the item turns on (OQ-27: the system's own toggles); `combine
+ *   {when, level?, merge?}` asks for a second item matching `when`, with `level: "first"` at most the first item's level,
+ *   and with `merge` made part of the first item (Combine Elixirs; without it the second stays apart: Balm Bomb's healing
+ *   elixir, which an ally gains on a hit).
+ * - `expiryRule {rule: "enduring", when}`: Quick Alchemy items matching `when` stay potent until the end of the creator's
+ *   next turn (Enduring Alchemy); `expiryRule {rule: "uncapped", when, maxLevel?}`: effects of the creator's own items
+ *   matching `when` may outlast Quick Alchemy's 10 minutes (Eternal Elixir, at most half the creator's level; Persistent
+ *   Mutagen, whose once a day the module does not count).
+ * - `brew {count}`: items one Quick Alchemy action makes (Double Brew).
+ * - `splash {intDamage?, bonusInt?, greater?, cone?, primaryOnly?}`: the splash numbers a bomb shows (8.8): splash damage
+ *   equal to Intelligence (the bomber's field discovery), plus Intelligence as a status bonus with a 10-foot radius
+ *   (Expanded Splash), the greater field discovery's radius, Directional Bombs' cone, the bomber's primary-target option.
+ * - `fieldVial {option, choices}`: the pf2e toggle that sets a versatile vial's damage type (the bomber's field vials).
+ * - `vialMaterial {option, materials}`: the pf2e toggle that makes a thrown vial a precious material (Advanced Vials).
+ * - `gather {per10}`: vials regained per 10 minutes of gathering reagents (Alchemical Expertise, 8.7).
+ * - `quickVial {quickened}`: an extra action that may only make a quick vial, once a turn (Abundant Vials, 8.5).
+ * - `quickBomber`: draw or make a bomb and Strike with it in one action (Quick Bomber, 8.4).
+ * The other kinds of 6.11 (`materialSource`, `gate`, `conflict`, `afflictionModifier`, `delivery`) arrive with the
+ * milestones that read them.
  */
 
 /** Freeze a JSON-compatible value all the way down. */
@@ -99,6 +119,13 @@ export const SPECIALTY_DEFAULTS = deepFreeze({
 });
 
 export const REGISTRY = deepFreeze({
+    "abundant-vials": {
+        uuid: "Compendium.pf2e.classfeatures.Item.tVxAFMBen8D516BQ", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
+        effects: [
+            { kind: "quickVial", quickened: true },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "acupuncturist": {
         uuid: "Compendium.pf2e.feats-srd.Item.SC95hfEEHQs7E9cG", type: "feat", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 2,
         effects: [],
@@ -143,6 +170,13 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "advanced-vials-bomber": {
+        uuid: "Compendium.pf2e.classfeatures.Item.5FnyPYPaRbJthT3I", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
+        effects: [
+            { kind: "vialMaterial", option: "bomber-advanced-vials", materials: ["adamantine", "cold-iron", "dawnsilver"] },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "adventurous-outfitter": {
         uuid: "Compendium.pf2e.feats-srd.Item.A3j9m1aKDb9nErrM", type: "feat", book: "Pathfinder Adventure Path: Hell's Destiny", remaster: true, tier: 2,
         effects: [],
@@ -174,6 +208,13 @@ export const REGISTRY = deepFreeze({
         uuid: "Compendium.pf2e.feats-srd.Item.0FNLI8APwj9NsBDa", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
         effects: [
             { kind: "formulaAllowance", on: "level", count: 1, maxLevel: "level", rarity: ["common"], filter: { all: ["item:trait:alchemical"], any: ["item:trait:elixir", "item:tag:alchemical-tool"] } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "alchemical-expertise": {
+        uuid: "Compendium.pf2e.classfeatures.Item.3e1PlMXmlSwKoc6d", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
+        effects: [
+            { kind: "gather", per10: 3 },
         ],
         verified: "pf2e-8.6.1",
     },
@@ -312,6 +353,14 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "balm-bomb": {
+        uuid: "Compendium.pf2e.feats-srd.Item.t3BjX2tF2WbHM6Fg", type: "feat", book: "Pathfinder Lost Omens Cheliax, Infernal Inheritance", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:trait:bomb"] }, vials: 1,
+                combine: { when: { all: ["item:trait:elixir", "item:trait:healing", "item:rarity:common"] } } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "bargain-hunter": {
         uuid: "Compendium.pf2e.feats-srd.Item.5nc5ridFBfYpn2Om", type: "feat", book: "Pathfinder Player Core", remaster: true, tier: 2,
         effects: [],
@@ -346,6 +395,13 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "blazing-mutagen": {
+        uuid: "Compendium.pf2e.feats-srd.Item.pp04AVdROQXSeaA8", type: "feat", book: "Pathfinder Lost Omens Cheliax, Infernal Inheritance", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:trait:mutagen"] } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "blessed-ampoule": {
         uuid: "Compendium.pf2e.equipment-srd.Item.skMIwUIMjWzgkZ5B", type: "consumable", book: "Pathfinder #176: Lost Mammoth Valley", remaster: false, tier: 4,
         effects: [
@@ -362,6 +418,9 @@ export const REGISTRY = deepFreeze({
         uuid: "Compendium.pf2e.classfeatures.Item.7JbiaZ8bxODM5mzS", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
         effects: [
             { kind: "formulaAllowance", on: "gain", count: 2, maxLevel: 1, rarity: ["common"], filter: { all: ["item:trait:alchemical", "item:trait:bomb"] } },
+            // M8 (8.5, 8.8): the field vials' damage types (pf2e's own toggle), and the field benefit's primary-target-only splash.
+            { kind: "fieldVial", option: "bomber-field-vials", choices: ["cold", "electricity", "fire"] },
+            { kind: "splash", primaryOnly: true },
         ],
         verified: "pf2e-8.6.1",
     },
@@ -479,6 +538,20 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "combine-elixirs": {
+        uuid: "Compendium.pf2e.feats-srd.Item.jSkJIWPfSZZzvYzq", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:trait:elixir"] }, vials: 1, combine: { when: { all: ["item:trait:elixir"] }, level: "first", merge: true } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "combustible-poison": {
+        uuid: "Compendium.pf2e.feats-srd.Item.Pcv6IF8V1yT9tYrN", type: "feat", book: "Pathfinder Lost Omens Cheliax, Infernal Inheritance", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:trait:poison"] } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "communal-crafting": {
         uuid: "Compendium.pf2e.feats-srd.Item.lUXVmSFJbaPos5pY", type: "feat", book: "Pathfinder Player Core", remaster: true, tier: 1,
         effects: [],
@@ -544,6 +617,13 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "debilitating-bomb": {
+        uuid: "Compendium.pf2e.feats-srd.Item.sv4LeEbkOJyLen10", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:trait:bomb"] }, toggle: { domain: "alchemical-bomb-base-attack-roll", option: "debilitating-bomb" } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "decree-of-prosperity": {
         uuid: "Compendium.pf2e.feats-srd.Item.O31zB7jxaW2487Q8", type: "feat", book: "Pathfinder War of Immortals", remaster: true, tier: 2,
         effects: [],
@@ -552,6 +632,20 @@ export const REGISTRY = deepFreeze({
     "deeper-dabbler": {
         uuid: "Compendium.pf2e.feats-srd.Item.PTXZ2C3AV8tZf0iX", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 3,
         effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "directional-bombs": {
+        uuid: "Compendium.pf2e.feats-srd.Item.ozvYhY4hG1deXly8", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "splash", cone: true },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "double-brew": {
+        uuid: "Compendium.pf2e.classfeatures.Item.76cwNLJEm4Yetnee", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
+        effects: [
+            { kind: "brew", count: 2 },
+        ],
         verified: "pf2e-8.6.1",
     },
     "double-double": {
@@ -601,6 +695,27 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "enduring-alchemy": {
+        uuid: "Compendium.pf2e.feats-srd.Item.jBeuyq0Aged45YAc", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
+        effects: [
+            { kind: "expiryRule", rule: "enduring", when: { any: ["item:trait:elixir", "item:tag:alchemical-tool"] } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "eternal-elixir": {
+        uuid: "Compendium.pf2e.feats-srd.Item.giOEclnMp8txkRSU", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "expiryRule", rule: "uncapped", when: { all: ["item:trait:elixir"] }, maxLevel: "half" },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "expanded-splash": {
+        uuid: "Compendium.pf2e.feats-srd.Item.gyVcJfZTmBytLsXq", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "splash", bonusInt: true },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "experienced-professional": {
         uuid: "Compendium.pf2e.feats-srd.Item.sMm0UfYxEPpq2Yzd", type: "feat", book: "Pathfinder Player Core", remaster: true, tier: 1,
         effects: [
@@ -631,6 +746,13 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "exploitive-bomb": {
+        uuid: "Compendium.pf2e.feats-srd.Item.hr9maYUbtrNxpBPw", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:trait:bomb"] }, toggle: { domain: "attack-roll", option: "exploitive-bomb" } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "fabricated-connections": {
         uuid: "Compendium.pf2e.feats-srd.Item.e6s2nIvlTycuzlR9", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
         effects: [],
@@ -644,6 +766,13 @@ export const REGISTRY = deepFreeze({
     "fermenting-liquors": {
         uuid: "Compendium.pf2e.feats-srd.Item.vEpM7qYZmBiwBiNT", type: "feat", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 1,
         effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "field-discovery-bomber": {
+        uuid: "Compendium.pf2e.classfeatures.Item.8QAFgy9U8PxEa7Dw", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
+        effects: [
+            { kind: "splash", intDamage: true },
+        ],
         verified: "pf2e-8.6.1",
     },
     "firework-technician-dedication": {
@@ -710,6 +839,13 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "glitter-crystals": {
+        uuid: "Compendium.pf2e.feats-srd.Item.sYOaZoPqNBnppY51", type: "feat", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { any: ["item:trait:healing", "item:tag:alchemical-food"] } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "golden-league-xun-dedication": {
         uuid: "Compendium.pf2e.feats-srd.Item.jTOxxy19o2VRJTbH", type: "feat", book: "Pathfinder #167: Ready? Fight!", remaster: false, tier: 4,
         effects: [],
@@ -734,6 +870,13 @@ export const REGISTRY = deepFreeze({
     "gravelands-herbalist": {
         uuid: "Compendium.pf2e.feats-srd.Item.M9WIUEPY6IoRtgWN", type: "feat", book: "Pathfinder Lost Omens Knights of Lastwall", remaster: false, tier: 4,
         effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "greater-field-discovery-bomber": {
+        uuid: "Compendium.pf2e.classfeatures.Item.RGs4uR3CAvgbtBAA", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
+        effects: [
+            { kind: "splash", greater: true },
+        ],
         verified: "pf2e-8.6.1",
     },
     "guiding-chisel": {
@@ -765,6 +908,13 @@ export const REGISTRY = deepFreeze({
         uuid: "Compendium.pf2e.equipment-srd.Item.SGkOHFyBbzWdBk8D", type: "equipment", book: "Pathfinder Player Core", remaster: true, tier: 2,
         effects: [
             { kind: "toolSubstitution", tools: ["healers-toolkit"] },
+        ],
+        verified: "pf2e-8.6.1",
+    },
+    "healing-bomb": {
+        uuid: "Compendium.pf2e.feats-srd.Item.xXHwktc9SymSY8d6", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { any: ["item:slug:elixir-of-life-minor", "item:slug:elixir-of-life-lesser", "item:slug:elixir-of-life-moderate", "item:slug:elixir-of-life-greater", "item:slug:elixir-of-life-major", "item:slug:elixir-of-life-true"] } },
         ],
         verified: "pf2e-8.6.1",
     },
@@ -885,6 +1035,13 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "invigorating-elixir": {
+        uuid: "Compendium.pf2e.feats-srd.Item.AhrF360kZt0QJIub", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:trait:elixir", "item:trait:healing"] } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "ive-had-many-jobs": {
         uuid: "Compendium.pf2e.feats-srd.Item.asjDgf7Q9BWZoK5Y", type: "feat", book: "Pathfinder Season of Ghosts Hardcover Compilation", remaster: true, tier: 2,
         effects: [],
@@ -945,6 +1102,13 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "lingering-bomb": {
+        uuid: "Compendium.pf2e.feats-srd.Item.rO62pAX3UXXkg5Wl", type: "feat", book: "Pathfinder Lost Omens Cheliax, Infernal Inheritance", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:trait:bomb"] } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "living-god": {
         uuid: "Compendium.pf2e.feats-srd.Item.1eXHDDOLZATKpWjL", type: "feat", book: "Pathfinder Lost Omens Divine Mysteries", remaster: true, tier: 2,
         effects: [],
@@ -992,6 +1156,13 @@ export const REGISTRY = deepFreeze({
     "medical-researcher": {
         uuid: "Compendium.pf2e.feats-srd.Item.6GO3dtFJnsNnSwWz", type: "feat", book: "Pathfinder Lost Omens Legends", remaster: false, tier: 4,
         effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "mega-bomb": {
+        uuid: "Compendium.pf2e.feats-srd.Item.mMMIHLVSr8fyvVQL", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:trait:bomb"] } },
+        ],
         verified: "pf2e-8.6.1",
     },
     "merciful-charm": {
@@ -1056,6 +1227,13 @@ export const REGISTRY = deepFreeze({
         effects: [],
         verified: "pf2e-8.6.1",
     },
+    "numbing-spice-exhalation": {
+        uuid: "Compendium.pf2e.feats-srd.Item.vsibRIwbWoG37tuC", type: "feat", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:tag:alchemical-food"] } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "overloaded-ammunition": {
         uuid: "Compendium.pf2e.feats-srd.Item.UWltFMJPs5negJrx", type: "feat", book: "Pathfinder Impossible Magic", remaster: true, tier: 3,
         effects: [],
@@ -1079,6 +1257,13 @@ export const REGISTRY = deepFreeze({
     "pei-zing-adept": {
         uuid: "Compendium.pf2e.feats-srd.Item.EmIV9haKFrBRB43E", type: "feat", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 3,
         effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "pernicious-poison": {
+        uuid: "Compendium.pf2e.feats-srd.Item.cZED3aBrjCgO0dPC", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:trait:poison"] } },
+        ],
         verified: "pf2e-8.6.1",
     },
     "perpetual-infusions": {
@@ -1148,7 +1333,9 @@ export const REGISTRY = deepFreeze({
     },
     "persistent-mutagen": {
         uuid: "Compendium.pf2e.feats-srd.Item.GKP2dHkgQw1o0k8g", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
-        effects: [],
+        effects: [
+            { kind: "expiryRule", rule: "uncapped", when: { all: ["item:trait:mutagen"] } },
+        ],
         verified: "pf2e-8.6.1",
     },
     "philosophers-extractor": {
@@ -1225,6 +1412,13 @@ export const REGISTRY = deepFreeze({
     "quick-alchemy": {
         uuid: "Compendium.pf2e.classfeatures.Item.sPtl05wwTpqFI0lL", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
         effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "quick-bomber": {
+        uuid: "Compendium.pf2e.feats-srd.Item.xbg1scOIT7RI9Fij", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
+        effects: [
+            { kind: "quickBomber" },
+        ],
         verified: "pf2e-8.6.1",
     },
     "quick-fix": {
@@ -1429,6 +1623,13 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "smoke-bomb": {
+        uuid: "Compendium.pf2e.feats-srd.Item.ODnXQHvFoK7tIVpu", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:trait:bomb"] }, toggle: { domain: "attack-roll", option: "smoke-bomb" } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "snare-crafting": {
         uuid: "Compendium.pf2e.feats-srd.Item.DMetdzt1VJL2Y62i", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 1,
         effects: [
@@ -1465,6 +1666,13 @@ export const REGISTRY = deepFreeze({
         ],
         verified: "pf2e-8.6.1",
     },
+    "sour-bomb": {
+        uuid: "Compendium.pf2e.feats-srd.Item.Q9PR9achVS7aUDDt", type: "feat", book: "Pathfinder Lost Omens Tian Xia Character Guide", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:trait:bomb"] } },
+        ],
+        verified: "pf2e-8.6.1",
+    },
     "specialty-crafting": {
         uuid: "Compendium.pf2e.feats-srd.Item.QLeMH5mQgh28sa5o", type: "feat", book: "Pathfinder Player Core", remaster: true, tier: 1, choice: "specialtyCrafting",
         effects: [
@@ -1479,6 +1687,13 @@ export const REGISTRY = deepFreeze({
     "staff-nexus": {
         uuid: "Compendium.pf2e.classfeatures.Item.Klb35AwlkNrq1gpB", type: "feat", book: "Pathfinder Player Core", remaster: true, tier: 3,
         effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "sticky-bomb": {
+        uuid: "Compendium.pf2e.feats-srd.Item.zXKfKKOxht0b0XNL", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:trait:bomb"] }, toggle: { domain: "alchemical-bomb-base-type-damage", option: "sticky-bomb" } },
+        ],
         verified: "pf2e-8.6.1",
     },
     "strikers-scroll": {
@@ -1590,6 +1805,13 @@ export const REGISTRY = deepFreeze({
     "unassuming-dedication": {
         uuid: "Compendium.pf2e.feats-srd.Item.A1RzkLCj7mXJI1IY", type: "feat", book: "Pathfinder Lost Omens Character Guide", remaster: false, tier: 4,
         effects: [],
+        verified: "pf2e-8.6.1",
+    },
+    "unstable-concoction": {
+        uuid: "Compendium.pf2e.feats-srd.Item.tY3Zg0l14CdoKPpt", type: "feat", book: "Pathfinder Player Core 2", remaster: true, tier: 2,
+        effects: [
+            { kind: "additive", when: { all: ["item:trait:consumable"] } },
+        ],
         verified: "pf2e-8.6.1",
     },
     "versatile-vials": {

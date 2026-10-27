@@ -127,6 +127,19 @@ All notable changes to this module are documented here. The format follows
   Talismanic Sage treats. Rest for the Night starts a new cycle and prompts each character's own player once, with or
   without PF2e Dailies; with it, a Workshop row in PF2e Dailies' window picks each pool's loadout, applied when it
   finishes. Morning and Expiry chat cards say what was made and what stopped working.
+- Combat alchemy (milestone M8). A Bandolier window, docked above the hotbar and opening by itself when an encounter
+  starts, shows an alchemist's versatile vials, what is ready to throw or drink with how long it stays potent and its
+  splash numbers, and pf2e's own Strike buttons with their multiple attack penalties. Its Quick Alchemy panel lists what
+  the character can make (by formula or family, up to its level), works from the keyboard, makes two items with Double
+  Brew and takes an additive that fits (Healing Bomb on an elixir of life, Combine Elixirs with its second vial, the
+  bomb additives with pf2e's own toggles); it refuses at 0 vials, which pf2e's own action does not. Quick vials are free
+  and leave the vial count alone; Quick Bomber draws or makes a bomb and throws it. A Healing Bomb is thrown at a creature
+  and each living creature next to it regains the elixir's dice in Hit Points, applied by its owner. What Quick Alchemy
+  makes (the panel's and pf2e's own action's) stops working at the start of the alchemist's next turn (the end of it with
+  Enduring Alchemy, the end of this turn for a quick vial), wherever it is, and when the encounter ends; its effects last
+  10 minutes at most. Vials come back by gathering reagents, Improvise Admixture, the Alchemist's Haversack and, if a GM
+  turns it on, as world time passes. The token HUD gets an alchemy palette. With PF2e Alchemist Remaster Duct Tape active
+  all of this steps aside. "Use best consumable" uses the best item of a kind a character holds, the one at hand first.
 
 ### Changed
 

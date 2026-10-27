@@ -1,0 +1,19 @@
+<div class="qa-list-wrap">
+    {{#unless off}}
+    <ul class="qa-list" id="pf2e-artisans-workshop-qa-list" role="listbox" aria-multiselectable="true" aria-label="{{localize "pf2e-artisans-workshop.QuickAlchemy.ListLabel"}}">
+        {{#each options}}
+        <li class="qa-option {{#if picked}}picked{{/if}} {{#if active}}active{{/if}}" role="option" aria-selected="{{#if picked}}true{{else}}false{{/if}}"
+            data-quick="option" data-index="{{index}}" data-uuid="{{uuid}}" tabindex="{{#if active}}0{{else}}-1{{/if}}">
+            {{#if img}}<img src="{{img}}" alt="">{{/if}}
+            <span class="qa-name">{{name}}</span>
+            <span class="qa-level">{{level}}</span>
+            <span class="qa-route">{{route}}</span>
+            {{#if picked}}<i class="fa-solid fa-check" inert></i>{{/if}}
+            {{#if count}}<span class="qa-pick-count">{{count}}</span>{{/if}}
+        </li>
+        {{/each}}
+    </ul>
+    {{#if empty}}<p class="qa-empty">{{localize "pf2e-artisans-workshop.QuickAlchemy.Empty"}}</p>{{/if}}
+    {{#if count}}<p class="qa-count">{{count}}</p>{{/if}}
+    {{/unless}}
+</div>

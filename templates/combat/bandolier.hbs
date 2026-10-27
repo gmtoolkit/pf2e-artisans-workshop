@@ -1,0 +1,81 @@
+<section class="bandolier-body">
+    {{#if off}}
+    <p class="bandolier-off" role="note"><i class="fa-solid fa-circle-info" inert></i> {{off}}</p>
+    {{else if none}}
+    <p class="bandolier-off" role="note"><i class="fa-solid fa-circle-info" inert></i> {{localize "pf2e-artisans-workshop.Bandolier.NoActor"}}</p>
+    {{else}}
+    <header class="bandolier-head">
+        {{#if choices}}
+        <select data-bandolier="actor" aria-label="{{localize "pf2e-artisans-workshop.Bandolier.Character"}}">
+            {{#each choices}}<option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{name}}</option>{{/each}}
+        </select>
+        {{else}}
+        <strong class="bandolier-name">{{actor.name}}</strong>
+        {{/if}}
+        {{#if combat}}<span class="bandolier-round">{{combat}}</span>{{/if}}
+    </header>
+
+    {{#if vials}}
+    <div class="bandolier-vials">
+        <span class="vial-pips" role="img" aria-label="{{vials.text}}">{{#each vials.pips}}<i class="fa-solid fa-flask vial-pip {{#if full}}full{{/if}}" inert></i>{{/each}}</span>
+        <span class="vial-count">{{vials.text}}{{#if vials.level}} · {{vials.level}}{{/if}}</span>
+        {{#if vials.buckets}}<span class="vial-buckets">{{#each vials.buckets}}<span class="chip">{{material}} · {{n}}</span>{{/each}}</span>{{/if}}
+    </div>
+    {{/if}}
+
+    <div class="bandolier-row">
+        <button type="button" data-bandolier="panel" {{#unless canQuick}}disabled{{/unless}}><i class="fa-solid fa-mortar-pestle" inert></i> {{localize "pf2e-artisans-workshop.Bandolier.QuickAlchemy"}}</button>
+        <button type="button" data-bandolier="quick-vial" {{#unless canVial}}disabled{{/unless}}><i class="fa-solid fa-flask-vial" inert></i> {{localize "pf2e-artisans-workshop.Bandolier.QuickVial"}}</button>
+        {{#if abundant}}
+        <button type="button" data-bandolier="quick-vial" data-quickened="true" {{#if abundant.disabled}}disabled{{/if}}><i class="fa-solid fa-bolt" inert></i> {{localize "pf2e-artisans-workshop.Bandolier.QuickenedVial"}}</button>
+        {{/if}}
+        {{#if healingBomb}}
+        <button type="button" data-bandolier="healing-bomb"><i class="fa-solid fa-heart-pulse" inert></i> {{localize "pf2e-artisans-workshop.Bandolier.HealingBomb"}}</button>
+        {{/if}}
+        {{#if quickBomber}}
+        <button type="button" data-bandolier="quick-bomber" {{#unless canQuick}}disabled{{/unless}}><i class="fa-solid fa-bomb" inert></i> {{localize "pf2e-artisans-workshop.Bandolier.QuickBomber"}}</button>
+        {{/if}}
+    </div>
+    {{#if noVials}}<p class="warn" role="note"><i class="fa-solid fa-triangle-exclamation" inert></i> {{localize "pf2e-artisans-workshop.Bandolier.NoVials"}}</p>{{/if}}
+
+    {{#if fieldVial}}
+    <label class="bandolier-field">{{localize "pf2e-artisans-workshop.Bandolier.FieldVial"}}
+        <select data-bandolier="damage-type">{{#each fieldVial.choices}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
+    </label>
+    {{/if}}
+    {{#if material}}
+    <label class="bandolier-field">{{localize "pf2e-artisans-workshop.Bandolier.Material"}}
+        <select data-bandolier="material">{{#each material.choices}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
+    </label>
+    {{/if}}
+    {{#if brew}}<p class="bandolier-state"><i class="fa-solid fa-clone" inert></i> {{brew}}</p>{{/if}}
+    {{#if additive}}<p class="bandolier-state"><i class="fa-solid fa-droplet" inert></i> {{additive}}</p>{{/if}}
+
+    <h4 class="bandolier-heading">{{localize "pf2e-artisans-workshop.Bandolier.Ready"}}</h4>
+    {{#if ready.length}}
+    <ul class="bandolier-ready">
+        {{#each ready}}
+        <li class="ready-item {{#if quick}}quick{{/if}}">
+            <span class="ready-name">{{#if img}}<img src="{{img}}" alt="">{{/if}} {{name}} <span class="ready-qty">× {{qty}}</span></span>
+            {{#if potency}}<span class="ready-potency"><i class="fa-solid fa-hourglass-half" inert></i> {{potency}}</span>{{/if}}
+            {{#if additive}}<span class="ready-additive">{{additive}}</span>{{/if}}
+            {{#if splash}}<span class="ready-splash">{{splash}}</span>{{/if}}
+            <span class="ready-actions">
+                {{#each strikes}}<button type="button" data-bandolier="strike" data-item="{{../id}}" data-map="{{map}}" aria-label="{{localize "pf2e-artisans-workshop.Bandolier.StrikeLabel" item=../name variant=label}}"><i class="fa-solid fa-bomb" inert></i> {{label}}</button>{{/each}}
+                {{#if throw}}<button type="button" data-bandolier="throw" data-item="{{id}}"><i class="fa-solid fa-hand-holding-medical" inert></i> {{localize "pf2e-artisans-workshop.Bandolier.Throw"}}</button>{{/if}}
+                {{#if use}}<button type="button" data-bandolier="use" data-item="{{id}}"><i class="fa-solid fa-wine-bottle" inert></i> {{localize "pf2e-artisans-workshop.Bandolier.Use"}}</button>{{/if}}
+            </span>
+        </li>
+        {{/each}}
+    </ul>
+    {{else}}
+    <p class="bandolier-empty">{{localize "pf2e-artisans-workshop.Bandolier.NothingReady"}}</p>
+    {{/if}}
+
+    <div class="bandolier-row bandolier-vial-actions">
+        {{#if gather}}<button type="button" data-bandolier="gather" {{#if full}}disabled{{/if}}><i class="fa-solid fa-leaf" inert></i> {{localize "pf2e-artisans-workshop.Bandolier.Gather"}}</button>{{/if}}
+        {{#if admixture}}<button type="button" data-bandolier="admixture" {{#if admixture.disabled}}disabled{{/if}}><i class="fa-solid fa-vials" inert></i> {{localize "pf2e-artisans-workshop.Bandolier.Admixture" left=admixture.left}}</button>{{/if}}
+        {{#if haversack}}<button type="button" data-bandolier="haversack" {{#if haversack.disabled}}disabled{{/if}}><i class="fa-solid fa-sack-xmark" inert></i> {{localize "pf2e-artisans-workshop.Bandolier.Haversack"}}</button>{{/if}}
+    </div>
+    {{/if}}
+</section>

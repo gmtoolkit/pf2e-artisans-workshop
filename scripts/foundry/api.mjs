@@ -1,6 +1,7 @@
 /**
- * The public API (DESIGN.md 11.2), as far as M4-M7 build it: opening the window, the order lifecycle, the funds, formulas
- * (M5), downtime, Earn Income jobs and Communal Crafting helpers (M6), and daily preparations (M7, `prep`). It is
+ * The public API (DESIGN.md 11.2), as far as M4-M8 build it: opening the window, the order lifecycle, the funds, formulas
+ * (M5), downtime, Earn Income jobs and Communal Crafting helpers (M6), daily preparations (M7, `prep`), and combat
+ * alchemy and "Use best consumable" (M8, `alchemy`, `consumables`). It is
  * published at `game.modules.get("pf2e-artisans-workshop").api` in `ready`, and the `pf2e-artisans-workshop.ready` hook
  * fires right after with the same object. Later milestones add their namespaces; M11 completes the macros of 11.1.
  *
@@ -26,6 +27,12 @@ import * as communal from "./communal.mjs";
 import * as downtime from "./downtime.mjs";
 import * as jobs from "./jobs.mjs";
 import * as morning from "./morning.mjs";
+import * as alchemy from "./alchemy.mjs";
+import * as consumables from "./consumables.mjs";
+import * as vials from "./vials.mjs";
+import { strikeWith } from "./combat.mjs";
+import { openBandolier } from "../ui/bandolier.mjs";
+import { openQuickAlchemy } from "../ui/alchemy-panel.mjs";
 import { beginCycle, expirySweep } from "./expiry.mjs";
 import { parseActivity } from "../logic/downtime.mjs";
 import { read, records } from "./store.mjs";
@@ -341,6 +348,63 @@ export function buildApi() {
             beginCycle: (actor = null) => {
                 const who = resolveActor(actor);
                 return who ? beginCycle(who, { reason: "api" }) : Promise.resolve(noActor());
+            },
+        },
+        // M8 (11.1 macros 12-17 and 20, 11.2): combat alchemy (8.1-8.8) and "Use best consumable" (8.9).
+        alchemy: {
+            facts: (actor = null) => {
+                const who = resolveActor(actor);
+                return who ? alchemy.alchemyFacts(who) : Promise.resolve(null);
+            },
+            quickAlchemy: ({ actor = null, uuid, second = null, additive = null, combine = null, then = "hand", map = 0 } = {}) => {
+                const who = resolveActor(actor);
+                if (!who) return Promise.resolve(noActor());
+                if (!uuid) return openQuickAlchemy({ actor: who });
+                return alchemy.quickAlchemy(who, { uuid, second, additive, combine, then, map });
+            },
+            quickBomb: ({ actor = null, family = null, uuid = null, damageType = null, material = null, createIfNone = true, map = 0 } = {}) => {
+                const who = resolveActor(actor);
+                return who ? alchemy.quickBomb(who, { family, uuid, damageType, material, createIfNone, map }) : Promise.resolve(noActor());
+            },
+            quickVial: ({ actor = null, damageType = null, material = null, quickened = false, then = "hand" } = {}) => {
+                const who = resolveActor(actor);
+                return who ? alchemy.quickVial(who, { damageType, material, quickened, then }) : Promise.resolve(noActor());
+            },
+            healingBomb: ({ actor = null, grade = "best", target = null } = {}) => {
+                const who = resolveActor(actor);
+                if (!who) return Promise.resolve(noActor());
+                return alchemy.healingBomb(who, { grade }).then((made) => (made.ok && target ? alchemy.throwHealingBomb(who, made.items[0].id, { target }) : made));
+            },
+            throwHealingBomb: ({ actor = null, item, target = null } = {}) => {
+                const who = resolveActor(actor);
+                return who ? alchemy.throwHealingBomb(who, item, { target }) : Promise.resolve(noActor());
+            },
+            strike: ({ actor = null, item, map = 0, damageType = null, material = null } = {}) => {
+                const who = resolveActor(actor);
+                const thing = who?.items.get(item) ?? null;
+                return who ? strikeWith(who, thing, { map, damageType, material }) : Promise.resolve(noActor());
+            },
+            gatherReagents: ({ actor = null, minutes = 10 } = {}) => {
+                const who = resolveActor(actor);
+                return who ? vials.gatherReagents(who, { minutes }) : Promise.resolve(noActor());
+            },
+            improviseAdmixture: ({ actor = null, skipDialog } = {}) => {
+                const who = resolveActor(actor);
+                return who ? vials.improviseAdmixture(who, { skipDialog }) : Promise.resolve(noActor());
+            },
+            haversackVial: ({ actor = null } = {}) => {
+                const who = resolveActor(actor);
+                return who ? vials.haversackVial(who) : Promise.resolve(noActor());
+            },
+            openBandolier: ({ actor = null } = {}) => openBandolier({ actor: resolveActor(actor) }),
+            openPanel: ({ actor = null, bombs = false } = {}) => openQuickAlchemy({ actor: resolveActor(actor), bombs }),
+        },
+        consumables: {
+            useBest: ({ family, actor = null, partyWide = false, map = 0 } = {}) => consumables.useBest({ family, actor: resolveActor(actor), partyWide, map }),
+            holders: (family) => consumables.holders(family),
+            candidates: ({ family, actor = null } = {}) => {
+                const who = resolveActor(actor);
+                return who ? consumables.candidatesOf(who, family).map((c) => ({ id: c.id, name: c.item.name, carry: c.carry, qty: c.item.quantity ?? 1, infused: c.infused })) : [];
             },
         },
         communal: {

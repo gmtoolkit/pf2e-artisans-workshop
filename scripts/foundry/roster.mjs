@@ -5,9 +5,11 @@
  *
  * Members (`members` setting): the active pf2e party's characters, or every character with a player owner.
  * Feats are published as the registry keys of the character's feats and features (`featKeysOf`, a choice feat as
- * `<key>:<choice>`); skills, every one the character is trained in or better, since Earn Income may use any skill.
+ * `<key>:<choice>`); skills, every one the character is trained in or better, since Earn Income may use any skill;
+ * consumables (M8, 8.9) by family, inert ones left out.
  */
 import { rosterSnapshot, sameRoster } from "../logic/roster.mjs";
+import { consumablesOf } from "./consumables.mjs";
 import { featKeysOf } from "./registry.mjs";
 import { isResponsibleFor } from "./responsible.mjs";
 import { setting } from "./settings.mjs";
@@ -44,7 +46,8 @@ export function rosterExtract(actor) {
         })),
         vials: vials ? { value: vials.value, max: vials.max } : null,
         investiture: actor.inventory?.invested ?? null,
-        consumables: {},   // filled by "Use best consumable" (8.9, M8)
+        // M8: the party view of "Use best consumable" (8.9): consumables by family, with the soonest world-time deadline.
+        consumables: consumablesOf(actor),
     };
 }
 

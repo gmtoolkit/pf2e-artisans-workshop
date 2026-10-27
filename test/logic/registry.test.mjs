@@ -55,7 +55,17 @@ const KINDS = {
     dcStamp: (e) => typeof e.pool === "string" && Array.isArray(e.dcs) && e.dcs.every((dc) => ["class", "spell"].includes(dc)),
     dailyGap: (e) => ["note", "designate", "dailies"].includes(e.flow),
     vialSource: (e) => typeof e.regain === "boolean",
-    expiryRule: (e) => e.rule === "designate" && typeof e.when === "object",
+    expiryRule: (e) => ["designate", "enduring", "uncapped"].includes(e.rule) && typeof e.when === "object" && (e.maxLevel === undefined || e.maxLevel === "half"),
+    // M8 (8.3-8.8).
+    additive: (e) => typeof e.when === "object" && (e.vials === undefined || Number.isInteger(e.vials)) &&
+        (e.toggle === undefined || (typeof e.toggle.domain === "string" && typeof e.toggle.option === "string")),
+    brew: (e) => Number.isInteger(e.count) && e.count > 1,
+    splash: (e) => ["intDamage", "bonusInt", "greater", "cone", "primaryOnly"].some((k) => e[k] === true),
+    fieldVial: (e) => typeof e.option === "string" && Array.isArray(e.choices) && e.choices.length > 0,
+    vialMaterial: (e) => typeof e.option === "string" && Array.isArray(e.materials) && e.materials.length > 0,
+    gather: (e) => Number.isInteger(e.per10) && e.per10 > 2,
+    quickVial: (e) => e.quickened === true,
+    quickBomber: () => true,
 };
 
 test("every entry has the schema of scripts/data/registry.mjs, tier 4 exactly for legacy entries", () => {

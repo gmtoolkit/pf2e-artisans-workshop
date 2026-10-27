@@ -1,4 +1,5 @@
 import { MODULE_ID } from "./constants.mjs";
+import { registerAlchemyHooks } from "./foundry/alchemy.mjs";
 import { publishApi } from "./foundry/api.mjs";
 import { registerFormulaClaims } from "./foundry/formulas.mjs";
 import { registerDowntimeHooks } from "./foundry/downtime.mjs";
@@ -7,7 +8,9 @@ import { registerExpiryHooks } from "./foundry/expiry.mjs";
 import { registerRestHooks } from "./foundry/rest.mjs";
 import { registerOrderHooks } from "./foundry/orders.mjs";
 import { initSync, readySync } from "./foundry/sync.mjs";
+import { registerVialHooks } from "./foundry/vials.mjs";
 import { registerChatHooks } from "./ui/chat.mjs";
+import { registerCombatEntry } from "./ui/combat-entry.mjs";
 import { registerEntryPoints } from "./ui/entry.mjs";
 import { primeNotifications, registerNotifications } from "./ui/notify.mjs";
 import { registerWindowHooks } from "./ui/workshop.mjs";
@@ -55,6 +58,12 @@ Hooks.once("init", () => {
     // M7: party-wide expiry (its claim, deadlines and the inert guard) and the rest ordering of 7.8.
     registerExpiryHooks();
     registerRestHooks();
+    // M8: combat (DESIGN.md 8): the 10-minute cap on Quick Alchemy effects, vial gathering as world time passes, and the
+    // Bandolier, the Quick Alchemy panel, the token HUD palette, the keybindings and the combat cards. Turn expiry is part
+    // of the expiry hooks above; all of it steps aside while Duct Tape is active.
+    registerAlchemyHooks();
+    registerVialHooks();
+    registerCombatEntry();
     registerChatHooks();
     registerNotifications();
     registerWindowHooks();
