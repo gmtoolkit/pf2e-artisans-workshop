@@ -58,6 +58,29 @@ function brief(id) {
     };
 }
 
+/**
+ * Whether an item is one of `names` (none given: every item). pf2e derives an armor's, shield's or weapon's `name` from
+ * its runes and material each time it is prepared ("+1 Striking Longsword", `generateItemName`), and keeps the base name
+ * in its source, so an item is found by either; an etching, a transfer or a delivery changes the first, not the second.
+ */
+export function named(item, names) {
+    return !names || names.includes(item.name) || names.includes(item._source?.name);
+}
+
+/**
+ * Wait until this client's copy of the shared documents has `path` (equal to `value` when one is given), up to `ms`. A
+ * record another client wrote reaches this one a moment after that client's write resolved, and the module's actions
+ * read this client's copy, as its window only shows a button once the record is there (the live run of 2026-10-26: a
+ * service performed 7 ms after another client filed it was refused as `no-service`).
+ */
+export async function seen(path, { value, ms = 10000 } = {}) {
+    const found = await waitFor(() => {
+        const now = read(path);
+        return (value === undefined ? now !== undefined && now !== null : now === value) ? { now } : null;
+    }, ms);
+    return { ok: !!found, value: plain(found ? found.now : read(path)) };
+}
+
 /** A character's book and provenance, as this client sees them. */
 function bookBrief(actor) {
     return {
@@ -183,7 +206,7 @@ export const FORMULA_SCENARIOS = {
                 order: p.order ? brief(p.order) : null,
                 strongbox: box?.items.filter((i) => i.flags?.[MODULE_ID]?.earmark || i.flags?.[MODULE_ID]?.shelf).map((i) => ({ name: i.name,
                     earmark: plain(i.flags[MODULE_ID].earmark ?? null), shelf: i.flags[MODULE_ID].shelf?.for ?? null, runes: plain(i.system.runes ?? null), hp: i.system.hp?.value ?? null })) ?? [],
-                mine: me?.items.filter((i) => !p.names || p.names.includes(i.name)).map((i) => ({ name: i.name, runes: plain(i.system.runes ?? null), hp: i.system.hp?.value ?? null,
+                mine: me?.items.filter((i) => named(i, p.names)).map((i) => ({ name: i.name, runes: plain(i.system.runes ?? null), hp: i.system.hp?.value ?? null,
                     affix: plain(i.flags?.[MODULE_ID]?.affix ?? null), uuid: i.uuid })) ?? [],
                 purse: me ? purseCp(me) : null,
             };
@@ -213,6 +236,8 @@ export const FORMULA_SCENARIOS = {
             return { result, service: plain(read(`services.${p.service}`)) };
         } },
         sweep: { about: "any client: collect what waits for the user's characters", run: async () => ({ taken: await sweepClaims({ force: true }) }) },
+        seen: { about: "any client: wait until this client's copy has params.path (equal to params.value when given), up to params.ms",
+            run: async (p) => seen(p.path, { value: p.value, ms: p.ms ?? 10000 }) },
         open: { about: "any client: open the Workshop on params.tab with the Formulas tab showing params.actor, params.uuid, params.pick", run: async (p) => {
             await WorkshopApp.instance?.close({ animate: false });
             await waitFor(() => !WorkshopApp.instance, 3000);

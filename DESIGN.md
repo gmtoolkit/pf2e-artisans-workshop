@@ -4249,7 +4249,8 @@ transfers, and the Formulas tab (pure parts in `scripts/logic/codex.mjs`, `pledg
 additions to `formula-jobs.mjs`, `materials.mjs`, `orders.mjs`, `lock-first.mjs`; Foundry parts in
 `scripts/foundry/catalogue.mjs`, `formulas.mjs`, `custody.mjs`, `pledges.mjs`, `services.mjs`, `outputs.mjs` and
 additions to `products.mjs`, `orders.mjs`; the window in `scripts/ui/formulas.mjs`, `extras.mjs`,
-`templates/workshop/formulas.hbs`). Unit and stub tests cover each part; the live plans are written and not yet run.
+`templates/workshop/formulas.hbs`). Unit and stub tests cover each part; the live plans first ran in the M5 live pass
+below.
 
 - **The equipment catalogue** (`catalogue.mjs`): facts about every item of `pf2e.equipment-srd` read once per session
   from the pack's index (name, image, type, level, rarity, traits, category, slug, usage, book, Price, material), with
@@ -4374,7 +4375,7 @@ additions to `products.mjs`, `orders.mjs`; the window in `scripts/ui/formulas.mj
 - **Registry**: entries `crafters-eyepiece`, `crafters-eyepiece-greater` (`repairHp {success, critSuccess}`, a new
   kind), `repair-toolkit`, `repair-toolkit-superb`, and Improvise Tool's repair-toolkit substitution under
   `action:repair`; the four items left the ignore list (247 entries, 1204 ignored, validated against the pf2e checkout).
-- **Live plans** (to run later, 15.3): `m5-buy` (GM, P2), `m5-ally-copy` (P1, P2, no GM; the learner offline at the
+- **Live plans** (15.3; first run in the M5 live pass below): `m5-buy` (GM, P2), `m5-ally-copy` (P1, P2, no GM; the learner offline at the
   copy and applying it at login), `m5-pick` (GM, P1), `m5-jobs` (all three: invent, reverse-engineer, craft a copy),
   `m5-etch` (custody of P1's sword, crafted by P2, collected by P1), `m5-upgrade-transfer`, `m5-precious` (coin turned
   off for common materials; an ingot handed over), `m5-scroll` (the wizard fixture's pledge by the GM; a bought
@@ -4425,7 +4426,7 @@ not run.
 - **API** (11.2): `formulas.acquire({..., pay})`, `pledges.fulfil(order, pledge, {cost, pay})`, `pledges.buy(order,
   {spell, castings, from, pay})` and `services.request({..., pay})`, `pay` being `{source: "fund"}` or `{source: "purse",
   from}` (the acting character's purse by default).
-- **Live plan** `m5-fund` (15.3), to run with the other `m5-*` plans.
+- **Live plan** `m5-fund` (15.3), run with the other `m5-*` plans in the M5 live pass below.
 - **Review fixes of the merge.** Before start, what an order still needs, the Queue's funding bar and "Fill the
   shortfall" are judged against the plan it would freeze now, as G8 judges it (`planEstimate`, `estimateOf`'s `plan`),
   not the snapshot's Price: a formula job costs the formula's Price, an upgrade or a rune upgraded in its slot the
@@ -4433,6 +4434,54 @@ not run.
   change is estimated at its list Price; a plain Craft keeps its snapshot. A finished formula job and an item changed
   in place say where they went (5.5 As built in M5 on M4.1) instead of "On its way" for ever, and M5's item rows
   (handed over, given back, stock in and out) show no amount in the ledger, as M4.1's item rows do.
+
+#### M5 live pass (2026-10-26, Foundry 14.368, pf2e 8.6.1, no canvas)
+
+One pass of every plan, once each, at `7504433` (M0-M5 with M4.1's fund accounting):
+
+- **M4**: `m4-lifecycle`, `m4-no-gm`, `m4-cancel`, `m4-double-delivery`, `m4-reroll-race` and `m4-ui` pass. There is no
+  separate M4.1 plan; `m5-fund` covers fund accounting under purchases, and the hands-on pass below the window.
+- **M5**: `m5-buy`, `m5-pick`, `m5-jobs`, `m5-precious`, `m5-fund`, `m5-services` and `m5-ui` pass at the first run;
+  `m5-ally-copy`, `m5-etch`, `m5-upgrade-transfer` and (in the sync run) `m5-shots` failed, and `m5-scroll` passed
+  without crafting anything. Every one was the plan's fault, not the module's; each is fixed with a test and passed when
+  run once more:
+  - *A step acting on another client's write before it arrived.* `m5-ally-copy`: Player One performed the formula copy
+    7 ms after Player Two filed it, so Player One's copy had no such service and the module answered `no-service` (as
+    it should: the window shows "Perform" only once the record is there). `m5-scroll`: Player Two ran the order 8 ms
+    after the GM marked the castings cast, so Player Two's copy still held them offered, the start was refused on G9,
+    and the plan, which checked the scroll only `if` the order completed, passed. The new step `m5.seen` (`seen()` in
+    `formula-scenarios.mjs`) waits until this client's copy has a path (and a value); both plans use it, and
+    `m5-scroll` now checks that the order completes or fails its check. Test: `test/foundry/harness-m5.test.mjs`.
+  - *pf2e derives a runed weapon's name.* `m5-etch` and `m5-upgrade-transfer` looked for their swords by the name
+    "Longsword", but pf2e prepares an armor's, shield's or weapon's name from its runes and material
+    (`generateItemName`: "+1 Striking Longsword") and keeps "Longsword" in its source; the swords had come back with
+    their runes as the plans meant. The `state` step finds an item by either name (`named()`). Test: the same file.
+  - *A grade the family covers has no route to learn it.* `m5-shots` opened Elixir of Life (Lesser) for Player One
+    after buying the (Minor) formula and expected acquisition routes; 6.4 makes the (Minor) formula cover it ("Crafting
+    it now: another grade is known"), so there are none. The shots open Alchemist's Fire (Lesser) instead. Test: the
+    covered-grade case in `test/foundry/ui-m5.test.mjs`.
+- **Sync scenarios and the other behaviours** (`--runs 1`): scenarios 1, 2, 3, 3b, 3c, 7, 7b and 9 and the behaviours
+  `lost-lock`, `dry-run-replay`, `pf2e-drop`, `modified-time`, `server-time`, `sweep-stagger`, `purge-party`,
+  `assistant-switch`, `observer-strongbox`, `migration-lock`, `relaunch-stamp`, `cleric-fixture`, `slow-answer`,
+  `resume`, `relay-race`, `craft-gear-bonus`, `craft-rarity-dc`, `craft-hero-reroll`, `craft-second-roll`, `wage-once`
+  and `m4-shots` pass (with `m5-shots` above: 39 of 39 behaviours over the three runs). The screenshots were looked at:
+  no overflow, no raw keys.
+- **Console errors per page**: none in any M5 plan or the hands-on pass. The rest are the classes 5.4 and 15.3 expect:
+  core's "The _id [...] already exists" toast for the loser of a lock race (3b, 7, `lost-lock`, `dry-run-replay`,
+  `resume`, and `m4-double-delivery`'s late apply request, with "A parent Document provided to the database operation
+  must be a Document instance" from the same refused request), "Item ... does not exist" for scenario 7's injected
+  deletion, `cycleTokens` page errors on a player's client without a canvas when an actor's ownership changes (7b,
+  `observer-strongbox`), and the dropped connection of `resume`.
+- **Hands-on pass as Player One** (a scratch Playwright script with real clicks and typing, GM online; no module calls):
+  the Actors directory's Workshop button; Funds, "Add to party fund" 40 gp (the gold field has focus); the request
+  form (search "Elixir of Life (Minor)", pick, quantity 4, crafter Player One's alchemist, submit); "Fund this order"
+  from the party fund with "Fill the shortfall" (6 gp; the fund chosen first since it covers it); Start, two setup days,
+  Roll through pf2e's own check dialog ("Roll (+22)"), Settle (a critical success); "Finish: pay 6 gp", choosing
+  Player One's purse for the 6 gp short; the four elixirs delivered to Player One; then the Formulas tab, a search for
+  Antidote (Lesser), Buy, paid from the party fund (1 gp; the purse untouched), the formula in the book. After every
+  step the Funds tab's identity line held and matched the server: 40 = 40 + 0; 40 = 34 + 6 after the earmark (no
+  coins moved); 34 = 34 + 0 after the finish (12 gp spent, 6 of it drawn from the purse); 33 = 33 + 0 after the
+  purchase; reconciliation balanced and nothing pending throughout.
 
 #### Follow-ups (M5 on M4.1, low)
 
@@ -4460,6 +4509,19 @@ not run.
   - G9 reports "checklist" whenever another checklist key is open, which hides the spells fix buttons; key the
     actions on the missing spells instead.
   - A scroll order accepts more bought castings than it has scrolls.
+
+- Found in the M5 live pass (2026-10-26, low):
+  - Other plans still act on another client's write the moment it resolves (`m5-etch`: Player Two accepts 129 ms after
+    Player One files; `m5-services`: Player Two performs the Repair 54 ms after Player One hands the shield over); they
+    passed, but by timing. Put `m5.seen` before each step that reads a record another client just wrote.
+  - Plans that accept a failed Craft check (`m5-jobs`, `m5-etch`, `m5-upgrade-transfer`, `m5-precious`) check the
+    finish only `if` the order completed, so an order that never started passes as `m5-scroll` did; check that each
+    reached its check (complete or failed), as `m5-scroll` now does.
+  - The Funds ledger's row for a formula bought outside an order has an empty "For": name the formula and whose book.
+  - The Buy dialog says the price twice ("The formula for Antidote (Lesser) costs 1 gp." and "Price: 1 gp").
+  - The break-even reads "pays for itself after 1 Crafts" (the counts not made singular, M4 live pass follow-up).
+  - 17.1's README screenshots fall due with this pass, and `npm run screenshots` (`tools/harness/screenshots.mjs`, a
+    demo party with generic names) is not built yet; `m4-shots` and `m5-shots` show the fixture names.
 
 #### Follow-ups (M5, low)
 
@@ -5123,7 +5185,9 @@ churn watch come with M8a and the release workflow.
   window driven with real clicks and keys), described in 10.10.
 - As built in M5: scenario `m5` (`tools/harness/formula-scenarios.mjs`) and the behaviours `m5-buy`, `m5-ally-copy`,
   `m5-pick`, `m5-jobs`, `m5-etch`, `m5-upgrade-transfer`, `m5-precious`, `m5-scroll`, `m5-services`, `m5-ui` and
-  `m5-shots`, described in 10.11; not run yet. As built in M5 on M4.1: `m5-fund`, and the `acquire`, `fulfil`,
+  `m5-shots`, described in 10.11; first run in the M5 live pass (10.11), which added the step `seen` (wait until this
+  client's copy has a record another client wrote) and finds items by their source name too (`named`). As built in M5
+  on M4.1: `m5-fund`, and the `acquire`, `fulfil`,
   `buyCasting` and `service` steps take `paidFrom`; the server view adds each row's `alloc` and `order`, and the
   unallocated and earmarked totals.
 - As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
@@ -5313,7 +5377,7 @@ draft; the letters keep the existing milestone numbers stable.
 | M2 | Storage and sync | shared documents and bootstrap, schema and migrations, key-path store, responsible-client resolver, claims, `modifyBatch` coin moves, roster snapshots, deletion guards, purge, reconciliation | M1 |
 | M3 | Registry and roll wrapper | registry tiers 1-2, validation script, roll wrapper with reroll recording, Earn Income roll | M1, M2 |
 | M4 | Queue and Funds | Workshop shell, Queue and Funds tabs, order lifecycle, escrow and refunds, pickup shelf, chat cards, request drag and drop; built, with the 5.11 and 6.12 follow-ups (10.10) | M2, M3 |
-| M5 | Formulas | codex, families, provenance, acquisition jobs, picks owed, casting pledges, precious materials, service orders, rune etching, upgrades and transfers; built, live plans not yet run (10.11) | M4 |
+| M5 | Formulas | codex, families, provenance, acquisition jobs, picks owed, casting pledges, precious materials, service orders, rune etching, upgrades and transfers; built, live plans run (10.11, M5 live pass) | M4 |
 | M6 | Downtime | per-PC status, clock accrual and prompts, day resolver, Advance days wizard, Communal Crafting helpers, Earn Income jobs, settlement profiles | M4 |
 | M7 | Morning | daily sources panel, loadouts, standing orders, Talisman Dabbler and Esoterica lists, the Dabbler DC stamp, affix records, party-wide expiry, rest ordering, pf2e-dailies custom daily | M5 |
 | M8 | Combat | Bandolier, HUD palette, Quick Alchemy panel, quick vials, Quick Bomber, Healing Bomb, additives, vial gathering, turn expiry, Duct Tape step-aside, Use best consumable | M7 |

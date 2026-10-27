@@ -125,6 +125,23 @@ test("Learn a formula: the routes for a formula with their costs, and the break-
     assert.equal(codexState(app).seller, true);
 });
 
+test("a grade another known grade covers is crafted now: no route to acquire it (6.4; the live m5-shots plan expected routes there)", async () => {
+    // Core's fromUuidSync answers a compendium UUID with its index entry once the pack's index is loaded.
+    const real = globalThis.fromUuidSync;
+    globalThis.fromUuidSync = (uuid) => real(uuid) ?? INDEX.find((entry) => entry.uuid === uuid) ?? null;
+    try {
+        const app = fakeApp();
+        await onFormulaOp(app, { closest: () => ({ dataset: { op: "select", uuid: LESSER } }) });
+        const { codex } = await formulasContext(app);
+        const selected = codex.learn.selected;
+        assert.deepEqual([selected.name, selected.known, selected.route, selected.routes], ["Elixir of Life (Lesser)", false, "family", []]);
+        await onFormulaOp(app, { closest: () => ({ dataset: { op: "select", uuid: STRIKING } }) });
+        assert.ok((await formulasContext(app)).codex.learn.selected.routes.length >= 1, "a formula nothing covers has its routes");
+    } finally {
+        globalThis.fromUuidSync = real;
+    }
+});
+
 test("a formula on its way to the book (a claim not applied yet) shows as such, with no route to buy it again (5.5)", async () => {
     const { makeClaim } = await import("../../scripts/logic/claims.mjs");
     const claim = makeClaim({ kind: "formula", idem: "formula:x:vera:striking", actor: vera.uuid, uuid: STRIKING, route: "bought" }, { by: "gm", at: { real: 1 } });

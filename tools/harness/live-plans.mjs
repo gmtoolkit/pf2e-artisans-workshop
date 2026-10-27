@@ -1967,6 +1967,7 @@ async function m5AllyCopy(h, w) {
     await h.step("p1", "m5", "acquire", { uuid: ALCHEMISTS_FIRE, route: "buy" });
     const asked = await h.step("p2", "m5", "service", { kind: "formula-copy", performer: w.pcs.p1.uuid, uuid: ALCHEMISTS_FIRE });
     h.check("Player Two asks Player One for the formula", asked.ok === true && !!asked.service, asked);
+    await h.step("p1", "m5", "seen", { path: `services.${asked.service}` });
     const performed = await h.step("p1", "m5", "perform", { service: asked.service });
     h.check("Player One performs it: a claim for Player Two, not written by Player One's client", performed.result?.outcome === "claimed" &&
         performed.service?.status === "done", performed);
@@ -1976,6 +1977,7 @@ async function m5AllyCopy(h, w) {
     await h.step("p1", "m5", "acquire", { uuid: ANTIDOTE, route: "buy" });
     const second = await h.step("p2", "m5", "service", { kind: "formula-copy", performer: w.pcs.p1.uuid, uuid: ANTIDOTE });
     await h.only(["p1"]);
+    await h.step("p1", "m5", "seen", { path: `services.${second.service}` });
     const offline = await h.step("p1", "m5", "perform", { service: second.service });
     const waiting = await h.step("p1", "m5", "book", { actor: w.pcs.p2.uuid, ms: 2000 });
     h.check("with Player Two away and no GM, the claim waits unapplied", offline.result?.outcome === "claimed" && !waiting.book.includes(ANTIDOTE) &&
@@ -2076,7 +2078,7 @@ async function m5Etch(h, w) {
     await h.step("p1", "m5", "sweep", {});
     const mine = await h.step("p1", "m5", "state", { names: ["Longsword"], ms: 2000 });
     h.check("the sword comes back to Player One with a striking rune and no earmark", mine.mine.some((i) => i.runes?.striking === 1) &&
-        !mine.strongbox.some((i) => i.name === "Longsword"), { shelf, mine });
+        !mine.strongbox.some((i) => /Longsword/.test(i.name)), { shelf, mine });
     checkReconciles(h, await serverView(h, "gm", w));
     await checkStatuses(h);
     return { blocked, handed, crafted, mine };
@@ -2181,7 +2183,9 @@ async function m5Scroll(h, w) {
     const pledged = await h.step("gm", "m5", "pledge", { order: filed.order, caster: wizard, spell: spell.uuid, castings: 2 });
     const cast = await h.step("gm", "m5", "fulfil", { order: filed.order, caster: wizard });
     h.check("the GM pledges two castings from the wizard and marks them cast", pledged.ok === true && cast.order.pledges.every((p) => p.status === "fulfilled"), { pledged, cast });
+    await h.step("p2", "m5", "seen", { path: `orders.${filed.order}.pledges.${pledged.pledge}.status`, value: "fulfilled" });
     const crafted = await h.step("p2", "m5", "run", { order: filed.order });
+    h.check("the scroll order starts once its castings are cast: it completes or fails its check", ["complete", "failed"].includes(crafted.order?.status), crafted);
     if (crafted.order?.status === "complete") {
         await h.step("p2", "m5", "sweep", {});
         const mine = await h.step("p2", "m5", "state", { ms: 2000 });
@@ -2327,7 +2331,9 @@ async function m5Shots(h, w) {
             for (const size of sizes) {
                 const file = `m5-${role}-formulas-${size.width}x${size.height}-${scheme}.png`;
                 await h.screenshot(role, file, size, async () => {
-                    const open = await h.step(role, "m5", "open", { tab: "formulas", actor: w.pcs.p1.uuid, uuid: M5.elixirLesser });
+                    // Alchemist's Fire (Lesser): a formula Player One neither knows nor covers, so the tab shows its routes. Elixir of
+                    // Life (Lesser) is covered by the (Minor) bought above (6.4) and offers none.
+                    const open = await h.step(role, "m5", "open", { tab: "formulas", actor: w.pcs.p1.uuid, uuid: ALCHEMISTS_FIRE });
                     opened.push({ role, scheme, ...size, ...open });
                     return open;
                 });
