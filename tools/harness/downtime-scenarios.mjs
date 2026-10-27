@@ -82,11 +82,14 @@ function jobBrief(id) {
     };
 }
 
+/** The craft step's request: params.quantity (default 1) of params.uuid, crafted by and for `me`, delivered to the strongbox. */
+export const craftRequest = (p, me) => ({ uuid: p.uuid, quantity: p.quantity ?? 1, requester: me.uuid, crafter: me.uuid, recipient: { kind: "strongbox" } });
+
 /** The Advance days window as it is now: its step, the step's words, whether it offers the clock. */
 function wizardSnap(app) {
     const el = app?.element;
     return {
-        step: app?.state?.step ?? null, text: el?.querySelector(".wizard-body")?.innerText ?? "",
+        step: app?.wizard?.step ?? null, text: el?.querySelector(".wizard-body")?.innerText ?? "",
         clockOption: !!el?.querySelector("input[name='advanceClock']"), buttons: [...(el?.querySelectorAll("footer button") ?? [])].map((b) => b.dataset.action),
     };
 }
@@ -129,7 +132,7 @@ export const DOWNTIME_SCENARIOS = {
         wizard: {
             about: "any client: open the wizard (params.mode, params.actor) and drive it by params.script ({field, value} or {click}); each step's words",
             run: async (p) => {
-                const app = openAdvance({ mode: p.mode ?? "advance", actor: p.actor ?? null });
+                const app = await openAdvance({ mode: p.mode ?? "advance", actor: p.actor ?? null });
                 await waitFor(() => app.rendered, 8000);
                 await sleep(500);
                 const seen = [wizardSnap(app)];
@@ -146,7 +149,7 @@ export const DOWNTIME_SCENARIOS = {
                     await sleep(action.ms ?? 1000);
                     seen.push({ ...wizardSnap(app), after: action });
                 }
-                const result = app.state.result;
+                const result = app.wizard.result;
                 const out = { seen, result: result ? { ok: result.ok, toDay: result.toDay ?? null, clock: result.clock ?? null, results: (result.results ?? []).map(resultBrief) } : null };
                 if (p.close !== false) await app.close();
                 return out;
@@ -177,9 +180,9 @@ export const DOWNTIME_SCENARIOS = {
             await sleep(p.ms ?? 0);
             return orderBrief(p.order);
         } },
-        craft: { about: "the crafter's owner: request params.uuid crafted by the user's character, pledge params.pledge, start, setup days, roll and settle", run: async (p) => {
+        craft: { about: "the crafter's owner: request params.quantity (1) of params.uuid crafted by the user's character, pledge params.pledge, start, setup days, roll and settle", run: async (p) => {
             const me = game.user.character;
-            const filed = await orders.requestOrder({ uuid: p.uuid, requester: me.uuid, crafter: me.uuid, recipient: { kind: "strongbox" } });
+            const filed = await orders.requestOrder(craftRequest(p, me));
             const id = filed.orders?.[0];
             if (!id) return { filed: plain(filed) };
             if (p.pledge) await orders.pledgeTo(id, me.uuid, p.pledge);

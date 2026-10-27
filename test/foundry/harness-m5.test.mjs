@@ -71,3 +71,20 @@ test("seen: waits for a record another client writes, and reports one that never
     assert.deepEqual(await seen("services.none", { ms: 300 }), { ok: false, value: null });
     assert.equal((await steps.seen.run({ path: "services.s1.status", value: "open", ms: 300 })).ok, true, "the step is the helper");
 });
+
+test("m5-buy counts the formula cards it posted, not the ones earlier runs left in the dev world's chat log (M6 live pass)", async () => {
+    const { pageCards } = await import("../../tools/harness/live-plans.mjs");
+    const card = (id, kind) => ({ id, flags: { "pf2e-artisans-workshop": { card: { kind } } } });
+    const log = [card("a", "formula"), card("b", "formula"), card("c", "order")];
+    const real = Object.getOwnPropertyDescriptor(game, "messages");
+    Object.defineProperty(game, "messages", { configurable: true, value: { filter: (fn) => log.filter(fn), map: (fn) => log.map(fn) } });
+    try {
+        const earlier = pageCards({ mod: "pf2e-artisans-workshop", kind: "formula" });
+        assert.deepEqual([earlier.cards, earlier.messages, earlier.ids], [2, 3, ["a", "b", "c"]]);
+        log.push(card("d", "formula"), { id: "e", flags: {} });
+        const after = pageCards({ mod: "pf2e-artisans-workshop", kind: "formula", since: earlier.ids });
+        assert.deepEqual([after.cards, after.messages], [1, 2], "one card posted since, of two messages");
+    } finally {
+        Object.defineProperty(game, "messages", real);
+    }
+});

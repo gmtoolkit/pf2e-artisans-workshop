@@ -394,10 +394,10 @@ test("the wizard's Resolve the rest resolves through the day the first commit re
     await downtime.setActivity(vera.uuid, { kind: "subsist" });
     const app = new AdvanceDaysApp({ mode: "advance" });
     app.render = async () => {};
-    app.state.count = 2;
+    app.wizard.count = 2;
     const commit = AdvanceDaysApp.DEFAULT_OPTIONS.actions.commit;
     await commit.call(app);
-    assert.deepEqual([downtime.today().day, app.state.toDay, app.state.step], [2, 2, "done"]);
+    assert.deepEqual([downtime.today().day, app.wizard.toDay, app.wizard.step], [2, 2, "done"]);
     await commit.call(app);
     assert.equal(downtime.today().day, 2, "the second commit adds no days");
     assert.equal(records("days").length, 2);
@@ -494,11 +494,11 @@ test("two players advancing a day at once advance one: the later commit finds th
     app.render = async () => {};
     const { next, commit } = AdvanceDaysApp.DEFAULT_OPTIONS.actions;
     await as("p2", () => next.call(app));
-    assert.deepEqual(app.state.pin, { base: 1, span: { fromDay: 2, toDay: 2, advances: 1 } });
+    assert.deepEqual(app.wizard.pin, { base: 1, span: { fromDay: 2, toDay: 2, advances: 1 } });
     await downtime.advanceDays({ count: 1 });
     await as("p2", () => commit.call(app));
-    assert.deepEqual([app.state.step, app.state.pin, downtime.today().day], ["span", null, 2], "back to the span, the day advanced once");
-    assert.match(app.state.notice, /Refusal\.Moved .*"day":"2"/, "saying the day it is now");
+    assert.deepEqual([app.wizard.step, app.wizard.pin, downtime.today().day], ["span", null, 2], "back to the span, the day advanced once");
+    assert.match(app.wizard.notice, /Refusal\.Moved .*"day":"2"/, "saying the day it is now");
     assert.equal(records("days").length, 2, "Vera's days 1 and 2, once each");
 });
 

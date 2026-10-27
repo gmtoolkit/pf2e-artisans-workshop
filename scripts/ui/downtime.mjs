@@ -136,13 +136,40 @@ function jobForm(state) {
     // What the user typed stands, above the cap too, so Start refuses it with the cap rather than quietly lowering it.
     const level = Number.isInteger(state.jobLevel) ? state.jobLevel : Math.min(max, actor.level ?? 0);
     const pay = (degree) => money(wagePerDay({ taskLevel: level, rank: skill.rank, degree, skill: skill.slug }));
+    const dc = showDcs() ? jobDC(level, skill.slug) : null;
+    const preview = fmt("pf2e-artisans-workshop.Job.Preview", { crit: pay(DEGREE.critSuccess), success: pay(DEGREE.success), fail: pay(DEGREE.fail) });
     return {
         actors: actors.map((a) => ({ uuid: a.uuid, name: a.name, selected: a === actor })),
         skills: skills.map((s) => ({ slug: s.slug, label: s.label, rank: rankName(s.rank), selected: s === skill })),
-        level, max, dc: showDcs() ? jobDC(level, skill.slug) : null, unconfirmed: !profile,
-        pay: { crit: pay(DEGREE.critSuccess), success: pay(DEGREE.success), fail: pay(DEGREE.fail) },
+        level, max, dc, unconfirmed: !profile,
+        preview: dc ? `${fmt("pf2e-artisans-workshop.Job.PreviewDc", { dc })} ${preview}` : preview,
         ready: canWrite(),
     };
+}
+
+/**
+ * The task level typed in the job form: kept in the tab's state, and the DC and pay it leads to updated in place. Not a
+ * render: one as the field loses focus would replace "Take this job" between the press and the click, and the click would
+ * be lost (10.9; the wizard's number of days works the same way).
+ */
+function jobLevelTyped(app, target) {
+    const state = downtimeState(app);
+    state.jobLevel = whole(target.value);
+    const line = target.closest?.(".job-form")?.querySelector(".job-preview");
+    const form = line ? jobForm(state) : null;
+    if (line && form?.preview) line.textContent = form.preview;
+}
+
+/**
+ * A settlement's highest task level typed in the profile form: kept, and the exception's level field, while the user has
+ * not typed one, follows it in place. Not a render, for the same reason as `jobLevelTyped` ("Save settlement").
+ */
+function profileLevelTyped(app, target) {
+    const state = downtimeState(app);
+    if (!state.profile) return;
+    state.profile.level = whole(target.value) ?? state.profile.level;
+    const cap = target.closest?.(".profile-form")?.querySelector("input[name='capLevel']");
+    if (cap && !Number.isInteger(state.capLevel)) cap.value = String(state.profile.level);
 }
 
 /** The current settlement and the choice of it. */
@@ -305,13 +332,13 @@ export function onDowntimeInput(app, target) {
             if (state.profile) state.profile[target.name === "profileName" ? "name" : "notes"] = target.value;
             return true;
         case "profileLevel":
-            if (state.profile) state.profile.level = whole(target.value) ?? state.profile.level;
+            profileLevelTyped(app, target);
             return true;
         case "capLevel":
             state.capLevel = whole(target.value);
             return true;
         case "jobLevel":
-            state.jobLevel = whole(target.value);
+            jobLevelTyped(app, target);
             return true;
         default:
             return false;
@@ -337,8 +364,8 @@ export async function onDowntimeChange(app, target) {
             Object.assign(state, { jobSkill: target.value, jobLevel: null });
             return true;
         case "jobLevel":
-            state.jobLevel = whole(target.value);
-            return true;
+            jobLevelTyped(app, target);
+            return false;
         case "profileName":
         case "profileNotes":
             if (state.profile) state.profile[target.name === "profileName" ? "name" : "notes"] = target.value;
@@ -347,8 +374,8 @@ export async function onDowntimeChange(app, target) {
             if (state.profile) state.profile.size = target.value;
             return true;
         case "profileLevel":
-            if (state.profile) state.profile.level = whole(target.value) ?? state.profile.level;
-            return true;
+            profileLevelTyped(app, target);
+            return false;
         case "capSkill":
             state.capSkill = target.value;
             return false;

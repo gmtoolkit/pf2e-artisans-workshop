@@ -23,6 +23,8 @@ CONFIG.PF2E = { skills: { crafting: { label: "Crafting" } }, rarityTraits: {} };
 
 foundry.applications.api.ApplicationV2 = class {
     constructor(options = {}) { this.options = options; this.tabGroups = { primary: "queue" }; this.window = {}; this.children = []; }
+    /** Foundry 14's render state: a getter with no setter (`ApplicationV2#state`), so a subclass cannot assign `this.state`. */
+    get state() { return 0; }
     async _prepareContext() { return { tabs: {} }; }
     async _preparePartContext(_partId, context) { return context; }
     _preSyncPartState() {}
@@ -42,7 +44,7 @@ const { WorkshopApp, registerWindowHooks } = await import("../../scripts/ui/work
 const { focusSelector } = await import("../../scripts/ui/focus.mjs");
 const { AdvanceDaysApp } = await import("../../scripts/ui/advance.mjs");
 const { dayLines, spanText, stopText } = await import("../../scripts/ui/days.mjs");
-const { helpersContext, pendingBadge } = await import("../../scripts/ui/downtime.mjs");
+const { helpersContext, onDowntimeChange, onDowntimeInput, pendingBadge } = await import("../../scripts/ui/downtime.mjs");
 
 settings.registerSettings({ enabled: () => {}, docs: () => {} });
 
@@ -111,23 +113,33 @@ test("an order's helpers: their share a day, their own buttons, and Help with th
     assert.deepEqual([crafterView.list[0].canAccept, crafterView.list[0].waiting], [true, true]);
 });
 
+test("the wizard and the resolver open under Foundry 14's ApplicationV2, whose render state is a getter (M6 live pass)", () => {
+    world.currentUser = "p1";
+    // Assigning `this.state` in the constructor threw "Cannot set property state ... which has only a getter", so neither
+    // Advance days nor Resolve days ever opened in a live world; the wizard keeps its own state as `wizard`.
+    const app = new AdvanceDaysApp({ mode: "advance" });
+    assert.equal(app.wizard.step, "span");
+    assert.equal(app.state, 0, "core's render state is left alone");
+    assert.equal(new AdvanceDaysApp({ mode: "resolve", actor: bo.uuid }).wizard.step, "who");
+});
+
 test("the wizard's steps: how many days, who does what with a preview, checks due, review; the resolver skips the span", async () => {
     world.currentUser = "p1";
     const app = new AdvanceDaysApp({ mode: "advance" });
     let context = await app._prepareContext({});
     assert.deepEqual(context.stepper.map((s) => s.id), ["span", "who", "checks", "review", "done"]);
     assert.equal(context.span.from + " " + context.span.to, "Today is workshop day 2. It becomes day 3.");
-    app.state.step = "who";
+    app.wizard.step = "who";
     context = await app._prepareContext({});
     const vera_ = context.who.find((w) => w.name === "Vera");
     assert.equal(vera_.span, "2 days (days 2 to 3)");
     assert.equal(vera_.willWrite, "2 days (days 2 to 3)");
     const bo_ = context.who.find((w) => w.name === "Bo");
     assert.match(bo_.stop, /helping with Striking rune/, "Bo helps Vera, so his days go to her order until he leaves it");
-    app.state.step = "checks";
+    app.wizard.step = "checks";
     context = await app._prepareContext({});
     assert.deepEqual(context.checks.due.map((d) => [d.kind, d.canRoll]), [["earn", false]], "Bo's check, which only his player rolls");
-    app.state.step = "review";
+    app.wizard.step = "review";
     context = await app._prepareContext({});
     assert.deepEqual(context.review.find((r) => r.name === "Vera").lines, ["2 days of work on Striking rune: up to 2 gp 6 sp off what is left to pay"], "her 1 gp and Bo's 3 sp a day");
     const resolver = new AdvanceDaysApp({ mode: "resolve", actor: bo.uuid });
@@ -207,7 +219,7 @@ test("the wizard keeps focus on the same character's choice, renders nothing whi
     app._syncPartState("body", part(null, { 'select[name="assign"]': fakeEl("select"), [`select[name="assign"][data-actor="${bo.id}"]`]: again }), null, state);
     assert.equal(again.calls.length, 1);
     assert.equal(app.fieldChanged({ name: "count", value: "3" }), false, "the day line is updated in place; Next stays where it was");
-    assert.equal(app.state.count, 3);
+    assert.equal(app.wizard.count, 3);
     assert.equal(app.fieldChanged({ name: "assign", value: "subsist", dataset: { actor: bo.id } }), true);
     let renders = 0;
     app.render = async () => { renders += 1; };
@@ -234,11 +246,11 @@ test("the day resolver asks for an activity when the character has none, and say
     assert.equal(context.blocked, true);
     assert.equal(who.choose, "Choose what Bo spends these days on, then go on.");
     await AdvanceDaysApp.DEFAULT_OPTIONS.actions.next.call(app);
-    assert.equal(app.state.step, "who", "Next waits for a choice");
+    assert.equal(app.wizard.step, "who", "Next waits for a choice");
     app.fieldChanged({ name: "assign", value: "not-downtime", dataset: { actor: bo.id } });
     assert.equal((await app._prepareContext({})).blocked, false);
     const advance = new AdvanceDaysApp({ mode: "advance" });
-    advance.state.step = "review";
+    advance.wizard.step = "review";
     const review = (await advance._prepareContext({})).review;
     assert.equal(review.find((r) => r.name === "Bo").skipped, "Left for their player to resolve: nothing is written for these days.",
         "the wizard says when it leaves a character's days");
@@ -270,4 +282,31 @@ test("the clock moving within a day renders nothing; a new day renders the day, 
     app.render = (options) => { parts = options.parts; };
     app.refreshDay();
     assert.deepEqual(parts, ["header", "downtime", "nav"], "Bo has days to resolve: the badge changes too");
+});
+
+test("typing a job's task level or a settlement's level updates the form in place: no render to swallow the click on Take this job or Save (M6 live pass)", async () => {
+    const app = new WorkshopApp();
+    const preview = { textContent: "" };
+    const cap = { value: "4" };
+    const form = { querySelector: (sel) => ({ ".job-preview": preview, "input[name='capLevel']": cap })[sel] ?? null };
+    const field = (name, value) => ({ name, value, closest: () => form });
+    const jobForm = async () => (await app._preparePartContext("downtime", { ...(await app._prepareContext({})) }, {})).downtime.jobForm;
+    // The click on "Take this job" right after typing: the field's change event came first and rendered the tab, the button
+    // under the pointer was replaced between the press and the release, and no job was started.
+    assert.equal(await onDowntimeChange(app, field("jobLevel", "2")), false, "no render as the field loses focus");
+    assert.equal(app.downtime.jobLevel, 2);
+    const two = await jobForm();
+    assert.equal(two.level, 2);
+    assert.equal(preview.textContent, two.preview, "the DC and pay follow the level in place");
+    assert.match(two.preview, /^DC \d+\. Pay per day: .+ on a critical success, .+ on a success, .+ on a failure\.$/);
+    assert.equal(onDowntimeInput(app, field("jobLevel", "1")), true, "typing is kept without a render");
+    assert.equal(preview.textContent, (await jobForm()).preview);
+    assert.notEqual(preview.textContent, two.preview);
+    world.currentUser = "gm00000000000000";
+    app.downtime.profile = { id: null, name: "", size: "town", level: 4, caps: {}, notes: "" };
+    assert.equal(await onDowntimeChange(app, field("profileLevel", "6")), false, "no render before Save settlement");
+    assert.deepEqual([app.downtime.profile.level, cap.value], [6, "6"], "the exception's level follows while the user has not typed one");
+    app.downtime.capLevel = 3;
+    onDowntimeInput(app, field("profileLevel", "7"));
+    assert.deepEqual([app.downtime.profile.level, cap.value], [7, "6"], "a level typed for the exception stays");
 });

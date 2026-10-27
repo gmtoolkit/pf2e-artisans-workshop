@@ -31,6 +31,12 @@ const COINS = { gp: 100, sp: 50, cp: 100 };
 
 /** A compendium item to put in the strongbox: Elixir of Life (Minor), as in `sync-scenarios.mjs`. */
 const ELIXIR = "Compendium.pf2e.equipment-srd.Item.hDLbR56Id2OtU318";
+/**
+ * What `m6-communal` crafts: two Elixirs of Life (Lesser), 30 gp each, so 30 gp is left to pay after the up-front half.
+ * A day of Player One's alchemist and Player Two's helper together takes off far less, so the plan's two work days both
+ * fall before the order is paid off; one Elixir of Life (Minor) (1 gp 5 sp left) was paid off by the first day.
+ */
+export const COMMUNAL_ORDER = Object.freeze({ uuid: "Compendium.pf2e.equipment-srd.Item.TZUskLT7yvP7N2co", quantity: 2, pledge: 3000 });
 /** Alchemist Goggles (Player Core 2): +1 item bonus to Craft alchemical items, predicated on `item:trait:alchemical`. */
 const GOGGLES = "Compendium.pf2e.equipment-srd.Item.7JVgLiNTAs4clEW8";
 /** Blood Sight Elixir (Lesser): an uncommon 3rd-level alchemical consumable, for the rarity DC. */
@@ -1915,9 +1921,14 @@ const M5 = Object.freeze({
     runestone: "Compendium.pf2e.equipment-srd.Item.ev3F9qlMNlNdCOAI",
 });
 
-/** In the page: the Workshop's chat cards of a kind, and every message, counted. */
-function pageCards({ mod, kind }) {
-    return { cards: game.messages.filter((m) => m.flags?.[mod]?.card?.kind === kind).length, messages: game.messages.size };
+/**
+ * In the page: the Workshop's chat cards of a kind, and every message, counted; given `since` (the `ids` of an earlier
+ * count), only the messages posted after it, since the dev world's chat log keeps the cards of every earlier run.
+ */
+export function pageCards({ mod, kind, since = null }) {
+    const before = new Set(since ?? []);
+    const messages = game.messages.filter((m) => !before.has(m.id));
+    return { cards: messages.filter((m) => m.flags?.[mod]?.card?.kind === kind).length, messages: messages.length, ids: game.messages.map((m) => m.id) };
 }
 
 /** Every M5 plan starts here: the world reset, the M5 items taken back and the books restored, a lab in the strongbox. */
@@ -1939,6 +1950,7 @@ async function m5Buy(h, w) {
     await m5Reset(h, w);
     await h.only(["gm", "p2"]);
     await h.settle("ready");
+    const earlier = await h.evaluate("p2", pageCards, { mod: MOD, kind: "formula" }, "formula cards before");
     const bought = await h.step("p2", "m5", "acquire", { uuid: ANTIDOTE, route: "buy" });
     h.check("the purchase lands: 1 gp from Player Two's purse", bought.result?.ok === true && bought.paid === 100, bought);
     h.check("the formula is in the book with provenance bought", bought.book.includes(ANTIDOTE) && routeIn(bought, ANTIDOTE) === "bought", bought);
@@ -1946,7 +1958,7 @@ async function m5Buy(h, w) {
     h.check("a second buy is refused: known", again.result?.reason === "known", again.result);
     const seen = await h.step("gm", "m5", "book", { actor: w.pcs.p2.uuid, ms: 1500 });
     h.check("the GM sees the same book, one claim resolved and applied", seen.book.includes(ANTIDOTE) && seen.claims.length === 1 && seen.claims[0].applied, seen);
-    const cards = await h.evaluate("p2", pageCards, { mod: MOD, kind: "formula" }, "formula cards");
+    const cards = await h.evaluate("p2", pageCards, { mod: MOD, kind: "formula", since: earlier.ids }, "formula cards");
     h.check("a Formula learned card was posted once", cards.cards === 1, cards);
     const view = await serverView(h, "gm", w);
     h.check("server: one applied purchase row", view.rows.filter((r) => r.kind === "purchase" && r.state === "applied").length === 1, view.rows);
@@ -2513,7 +2525,7 @@ async function m6WizardPlayers(h, w) {
 }
 
 /**
- * Communal Crafting (6.7): the GM gives Player One's alchemist the feat; Player One crafts an Elixir of Life (Minor) to
+ * Communal Crafting (6.7): the GM gives Player One's alchemist the feat; Player One crafts two Elixirs of Life (Lesser) to
  * `finishing`; Player Two's fighter crafter joins with Crafting and rolls against the item's DC; two work days carry the
  * helper's share at (level - 1) and their rank; Player Two leaves and forfeits it (the default); rejoining is refused.
  */
@@ -2522,7 +2534,7 @@ async function m6Communal(h, w) {
     await h.step("gm", "m5", "give", { actor: w.pcs.p1.uuid, uuid: COMMUNAL_CRAFTING });
     await h.only(["gm", "p1", "p2"]);
     await h.settle("ready");
-    const craft = await h.step("p1", "m6", "craft", { uuid: ELIXIR, pledge: 300 });
+    const craft = await h.step("p1", "m6", "craft", COMMUNAL_ORDER);
     const finishing = craft.brief?.status === "finishing";
     h.check("Player One's order reaches finishing (or its check failed, which the plan accepts)", finishing || craft.brief?.status === "failed", craft);
     if (!finishing) return { craft };

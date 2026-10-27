@@ -968,7 +968,7 @@
   "pf2e-artisans-workshop.Settlement.Profiles": "Settlements (GM)",
   "pf2e-artisans-workshop.Settlement.ProfilesHint": "Each settlement sets the highest Earn Income task level it offers, with exceptions for particular skills. Players choose which one the party is in.",
   "pf2e-artisans-workshop.Settlement.Name": "Name",
-  "pf2e-artisans-workshop.Settlement.Size": "Size",
+  "pf2e-artisans-workshop.Settlement.Size.Label": "Size",
   "pf2e-artisans-workshop.Settlement.Level": "Highest task level",
   "pf2e-artisans-workshop.Settlement.Exceptions": "Exceptions by skill",
   "pf2e-artisans-workshop.Settlement.ExceptionSkill": "Skill",

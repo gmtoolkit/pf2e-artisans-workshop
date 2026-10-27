@@ -50,6 +50,9 @@ until 1.0: every string is rewritten before the first release, and these capture
 ![Formulas](docs/screenshots/formulas.png)\
 *Formulas: a character's book by family, where each formula came from, and the ways to learn another.*
 
+![Downtime](docs/screenshots/downtime.png)\
+*Downtime: the workshop day, a character's days and what they go to, the party's settlement, and an Earn Income job with its pay.*
+
 ![The Queue in the light theme](docs/screenshots/queue-light.png)\
 *The Queue in the light theme, with a finished order's cost summary.*
 
@@ -159,8 +162,10 @@ help; `m6-income` pays an Earn Income job from Player Two on two devices; `m6-se
 `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN.md 17.1) takes the README's screenshots in the same dev
 world, through the same driver. It copies four fixture actors into a demo party with generic names (Player One plays the
 alchemist, Player Two the fighter), makes them the party and the players' characters, stages orders in every state, money
-in the party fund and three formulas, and captures the Workshop window cropped to its frame as Player One at 1440x900:
-the Queue with an order's detail, the request form, Funds and Formulas in the dark theme, and the Queue in the light one.
+in the party fund, three formulas and downtime (a settlement, two days of an Earn Income job, a day to resolve on an
+order; the GM moves the world clock forward, so use the dev world), and captures the Workshop window cropped to its frame
+as Player One at 1440x900: the Queue with an order's detail, the request form, Funds, Formulas and Downtime in the dark
+theme, and the Queue in the light one.
 Each capture is checked for raw i18n keys, fixture names and overflowing boxes, compressed with ImageMagick's `magick`
 when it is installed (to 256 colours only if it would be over 400 KiB), and written to `docs/screenshots/` (`--out` for
 elsewhere; `--results` for the run's JSON). Then it gives the party and the users their own characters back, deletes the

@@ -9,6 +9,8 @@
  *   `pf2e-artisans-workshop.Xxx` string: keys are written out in full (ESLint rejects one built from
  *   `MODULE_ID`), and their first segment is capitalised (`tools/check-strings.mjs` rejects any other),
  *   which tells them apart from hook and query names such as `pf2e-artisans-workshop.ready`.
+ * - No key of `lang/en.json` is also the group of another (`A.B` beside `A.B.C`): Foundry expands the keys into nested
+ *   objects and drops the whole file when one is both.
  *
  *   node tools/check-source.mjs
  */
@@ -81,6 +83,26 @@ export function missingKeys(text, lang) {
     return [...text.matchAll(KEY_REFERENCE)].map((match) => match[1]).filter((key) => !(key in lang));
 }
 
+/**
+ * Keys of `lang` that another key nests under (`A.B` beside `A.B.C`). Foundry expands the dotted keys of a language file
+ * into nested objects (`Localization#loadTranslationFile`, `foundry.utils.expandObject`); a key that is both a string and
+ * a group makes that throw, and Foundry then drops the whole file, so every string shows as its raw key.
+ * @returns {string[]} each such key, with the first key under it
+ */
+export function nestingConflicts(lang) {
+    const keys = Object.keys(lang);
+    const leaves = new Set(keys);
+    const conflicts = new Map();
+    for (const key of keys) {
+        const parts = key.split(".");
+        for (let i = 1; i < parts.length; i++) {
+            const prefix = parts.slice(0, i).join(".");
+            if (leaves.has(prefix) && !conflicts.has(prefix)) conflicts.set(prefix, key);
+        }
+    }
+    return [...conflicts].map(([key, under]) => `"${key}" is a string and also holds "${under}"`);
+}
+
 /** Files under `dir` (relative to `root`) whose name ends with one of `extensions`. */
 function filesIn(root, dir, extensions) {
     const start = join(root, dir);
@@ -99,6 +121,7 @@ export function checkSource(root) {
     const problems = [];
     const lang = readLang(root, problems);
     if (!lang) return problems;
+    for (const conflict of nestingConflicts(lang)) problems.push(`lang/en.json: ${conflict} (Foundry would drop the whole file)`);
 
     for (const file of filesIn(root, "templates", [".hbs"])) {
         const text = readFileSync(join(root, file), "utf8");

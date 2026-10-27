@@ -80,7 +80,8 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
      */
     constructor({ mode = "advance", actor = null, ...options } = {}) {
         super(options);
-        this.state = {
+        // Not `state`: that is ApplicationV2's render state, a getter with no setter (Foundry 14).
+        this.wizard = {
             mode, actor, step: STEPS[mode][0], kind: "days", count: 1, advanceClock: false, assignments: {}, result: null, toDay: null, busy: false,
             pin: null, notice: null, skipped: [],
         };
@@ -97,7 +98,7 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     /** Render again after live updates stop for a moment, but not while a field has focus (10.9). */
     refresh = foundry.utils.debounce(() => {
-        if (!this.rendered || this.state.busy) return;
+        if (!this.rendered || this.wizard.busy) return;
         const active = this.element?.ownerDocument?.activeElement;
         if (active && FIELDS.includes(active.tagName) && this.element.contains(active)) {
             this.#stale = true;
@@ -108,13 +109,13 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }, 150);
 
     get steps() {
-        return STEPS[this.state.mode];
+        return STEPS[this.wizard.mode];
     }
 
     /** The resolver says whose days it resolves (the wizard's title otherwise). */
     get title() {
-        if (this.state?.mode !== "resolve") return super.title;
-        return fmt("pf2e-artisans-workshop.Wizard.ResolveTitle", { name: actorOf(this.state.actor)?.name ?? "" });
+        if (this.wizard?.mode !== "resolve") return super.title;
+        return fmt("pf2e-artisans-workshop.Wizard.ResolveTitle", { name: actorOf(this.wizard.actor)?.name ?? "" });
     }
 
     /**
@@ -123,11 +124,11 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
      * wizard's count of days from today.
      */
     span(now) {
-        if (this.state.toDay !== null) return { fromDay: null, toDay: this.state.toDay, advances: 0 };
-        if (this.state.pin) return this.state.pin.span;
-        if (this.state.mode === "resolve") return { fromDay: null, toDay: now.day, advances: 0 };
+        if (this.wizard.toDay !== null) return { fromDay: null, toDay: this.wizard.toDay, advances: 0 };
+        if (this.wizard.pin) return this.wizard.pin.span;
+        if (this.wizard.mode === "resolve") return { fromDay: null, toDay: now.day, advances: 0 };
         try {
-            return wizardSpan({ day: now.day, kind: this.state.kind, count: Math.max(1, this.state.count) });
+            return wizardSpan({ day: now.day, kind: this.wizard.kind, count: Math.max(1, this.wizard.count) });
         } catch {
             return wizardSpan({ day: now.day, kind: "days", count: 1 });
         }
@@ -135,12 +136,12 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     /** The PCs the wizard covers, with their days in the span, their assignment, and what it would write. */
     entries(now, span) {
-        const pcs = this.state.mode === "resolve" ? [actorOf(this.state.actor)].filter(Boolean) : downtimeMembers();
+        const pcs = this.wizard.mode === "resolve" ? [actorOf(this.wizard.actor)].filter(Boolean) : downtimeMembers();
         return pcs.map((actor) => {
             const status = statusOf(actor);
             const days = openDaysThrough({ status, resolved: resolvedOf(actor), day: now.day, toDay: span.toDay });
             // The wizard leaves a PC with no activity to its owner; the resolver asks for one.
-            const value = this.state.assignments[actor.id] ?? (activityKey(status.activity) || (this.state.mode === "resolve" ? "" : "skip"));
+            const value = this.wizard.assignments[actor.id] ?? (activityKey(status.activity) || (this.wizard.mode === "resolve" ? "" : "skip"));
             const choice = choiceOf(value);
             const activity = choice === "not-downtime" ? null : choice === "skip" || choice === null ? undefined : choice;
             const plan = days.length && activity !== undefined ? previewDays(actor, days, activity) : null;
@@ -153,10 +154,10 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const now = today();
         const span = this.span(now);
         const entries = this.entries(now, span);
-        const step = this.state.step;
+        const step = this.wizard.step;
         const index = this.steps.indexOf(step);
         return Object.assign(context, {
-            step, ready: canWrite(), isGM: game.user.isGM, mode: this.state.mode, busy: this.state.busy,
+            step, ready: canWrite(), isGM: game.user.isGM, mode: this.wizard.mode, busy: this.wizard.busy,
             stepper: this.steps.map((s, i) => ({ id: s, label: loc(STEP_KEY[s]), current: s === step, done: i < index, n: number(i + 1) })),
             first: index === 0, lastBeforeDone: step === "review", isDone: step === "done",
             blocked: step === "who" && entries.some((e) => e.needsChoice),
@@ -171,16 +172,16 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     #spanContext(now, span) {
         return {
-            kind: this.state.kind, count: this.state.count, advanceClock: this.state.advanceClock,
+            kind: this.wizard.kind, count: this.wizard.count, advanceClock: this.wizard.advanceClock,
             from: fmt("pf2e-artisans-workshop.Wizard.Today", { day: number(now.day) }),
             to: span.advances > 0 ? fmt("pf2e-artisans-workshop.Wizard.Becomes", { day: number(span.toDay) }) : loc("pf2e-artisans-workshop.Wizard.Stays"),
             ahead: now.ahead > 0 ? fmt("pf2e-artisans-workshop.Wizard.Ahead", { n: number(now.ahead) }) : null,
-            notice: this.state.notice,
+            notice: this.wizard.notice,
         };
     }
 
     #whoContext(entries) {
-        const resolve = this.state.mode === "resolve";
+        const resolve = this.wizard.mode === "resolve";
         return entries.map(({ actor, days, value, plan, needsChoice }) => {
             const locked = plan?.stop?.reason === "locked" ? plan.stop.ref : null;
             const options = activityOptions(actor, value, { extra: resolve ? ["not-downtime"] : ["skip", "not-downtime"] });
@@ -239,7 +240,7 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
 
     #doneContext() {
-        const result = this.state.result;
+        const result = this.wizard.result;
         if (!result) return null;
         if (!result.ok) return { refused: true };
         return {
@@ -248,7 +249,7 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
             pcs: [...(result.results ?? []).map((r) => ({
                 name: r.actor.name, span: spanText(r.records ?? []), lines: dayLines(r.records ?? []), stop: r.stop ? stopText(r.stop) : null,
                 refused: r.ok === false ? (r.reason === "taken" ? loc("pf2e-artisans-workshop.Wizard.Taken") : loc("pf2e-artisans-workshop.Refusal.Other")) : null,
-            })), ...this.state.skipped.map((name) => ({ name, skipped: loc("pf2e-artisans-workshop.Wizard.Skipped"), lines: [] }))],
+            })), ...this.wizard.skipped.map((name) => ({ name, skipped: loc("pf2e-artisans-workshop.Wizard.Skipped"), lines: [] }))],
             rest: (result.results ?? []).some((r) => r.stop),
         };
     }
@@ -321,10 +322,10 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
     fieldChanged(target) {
         switch (target?.name) {
             case "kind":
-                this.state.kind = target.value === "since" ? "since" : "days";
+                this.wizard.kind = target.value === "since" ? "since" : "days";
                 return true;
             case "count": {
-                this.state.count = Math.max(1, Math.min(365, Number.parseInt(target.value, 10) || 1));
+                this.wizard.count = Math.max(1, Math.min(365, Number.parseInt(target.value, 10) || 1));
                 const now = today();
                 const span = this.#spanContext(now, this.span(now));
                 const line = this.element?.querySelector?.(".wizard-span-day");
@@ -332,11 +333,11 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
                 return false;
             }
             case "advanceClock":
-                this.state.advanceClock = target.checked === true;
+                this.wizard.advanceClock = target.checked === true;
                 return false;
             case "assign":
                 if (!target.dataset?.actor) return false;
-                this.state.assignments[target.dataset.actor] = target.value;
+                this.wizard.assignments[target.dataset.actor] = target.value;
                 return true;
             default:
                 return false;
@@ -345,20 +346,20 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     /** Leave a step: the span is fixed when leaving the first one; the resolver waits for an activity to be chosen. */
     static #onNext() {
-        const index = this.steps.indexOf(this.state.step);
+        const index = this.steps.indexOf(this.wizard.step);
         const now = today();
-        if (this.state.step === "who" && this.entries(now, this.span(now)).some((e) => e.needsChoice)) return null;
-        if (index === 0 && this.state.toDay === null) this.state.pin = { base: now.day, span: this.span(now) };
-        this.state.notice = null;
-        this.state.step = this.steps[Math.min(index + 1, this.steps.length - 1)];
+        if (this.wizard.step === "who" && this.entries(now, this.span(now)).some((e) => e.needsChoice)) return null;
+        if (index === 0 && this.wizard.toDay === null) this.wizard.pin = { base: now.day, span: this.span(now) };
+        this.wizard.notice = null;
+        this.wizard.step = this.steps[Math.min(index + 1, this.steps.length - 1)];
         this.#stepFocus = true;
         return this.render();
     }
 
     static #onBack() {
-        const index = this.steps.indexOf(this.state.step);
-        this.state.step = this.steps[Math.max(index - 1, 0)];
-        if (index - 1 <= 0 && this.state.toDay === null) this.state.pin = null;
+        const index = this.steps.indexOf(this.wizard.step);
+        this.wizard.step = this.steps[Math.max(index - 1, 0)];
+        if (index - 1 <= 0 && this.wizard.toDay === null) this.wizard.pin = null;
         this.#stepFocus = true;
         return this.render();
     }
@@ -368,8 +369,8 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
      * asked, the clock. If the day moved on meanwhile, nothing is written and the wizard goes back to the span.
      */
     static async #onCommit() {
-        if (this.state.busy) return null;
-        this.state.busy = true;
+        if (this.wizard.busy) return null;
+        this.wizard.busy = true;
         try {
             const now = today();
             const span = this.span(now);
@@ -377,30 +378,30 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
             const assignments = {};
             for (const entry of entries) assignments[entry.actor.id] = choiceOf(entry.value);
             let result;
-            if (this.state.mode === "resolve") {
-                const actor = actorOf(this.state.actor);
+            if (this.wizard.mode === "resolve") {
+                const actor = actorOf(this.wizard.actor);
                 const choice = assignments[actor?.id] ?? null;
                 const single = choice && choice !== "skip" ? await resolveDays({ actor, activity: choice, through: span.toDay }) : { ok: true, records: [], stop: null };
                 result = { ok: single.ok !== false, toDay: null, clock: null, results: actor ? [{ actor, ...single }] : [] };
             } else {
                 // Once committed, "Resolve the rest" resolves through the day the first commit reached; it never advances again.
-                const again = this.state.toDay !== null;
-                result = await advanceDays({ through: span.toDay, base: again ? null : this.state.pin?.base ?? null, assignments,
-                    advanceClock: !again && this.state.advanceClock });
-                if (result.ok && !again) this.state.toDay = result.toDay;
-                if (result.ok && !again) this.state.skipped = entries.filter((e) => e.value === "skip").map((e) => e.actor.name);
+                const again = this.wizard.toDay !== null;
+                result = await advanceDays({ through: span.toDay, base: again ? null : this.wizard.pin?.base ?? null, assignments,
+                    advanceClock: !again && this.wizard.advanceClock });
+                if (result.ok && !again) this.wizard.toDay = result.toDay;
+                if (result.ok && !again) this.wizard.skipped = entries.filter((e) => e.value === "skip").map((e) => e.actor.name);
             }
             report(result);
             if (result.reason === "moved") {
                 // Someone else moved the days on: back to the span, counted again from the day it is now.
-                Object.assign(this.state, { pin: null, step: this.steps[0], notice: refusalText(result) });
+                Object.assign(this.wizard, { pin: null, step: this.steps[0], notice: refusalText(result) });
             } else {
-                this.state.result = result;
-                this.state.step = "done";
+                this.wizard.result = result;
+                this.wizard.step = "done";
             }
             this.#stepFocus = true;
         } finally {
-            this.state.busy = false;
+            this.wizard.busy = false;
         }
         return this.render();
     }
@@ -421,9 +422,9 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     /** "Resolve the rest": back to the checks with the same span, since days already written are skipped. */
     static #onAgain() {
-        this.state.result = null;
-        this.state.skipped = [];
-        this.state.step = "checks";
+        this.wizard.result = null;
+        this.wizard.skipped = [];
+        this.wizard.step = "checks";
         this.#stepFocus = true;
         return this.render();
     }

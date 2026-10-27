@@ -77,7 +77,7 @@
         <p class="hint">{{localize "pf2e-artisans-workshop.Settlement.ProfilesHint"}}</p>
         {{#if profiles.list.length}}
         <table class="profiles-table">
-            <thead><tr><th scope="col">{{localize "pf2e-artisans-workshop.Settlement.Name"}}</th><th scope="col">{{localize "pf2e-artisans-workshop.Settlement.Size"}}</th>
+            <thead><tr><th scope="col">{{localize "pf2e-artisans-workshop.Settlement.Name"}}</th><th scope="col">{{localize "pf2e-artisans-workshop.Settlement.Size.Label"}}</th>
                 <th scope="col">{{localize "pf2e-artisans-workshop.Settlement.Level"}}</th><th scope="col">{{localize "pf2e-artisans-workshop.Settlement.Exceptions"}}</th><th></th></tr></thead>
             <tbody>
                 {{#each profiles.list}}
@@ -96,7 +96,7 @@
         {{#with profiles.draft}}
         <div class="profile-form">
             <label><span class="label">{{localize "pf2e-artisans-workshop.Settlement.Name"}}</span><input type="text" name="profileName" value="{{name}}"></label>
-            <label><span class="label">{{localize "pf2e-artisans-workshop.Settlement.Size"}}</span>
+            <label><span class="label">{{localize "pf2e-artisans-workshop.Settlement.Size.Label"}}</span>
                 <select name="profileSize">{{#each sizes}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
             <label><span class="label">{{localize "pf2e-artisans-workshop.Settlement.Level"}}</span><input type="number" name="profileLevel" min="0" max="20" step="1" value="{{level}}"></label>
             <fieldset class="profile-caps">
@@ -165,7 +165,7 @@
         <label><span class="label">{{localize "pf2e-artisans-workshop.Job.TaskLevel"}}</span>
             <input type="number" name="jobLevel" min="0" max="{{max}}" step="1" value="{{level}}"></label>
         <p class="hint">{{#if unconfirmed}}{{localize "pf2e-artisans-workshop.Job.NoSettlement"}}{{else}}{{localize "pf2e-artisans-workshop.Job.Max" max=max}}{{/if}}</p>
-        <p class="job-preview">{{#if dc}}{{localize "pf2e-artisans-workshop.Job.PreviewDc" dc=dc}} {{/if}}{{localize "pf2e-artisans-workshop.Job.Preview" crit=pay.crit success=pay.success fail=pay.fail}}</p>
+        <p class="job-preview" aria-live="polite">{{preview}}</p>
         <p class="hint">{{localize "pf2e-artisans-workshop.Job.Rule"}}</p>
         <button type="button" class="primary" data-action="downtime" data-op="job-start" {{#unless ready}}disabled{{/unless}}><i class="fa-solid fa-briefcase" inert></i>{{localize "pf2e-artisans-workshop.Job.StartButton"}}</button>
         {{/if}}

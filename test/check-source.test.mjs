@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MODULE_ID } from "../scripts/constants.mjs";
-import { checkSource, checkTemplate, missingKeys, run } from "../tools/check-source.mjs";
+import { checkSource, checkTemplate, missingKeys, nestingConflicts, run } from "../tools/check-source.mjs";
 import { ROOT, logger, tempDir } from "./helpers.mjs";
 
 const KEY = `${MODULE_ID}.Queue.Title`;
@@ -69,6 +69,16 @@ test("checkSource walks scripts, macros and templates", (t) => {
         `scripts/module.mjs: i18n key "${MODULE_ID}.Nope" is not in lang/en.json`,
         `macros/open.js: i18n key "${MODULE_ID}.Macro.Missing" is not in lang/en.json`,
     ]);
+});
+
+test("a key that is both a string and the group of another is reported: Foundry would drop the whole file (M6 live pass)", (t) => {
+    const lang = { [`${MODULE_ID}.Settlement.Size`]: "Size", [`${MODULE_ID}.Settlement.Size.Village`]: "Village",
+        [`${MODULE_ID}.Settlement.Size.Town`]: "Town", [`${MODULE_ID}.Settlement.Sizes`]: "not under Size" };
+    assert.deepEqual(nestingConflicts(lang), [`"${MODULE_ID}.Settlement.Size" is a string and also holds "${MODULE_ID}.Settlement.Size.Village"`]);
+    assert.deepEqual(nestingConflicts({ [`${MODULE_ID}.Size.Label`]: "Size", [`${MODULE_ID}.Size.Village`]: "Village" }), []);
+    const log = logger();
+    assert.equal(run(tempDir(t, { "lang/en.json": lang }), log), 1);
+    assert.match(log.text(), /lang\/en\.json: ".*Settlement\.Size" is a string and also holds .* \(Foundry would drop the whole file\)/);
 });
 
 test("a malformed or non-object lang/en.json is reported, not thrown", (t) => {

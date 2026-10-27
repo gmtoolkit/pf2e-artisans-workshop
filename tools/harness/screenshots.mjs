@@ -13,17 +13,20 @@
  * their classes, feats and Crafting are real; they are marked `flags.world.<MODULE_ID>-demo` and never carry a fixture's
  * name or mark. While the captures are taken they are the party's members and Player One's and Player Two's characters;
  * what the party and the users had before is kept in the party's `flags.world` too, so a run that stopped half-way is
- * put right by the next one. The orders, funds and formulas are staged through the module's own functions, each on the
- * client of the user who would do it at a table (Player One plays the alchemist who crafts, Player Two the fighter, the
- * GM the other two), so the Funds ledger names the right people. The demo's Craft checks roll a fixed 12 on the die, so
- * every run stages the same states: that is the only thing it changes in the page, and it is put back after the rolls.
+ * put right by the next one. The orders, funds, formulas and downtime are staged through the module's own functions,
+ * each on the client of the user who would do it at a table (Player One plays the alchemist who crafts, Player Two the
+ * fighter, the GM the other two and the world clock), so the Funds ledger names the right people. The demo's Craft and
+ * Earn Income checks roll a fixed 12 on the die, so every run stages the same states: that is the only thing it changes
+ * in the page, and it is put back after the rolls. Downtime moves the world clock forward (never back), as the M6 live
+ * plans do, so run it in the dev world only.
  *
  * Captures (`CAPTURES`) are taken on Player One's client at 1440x900, cropped to the window's element, dark unless named
  * light. Each is checked first: no raw i18n key and no fixture or imported character's name in the window's text, nothing
  * wider than its box; then compressed with ImageMagick when it is installed (`magick`, lossless first, 256 colours if a
  * file is still above SCREENSHOT_MAX_BYTES, the asset check's limit). At the end the world is reset twice as the live
  * harness resets it: once with the module off, to take the demo actors and the chat messages of the run away and give
- * the party and the users back their own, then with it on, so the shared documents are fresh.
+ * the party and the users back their own, then with it on, so the shared documents are fresh; the demo's settlement
+ * profile (a world setting, not a shared document) is deleted too.
  *
  * The captures show the code the server runs: the checkout `Data/modules/<MODULE_ID>` points at, not necessarily this
  * one. Console output only: a developer tool, not module interface.
@@ -83,6 +86,8 @@ export const CAPTURES = Object.freeze([
         caption: "Funds: the strongbox as the party fund, unallocated and earmarked per order, with each member's share." },
     { file: "formulas.png", scheme: "dark", view: "formulas",
         caption: "Formulas: a character's book by family, where each formula came from, and the ways to learn another." },
+    { file: "downtime.png", scheme: "dark", view: "downtime",
+        caption: "Downtime: the workshop day, a character's days and what they go to, the party's settlement, and an Earn Income job with its pay." },
     { file: "queue-light.png", scheme: "light", view: "queue", order: "complete",
         caption: "The Queue in the light theme, with a finished order's cost summary." },
 ]);
@@ -203,11 +208,21 @@ async function pageStore({ mod, uuid }) {
  */
 async function pageAct({ mod, op, p }) {
     const at = `/modules/${mod}/scripts`;
-    const [orders, funds, formulas, products, rolls, store, codex, fundLogic] = await Promise.all([
+    const [orders, funds, formulas, products, rolls, store, codex, fundLogic, jobs] = await Promise.all([
         import(`${at}/foundry/orders.mjs`), import(`${at}/foundry/funds.mjs`), import(`${at}/foundry/formulas.mjs`),
         import(`${at}/foundry/products.mjs`), import(`${at}/foundry/rolls.mjs`), import(`${at}/foundry/store.mjs`), import(`${at}/logic/codex.mjs`),
-        import(`${at}/logic/funds.mjs`),
+        import(`${at}/logic/funds.mjs`), import(`${at}/foundry/jobs.mjs`),
     ]);
+    /** Run `fn` with the die fixed at 12 (`CONFIG.Dice.randomUniform`), and put the random source back after it. */
+    const fixedDie = async (fn) => {
+        const random = CONFIG.Dice.randomUniform;
+        CONFIG.Dice.randomUniform = () => 0.42;
+        try {
+            return await fn();
+        } finally {
+            CONFIG.Dice.randomUniform = random;
+        }
+    };
     const plain = (value) => JSON.parse(JSON.stringify(value ?? null));
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const waitFor = async (test, ms = 15000) => {
@@ -240,14 +255,20 @@ async function pageAct({ mod, op, p }) {
             return { results, status: status(p.order) };
         }
         case "roll": {
-            const random = CONFIG.Dice.randomUniform;
-            CONFIG.Dice.randomUniform = () => 0.42;
-            try {
-                await rolls.rollCraft(p.order, { skipDialog: true });
-            } finally {
-                CONFIG.Dice.randomUniform = random;
-            }
+            await fixedDie(() => rolls.rollCraft(p.order, { skipDialog: true }));
             return { recorded: await waitFor(() => status(p.order) === "rolled", 15000), status: status(p.order) };
+        }
+        case "settle": {
+            // The profile is a world setting the GM saved: wait until this client has it.
+            await waitFor(() => jobs.profiles().some((profile) => profile.id === p.profile), p.ms ?? 15000);
+            return plain(await jobs.setSettlement(p.profile));
+        }
+        case "job": {
+            const started = await jobs.startJob({ actor: p.actor, skill: p.skill, taskLevel: p.taskLevel });
+            if (!started.ok) return plain(started);
+            await fixedDie(() => jobs.rollJob(started.job, { skipDialog: true }));
+            const rolled = await waitFor(() => store.read(`jobs.${started.job}.check`), 15000);
+            return { ok: !!rolled, job: started.job, perDayCp: store.read(`jobs.${started.job}.perDayCp`) ?? null };
         }
         case "finish": return { result: plain(await funds.finishOrder(p.order, { draw: p.draw ?? null })), status: status(p.order) };
         case "learn": {
@@ -417,6 +438,40 @@ async function stage(h, demo) {
     return orders;
 }
 
+/** The demo's settlement: a town whose Earn Income tasks go up to level 4, Crafting up to 6. */
+export const SETTLEMENT = Object.freeze({ name: "Millbrook", size: "town", level: 4, caps: { crafting: 6 }, notes: "" });
+
+/**
+ * Downtime (M6), with the GM and Player One online: the GM keeps the town's settlement profile and moves the world clock;
+ * Player One puts the party in the town, Ilsa in downtime, takes an Earn Income job at Crafting 6 (the check a fixed 12)
+ * and resolves two days of it (two wages into Ilsa's purse) once the clock has passed the days her order work already
+ * took; then makes the finishing order Ilsa's activity, and the clock moves a day, which Ilsa has still to resolve.
+ * Returns the job.
+ */
+async function stageDowntime(h, demo, orders) {
+    const ilsa = demo.alchemist;
+    const profile = await h.step("gm", "m6", "profile", SETTLEMENT);
+    if (!profile?.ok) throw new Error(`the settlement profile was refused: ${JSON.stringify(profile)}`);
+    await act(h, "p1", "settle", { profile: profile.id });
+    await h.step("p1", "m6", "downtime", { actor: ilsa.uuid, on: true });
+    const job = await act(h, "p1", "job", { actor: ilsa.uuid, skill: "crafting", taskLevel: 6 });
+    await h.step("p1", "m6", "activity", { actor: ilsa.uuid, activity: `earn:${job.job}` });
+    // Ilsa's work days on the orders are already logged on her own days, ahead of the workshop day (an order's "Work a
+    // day" takes the day after her last record, 9.1): the clock first catches up with them, then gives her two days.
+    const before = await h.step("p1", "m6", "status", { actor: ilsa.uuid });
+    const ahead = Math.max(0, (before.resolved ?? before.today.day) - before.today.day);
+    await h.step("gm", "m6", "clock", { days: ahead + 2, ms: 2500 });
+    const earned = await h.step("p1", "m6", "resolve", { actor: ilsa.uuid });
+    await h.step("p1", "m6", "activity", { actor: ilsa.uuid, activity: `craft:${orders.finishing}` });
+    await h.step("gm", "m6", "clock", { days: 1, ms: 2500 });
+    const pc = await h.step("p1", "m6", "status", { actor: ilsa.uuid, ms: 1000 });
+    const paid = await h.step("p1", "m6", "jobState", { job: job.job, ms: 2000 });
+    h.check("the demo's downtime: two days of Earn Income paid, then the finishing order with one day to resolve",
+        earned.result?.records?.length === 2 && paid.wages.length === 2 && paid.wages.every((w) => w.state === "applied")
+        && pc.inDowntime && pc.activity?.kind === "craft" && pc.pending === 1, { earned: earned.result, wages: paid.wages, pc });
+    return { job: job.job, perDayCp: job.perDayCp, profile: profile.id };
+}
+
 /* -------------------------------------------- */
 /*  Captures                                     */
 /* -------------------------------------------- */
@@ -427,6 +482,7 @@ async function show(h, capture, orders, demo) {
     if (capture.view === "formulas") {
         return h.step("p1", "m5", "open", { tab: "formulas", actor: demo.alchemist.uuid, uuid: ITEMS.lightningModerate, ms: 2000 });
     }
+    if (capture.view === "downtime") return h.step("p1", "m4", "open", { tab: "downtime", ms: 2000 });
     const tab = capture.view === "funds" ? "funds" : "queue";
     const opened = await h.step("p1", "m4", "open", { tab, order: capture.order ? orders[capture.order] : null, ms: 1500 });
     if (capture.view === "request") return { ...opened, form: await h.evaluate("p1", pageRequestForm, { mod: MODULE_ID, uuid: ITEMS.mistformModerate, quantity: 2 }) };
@@ -507,6 +563,7 @@ async function restore(h, world, messages) {
     const uncast = await h.evaluate("gm", pageUncast, { mark: DEMO_MARK, messages }, "uncast");
     h.check("the party and the users have their own characters again, and the demo actors are gone", uncast.restored === true && !uncast.error, uncast);
     await resetWorld(h, world);
+    await h.step("gm", "m6", "reset");
     await h.closeAll();
     return uncast;
 }
@@ -552,6 +609,7 @@ async function main() {
         await h.only(["gm", "p1", "p2"]);
         await h.settle("ready");
         report.orders = await stage(h, cast.made);
+        report.downtime = await stageDowntime(h, cast.made, report.orders);
         h.label = "capture";
         await h.only(["p1"]);
         await h.settle("ready", ["p1"]);

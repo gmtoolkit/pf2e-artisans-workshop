@@ -4722,7 +4722,7 @@ additions to `communal.mjs`, `orders.mjs`, `rolls.mjs`; Foundry parts in `script
 `scripts/ui/downtime.mjs`, `advance.mjs`, `days.mjs`, `templates/workshop/downtime.hbs`, `templates/advance/wizard.hbs`,
 `templates/chat/days.hbs`). The rules are in 4.8, 4.9, 6.7, 6.10 and 9 (As built in M6). Unit tests cover the pure parts
 (`test/logic/downtime.test.mjs`, `jobs.test.mjs`), stub tests the Foundry and window parts (`test/foundry/downtime.test.mjs`,
-`ui-m6.test.mjs`); the live plans are written and not yet run.
+`ui-m6.test.mjs`); the live plans passed their first live pass (M6 live pass, below).
 
 - **The Downtime tab** (10.1): the workshop day with pf2e's World Clock date (`dateAsString`; none while a calendar
   module shows the date, review fix), the days logged ahead of the calendar
@@ -4775,7 +4775,7 @@ additions to `communal.mjs`, `orders.mjs`, `rolls.mjs`; Foundry parts in `script
   of the crafters this client is responsible for, review fix); a ledger change to `meta` re-checks the shared documents only
   when it touches `meta.migration` (M6 keeps the logged days, the settlement, the day offset and the clock's high-water
   mark in `meta`).
-- **Live plans** (15.3; `tools/harness/downtime-scenarios.mjs`, scenario `m6`; `live-plans.mjs`), to run later:
+- **Live plans** (15.3; `tools/harness/downtime-scenarios.mjs`, scenario `m6`; `live-plans.mjs`; run in the M6 live pass below):
   - `m6-clock` (GM, P1, P2): P1's alchemist in downtime; the GM moves the clock a day: one pending day and one prompt on
     P1's client only; an hour more prompts nothing; resolving leaves nothing pending; with P1 away the GM's client is
     prompted; at P1's login P1's client prompts for the day that accrued; the tab shows the pending day and the badge.
@@ -4786,8 +4786,8 @@ additions to `communal.mjs`, `orders.mjs`, `rolls.mjs`; Foundry parts in `script
   - `m6-wizard-players` (P1, P2, no GM): P1 drives the window for three days: no clock offered; three days each, logged
     ahead of the calendar; P2's three wages collected with no GM; then the GM logs in, the tab says three days ahead and
     "Move the calendar to match" lands the clock inside the logged days with no new prompt.
-  - `m6-communal` (GM, P1, P2): the GM gives P1's alchemist Communal Crafting; P1 crafts an Elixir of Life (Minor) to
-    finishing; P2's fighter crafter joins with Crafting (accepted, locked, check recorded); two work days carry P2's
+  - `m6-communal` (GM, P1, P2): the GM gives P1's alchemist Communal Crafting; P1 crafts two Elixirs of Life (Lesser) to
+    finishing (`COMMUNAL_ORDER`: 30 gp left after the up-front half, so both work days fall before it is paid off); P2's fighter crafter joins with Crafting (accepted, locked, check recorded); two work days carry P2's
     share; P2 leaves and forfeits it (the reduction drops by exactly the share); rejoining is refused.
   - `m6-income` (GM, P2 on two devices): a rolled job; the clock moves two days; both devices resolve at once: one lands,
     the other is refused or finds nothing; the GM's wizard adds a day (a claim both devices race to collect); repeated
@@ -4832,7 +4832,67 @@ additions to `communal.mjs`, `orders.mjs`, `rolls.mjs`; Foundry parts in `script
   - The World Clock's date never showed (`worldClock.date` does not exist; `dateAsString` does).
   - Every world-time change rendered every Workshop part and put off the day prompt, which a running clock could starve.
 
+#### M6 live pass (2026-10-26, Foundry 14.368, pf2e 8.6.1, no canvas)
+
+One pass at `9da0312` (M0-M6), then once more after the fixes below:
+
+- **M6 plans** (`--runs 1`): `m6-clock`, `m6-income` and `m6-settlement` pass at the first run; `m6-wizard-gm`,
+  `m6-wizard-players` and `m6-communal` failed, and pass after the fixes.
+- **Regression** (`--runs 1`): scenarios 1, 3c and 7, and `m4-lifecycle`, `m4-no-gm`, `m5-fund` pass; `m5-buy` failed on
+  the plan's card count (below) and passes once fixed. Console errors: only scenario 7's expected ones (the lock race's
+  "already exists" toast and its injected "does not exist", 15.3).
+- **Found and fixed** (each with a test that fails without it):
+  - *Every string showed as its raw key in a live world* (high). `lang/en.json` held `Settlement.Size` ("Size") beside
+    `Settlement.Size.Village` and the other sizes; Foundry expands the dotted keys into nested objects
+    (`Localization#loadTranslationFile`, `expandObject`), the conflict threw, and Foundry dropped the whole file ("Unable
+    to parse localization file", on every client). The label is `Settlement.Size.Label` now, and `npm run lint`
+    (`tools/check-source.mjs`, `nestingConflicts`) rejects a key that is both a string and the group of another. The
+    plans passed meanwhile because they read state, not text; the captures' raw-key check (17.1) would have caught it.
+  - *Advance days and Resolve days never opened* (high). `AdvanceDaysApp` assigned `this.state` in its constructor;
+    in Foundry 14 `ApplicationV2#state` is the render state, a getter with no setter, so the constructor threw "Cannot set
+    property state ... which has only a getter". The wizard keeps its state as `wizard`; the stub `ApplicationV2` in
+    `ui-m6.test.mjs` has the getter now, as core does.
+  - *Typing a job's task level and clicking "Take this job" lost the click* (medium, the hands-on pass). The field's
+    change event as it lost focus rendered the tab, replacing the button between the press and the release; the same for a
+    settlement's level and "Save settlement". Both fields now update the form in place (the job's DC and pay, the
+    exception's level while none was typed) and render nothing, as the wizard's number of days does.
+  - *Plan faults*: the `wizard` step did not await `openAdvance` (async since the M6 review closes the old window first)
+    and drove the promise; `m6-communal` crafted one Elixir of Life (Minor), which the first work day (crafter and helper
+    together) paid off, so the second day was refused as `paid-off`, as it should be; `m5-buy` counted every Formula
+    learned card in the dev world's chat log, which keeps the cards of earlier runs (24), not the one it posted
+    (`pageCards` counts from its own start now). Tests: `test/foundry/harness-m6.test.mjs`, `harness-m5.test.mjs`.
+- **Hands-on pass as Player One** (a scratch Playwright script with real clicks and typing, GM online; no module calls
+  for the steps): request four Elixirs of Life (Lesser) crafted by Player One's alchemist from the request form, fund the
+  60 gp up front from the purse ("Fill the shortfall"), Start; on the Downtime tab "Start downtime" and choose the order;
+  Advance days 3 (typed): the two setup days written and a stop at the Craft check, "Resolve the rest", Roll in the
+  wizard through pf2e's dialog ("Roll (+22)"), the check settled first and the third day worked (10 gp after a critical
+  success); Advance days 3 again: three extra days at 10 gp, the Queue at "20 gp left" (120 - 60 up front - 40), no coins
+  moved. Then Earn Income: task level 5 typed and "Take this job" clicked at once (the fix above), the job made the
+  activity, Advance days 2, its check rolled on the wizard's checks step, the review saying "2 gp paid into ...'s purse"
+  for each day: two wage rows (days 16 and 17), applied once, the purse up by 4 gp, the order's days untouched; Advance
+  "since last resolved" wrote and paid nothing more. No raw keys in the windows and no console errors on Player One's
+  client. A first attempt worked the setup days with the Queue's "Work a day" and found them on the crafter's own days
+  ahead of the workshop day (follow-up below).
+
 #### Follow-ups (M6, low)
+
+- From the M6 live pass:
+  - An order's "Work a day" writes the crafter's next day after their last record, ahead of the workshop day (as built,
+    9.1), but those days are not logged days (`meta.manual`): the header stays on the workshop day while the crafter's
+    record runs ahead ("Resolved through day 11" on day 9), and a later "Advance days 3" or a clock move gives that PC
+    fewer days, or none until the workshop day passes them. The wizard's Who step says so ("1 day (day 12)"), the
+    Downtime tab does not: say "N days ahead" on the PC's row. (`npm run screenshots` moves the clock past them first.)
+  - `RequestForm` keeps its state in a `state` class field, which shadows `ApplicationV2#state` (the render state): core's
+    check for a second instance of the same id still rendering (`existing.state === RENDERING`) never sees a request
+    form. It works; rename it as the wizard's was.
+  - The stub `ApplicationV2` of `ui.test.mjs` and `ui-m5.test.mjs` lacks core's getter-only `state`, `rendered` and
+    `element`, which is how the wizard's constructor passed every stub test; one faithful stub in `stubs.mjs` would do.
+  - No M6 plan reads what a user sees: add an `m6-ui` (raw keys and overflow in the Downtime tab and the wizard, as
+    `m4-ui` and `m5-ui` do), so a dropped language file fails a plan and not only the captures.
+  - The dev world's chat log keeps every run's cards (only the screenshots delete theirs); a plan that counts messages
+    counts from its own start, as `m5-buy` now does.
+  - "Set by Player One, 10/26/26, 9:55 PM": the settlement's "set by" line shows the real date and time, so every
+    capture of the Downtime tab differs; the game date may read better at the table.
 
 - One activity per PC for the whole span in the wizard and the resolver (9.2 says per day); a change of activity inside
   a span takes two runs. Conflicts are shown as a stop (a helper's lock), not outlined per day.
@@ -5328,8 +5388,10 @@ World settings unless marked U.
   - What ESLint cannot see is in `tools/check-source.mjs`, run by `npm run lint`: no literal text in
     `.hbs` templates (text nodes, user-facing attributes, and partial arguments), no `data-action` in
     `templates/chat/`, and every quoted `MOD.Xxx` i18n key in `scripts/`, `macros/` and `templates/`
-    defined in `lang/en.json`. The strings gate (16.4) rejects a `lang/en.json` key whose first segment
-    after `MOD.` is not capitalised, which is what tells keys apart from hook and query names.
+    defined in `lang/en.json`, and no `lang/en.json` key that is also the group of another (`A.B` beside `A.B.C`:
+    Foundry expands the keys into nested objects and drops the whole file when one is both; M6 live pass). The
+    strings gate (16.4) rejects a `lang/en.json` key whose first segment after `MOD.` is not capitalised, which is
+    what tells keys apart from hook and query names.
 - As built in M1: the rules core is `scripts/logic/` (`core`, `defaults`, `dc`, `income`, `craft`, `complex`,
   `progress`, `batches`, `families`, `gates`, `materials`, `communal`, `formula-jobs`, `earn-income`, `coins`,
   `split`) over the tables in `scripts/data/`, tested by `test/logic/*.test.mjs`. Every table row is checked
@@ -5739,6 +5801,16 @@ links the five with draft captions (the same text as `CAPTURES`, which a test ho
 they show no Downtime tab; refresh them once M6's live plans have run. The icon question above stands: the alchemical
 items show pf2e system icons, Healing Potion (Lesser) and Mistform Elixir (Moderate) Foundry core ones; `ITEMS` in the
 script is the one place to change for generic icons.
+
+**Refresh after M6's live pass (2026-10-26).** `downtime.png` (the Downtime tab as Player One) joins the five, after
+`formulas.png`. The staging adds downtime, each step on the client of whoever would take it: the GM saves a settlement
+profile (Millbrook, a town, task levels up to 4, Crafting up to 6, `SETTLEMENT`) and moves the world clock; Player One
+puts the party there, Ilsa in downtime, takes an Earn Income job at Crafting 6 (its check a fixed 12, like the Craft
+checks) and, once the clock has passed the days her order work already took, resolves two days of it (two wages paid);
+then Ilsa's days go to the finishing order and the clock moves one more day, which she has still to resolve (the tab's
+badge reads 1 in every capture). The world clock only moves forward, so the script is for the dev world only, as the
+M6 plans are. At the end the settlement profile is deleted with the rest. All six captures were looked at: no raw keys,
+no overflow, no fixture names; the follow-ups above still show.
 
 **Follow-ups seen in the first captures** (all low, all in the window's layout or wording):
 
