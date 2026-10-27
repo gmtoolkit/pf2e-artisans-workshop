@@ -6111,8 +6111,8 @@ Foundry parts in `scripts/foundry/crafts.mjs`, with additions to `products.mjs`,
 `downtime.mjs`, `communal.mjs`, `morning.mjs`, `settings.mjs`, `sync.mjs` and `api.mjs`; the window in `scripts/ui/crafts.mjs`
 and additions to `extras.mjs`, `request.mjs`, `morning.mjs`, `downtime.mjs`, `templates/workshop/queue.hbs`, `morning.hbs` and
 `templates/request/form.hbs`). Unit tests cover the pure parts (`test/logic/crafts.test.mjs`, `spell-lists.test.mjs`), stub
-tests the Foundry and window parts (`test/foundry/m9.test.mjs`, `ui-m9.test.mjs`, `harness-m9.test.mjs`); the live plans have
-not run yet (below). DECISIONS.md 2026-10-27 "Tattoos, grafts and the remaining crafts" records the rules settled here.
+tests the Foundry and window parts (`test/foundry/m9.test.mjs`, `ui-m9.test.mjs`, `harness-m9.test.mjs`); the live plans passed
+their first live pass (below, M9 live pass). DECISIONS.md 2026-10-27 "Tattoos, grafts and the remaining crafts" records the rules settled here.
 
 - **Tattoo and graft orders** (6.14, 4.2.1): `craftType` "tattoo" or "graft", read from the product's trait when the request
   names none (`subjectTypeOf`; off with `features.tattoos`, which then crafts them as plain items). `target` is the subject (an
@@ -6218,21 +6218,104 @@ not run yet (below). DECISIONS.md 2026-10-27 "Tattoos, grafts and the remaining 
     module did not (above).
   - A subject's sitting days read "Sitting for {item}" on the day card and in the wizard: `Days.Subject`.
   - Agreeing replaced the subject's activity without a word and claimed its unresolved days (above).
-- **Live plans** (15.3 scenario 14; `tools/harness/craft-scenarios.mjs`, scenario `m9`; `live-plans.mjs`), to run later:
+- **Live plans** (15.3 scenario 14; `tools/harness/craft-scenarios.mjs`, scenario `m9`; `live-plans.mjs`; every Craft check rolls
+  a fixed 15, `M9_FACE`, so each plan checks what the finish makes):
   - `m9-tattoo` (GM, P2): the rogue tattoo-artist fixture tattoos Player Two's character (Eye Slash); G10 waits; Player Two
-    agrees and sits for it in downtime; the Craft runs, the process frozen; Player Two's client collects it healing and
+    agrees and sits for it in downtime, and cannot leave it; the Craft runs, the process frozen; Player Two's client collects it healing and
     uninvested, records healing, and invests it once a logged day passes; the GM reads the same.
   - `m9-simple` (GM, P2): the simple toggle: consent with no lock, delivered invested.
   - `m9-graft` (GM, P2): the cleric fixture, given Graft Technician and expert Medicine, implants Bioluminescent Stripes: G6
     wants the formula; Medicine; with Player Two's invest limit at zero it is inactive, and invested once the limit rises.
   - `m9-fulu-missive` (GM): the fighter crafter's fulus wait for a tradition, take divine, come four to a batch with a year's
-    stamp; its missives are made blank.
-  - `m9-staff` (GM): Staff of Fire by the fighter crafter; the wizard fixture offers Ignition and Breathe Fire, each naming
-    its entry; G9 passes once both are cast.
-  - `m9-snares` (GM): the ranger fixture prepares two Alarm Snares in its snarecrafter pool; with Giant Snare one is marked
+    stamp; its two missives are made blank, and one is composed on its own.
+  - `m9-staff` (GM): Staff of Fire by the fighter crafter; the wizard fixture's Electric Arc, which the staff does not list, is
+    refused; it offers Ignition (once: a second offer is refused) and Breathe Fire, each naming its entry; G9 passes once both
+    are cast.
+  - `m9-snares` (GM): the ranger fixture prepares two Alarm Snares, both ready, in its snarecrafter pool; with Giant Snare one is marked
     giant (three slots used); one is deployed through pf2e's expend toggle, once.
-  - `m9-gadget` (GM): the inventor fixture may craft an uncommon gadget (G4, G5).
+  - `m9-gadget` (GM): the inventor fixture may craft an uncommon gadget (G4, G5); the fighter crafter, without the class, is
+    held back by G5 alone.
   - `m9-shots` (GM, P2): the Queue's tattoo detail as Player Two, 1440x900 and 1024x768, dark and light (`--shots`).
+
+#### M9 live pass (2026-10-27, Foundry 14.368, pf2e 8.6.1, regression with and without a canvas)
+
+One pass at `d420496` (M0-M9), then once more after the fixes below:
+
+- **Audit first.** Before the first run, every plan was read for a branch that passes on nothing. Five did: `m9-tattoo`,
+  `m9-simple`, `m9-graft` and `m9-fulu-missive` checked what the finish made only `if` the Craft check succeeded (the tattoo's
+  check even accepted "failed"), so a failed roll passed them with every later check skipped; `m9-staff`'s "both entries are
+  named and cast" was an `every` over pledges read through M5's brief, which carries no entry (true on none, false on two);
+  and `m9-gadget` would pass for any common item, since nothing showed that a crafter without the class is held back. The
+  harness was fixed (15.3): `run` rolls at a fixed die (`withDie`, `M9_FACE` 15) and each crafting plan checks that its
+  order completed; `m9-staff` reads the pledges through M9's brief (`order`), wants two distinct entries (Ignition's cantrip
+  entry and Breathe Fire's `@1`), and checks that Electric Arc, which the staff does not list, is refused (`not-on-list`)
+  and that Ignition cannot be offered twice; `m9-gadget` files the same gadget for the fighter crafter and checks that G5,
+  and not G4, holds it back; `m9-tattoo` checks that Player Two cannot leave downtime while sitting (`subject`), and
+  `m9-fulu-missive` composes one of the two missives. The new tests (`harness-m9.test.mjs`, "After the M9 live pass") run the
+  plans over a fake harness and fail on the plans as they were.
+- **M9 plans** (`--runs 1`, no canvas): `m9-tattoo`, `m9-simple`, `m9-graft`, `m9-fulu-missive`, `m9-staff`, `m9-snares`,
+  `m9-gadget` and `m9-shots` pass, 58 checks, every Craft check a critical success at the fixed die. The first run failed `m9-tattoo`'s healing (the `heal` step was called
+  without the order and picked the first item whose missing subject record "matched" an undefined order: the character's
+  ancestry; the plan now passes the order and the step refuses without one) and `m9-simple`'s new "no healing" check (it
+  wanted `until` null; the simple toggle's record has `until` equal to `from`). The second run found `m9-snares` would fail
+  on any run after the first: pf2e keeps `expended` on a prepared entry, the reset does not touch pf2e's pool, so a slot an
+  earlier run deployed came back spent; `snares` now takes the snare out of the pool before preparing it, and the plan
+  checks both slots are ready. Console: no error or warning on any client; the notifications are the subject's
+  (`Subject.Settled.Invested`, `Subject.Settled.Inactive`, with their item and name) and Player Two's day prompt after the
+  logged day. No slow server answers, no dry-run replays.
+- **Regression** (`--runs 1`): with `--canvas`, `m8a-strike`; without a canvas, scenario 7, `m8-turn`, `m7-morning`,
+  `m6-income` and `m4-lifecycle` pass. Console errors: scenario 7's expected ones (15.3), pf2e's page error at the encounter's
+  deletion without a canvas (`m8-turn`) and `m6-income`'s second device's "already exists" (M8 live pass). The first
+  regression run was stopped and run again: the hands-on pass's first clean-up had failed (core 14 refuses `ownership.-=id`)
+  and left four fixtures in the party, owned by Player One; `m8a-strike` passed on both worlds.
+- **Found and fixed** (with a test that fails without it; `ui-m9.test.mjs`, "after the M9 live pass"):
+  - *A finished tattoo's subject still read as sitting for it* (medium; the hands-on pass). The Queue's Subject section said
+    "has agreed and spends their downtime sitting for it" on a complete (or cancelled) order, after the lock had ended. It
+    says "has agreed." once the order is closed.
+- **Hands-on pass** (a scratch Playwright script, no canvas, the GM and both players online; real clicks, selects and keys
+  in the windows; setup through the harness: Player One made owner of the tattoo-artist, cleric, wizard and ranger fixtures
+  and the four put in the party for the pass, so "Acting as" offers them (taken out and the ownership removed after); the
+  cleric given Graft Technician, expert Medicine and Bioluminescent Stripes' formula, the artist Eye Slash's; the die fixed
+  at 15 on Player One's client for the Craft checks; Player Two's character is the fighter-crafter fixture):
+  - *Tattoo.* Player One opens the Workshop from the Actors directory, acts as the tattoo artist, clicks Request, types
+    "Eye Slash" and picks it: the form asks "Made on" ("The character who receives it. They agree from the Queue before the
+    work starts."), with no quantity; Player One picks Player Two's character, the artist as requester and crafter, and
+    files it ("1 orders filed."); naming the crafter accepted it. Player Two opens the order: "Subject has agreed and is
+    present: The subject has not agreed yet." with Agree among the requirements, and in the Subject section "Waiting for
+    ... to agree.", "Process: Full process. One at a time per crafter.", "invests 0 of 10 items". Agree asks "Agree and sit
+    for it?" (the sitting, no other activity, no leaving downtime, withdrawing only before the start or after a failure);
+    Yes: the Downtime tab shows the character in downtime "Sitting for Eye Slash until it is finished", the activity chosen;
+    End downtime is refused ("This character is sitting for a tattoo or graft. Withdraw before it starts, or wait until it
+    is done."). Player One clicks Fund this order (pays 10 gp from their own character's purse, Fill the shortfall), Start,
+    Work a day, Roll (pf2e's check dialog: a critical success), Work a day and Finish (7 gp more). On Player Two's client the
+    tattoo is on the character, worn, uninvested, "healing · healing until day 109" with Record healing; the click ends it
+    the next day. The GM clicks Advance days on the Downtime tab and goes through the wizard (1 day, Resolve these days);
+    Player Two's client invests the tattoo: "Eye Slash: invested · healing recorded on day 79", "invests 1 of 10 items".
+    The Subject section still said the subject "spends their downtime sitting for it" on the complete order (fixed above;
+    after the fix, "has agreed."), and the wizard's day for the subject said "This character is no longer the subject of that
+    order" (Follow-ups).
+  - *Graft.* Player One acts as the cleric and requests Bioluminescent Stripes the same way, made on Player Two's
+    character; Player Two agrees (the same dialog); Player One funds 5 gp, works, rolls (a critical success) and finishes. On Player
+    Two's client the graft is implanted and invested at once ("Bioluminescent Stripes on ... now works: it is invested."),
+    "Process: Graft.".
+  - *Staff.* Player Two requests "Staff of Fire" for their own character, which crafts it (the search's first match is the
+    Greater staff, level 8: six listed castings). Player One, acting as the wizard, opens it: "Spell item: 0 of 6 castings
+    done." and each listed casting with its rank, "Needed". "Offer a casting" lists only the wizard's spells the staff lists
+    (Ignition as a cantrip, Breathe Fire at ranks 1 and 2); Player One offers Ignition, and the next dialog no longer offers
+    it; then Breathe Fire at rank 1; marks both cast ("Mark the casting done", no cost). Both entries read "cast", "2 of 6
+    castings done", on Player Two's client too, with the staff's G9 still unmet.
+  - *Snare.* The ranger's snarecrafter pool holds two prepared Alarm Snares (setup, pf2e's own `setFormulaQuantity`). Player
+    One picks the ranger on the Morning tab: "Other prepared slots: Snarecrafter", "2 of 4 slots used", "0 deployed, 2
+    ready", each snare Ready with Normal or Giant and Deploy; Giant on the first makes it "3 of 4 slots used"; Deploy: "1
+    deployed, 1 ready", that snare "Deployed · costs 2", expended in pf2e's pool. The tab first showed the previous acting
+    character, not the ranger (Follow-ups).
+  No raw key, unfilled placeholder, `undefined` or `NaN` in any window, dialog or notification the script read on any
+  client; no console error from the module (core's no-canvas `cycleTokens` page error when the clean-up changed the
+  fixtures' ownership with the players online).
+- **Screenshots**: `tattoo.png` (the Queue as Player One, whose Ilsa is asked to agree to Doran's Eye Slash: the order's
+  row and its detail scrolled to the requirements and the Subject section with Agree; `stageTattoo`, which gives Doran
+  Tattoo Artist and the formula) is linked from the README after `queue-light.png` (17.1); every capture taken again (the
+  tattoo order is a sixth order in the Queue's list, below the fold in `queue.png`).
 
 #### Follow-ups (M9, low)
 
@@ -6251,7 +6334,6 @@ not run yet (below). DECISIONS.md 2026-10-27 "Tattoos, grafts and the remaining 
 - Quick-deploy marks are kept by `<uuid>#<n>` of pf2e's prepared list; reordering the list moves a mark to another copy of the
   same snare. Ranger's Survival for snarecrafter feats (6.11 follow-up) is unchanged.
 - "Regions with access to inventors" (Guns & Gears) is not a setting: an uncommon gadget needs the formula or the inventor class.
-- The live plans have not run.
 - From the M9 review:
   - A fulu crafter may choose any tradition, even with one of their own, and a choice survives the order passing to another
     crafter (`chooseTradition`, the Queue's dialog, `fuluTradition` prefers the choice): refuse traditions outside the crafter's
@@ -6276,6 +6358,18 @@ not run yet (below). DECISIONS.md 2026-10-27 "Tattoos, grafts and the remaining 
     `CLOSED`), and the released lock lets them be resolved as another activity.
   - An uninvested or decorative notice is shown on the subject's responsible client, which is the GM's when the player is
     offline; nothing tells the player on their next login.
+- From the M9 live pass:
+  - A cantrip's offered casting reads "rank 0" in the Queue's list of offers (`Pledge.Line`, with `castingRank` 0), while the
+    staff's list of castings above it says "cantrip"; and "1 castings".
+  - Once a tattoo or graft is finished the subject stays in downtime with its activity on the closed order (above): the GM's
+    Advance days wizard then shows "This character is no longer the subject of that order. Choose another activity." for it
+    and resolves nothing for that day.
+  - The subject's "End downtime" button stays enabled while it sits for a tattoo or graft; a click is refused with a warning.
+  - Seen in passing, from earlier milestones: "1 orders filed." (`Request.Filed` has no singular); a finishing order with
+    nothing left to take off still offers "Work a day", which is refused (`Refusal.PaidOff`); changing "Acting as" redraws
+    the header, Queue and Funds but not the Morning tab, which keeps showing the previous acting character (when none was
+    picked on the tab) until it is drawn again; a complete order's row says "Paid 20 gp" where its cost summary says 17 gp
+    were spent (a work day covered 3 gp).
 
 ---
 
@@ -6959,9 +7053,13 @@ read fully, 110 overridden, 5 ignored, none failing (10.15); `spells` and `besti
   not installed, which throws on a player's client as its engine does. The `roll` step waits until the target's client has
   applied the exposure claim; a plan that needs a running affliction types a DC no fixture makes (`M8A.failDc`).
 - As built in M9: scenario `m9` (`tools/harness/craft-scenarios.mjs`) and the behaviours `m9-tattoo`, `m9-simple`, `m9-graft`,
-  `m9-fulu-missive`, `m9-staff`, `m9-snares`, `m9-gadget` and `m9-shots`, described in 10.16; not run yet. They are scenario 14 of
-  the list above. They use the fixtures (12, 13, 6, 7, 8, 9 of 15.4), owned by the GM, with the GM's steps paying from Player
-  One's purse; `m9-graft` gives the cleric Graft Technician and an effect that makes it expert in Medicine.
+  `m9-fulu-missive`, `m9-staff`, `m9-snares`, `m9-gadget` and `m9-shots`, described in 10.16; first run in the M9 live pass
+  (10.16). They are scenario 14 of the list above. They use the fixtures (12, 13, 6, 7, 8, 9 of 15.4), owned by the GM, with
+  the GM's steps paying from Player One's purse; `m9-graft` gives the cleric Graft Technician and an effect that makes it
+  expert in Medicine. As built in the M9 live pass: `run` rolls the Craft check with the die at `params.face` (`withDie`), and
+  every plan that crafts passes `M9_FACE` and checks that the order completed, since a failed check skipped every check
+  after the finish and the plan passed; `snares` takes the snare out of the pool before preparing it, since pf2e keeps
+  `expended` on an entry and a slot an earlier run deployed came back spent.
 - As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
   counts the rows that are new since `purseBefore` by id, not by a server-time cut-off (two devices' estimates of
   the server's time differ by milliseconds, and one real row was left out); the `claim` step reports its own rows
@@ -7158,7 +7256,7 @@ draft; the letters keep the existing milestone numbers stable.
 | M7 | Morning | daily sources panel, loadouts, standing orders, Talisman Dabbler and Esoterica lists, the Dabbler DC stamp, affix records, party-wide expiry, rest ordering, pf2e-dailies custom daily; built, first live pass run (10.13) | M5 |
 | M8 | Combat | Bandolier, HUD palette, Quick Alchemy panel, quick vials, Quick Bomber, Healing Bomb, additives, vial gathering, turn expiry, Duct Tape step-aside, Use best consumable; built, first live pass run (10.14) | M7 |
 | M8a | Afflictions | 8.10: the affliction rules engine with tests; the parser, `scripts/data/afflictions.mjs` overrides and the corpus check in the validation script; backend detection, the effect backend and the native backend with its constraints and migration; grant flags and the stage guard; exposure and coating-spend claims; coatings and Strike handling; saves (with the source item, for incapacitation), recording and pending state; turn and world-time timing, catch-up and the affliction time function for logged days; the DC stamp at creation; Afflictions drawer and cards; Affliction Forge coexistence and the GM-routed hand-off; harness scenario 12; built, first live pass run (10.15) | M3 (validation script, roll recording), M6 (day resolver for logged days), M7 (creation stamps, infused expiry), M8 (Bandolier entry point) |
-| M9 | Tattoos and remaining crafts | tattoo process and toggle, grafts, spellhearts, fulus, missives, snares and gadgets specifics, spell-supplied items beyond scrolls and wands; harness scenario 14; built, live plans not yet run (10.16) | M5, M6 |
+| M9 | Tattoos and remaining crafts | tattoo process and toggle, grafts, spellhearts, fulus, missives, snares and gadgets specifics, spell-supplied items beyond scrolls and wands; harness scenario 14; built, first live pass run (10.16) | M5, M6 |
 | M9a | Treasure Vault (Remastered) variants | 6.16 behind their settings: Complex Crafting and Quick Setup (setup, rush, sub-day setups, rushed finishing), crafting with adjustments, downtime events, Critical Crafting, Deconstruct and components, Grow with untended growth and seasons, gardens, bestowed gifts, crafting quests; the one-group-at-a-time notice; harness scenario 13 | M5 (service orders, materials, Repair), M6 (day resolver, seasons, events), M7 (expiry stamps and the inert guard for produce, components and gifts) |
 | M10 | Extension API | registration, interfaces, hooks, extension store; the separate circus module built against it as acceptance test | M6 |
 | M11 | Integration surface | sheet and party entry points, macros and shelf, keybindings, theming, accessibility pass | M4-M9a |
@@ -7269,6 +7367,12 @@ every alchemist Player One owns, the dev world's bomber fixture among them. All 
 no overflow, no fixture names in what shows. The fixture the demo alchemist is copied from carries two separate Elixir of
 Life (Lesser) stacks and they show in the Bandolier; the panel's Additive select shows with only "None" for a character
 with no additive (10.14, Follow-ups).
+
+**Refresh after M9's live pass (2026-10-27).** `tattoo.png` joins the README after `queue-light.png`, straight into
+`CAPTURES` (looked at after the run). The staging adds a tattoo (`stageTattoo`, after the afflictions): the GM gives Doran
+Tattoo Artist and Eye Slash's formula, and Player Two files Eye Slash made on Ilsa with Doran crafting, which waits for
+her agreement (G10). A capture may name a part of the order's detail (`scroll`): the detail is scrolled to it and the list
+to the order's row (`pageScrollDetail`). All eleven captures were looked at: no raw keys, no overflow, no fixture names.
 
 ---
 

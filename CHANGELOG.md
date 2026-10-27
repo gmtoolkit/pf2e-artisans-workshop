@@ -186,6 +186,11 @@ All notable changes to this module are documented here. The format follows
   vial buttons stay in reach when much is ready.
 - At a table without a canvas, what Quick Alchemy made in an encounter now stops working when the encounter ends (pf2e's
   encounter deletion fails on such a client before the end of the encounter is announced).
+- A finished tattoo's or graft's subject no longer reads in the Queue as still sitting for it.
+- Live harness (M9): the plans that craft roll their Craft check at a fixed die and check that the order completed, so a
+  failed check no longer passes them with every check after the finish skipped; the staff, gadget and missive plans check
+  a refusal or the second half too; healing is recorded on the tattoo and not on the first item found, and snares an
+  earlier run deployed are prepared ready again.
 
 - Storage and sync, from the first live runs: a client stops writing the moment a shared document it uses is
   deleted, or its user loses OWNER on one, even when no update hook reaches it (players without a canvas); ages

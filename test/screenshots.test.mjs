@@ -65,6 +65,7 @@ test("every capture is a PNG in docs/screenshots/, linked from the README in ord
 test("a new tab's capture waits in NEXT_CAPTURES until it has been checked; the Morning tab's (M7) is linked since the M7 live pass", async () => {
     const { NEXT_CAPTURES } = await import("../tools/harness/screenshots.mjs");
     assert.ok(CAPTURES.some((c) => c.file === "morning.png" && c.view === "morning"));
+    assert.ok(CAPTURES.some((c) => c.file === "tattoo.png" && c.order === "tattoo" && c.scroll), "the tattoo's detail, linked since the M9 live pass");
     for (const capture of NEXT_CAPTURES) {
         assert.ok(!CAPTURES.some((c) => c.file === capture.file), capture.file);
         assert.ok(isScreenshotPath(`${SCREENSHOT_DIR}${capture.file}`), capture.file);

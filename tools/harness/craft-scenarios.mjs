@@ -58,7 +58,27 @@ const madeBrief = (item) => ({
 /** Whether an M9 order made the item (`flags.MOD.crafted`) or a step gave it. */
 const isM9 = (item) => item.flags?.world?.[MARK] || item.flags?.[MODULE_ID]?.subject || item.flags?.[MODULE_ID]?.crafted || item.flags?.[MODULE_ID]?.delivered;
 
-/** Work an order to its end as the crafter's owner (`params.crafter`, else the user's character): accept, fund, start, work, roll, settle, finish. */
+/**
+ * Run `fn` with the d20 fixed at `face` (`CONFIG.Dice.randomUniform`; core's face is `ceil((1 - u) * 20)`, Foundry 14.368
+ * `client/dice/terms/dice.mjs` `mapRandomFace`), then put the random source back; as it rolls when `face` is not a whole
+ * number. A plan fixes the die so that the path it checks is the one taken (M9 live pass): a failed check would otherwise
+ * skip every check after the finish.
+ */
+export async function withDie(face, fn) {
+    if (!Number.isInteger(face)) return fn();
+    const random = CONFIG.Dice.randomUniform;
+    CONFIG.Dice.randomUniform = () => 1 - (face - 0.5) / 20;
+    try {
+        return await fn();
+    } finally {
+        CONFIG.Dice.randomUniform = random;
+    }
+}
+
+/**
+ * Work an order to its end as the crafter's owner (`params.crafter`, else the user's character): accept, fund, start, work,
+ * roll (the die at `params.face` when given), settle, finish.
+ */
 async function runOrder(p) {
     const id = p.order;
     const steps = [];
@@ -72,7 +92,7 @@ async function runOrder(p) {
     }
     for (let i = 0; i < 6 && read(`orders.${id}.status`) === "setup"; i++) steps.push(["work", plain(await orders.workDay(id))]);
     if (read(`orders.${id}.status`) === "check") {
-        steps.push(["roll", plain(await rollCraft(id, { skipDialog: true }))]);
+        steps.push(["roll", plain(await withDie(p.face, () => rollCraft(id, { skipDialog: true })))]);
         await waitFor(() => read(`orders.${id}.status`) === "rolled", 10000);
     }
     if (read(`orders.${id}.status`) === "rolled") steps.push(["work", plain(await orders.workDay(id))]);
@@ -112,6 +132,16 @@ export const CRAFT_SCENARIOS = {
             const [item] = await actor.createEmbeddedDocuments("Item", [source]);
             return { uuid: item.uuid, id: item.id, name: item.name };
         } },
+        spell: { about: "GM: give params.actor the spell named params.name from pf2e's spells pack, marked for reset; returns its UUID", run: async (p) => {
+            const entry = (await game.packs.get("pf2e.spells-srd").getIndex()).find((e) => e.name === p.name);
+            if (!entry) return { ok: false, reason: "no-spell" };
+            const actor = fromUuidSync(p.actor);
+            const source = game.items.fromCompendium(await fromUuid(entry.uuid), { keepId: false });
+            foundry.utils.setProperty(source, `flags.world.${MARK}`, true);
+            const [item] = await actor.createEmbeddedDocuments("Item", [source]);
+            return { ok: true, uuid: item.uuid, compendium: entry.uuid };
+        } },
+        order: { about: "any client: params.order in brief, with its pledges' entries", run: async (p) => ({ order: brief(p.order) }) },
         medicine: { about: "GM: make params.actor expert in Medicine for the run (an effect, marked for reset)", run: async (p) => {
             const actor = fromUuidSync(p.actor);
             const [effect] = await actor.createEmbeddedDocuments("Item", [{ type: "effect", name: "M9 Medicine", img: "icons/svg/aura.svg",
@@ -150,7 +180,8 @@ export const CRAFT_SCENARIOS = {
             return { result: plain(result), order: brief(p.order), status: plain(downtime.statusOf(actor)) };
         } },
         leave: { about: "the PC's owner: try to take params.actor (or the user's character) out of downtime", run: async (p) => plain(await downtime.setDowntime(actorOf(p).uuid, false)) },
-        run: { about: "the crafter's owner: work params.order to its end as params.crafter (params.pledge first, params.payer)", run: async (p) => runOrder(p) },
+        run: { about: "the crafter's owner: work params.order to its end as params.crafter (params.pledge first, params.payer, the die at params.face)",
+            run: async (p) => runOrder(p) },
         tradition: { about: "the crafter's owner: choose params.tradition for the fulu of params.order", run: async (p) => plain(await crafts.chooseTradition(p.order, p.tradition)) },
         collect: { about: "any client: collect what waits for the user's characters, then settle their tattoos and grafts", run: async () => ({
             taken: await sweepClaims({ force: true }), settled: plain(await crafts.subjectSweep()) }) },
@@ -161,7 +192,7 @@ export const CRAFT_SCENARIOS = {
             return { order: brief(p.order), items: mine.map(madeBrief), today: downtime.today().day };
         } },
         heal: { about: "the subject's owner: record healing on what params.order made on the user's character", run: async (p) => {
-            const item = game.user.character.items.find((i) => i.flags?.[MODULE_ID]?.subject?.order === p.order);
+            const item = p.order ? game.user.character.items.find((i) => i.flags?.[MODULE_ID]?.subject?.order === p.order) : null;
             return item ? { result: plain(await crafts.recordHealing(item.uuid)), item: madeBrief(item) } : { result: { ok: false, reason: "no-item" } };
         } },
         logDay: { about: "GM: log params.days days ahead of the clock (as the Advance days wizard does without moving it)", run: async (p) => {
@@ -170,19 +201,27 @@ export const CRAFT_SCENARIOS = {
             await write({ set: { [`meta.manual.${id}`]: { fromDay: now.day + 1, toDay: now.day + (p.days ?? 1), ...stampNow() } } });
             return { from: now.day, to: downtime.today().day };
         } },
-        compose: { about: "the owner: compose one missive params.order made on the user's character (params.note)", run: async (p) => {
-            const item = crafts.blankMissives(game.user.character).find((i) => i.flags?.[MODULE_ID]?.crafted?.order === p.order);
-            return item ? { result: plain(await crafts.composeMissive(item.uuid, { note: p.note ?? "" })), left: crafts.blankMissives(game.user.character).length }
-                : { result: { ok: false, reason: "no-item" } };
+        compose: { about: "the owner: compose one missive params.order made on params.actor (or the user's character; params.note)", run: async (p) => {
+            const actor = actorOf(p);
+            const mine = () => crafts.blankMissives(actor).filter((i) => i.flags?.[MODULE_ID]?.crafted?.order === p.order);
+            const item = mine()[0];
+            if (!item) return { result: { ok: false, reason: "no-item" } };
+            const result = plain(await crafts.composeMissive(item.uuid, { note: p.note ?? "" }));
+            const composed = result.item ? fromUuidSync(result.item) : null;
+            return { result, left: mine().reduce((n, i) => n + (i.quantity ?? 1), 0), composed: composed ? madeBrief(composed) : null };
         } },
-        snares: { about: "GM: prepare params.uuid params.count times in params.actor's snare pool params.pool for quick deployment", run: async (p) => {
-            const actor = fromUuidSync(p.actor);
-            const ability = [...(actor.crafting?.abilities ?? [])].find((a) => a.slug === p.pool);
-            if (!ability) return { ok: false, reason: "no-pool", pools: [...(actor.crafting?.abilities ?? [])].map((a) => a.slug) };
-            await ability.setFormulaQuantity(p.uuid, p.count ?? 2);
-            const prepared = await ability.getPreparedCraftingFormulas();
-            return { ok: true, prepared: prepared.map((f) => ({ uuid: f.uuid, expended: !!f.expended })) };
-        } },
+        snares: { about: "GM: prepare params.uuid params.count times, all ready, in params.actor's snare pool params.pool for quick deployment",
+            run: async (p) => {
+                const actor = fromUuidSync(p.actor);
+                // Read again after each write: pf2e's ability holds the pool's prepared list as it was when the actor was prepared.
+                const pool = () => [...(actor.crafting?.abilities ?? [])].find((a) => a.slug === p.pool);
+                if (!pool()) return { ok: false, reason: "no-pool", pools: [...(actor.crafting?.abilities ?? [])].map((a) => a.slug) };
+                // Taken out first, so a slot an earlier run deployed (pf2e keeps `expended` on the entry) is not prepared again spent.
+                await pool().unprepareFormula(p.uuid);
+                await pool().setFormulaQuantity(p.uuid, p.count ?? 2);
+                const prepared = await pool().getPreparedCraftingFormulas();
+                return { ok: true, prepared: prepared.map((f) => ({ uuid: f.uuid, expended: !!f.expended })) };
+            } },
         ledger: { about: "any client: params.actor's quick-deploy ledger for params.pool, after params.mark (key, mark) and params.deploy (index)", run: async (p) => {
             const actor = fromUuidSync(p.actor);
             const out = {};

@@ -68,6 +68,9 @@ until 1.0: every string is rewritten before the first release, and these capture
 ![The Queue in the light theme](docs/screenshots/queue-light.png)\
 *The Queue in the light theme, with a finished order's cost summary.*
 
+![A tattoo in the Queue](docs/screenshots/tattoo.png)\
+*A tattoo in the Queue: made on its subject, who agrees from here and sits for it in downtime before the work can start.*
+
 ## Compatibility
 
 Targets the latest Foundry VTT release and the latest PF2e system release, Remaster

@@ -236,3 +236,14 @@ test("M9's gates and refusals read as sentences; every M9 label is a key in lang
     ];
     assert.deepEqual(keys.filter((key) => !(key in lang)), []);
 });
+
+test("after the M9 live pass: a finished order's subject no longer reads as sitting for it", async () => {
+    const consented = { subject: { actor: bo.uuid, consented: true, presence: true, process: "secrets-of-magic" } };
+    await tattooOrder({ ...consented, status: "finishing" });
+    await write({ set: { [`pcs.${bo.id}.inDowntime`]: true, [`pcs.${bo.id}.activity`]: { kind: "subject", ref: "o1" } } });
+    assert.equal((await detailExtras(read("orders.o1"))).subject.text, "Bo has agreed and spends their downtime sitting for it.");
+    for (const status of ["complete", "cancelled"]) {
+        await tattooOrder({ ...consented, status });
+        assert.equal((await detailExtras(read("orders.o1"))).subject.text, "Bo has agreed.", status);
+    }
+});

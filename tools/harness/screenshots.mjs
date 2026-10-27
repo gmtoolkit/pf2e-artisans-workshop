@@ -36,9 +36,10 @@ import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { REGISTRY } from "../../scripts/data/registry.mjs";
 import { SCREENSHOT_DIR, SCREENSHOT_MAX_BYTES } from "../check-assets.mjs";
 import { FIXTURE_MARK } from "./fixtures.mjs";
-import { prepareWorld, resetWorld } from "./live-plans.mjs";
+import { M9, prepareWorld, resetWorld } from "./live-plans.mjs";
 import { DEFAULT_CHROMIUM, Harness, MODULE_ID } from "./run-live.mjs";
 
 /** The mark on the demo actors (and, on the party, what it and the users had before). */
@@ -85,7 +86,7 @@ const SELECTORS = Object.freeze({
 /**
  * What is captured, in this order, as Player One: the file under SCREENSHOT_DIR (`docs/screenshots/`, where the asset
  * check allows images, 16.5), the colour scheme, what is open (a tab; on the Queue, the detail of the staged order named
- * by `order`; the request form opened from the Queue) and the README's caption (draft text, 17.1).
+ * by `order`, scrolled to `scroll` when given; the request form opened from the Queue) and the README's caption (draft text, 17.1).
  */
 export const CAPTURES = Object.freeze([
     { file: "queue.png", scheme: "dark", view: "queue", order: "finishing",
@@ -108,13 +109,15 @@ export const CAPTURES = Object.freeze([
         caption: "The Afflictions window: a poison running on the alchemist with its stages, the next save and the maximum duration, and a save still to roll." },
     { file: "queue-light.png", scheme: "light", view: "queue", order: "complete",
         caption: "The Queue in the light theme, with a finished order's cost summary." },
+    { file: "tattoo.png", scheme: "dark", view: "queue", order: "tattoo", scroll: ".detail-requirements",
+        caption: "A tattoo in the Queue: made on its subject, who agrees from here and sits for it in downtime before the work can start." },
 ]);
 
 /**
  * Captures taken and written beside `CAPTURES` but not yet linked from the README (17.1 "refreshed whenever a milestone adds
  * a tab"): a new tab's capture goes here first. After a run, check the file by eye, move its entry into `CAPTURES` and add
- * its caption to the README's Screenshots section, which `test/screenshots.test.mjs` then holds to it. Empty since the M8a
- * live pass linked `afflictions.png`.
+ * its caption to the README's Screenshots section, which `test/screenshots.test.mjs` then holds to it. Empty since the M9
+ * live pass linked `tattoo.png`.
  */
 export const NEXT_CAPTURES = Object.freeze([]);
 
@@ -379,6 +382,15 @@ function pageIsolate({ selector }) {
     return hidden.length;
 }
 
+/** Scroll the order's detail so that the element `selector` names is at its top, and the list to the order's row; whether both were found. */
+function pageScrollDetail({ selector, row }) {
+    const el = document.querySelector(selector);
+    const line = document.querySelector(row);
+    line?.scrollIntoView({ block: "center" });
+    el?.scrollIntoView({ block: "start" });
+    return !!el && !!line;
+}
+
 /** Show again what `pageIsolate` hid. */
 function pageShowAll() {
     for (const el of window.__workshopHidden ?? []) el.style.visibility = "";
@@ -576,6 +588,22 @@ async function stageAfflictions(h, demo) {
     return { spider, wasp };
 }
 
+/**
+ * A tattoo (M9), with Player One and Player Two online: Doran, given Tattoo Artist and Eye Slash's formula, takes an order to
+ * tattoo it on Ilsa; it waits for Ilsa's agreement (G10), which Player One gives from the Queue. Returns the order's id.
+ */
+async function stageTattoo(h, demo) {
+    await h.step("gm", "m9", "give", { actor: demo.fighter.uuid, uuid: REGISTRY["tattoo-artist"].uuid });
+    await h.step("gm", "m9", "learn", { actor: demo.fighter.uuid, uuids: [M9.tattoo] });
+    const filed = await h.step("p2", "m9", "request", { uuid: M9.tattoo, requester: demo.fighter.uuid, crafter: demo.fighter.uuid, target: demo.alchemist.uuid });
+    if (!filed.order) throw new Error(`the tattoo order was refused: ${JSON.stringify(filed)}`);
+    await seenEverywhere(h, `orders.${filed.order}`);
+    const gates = await h.step("p1", "m5", "gates", { order: filed.order });
+    h.check("the demo's tattoo: Ilsa's, by Doran, waiting for her to agree", filed.brief?.craftType === "tattoo" && filed.brief.target === demo.alchemist.uuid
+        && gates.failing?.some(([id, reason]) => id === "G10" && reason === "no-consent") && !gates.failing.some(([id]) => id === "G4"), { filed, gates });
+    return filed.order;
+}
+
 /* -------------------------------------------- */
 /*  Captures                                     */
 /* -------------------------------------------- */
@@ -603,6 +631,11 @@ async function show(h, capture, orders, demo, morning = {}) {
     if (capture.view === "afflictions") return h.step("p1", "m8a", "window", { ms: 1500 });
     const tab = capture.view === "funds" ? "funds" : "queue";
     const opened = await h.step("p1", "m4", "open", { tab, order: capture.order ? orders[capture.order] : null, ms: 1500 });
+    // A part of the order's detail further down (M9: the tattoo's requirements and subject), scrolled to the top of it.
+    if (capture.scroll) {
+        opened.scrolled = await h.evaluate("p1", pageScrollDetail, { selector: `${WORKSHOP} aside.order-detail ${capture.scroll}`,
+            row: `${WORKSHOP} li.order-row.selected` }, "scroll the detail");
+    }
     if (capture.view === "request") return { ...opened, form: await h.evaluate("p1", pageRequestForm, { mod: MODULE_ID, uuid: ITEMS.mistformModerate, quantity: 2 }) };
     return opened;
 }
@@ -735,6 +768,7 @@ async function main() {
         report.morning = await stageMorning(h, cast.made);
         report.combat = await stageCombat(h, cast.made);
         report.afflictions = await stageAfflictions(h, cast.made);
+        report.orders.tattoo = await stageTattoo(h, cast.made);
         h.label = "capture";
         await h.only(["p1"]);
         await h.settle("ready", ["p1"]);

@@ -3639,6 +3639,12 @@ export const M9 = Object.freeze({
     graftTechnician: "Compendium.pf2e.feats-srd.Item.9OaF7Lkrtvusg5AA",
 });
 
+/**
+ * The die every M9 Craft check rolls (`run`'s `face`, M9 live pass): a success for every crafter fixture at the items' DCs, so
+ * each plan checks what a finish makes instead of passing on the branch a failed check skips.
+ */
+export const M9_FACE = 15;
+
 /** A fixture's actor UUID by its id, or null (checked). */
 function fixtureOf(h, w, id) {
     const actorId = w.fixtures.find(([, fixture]) => fixture === id)?.[0];
@@ -3673,11 +3679,13 @@ async function m9Tattoo(h, w) {
     const agreed = await h.step("p2", "m9", "consent", { order: filed.order });
     h.check("Player Two agrees: in downtime, sitting for the order", agreed.result?.ok === true && agreed.status.inDowntime && agreed.status.activity?.kind === "subject",
         agreed);
+    const stays = await h.step("p2", "m9", "leave", {});
+    h.check("Player Two cannot leave downtime while sitting for it", stays.ok === false && stays.reason === "subject", stays);
     await h.step("gm", "m5", "seen", { path: `orders.${filed.order}.subject.consented`, value: true });
     const ready = await h.step("gm", "m5", "gates", { order: filed.order });
     h.check("only the money is left to find", ready.failing.every(([id]) => id === "G8"), ready);
-    const run = await h.step("gm", "m9", "run", { order: filed.order, crafter: artist, payer: w.pcs.p1.uuid, pledge: 1000 });
-    h.check("the tattoo is crafted (or its check fails)", ["complete", "failed"].includes(run.order?.status), run);
+    const run = await h.step("gm", "m9", "run", { order: filed.order, crafter: artist, payer: w.pcs.p1.uuid, pledge: 1000, face: M9_FACE });
+    h.check("the tattoo is crafted", run.order?.status === "complete", run);
     h.check("the process is frozen at the start", run.order?.process === "secrets-of-magic", run.order);
     if (run.order?.status !== "complete") return { run };
     const collected = await h.step("p2", "m9", "collect", {});
@@ -3685,7 +3693,7 @@ async function m9Tattoo(h, w) {
     const tattoo = made.items[0];
     h.check("on Player Two's character: healing, uninvested, worn", tattoo?.subject?.state === "healing" && tattoo.equipped?.invested === false &&
         tattoo.equipped?.carryType === "worn", { collected, made });
-    const healed = await h.step("p2", "m9", "heal", {});
+    const healed = await h.step("p2", "m9", "heal", { order: filed.order });
     h.check("healing recorded: it heals by the next day", healed.result?.ok === true && healed.result.until === tattoo.subject.from + 1, healed);
     await h.step("gm", "m9", "logDay", { days: 1 });
     const settled = await h.step("p2", "m9", "made", { order: filed.order, ms: 3000 });
@@ -3710,11 +3718,13 @@ async function m9Simple(h, w) {
     const agreed = await h.step("p2", "m9", "consent", { order: filed.order });
     h.check("consent only: Player Two is not put in downtime", agreed.result?.presence === false && !agreed.status.inDowntime, agreed);
     await h.step("gm", "m5", "seen", { path: `orders.${filed.order}.subject.consented`, value: true });
-    const run = await h.step("gm", "m9", "run", { order: filed.order, crafter: artist, payer: w.pcs.p1.uuid, pledge: 1000 });
+    const run = await h.step("gm", "m9", "run", { order: filed.order, crafter: artist, payer: w.pcs.p1.uuid, pledge: 1000, face: M9_FACE });
+    h.check("the tattoo is crafted", run.order?.status === "complete", run);
     if (run.order?.status === "complete") {
         await h.step("p2", "m9", "collect", {});
         const made = await h.step("p2", "m9", "made", { order: filed.order, ms: 1500 });
-        h.check("delivered invested, with no healing", made.items[0]?.subject?.state === "invested" && made.items[0].equipped?.invested === true, made);
+        h.check("delivered invested, with no healing", made.items[0]?.subject?.state === "invested" && made.items[0].equipped?.invested === true &&
+            made.items[0].subject.until === made.items[0].subject.from, made);
     }
     await h.step("gm", "m9", "setting", { key: "rules.tattooProcess", value: "secrets-of-magic" });
     await checkStatuses(h);
@@ -3743,8 +3753,9 @@ async function m9Graft(h, w) {
     h.check("no implant without the formula (G6)", noFormula.failing.some(([id, reason]) => id === "G6" && reason === "needs-formula"), noFormula);
     await h.step("gm", "m9", "learn", { actor: surgeon, uuids: [M9.graft] });
     await h.step("gm", "m9", "investiture", { actor: w.pcs.p2.uuid, max: 0 });
-    const run = await h.step("gm", "m9", "run", { order: filed.order, crafter: surgeon, payer: w.pcs.p1.uuid, pledge: 600 });
+    const run = await h.step("gm", "m9", "run", { order: filed.order, crafter: surgeon, payer: w.pcs.p1.uuid, pledge: 600, face: M9_FACE });
     h.check("the implant rolls Medicine", run.order?.skill === "medicine", run.order);
+    h.check("the graft is implanted", run.order?.status === "complete", run);
     if (run.order?.status === "complete") {
         await h.step("p2", "m9", "collect", {});
         const inactive = await h.step("p2", "m9", "made", { order: filed.order, ms: 1500 });
@@ -3774,7 +3785,8 @@ async function m9FuluMissive(h, w) {
     const blocked = await h.step("gm", "m5", "gates", { order: fulu.order });
     h.check("the fulu waits for a tradition (G12)", blocked.failing.some(([, reason]) => reason === "fulu-tradition"), blocked);
     h.check("chosen", (await h.step("gm", "m9", "tradition", { order: fulu.order, tradition: "divine" })).ok === true);
-    const made = await h.step("gm", "m9", "run", { order: fulu.order, crafter, payer: w.pcs.p1.uuid, pledge: 2000 });
+    const made = await h.step("gm", "m9", "run", { order: fulu.order, crafter, payer: w.pcs.p1.uuid, pledge: 2000, face: M9_FACE });
+    h.check("the fulus are crafted", made.order?.status === "complete" && made.order.tradition === "divine", made);
     if (made.order?.status === "complete") {
         const items = await h.step("gm", "m9", "made", { actor: crafter, order: fulu.order, ms: 1500 });
         const shelf = items.items[0];
@@ -3782,10 +3794,14 @@ async function m9FuluMissive(h, w) {
             shelf.expiry?.atDay === items.today + 365, items);
     }
     const missive = await h.step("gm", "m9", "request", { uuid: M9.missive, quantity: 2, requester: crafter, crafter });
-    const crafted = await h.step("gm", "m9", "run", { order: missive.order, crafter, payer: w.pcs.p1.uuid, pledge: 3000 });
+    const crafted = await h.step("gm", "m9", "run", { order: missive.order, crafter, payer: w.pcs.p1.uuid, pledge: 3000, face: M9_FACE });
+    h.check("the missives are crafted", crafted.order?.status === "complete", crafted);
     if (crafted.order?.status === "complete") {
         const blank = await h.step("gm", "m9", "made", { actor: crafter, order: missive.order, ms: 1500 });
-        h.check("the missives are made blank", blank.items.every((i) => i.missive?.composed === null), blank);
+        h.check("two missives, made blank", blank.items.reduce((n, i) => n + i.qty, 0) === 2 && blank.items.every((i) => i.missive?.composed === null), blank);
+        const composed = await h.step("gm", "m9", "compose", { actor: crafter, order: missive.order, note: "M9 live pass" });
+        h.check("one is composed on its own, one left blank", composed.result?.ok === true && composed.left === 1 && composed.composed?.qty === 1 &&
+            composed.composed.missive?.composed?.note === "M9 live pass", composed);
     }
     await checkStatuses(h);
     return { made, crafted };
@@ -3793,7 +3809,8 @@ async function m9FuluMissive(h, w) {
 
 /**
  * 14e. A staff's listed castings (6.9, M9): the fighter crafter's Staff of Fire needs Ignition (a cantrip) and Breathe Fire
- * at 1st rank; the wizard fixture offers both, each naming its listed casting; G9 waits until both are cast.
+ * at 1st rank; the wizard fixture offers both, each naming its listed casting (Electric Arc, not listed, is refused, and a
+ * casting is offered once); G9 waits until both are cast.
  */
 async function m9Staff(h, w) {
     const crafter = fixtureOf(h, w, "fighter-crafter-10");
@@ -3803,17 +3820,26 @@ async function m9Staff(h, w) {
     await h.step("gm", "m9", "learn", { actor: crafter, uuids: [M9.staff] });
     await h.only(["gm"]);
     await h.settle("ready");
-    const ignition = await h.step("gm", "m5", "spell", { actor: wizard, name: "Ignition" });
-    const breathe = await h.step("gm", "m5", "spell", { actor: wizard, name: "Breathe Fire" });
+    const ignition = await h.step("gm", "m9", "spell", { actor: wizard, name: "Ignition" });
+    const breathe = await h.step("gm", "m9", "spell", { actor: wizard, name: "Breathe Fire" });
+    const arc = await h.step("gm", "m9", "spell", { actor: wizard, name: "Electric Arc" });
+    h.check("the wizard holds the three spells", ignition.ok && breathe.ok && arc.ok, { ignition, breathe, arc });
     const filed = await h.step("gm", "m9", "request", { uuid: M9.staff, requester: crafter, crafter });
     h.check("a staff is a spell item", filed.brief?.craftType === "spell-item", filed);
     const waiting = await h.step("gm", "m5", "gates", { order: filed.order });
     h.check("G9 waits for the listed castings", waiting.failing.some(([id, reason]) => id === "G9" && reason === "spells"), waiting);
+    const unlisted = await h.step("gm", "m5", "pledge", { order: filed.order, caster: wizard, spell: arc.uuid, castings: 1 });
+    h.check("a spell the staff does not list is refused", unlisted.ok === false && unlisted.reason === "not-on-list", unlisted);
     const first = await h.step("gm", "m5", "pledge", { order: filed.order, caster: wizard, spell: ignition.uuid, castings: 1 });
+    const again = await h.step("gm", "m5", "pledge", { order: filed.order, caster: wizard, spell: ignition.uuid, castings: 1 });
     const second = await h.step("gm", "m5", "pledge", { order: filed.order, caster: wizard, spell: breathe.uuid, castings: 1 });
-    h.check("each pledge names its listed casting", first.ok === true && second.ok === true, { first, second });
-    const cast = await h.step("gm", "m5", "fulfil", { order: filed.order, caster: wizard });
-    h.check("both entries are named and cast", cast.order?.pledges?.every((p) => p.entry && p.status === "fulfilled"), cast);
+    h.check("each listed casting is offered once", first.ok === true && second.ok === true && again.ok === false, { first, again, second });
+    await h.step("gm", "m5", "fulfil", { order: filed.order, caster: wizard });
+    const cast = await h.step("gm", "m9", "order", { order: filed.order });
+    const entries = (cast.order?.pledges ?? []).map((p) => p.entry);
+    h.check("both entries are named and cast: Ignition as a cantrip, Breathe Fire at 1st rank", cast.order?.pledges?.length === 2 &&
+        cast.order.pledges.every((p) => p.entry && p.status === "fulfilled") && new Set(entries).size === 2 &&
+        entries.some((e) => e.startsWith(ignition.compendium)) && entries.some((e) => e === `${breathe.compendium}@1`), cast);
     const after = await h.step("gm", "m5", "gates", { order: filed.order });
     h.check("G9 passes", !after.failing.some(([id]) => id === "G9"), after);
     await checkStatuses(h);
@@ -3833,7 +3859,8 @@ async function m9Snares(h, w) {
     await h.only(["gm"]);
     await h.settle("ready");
     const prepared = await h.step("gm", "m9", "snares", { actor: ranger, pool: "snarecrafter", uuid: M9.alarmSnare, count: 2 });
-    h.check("two snares prepared for quick deployment", prepared.ok === true && prepared.prepared.length === 2, prepared);
+    h.check("two snares prepared for quick deployment, both ready", prepared.ok === true && prepared.prepared.length === 2 &&
+        prepared.prepared.every((f) => !f.expended), prepared);
     const key = `${M9.alarmSnare}#1`;
     const marked = await h.step("gm", "m9", "ledger", { actor: ranger, pool: "snarecrafter", mark: { key, mark: "giant" } });
     h.check("a giant snare costs two", marked.mark?.ok === true && marked.ledger.used === 3 && marked.ledger.allowed.includes("giant"), marked);
@@ -3845,18 +3872,28 @@ async function m9Snares(h, w) {
     return { marked, deployed };
 }
 
-/** 14g. An inventor has access to an uncommon gadget (G5, Guns & Gears); no feat is needed (G4). */
+/**
+ * 14g. An inventor has access to an uncommon gadget (G5, Guns & Gears); no feat is needed (G4). The fighter crafter, without the
+ * class, is held back by G5 alone, so the inventor's pass is the class's doing.
+ */
 async function m9Gadget(h, w) {
     const inventor = fixtureOf(h, w, "inventor-6");
-    if (!inventor) return {};
-    await m9Reset(h, w, [inventor]);
+    const fighter = fixtureOf(h, w, "fighter-crafter-10");
+    if (!inventor || !fighter) return {};
+    await m9Reset(h, w, [inventor, fighter]);
     await h.only(["gm"]);
     await h.settle("ready");
     const filed = await h.step("gm", "m9", "request", { uuid: M9.gadget, requester: inventor, crafter: inventor });
     const gates = await h.step("gm", "m5", "gates", { order: filed.order });
-    h.check("an uncommon gadget: access and no feat for an inventor", !gates.failing.some(([id]) => id === "G4" || id === "G5"), gates);
+    h.check("an uncommon gadget: access and no feat for an inventor", !!filed.order && Array.isArray(gates.failing) &&
+        !gates.failing.some(([id]) => id === "G4" || id === "G5"), { filed, gates });
+    // The check above means something only if a crafter without the class is held back: G5 (access), not G4 (feat).
+    const other = await h.step("gm", "m9", "request", { uuid: M9.gadget, requester: fighter, crafter: fighter });
+    const held = await h.step("gm", "m5", "gates", { order: other.order });
+    h.check("the same gadget without the class: no access (G5), no feat needed (G4)", !!other.order && held.failing?.some(([id]) => id === "G5") &&
+        !held.failing.some(([id]) => id === "G4"), { other, held });
     await checkStatuses(h);
-    return { gates };
+    return { gates, held };
 }
 
 /** The Queue's tattoo detail photographed (17.1, M9): as Player Two, waiting to agree, 1440x900 and 1024x768, dark and light. */

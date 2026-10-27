@@ -8,7 +8,7 @@
  */
 import { MODULE_ID } from "../constants.mjs";
 import { CONSENT_STATUSES, TRADITIONS, selfSubject, subjectProcess } from "../logic/crafts.mjs";
-import { WITH_SUBJECT } from "../logic/orders.mjs";
+import { CLOSED, WITH_SUBJECT, closedAs } from "../logic/orders.mjs";
 import { livePledges } from "../logic/pledges.mjs";
 import { entryMatches } from "../logic/spell-lists.mjs";
 import * as crafts from "../foundry/crafts.mjs";
@@ -54,6 +54,8 @@ export function subjectView(order) {
     const status = subjectActor ? read(`pcs.${subjectActor.id}`) : null;
     const sitting = !process.presence || (!!status?.inDowntime && status.activity?.kind === "subject" && status.activity.ref === order.id);
     const open = CONSENT_STATUSES.includes(statusOf(order));
+    // Once the order is closed the subject sits for it no more (the lock ends with it, `subjectLockOf`): it has agreed.
+    const closed = CLOSED.includes(closedAs(order) ?? order.status);
     const name = nameOf(order.target);
     const roster = read(`roster.${subjectActor?.id}`)?.investiture ?? null;
     const item = order.status === "complete" ? madeItem(order) : null;
@@ -64,7 +66,7 @@ export function subjectView(order) {
         name, process: loc(TATTOO_PROCESS[process.process] ?? TATTOO_PROCESS["secrets-of-magic"]),
         text: self ? fmt("pf2e-artisans-workshop.Subject.Self", { name })
             : !consented ? fmt("pf2e-artisans-workshop.Subject.Waiting", { name })
-                : process.presence ? fmt("pf2e-artisans-workshop.Subject.Sitting", { name }) : fmt("pf2e-artisans-workshop.Subject.Agreed", { name }),
+                : process.presence && !closed ? fmt("pf2e-artisans-workshop.Subject.Sitting", { name }) : fmt("pf2e-artisans-workshop.Subject.Agreed", { name }),
         consented, waiting: !consented,
         canConsent: !self && (!consented || !sitting) && open && owns(order.target),
         canWithdraw: !self && consented && open && (owns(order.target) || viewer.isGM === true),
