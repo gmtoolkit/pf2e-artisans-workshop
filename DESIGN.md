@@ -5446,6 +5446,16 @@ script is the one place to change for generic icons.
   (`queue-light.png`); `text-shadow: none` on them would fix it.
 - "Spent, by source" lists its sources in no fixed order: two runs of the same staging showed the party fund and Wren
   Ashdown in either order.
+- Order detail heading: the quantity sits inside the `<h3>` (`templates/workshop/queue.hbs`, the detail's title), so
+  "× 2" is set in pf2e's `--serif` (Eczar) and its "×" reads as an asterisk, "Antidote (Moderate) ⁎ 2" (`queue.png`,
+  `queue-light.png`); in the list, where the quantity is outside the title, it reads as "× 2". Setting `.order-qty` in
+  the heading in the sans font would fix it.
+- Request form, "Who can make it": a player in a world where pf2e hides DCs (its metagame "show DCs" off, as in the dev
+  world) gets the DC column's header over empty cells (`request.mjs` blanks `dc` when `showDcs()` is false, the
+  template always draws the column; `request-form.png`). Leave the column out when DCs are hidden.
+
+The README puts each caption after its image with a hard line break (a trailing `\`): with a plain newline GitHub
+renders the caption on the image's line, beside the 560 px request form (`test/screenshots.test.mjs` holds it).
 
 ---
 
