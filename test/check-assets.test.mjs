@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkAssets, listFiles, run } from "../tools/check-assets.mjs";
+import { SCREENSHOT_MAX_BYTES, checkAssets, isScreenshotPath, listFiles, run } from "../tools/check-assets.mjs";
 import { ROOT, logger, tempDir } from "./helpers.mjs";
 
 /** File content from strings (as Latin-1 bytes) and byte arrays. */
@@ -75,6 +75,42 @@ test("files that never ship may name the patterns", (t) => {
         "styles/a.css": ".a { color: red; } /* data:text/plain,hello is not base64 */\n",
     });
     assert.deepEqual(checkAssets(dir), []);
+});
+
+test("the README's screenshots: PNG files directly in docs/screenshots/ pass, up to the size limit", (t) => {
+    const dir = tempDir(t, {
+        "docs/screenshots/queue.png": PNG_BYTES,
+        "docs/screenshots/Funds.PNG": Buffer.concat([PNG_BYTES, Buffer.alloc(SCREENSHOT_MAX_BYTES - PNG_BYTES.length)]),
+        "docs/screenshots/notes.md": "# Captions\n",
+    });
+    assert.deepEqual(checkAssets(dir), []);
+});
+
+test("images anywhere else, other media in docs/screenshots/, and a screenshot that is not a small PNG fail", (t) => {
+    const cases = {
+        "docs/queue.png": [PNG_BYTES, /media file \(\.png\)/],
+        "docs/screenshots/old/queue.png": [PNG_BYTES, /media file \(\.png\)/],
+        "styles/queue.png": [PNG_BYTES, /media file \(\.png\)/],
+        "docs/screenshots/queue.svg": ["<svg></svg>", /media file \(\.svg\)/],
+        "docs/screenshots/queue.webp": ["x", /media file \(\.webp\)/],
+        "docs/screenshots/tour.mp4": ["x", /media file \(\.mp4\)/],
+        "docs/screenshots/font.bin": [bytes("wOF2", [0, 1]), /WOFF2 font/],
+        "docs/screenshots/riff.png": [bytes("RIFF", [0x24, 0, 0, 0], "WEBPVP8 "), /a screenshot must be a PNG image/],
+        "docs/screenshots/huge.png": [Buffer.concat([PNG_BYTES, Buffer.alloc(SCREENSHOT_MAX_BYTES)]), /screenshot is \d+ KiB, more than 400 KiB/],
+    };
+    const dir = tempDir(t, Object.fromEntries(Object.entries(cases).map(([path, [content]]) => [path, content])));
+    const problems = checkAssets(dir);
+    assert.equal(problems.length, Object.keys(cases).length, problems.join("\n"));
+    for (const [path, [, message]] of Object.entries(cases)) {
+        assert.match(problems.find((line) => line.startsWith(`${path}:`)) ?? "", message, path);
+    }
+});
+
+test("a screenshot's place is a .png directly in docs/screenshots/", () => {
+    assert.equal(isScreenshotPath("docs/screenshots/queue.png"), true);
+    for (const path of ["docs/queue.png", "docs/screenshots/a/queue.png", "docs/screenshots/queue.jpg", "docs/screenshotsX/queue.png", "x/docs/screenshots/a.png"]) {
+        assert.equal(isScreenshotPath(path), false, path);
+    }
 });
 
 test("an allowlisted path passes", (t) => {

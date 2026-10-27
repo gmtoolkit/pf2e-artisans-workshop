@@ -2,8 +2,10 @@
  * Asset policy check (DESIGN.md 16.5, P14).
  *
  * The repository holds no images, audio, video or fonts: icons are Font Awesome classes, Foundry core
- * icons or pf2e system icon paths, and item images come from the compendium. Every file git would track
- * fails the check if
+ * icons or pf2e system icon paths, and item images come from the compendium. The one exception is the
+ * README's screenshots of the module's own window (17.1): PNG files directly in `docs/screenshots/`, each
+ * a real PNG of at most SCREENSHOT_MAX_BYTES; that folder never ships (the release zip of 16.2 leaves
+ * `docs/` out). Every other file git would track fails the check if
  *
  * - its extension is a media type;
  * - its leading bytes are a media format, or it is not UTF-8 text at all (media under another name); or
@@ -20,6 +22,18 @@ import { extname, join, relative } from "node:path";
 
 /** Paths allowed to be media files. Empty by policy; adding one needs an entry in DECISIONS.md. */
 export const ALLOWLIST = [];
+
+/** The README's screenshots (DESIGN.md 17.1): the only folder where images may be, PNG only, not in subfolders. */
+export const SCREENSHOT_DIR = "docs/screenshots/";
+
+/** The most a screenshot may weigh (17.1: compressed, under about 400 KB each). */
+export const SCREENSHOT_MAX_BYTES = 400 * 1024;
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/** Whether a path is where a screenshot may be: a `.png` directly in SCREENSHOT_DIR. */
+export const isScreenshotPath = (file) => file.startsWith(SCREENSHOT_DIR) && !file.slice(SCREENSHOT_DIR.length).includes("/")
+    && extname(file).toLowerCase() === ".png";
 
 const MEDIA_EXTENSIONS = new Set([
     // images
@@ -103,6 +117,14 @@ export function checkAssets(root, { files = listFiles(root), allowlist = ALLOWLI
     const problems = [];
     for (const file of files) {
         if (allowlist.includes(file)) continue;
+        if (isScreenshotPath(file)) {
+            const bytes = readFileSync(join(root, file));
+            if (!PNG_SIGNATURE.every((byte, i) => bytes[i] === byte)) problems.push(`${file}: a screenshot must be a PNG image`);
+            else if (bytes.length > SCREENSHOT_MAX_BYTES) {
+                problems.push(`${file}: screenshot is ${Math.ceil(bytes.length / 1024)} KiB, more than ${SCREENSHOT_MAX_BYTES / 1024} KiB`);
+            }
+            continue;
+        }
         const ext = extname(file).toLowerCase();
         if (MEDIA_EXTENSIONS.has(ext)) {
             problems.push(`${file}: media file (${ext})`);
@@ -126,7 +148,7 @@ export function checkAssets(root, { files = listFiles(root), allowlist = ALLOWLI
 export function run(root, log = console.log) {
     const problems = checkAssets(root);
     for (const problem of problems) log(`error: ${problem}`);
-    log(problems.length ? `Asset check failed: ${problems.length} problem(s).` : "Asset check passed: no media files.");
+    log(problems.length ? `Asset check failed: ${problems.length} problem(s).` : `Asset check passed: no media files but the screenshots in ${SCREENSHOT_DIR}.`);
     return problems.length ? 1 : 0;
 }
 

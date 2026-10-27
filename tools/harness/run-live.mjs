@@ -255,17 +255,19 @@ export class Harness {
 
     /**
      * A screenshot of a client's page at a viewport size, saved as `<shotsDir>/<file>`; the viewport goes back to the
-     * harness's own size afterwards. `prepare` runs once the page has the new size (to open the window at it).
+     * harness's own size afterwards. `prepare` runs once the page has the new size (to open the window at it). With
+     * `selector`, the screenshot is cropped to the first element it matches (a window's frame, `screenshots.mjs`).
      */
-    async screenshot(name, file, { width, height }, prepare = null) {
+    async screenshot(name, file, { width, height }, prepare = null, { selector = null } = {}) {
         const client = this.clients.get(name) ?? await this.open(name);
         mkdirSync(this.shotsDir, { recursive: true });
         await client.page.setViewportSize({ width, height });
         await new Promise((resolve) => setTimeout(resolve, 500));
         const prepared = prepare ? await prepare() : null;
         const path = join(this.shotsDir, file);
-        await client.page.screenshot({ path });
-        this.shots.push({ label: this.label, client: name, file: path, width, height, prepared });
+        if (selector) await client.page.locator(selector).first().screenshot({ path, animations: "disabled", caret: "hide" });
+        else await client.page.screenshot({ path });
+        this.shots.push({ label: this.label, client: name, file: path, width, height, selector, prepared });
         await client.page.setViewportSize(VIEWPORT);
         return path;
     }
@@ -400,7 +402,7 @@ const ALL_SCENARIOS = Object.keys(SCENARIOS);
  * The browser binary. Arch's `/usr/bin/chromium` is a launcher that adds the user's `chromium-flags.conf` (desktop
  * flags, extensions) to every start; the binary behind it runs without them.
  */
-const DEFAULT_CHROMIUM = existsSync("/usr/lib/chromium/chromium") ? "/usr/lib/chromium/chromium" : "/usr/bin/chromium";
+export const DEFAULT_CHROMIUM = existsSync("/usr/lib/chromium/chromium") ? "/usr/lib/chromium/chromium" : "/usr/bin/chromium";
 
 async function main() {
     const { values } = parseArgs({

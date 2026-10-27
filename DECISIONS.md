@@ -2,6 +2,20 @@
 
 Newest first.
 
+## 2026-10-26: README screenshots in docs/screenshots/
+
+**Decision:** the README shows screenshots of the module's own window, taken by `npm run screenshots` from a demo party
+staged in the dev world (DESIGN 17.1) and kept in `docs/screenshots/`. The asset check allows images there and nowhere
+else: PNG files directly in that folder, each at most 400 KiB. The release zip never includes `docs/`. The captions and
+the window's wording are draft until the author's rewrite (M13), when the captures are taken again.
+
+**Why:** 17.1 schedules the captures after M5's live pass. Captures of the module's own UI are not AI-generated images,
+so Foundry's AI Content Policy permits them; the folder rule and the size cap keep every other image out and the
+repository small.
+
+**Consequences:** DESIGN 16.2, 16.5 and 17.1 say so; `tools/check-assets.mjs` has the folder rule, with tests. Whether
+pf2e item icons may appear in the captures is still the author's open question in 17.1.
+
 ## 2026-10-26: M5 on fund accounting
 
 **Decision:** M5 is merged onto M4.1 and its money follows the fund accounting of the entry below. Every purchase M5

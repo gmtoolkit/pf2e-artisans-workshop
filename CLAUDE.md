@@ -37,6 +37,8 @@ service orders (`scripts/logic/services.mjs`, `scripts/foundry/services.mjs`), c
 (`scripts/foundry/custody.mjs`), what a finish makes (`scripts/foundry/outputs.mjs`) and the equipment catalogue
 (`scripts/foundry/catalogue.mjs`), with its purchases paid from M4.1's sources (DESIGN 10.11, As built in M5 on M4.1);
 DESIGN 10.11 says what was built, and the live plans `m5-*` (`tools/harness/formula-scenarios.mjs`) passed their first live pass (10.11, M5 live pass).
+README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
+world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every
 decision made so far, newest first; read it before proposing a design change.
 
