@@ -41,7 +41,7 @@ import * as orders from "../foundry/orders.mjs";
 import { reconciliationReport, bookAdjustment } from "../foundry/reconcile.mjs";
 import { resolvePending } from "../foundry/money.mjs";
 import { members } from "../foundry/roster.mjs";
-import { setting } from "../foundry/settings.mjs";
+import { rulesFromSettings, setting } from "../foundry/settings.mjs";
 import { canWrite, shared, status } from "../foundry/state.mjs";
 import { read, records } from "../foundry/store.mjs";
 import { orderContext } from "./context.mjs";
@@ -52,6 +52,7 @@ import { askMoney, confirm } from "./prompts.mjs";
 import { openRequestForm } from "./request.mjs";
 import { detailExtras, kindText, onCustodyOp, onPledgeOp, onServiceOp, servicesView, targetText } from "./extras.mjs";
 import { onCraftOp } from "./crafts.mjs";
+import { fundsVariants, onVariantOp } from "./variants.mjs";
 import { formulasContext, formulasOn, onFormulaChange, onFormulaDrop, onFormulaOp, onFormulaSearch } from "./formulas.mjs";
 import { allServices } from "../foundry/services.mjs";
 import { dayWatcher, downtimeOn, today, worldDate } from "../foundry/downtime.mjs";
@@ -139,6 +140,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
             afflictions: WorkshopApp.#onAfflictions,
             // M9: a tattoo's subject, a fulu's tradition, healing, missives.
             craft: WorkshopApp.#onCraft,
+            // M9a: the Treasure Vault (Remastered) variants (6.16).
+            variant: WorkshopApp.#onVariant,
         },
     };
 
@@ -353,7 +356,10 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
                 option("blocked", "pf2e-artisans-workshop.Queue.Filter.Blocked", this.filters.scope),
             ],
             statusOptions: [option("any", "pf2e-artisans-workshop.Queue.Filter.AnyStatus", this.filters.status),
-                ...Object.entries(STATUS).filter(([id]) => id !== "archived" && id !== "gathering").map(([id, s]) => option(id, s.key, this.filters.status))],
+                // M9a (6.16.9): `gathering` exists only while crafting quests are on, or a quest started under them still gathers.
+                ...Object.entries(STATUS).filter(([id]) => id !== "archived" && (id !== "gathering" || rulesFromSettings().variants.quests ||
+                    all.some((o) => o.status === "gathering")))
+                    .map(([id, s]) => option(id, s.key, this.filters.status))],
             crafterOptions: [option("any", "pf2e-artisans-workshop.Queue.Filter.AnyCrafter", this.filters.crafter),
                 option("none", "pf2e-artisans-workshop.Queue.Filter.NoCrafter", this.filters.crafter),
                 ...people.map((a) => ({ value: a.uuid, name: a.name, selected: a.uuid === this.filters.crafter }))],
@@ -407,6 +413,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const parts = { total: money(view.actualCp), expected: money(a.expectedCp), unallocated: money(a.unallocatedCp),
             earmarked: money(a.earmarkedCp), difference: money(view.differenceCp) };
         return {
+            // M9a (6.16.7, 6.16.8): the gardens and the bestowed gifts, while their variants are on.
+            variantFunds: fundsVariants(),
             funds: {
                 ...view,
                 actualText: money(view.actualCp), expectedText: money(view.expectedCp), differenceText: money(view.differenceCp),
@@ -894,6 +902,18 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
         }
     }
 
+    /** A variant button (M9a, 6.16): on an order's detail, the Funds tab's gardens and gifts, the Downtime tab's harvests. */
+    static async #onVariant(_event, target) {
+        target.disabled = true;
+        try {
+            const result = await onVariantOp(this, target);
+            if (result?.ok) this.announce(game.i18n.localize("pf2e-artisans-workshop.Event.Variant"));
+        } finally {
+            if (target.isConnected) target.disabled = false;
+        }
+        return this.render({ parts: ["queue", "funds", "downtime"] });
+    }
+
     /** A custody button: hand over an item, add stock, give one back (M5). */
     static async #onCustody(_event, target) {
         target.disabled = true;
@@ -997,6 +1017,8 @@ export function registerWindowHooks() {
     Hooks.on("pf2e-artisans-workshop.preparationCompleted", touch);
     // M8a: a save recorded or a stage changed moves the header's pending count (10.2).
     Hooks.on("pf2e-artisans-workshop.afflictionChanged", touch);
+    // M9a: a variant turned on or off shows or hides what it adds (6.16).
+    Hooks.on("pf2e-artisans-workshop.variantsChanged", touch);
     Hooks.once("setup", () => foundry.applications.handlebars.loadTemplates([...PARTIALS]));
 }
 

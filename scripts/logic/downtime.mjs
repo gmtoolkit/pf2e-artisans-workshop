@@ -16,8 +16,9 @@ import { DEFAULT_RULES } from "./defaults.mjs";
 import { wageKey, wageSeq } from "./earn-income.mjs";
 import { hashId } from "./ids.mjs";
 import { CLOSED, DAY_VERSION, workDayRecord } from "./orders.mjs";
-import { remainingCp, setupComplete } from "./progress.mjs";
+import { remainingCp, setupComplete, setupDaysDone } from "./progress.mjs";
 import { subjectLockOf } from "./crafts.mjs";
+import { eventPause, madeDespite, settledAsSuccess, setupAnywhere } from "./variants.mjs";
 
 /** Seconds in a day of the core calendar. */
 export const SECONDS_PER_DAY = 86400;
@@ -217,7 +218,10 @@ export function notDowntimeRecord(actorId, from, to, stamp) {
  * - `not-helping`: the PC is not (or no longer) a helper on that order;
  * - `not-subject` (M9): the PC is not the consenting subject of that order, or the order is over;
  * - `no-job`, `job-ended`: the job is gone, not the PC's, ended, or fired before this day;
- * - `income-check`: the job's Earn Income check is due (6.10: rolled after the first day; every day pays its result).
+ * - `income-check`: the job's Earn Income check is due (6.10: rolled after the first day; every day pays its result);
+ * - `event`, `event-due` (M9a, 6.16.3): with `variants.eventsPauses`, a crafting event is open, or due and not rolled yet;
+ * - `setup-hours` (M9a, 6.16.1): Quick Setup's 2-hour consumable setup waits for its "Set up now" (it takes no downtime day);
+ *   any other setup of hours takes the day itself, as its `setup-hours` record.
  *
  * A craft day is the order's setup or extra day (`workDayRecord`, 6.2.3); a setup day that completes the setup moves the
  * order to `check` (`status`, for the crafter's owner to write; the crafter's responsible client writes it otherwise). A
@@ -279,12 +283,28 @@ export function planDays({ actorId, actorUuid, days, activity, orders = [], jobs
             if (order.status === "check") return stop(day, "check", { ref: order.id });
             if (order.status === "rolled") return stop(day, "settle", { ref: order.id });
             const orderDays = all.filter((d) => d.order === order.id);
+            // M9a (6.16.3): with `eventsPauses`, an open event (or one due and not rolled yet) pauses the order.
+            const paused = eventPause(order, orderDays, rules);
+            if (paused) return stop(day, paused, { ref: order.id });
+            // M9a (6.16.1): a setup rushed below one day. Quick Setup's 2-hour consumable setup fits into an adventuring day: it takes
+            // no downtime day, and its crafter records it with "Set up now". Any other (4 hours) takes this downtime day on the order,
+            // recorded as the day's `setup-hours` record (review fix of M9a).
+            if (order.status === "setup" && (order.setup?.hours ?? 0) > 0 && setupDaysDone(order, orderDays) >= order.setup.days &&
+                !setupComplete(order, orderDays)) {
+                if (setupAnywhere(order)) return stop(day, "setup-hours", { ref: order.id });
+                record = { ...base, order: order.id, attempt: order.attempt, kind: "setup-hours", hours: order.setup.hours, result: "setup-hours" };
+                order.status = "check";
+                out.status[order.id] = "check";
+                out.records.push(record);
+                all.push(record);
+                continue;
+            }
             if (order.status === "setup" && order.setup && setupComplete(order, orderDays)) {
                 // Day records completed the setup, and the crafter's client has not moved the order on yet: no more setup days.
                 out.status[order.id] = "check";
                 return stop(day, "check", { ref: order.id });
             }
-            const settledSuccess = order.check?.settled === true && order.check.degree >= DEGREE.success;
+            const settledSuccess = settledAsSuccess(order.check);
             if (order.status === "finishing" && settledSuccess && remainingCp(order, all, rules) <= 0) return stop(day, "paid-off", { ref: order.id });
             const crafter = { actorId, level: facts.level ?? 0, rank: facts.ranks?.[order.skill ?? "crafting"] ?? 0, rateLevel: rateLevels[order.id] ?? null };
             const work = ["setup", "finishing"].includes(order.status) ? workDayRecord(order, day, crafter, orderDays, stamp, rules) : null;
@@ -333,7 +353,8 @@ export function planDays({ actorId, actorUuid, days, activity, orders = [], jobs
  */
 export function asSettled(order) {
     if (order?.status !== "rolled" || !order.check) return order;
-    return { ...order, check: { ...order.check, settled: true }, status: order.check.degree >= DEGREE.success ? "finishing" : "failed" };
+    const made = order.check.degree >= DEGREE.success || madeDespite(order.check.critical);   // M9a (6.16.4): made despite a critical failure
+    return { ...order, check: { ...order.check, settled: true }, status: made ? "finishing" : "failed" };
 }
 
 /**

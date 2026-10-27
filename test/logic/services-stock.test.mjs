@@ -193,7 +193,10 @@ test("an M5 order record: a formula for one book, the targeted kinds name their 
     assert.throws(() => makeOrder({ ...base, craftType: "rune-etch" }, stamp), TypeError, "an etching names its target");
     const etch = makeOrder({ ...base, craftType: "rune-etch", target: "Actor.a.Item.sword" }, stamp);
     assert.deepEqual([etch.craftType, etch.target], ["rune-etch", "Actor.a.Item.sword"]);
-    assert.throws(() => makeOrder({ ...base, craftType: "deconstruct" }, stamp), RangeError, "M9a");
+    assert.throws(() => makeOrder({ ...base, craftType: "smelt" }, stamp), RangeError, "an unknown kind");
+    // M9a: a Deconstruct names the item it breaks down.
+    assert.throws(() => makeOrder({ ...base, craftType: "deconstruct" }, stamp), TypeError);
+    assert.equal(makeOrder({ ...base, craftType: "deconstruct", target: "Actor.a.Item.sword" }, stamp).craftType, "deconstruct");
     // M9: a tattoo names its subject, who receives it.
     assert.throws(() => makeOrder({ ...base, craftType: "tattoo" }, stamp), TypeError);
     assert.equal(makeOrder({ ...base, craftType: "tattoo", target: "A" }, stamp).target, "A");

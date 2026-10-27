@@ -9,6 +9,7 @@
 import { isComplexCraftSetup, complexSetup } from "./complex.mjs";
 import { DEGREE, ROUTES_WITH_FORMULA, liveRows, requireCp, requireDegree, requireInteger } from "./core.mjs";
 import { DEFAULT_RULES } from "./defaults.mjs";
+import { madeDespite, moneyDegree } from "./variants.mjs";
 
 /** Days of setup without and with the formula. Player Core p.237. */
 const SETUP_DAYS = { withFormula: 1, without: 2 };
@@ -199,10 +200,13 @@ export function settleCheck(order, { committedCp, alchemical = false } = {}) {
     if (order.check.settled) return refuse("settled");
     const check = { ...order.check, settled: true };
     const degree = requireDegree(order.check.degree, "check.degree");
-    if (degree === DEGREE.success || degree === DEGREE.critSuccess) {
+    // M9a (6.16.4): a critical failure whose Critical Crafting record makes the item anyway settles as a success would: the
+    // materials go into the item, and its extra days run at the success rate (review fix of M9a).
+    if (degree === DEGREE.success || degree === DEGREE.critSuccess || madeDespite(order.check.critical)) {
         return { ok: true, patch: { check, status: "finishing" }, rows: rowsOf([["expend", committedCp]]), notices: [] };
     }
-    if (degree === DEGREE.fail) {
+    // M9a (6.16.4): under Critical Crafting's `replace`, a critical failure's special effect ruins nothing.
+    if (degree === DEGREE.fail || moneyDegree(order.check) === DEGREE.fail) {
         return { ok: true, patch: { check, status: "failed" }, rows: rowsOf([["release", committedCp]]), notices: [] };
     }
     // Only a critical failure is left (requireDegree).

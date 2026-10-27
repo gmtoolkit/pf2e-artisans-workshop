@@ -106,16 +106,36 @@ export function deliver(item, recipient) {
         const current = shared().strongbox?.items.get(item.id);
         if (!current?.flags?.[MODULE_ID]?.shelf) return { ok: false, reason: "gone" };
         const shelf = current.flags[MODULE_ID].shelf;
-        const source = deliveredSource(current, hashId(idem));
+        // M9a (6.16.2): every shelf item with the same key travels in this one delivery (a host and its adjustments).
+        const group = [current, ...shelfItemsFor(shelf.for).filter((i) => i.id !== current.id && shelfKey(i) === idem)];
+        const sources = groupSources(group, hashId(idem));
         const row = makeRow({ kind: "delivered", idem, cp: 0, actor: recipient.uuid, order: shelf.order ?? null,
-            items: [{ uuid: current._stats?.compendiumSource ?? null, name: current.name, qty: current.quantity, source }] }, stampNow());
+            items: group.map((i, n) => ({ uuid: i._stats?.compendiumSource ?? null, name: i.name, qty: i.quantity, source: sources[n] })) }, stampNow());
         const batch = lockFirstBatch({
-            rowIds: [row.id], lockIds: [row.id, current.id], ledger: { set: { [`rows.${row.id}`]: row } },
-            debits: [{ target: "strongbox", plan: { deletes: [current.id] } }], items: [{ target: recipient.uuid, data: [source] }],
+            rowIds: [row.id], lockIds: [row.id, ...group.map((i) => i.id)], ledger: { set: { [`rows.${row.id}`]: row } },
+            debits: [{ target: "strongbox", plan: { deletes: group.map((i) => i.id) } }], items: [{ target: recipient.uuid, data: sources }],
             mark: recreateLockId(row.id),
         });
         const result = await runLockFirst(batch);
         return { ok: result.outcome === "ok", outcome: result.outcome, reason: result.reason, rows: [row] };
+    });
+}
+
+/**
+ * The sources a delivery creates on its recipient (5.5). One item is created as it always was. A group (M9a, 6.16.2: a host
+ * and its adjustments) is created with ids this client generates (kept by the batch, `keepId`), and each adjustment's
+ * `flags.MOD.appliedTo.host` is rewritten to the host's new id in the same request, so it never points at a deleted
+ * shelf item.
+ */
+function groupSources(group, rowId) {
+    const sources = group.map((i) => deliveredSource(i, rowId));
+    if (group.length === 1) return sources;
+    const ids = new Map(group.map((i) => [i.id, foundry.utils.randomID()]));
+    return sources.map((source, n) => {
+        source._id = ids.get(group[n].id);
+        const applied = source.flags?.[MODULE_ID]?.appliedTo;
+        if (applied?.host && ids.has(applied.host)) source.flags[MODULE_ID].appliedTo = { ...applied, host: ids.get(applied.host) };
+        return source;
     });
 }
 
@@ -136,14 +156,15 @@ export function finishDelivery(row, recipient) {
             await write({ set: { [`rows.${row.id}.state`]: "applied" } });
             return { ok: true, outcome: "settled" };
         }
-        const source = row.items?.[0]?.source;
-        if (!source) return { ok: false, reason: "no-snapshot" };
+        // Every item the delivery carried (M9a: a host and its adjustments, with the ids the delivery gave them).
+        const sources = (row.items ?? []).map((i) => i?.source).filter(Boolean);
+        if (!sources.length) return { ok: false, reason: "no-snapshot" };
         const leftover = shelfItemsFor().filter((i) => shelfKey(i) === row.idem).map((i) => i.id);
         const batch = lockFirstBatch({
             rowIds: [row.id], lockIds: [recreateLockId(row.id)],
             ledger: { set: { [`rows.${row.id}.recreated`]: stampNow() } },
             debits: leftover.length ? [{ target: "strongbox", plan: { deletes: leftover } }] : [],
-            items: [{ target: recipient.uuid, data: [source] }],
+            items: [{ target: recipient.uuid, data: sources }],
         });
         const result = await runLockFirst(batch);
         return { ok: result.outcome === "ok", outcome: result.outcome, reason: result.reason };
@@ -201,7 +222,8 @@ export async function sweepClaims({ force = false } = {}) {
     const work = [
         ...openClaims(read("claims")).map((claim) => ({ key: claim.id, uuid: claim.actor, run: (actor) => applyClaim(claim, actor),
             mine: (actor) => appliesHere(claim, actor), quiet: QUIET.has(claim.kind) })),
-        ...shelfItemsFor().map((item) => ({ key: item.id, uuid: item.flags[MODULE_ID].shelf.for, run: (actor) => deliver(item, actor),
+        // One delivery per key (M9a, 6.16.2: a host and its adjustments share one, and `deliver` takes them all at once).
+        ...firstOfEachKey(shelfItemsFor()).map((item) => ({ key: item.id, uuid: item.flags[MODULE_ID].shelf.for, run: (actor) => deliver(item, actor),
             mine: (actor) => isResponsibleFor(actor), quiet: false })),
     ];
     for (const { key, uuid, run, mine, quiet } of work) {
@@ -220,6 +242,17 @@ export async function sweepClaims({ force = false } = {}) {
         ui.notifications.info("pf2e-artisans-workshop.Claims.Waiting", { format: { actor: name, count: String(count) } });
     }
     return applied;
+}
+
+/** The first shelf item of each delivery key: the one a delivery is started from. */
+function firstOfEachKey(items) {
+    const seen = new Set();
+    return items.filter((item) => {
+        const key = shelfKey(item);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
 }
 
 /**

@@ -134,7 +134,7 @@ test("the message's author records the check, in the tab that holds the lease; n
     const order = flagsOf(docs.ledger).orders.o1;
     assert.equal(order.status, "rolled");
     assert.deepEqual({ ...order.check, at: undefined, by: undefined }, {
-        degree: DEGREE.success, unadjusted: DEGREE.success, total: 20, rerolled: false, fortune: false, warn: false, messageId: "m1",
+        degree: DEGREE.success, unadjusted: DEGREE.success, total: 20, die: 10, rerolled: false, fortune: false, warn: false, messageId: "m1",
         shifted: false, attempt: 1, level: 9, rank: RANK.master, settled: false, at: undefined, by: undefined,
     });
 });

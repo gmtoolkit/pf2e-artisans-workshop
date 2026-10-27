@@ -4,7 +4,9 @@
     {{#if stale}}
     <p class="augment-line">{{localize "pf2e-artisans-workshop.Augment.Stale"}}</p>
     {{else}}
+    {{#if secret}}<p class="augment-line"><i class="fa-solid fa-eye-slash" inert></i> {{localize "pf2e-artisans-workshop.Variant.Critical.Secret"}}</p>{{/if}}
     {{#if degreeText}}<p class="augment-line degree {{degreeClass}}">{{localize "pf2e-artisans-workshop.Augment.Degree" degree=degreeText}}</p>{{/if}}
+    {{#if critical}}<p class="augment-line"><i class="fa-solid fa-star" inert></i> {{localize "pf2e-artisans-workshop.Variant.Critical.Augment"}}</p>{{/if}}
     {{#if success}}<p class="augment-line">{{localize "pf2e-artisans-workshop.Augment.Success" perDay=view.perDayText days=view.daysToZero left=view.finishText}}</p>{{/if}}
     {{#if failure}}<p class="augment-line">{{localize "pf2e-artisans-workshop.Augment.Failure" amount=salvage}}</p>{{/if}}
     {{#if critFailure}}<p class="augment-line">{{localize "pf2e-artisans-workshop.Augment.CritFailure" amount=ruined}}</p>
@@ -14,7 +16,7 @@
     {{#if conflict}}<p class="augment-line warning"><i class="fa-solid fa-code-compare" inert></i> {{localize "pf2e-artisans-workshop.Augment.Conflict"}}</p>{{/if}}
     {{/if}}
     <div class="card-buttons">
-        {{#if canSettle}}<button type="button" data-pf2e-artisans-workshop-op="settle"><i class="fa-solid fa-scale-balanced" inert></i>{{localize "pf2e-artisans-workshop.Action.Settle"}}</button>{{/if}}
+        {{#if canSettle}}<button type="button" data-pf2e-artisans-workshop-op="settle"><i class="fa-solid fa-scale-balanced" inert></i>{{#if secret}}{{localize "pf2e-artisans-workshop.Action.RevealSettle"}}{{else}}{{localize "pf2e-artisans-workshop.Action.Settle"}}{{/if}}</button>{{/if}}
         {{#if canUndo}}<button type="button" data-pf2e-artisans-workshop-op="undo"><i class="fa-solid fa-rotate-left" inert></i>{{localize "pf2e-artisans-workshop.Action.UndoSettle"}}</button>{{/if}}
         <button type="button" data-pf2e-artisans-workshop-op="open"><i class="fa-solid fa-up-right-from-square" inert></i>{{localize "pf2e-artisans-workshop.Action.Open"}}</button>
     </div>

@@ -10,6 +10,7 @@ import { DEGREE } from "./core.mjs";
 import { DEFAULT_RULES } from "./defaults.mjs";
 import { helperForfeits, helperPresent, helperRate } from "./communal.mjs";
 import { incomePerDay } from "./income.mjs";
+import { componentsExcessCp, moneyDegree, settledAsSuccess } from "./variants.mjs";
 
 /**
  * The records of `kind` for the order's current attempt, one per actor and day: should two records for the
@@ -53,7 +54,8 @@ export function setupComplete(order, days) {
 export function crafterRate(check, crafterToday, rateLevel = null, rules = DEFAULT_RULES) {
     const current = rules.recomputeRateOnLevelUp ? crafterToday : check;
     const level = rateLevel ?? current.level;
-    const degree = check.degree === DEGREE.critSuccess ? DEGREE.critSuccess : DEGREE.success;
+    // M9a (6.16.4): under Critical Crafting's `replace`, a critical success's special effect takes the money effect's place.
+    const degree = moneyDegree(check) === DEGREE.critSuccess ? DEGREE.critSuccess : DEGREE.success;
     return incomePerDay(level, current.rank, degree);
 }
 
@@ -89,8 +91,21 @@ export function extraDayRecord(order, day, { crafter, rateLevel = null }, rules 
  * left: forfeited while leaving is retroactive, kept otherwise.
  */
 export function reductionCp(order, days, rules = DEFAULT_RULES) {
-    if (!(order.check?.settled && order.check.degree >= DEGREE.success)) return 0;
-    return recordsOf(order, days, "extra").reduce((sum, d) => sum + dayReductionCp(order, d, rules), 0);
+    // A success, or (M9a, 6.16.4) a critical failure made despite, whose extra days run at the success rate.
+    if (!settledAsSuccess(order.check)) return 0;
+    const extra = recordsOf(order, days, "extra").reduce((sum, d) => sum + dayReductionCp(order, d, rules), 0);
+    // M9a (6.16.6): an untended Grow order's season checks, each one day of Income at its degree.
+    return extra + seasonRecordsOf(order, days).reduce((sum, d) => sum + (d.crafterCp ?? 0), 0);
+}
+
+/** An order's season check records (6.16.6) of its current attempt, one per season. */
+export function seasonRecordsOf(order, days) {
+    const seen = new Set();
+    return days.filter((d) => {
+        if (d.order !== order.id || d.attempt !== order.attempt || d.kind !== "season" || seen.has(d.season)) return false;
+        seen.add(d.season);
+        return true;
+    });
 }
 
 /**
@@ -111,7 +126,8 @@ export function dayReductionCp(order, record, rules = DEFAULT_RULES) {
  * (Player Core p.237, crafting example).
  */
 export function remainingCp(order, days, rules = DEFAULT_RULES) {
-    return Math.max(0, order.priceCp - order.upfrontCp - reductionCp(order, days, rules));
+    // M9a (6.16.5): a components credit above the up-front half pays the remainder too; anything above the Price is lost.
+    return Math.max(0, order.priceCp - order.upfrontCp - reductionCp(order, days, rules) - componentsExcessCp(order));
 }
 
 /** What the Craft costs in all: the up-front half plus what is left. */

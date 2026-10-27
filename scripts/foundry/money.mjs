@@ -346,8 +346,10 @@ export function mint({ actor, row, ledger = {} }) {
  * @param {object} [p.link] `{order}` or `{garden}`, and `day`
  * @param {object} [p.ledger] other ledger keys written with the rows (a settled order's new state, 6.12)
  * @param {string[]} [p.locks] other lock pages its lock request takes (the order's log slot, `logLockId`)
+ * @param {object[]} [p.itemUpdates] strongbox item updates the apply request makes with it (M9a: a components line a critical
+ *        failure ruined part of, 6.16.5)
  */
-export function spend({ kind, stem, cp, allocations, link = {}, ledger = {}, locks = [] }) {
+export function spend({ kind, stem, cp, allocations, link = {}, ledger = {}, locks = [], itemUpdates = [] }) {
     return moveCoins((strongbox) => {
         if (!(cp > 0)) return { refuse: "nothing" };
         const planned = planSpend(freeStacks(strongbox), allocations, cp);
@@ -355,7 +357,8 @@ export function spend({ kind, stem, cp, allocations, link = {}, ledger = {}, loc
         const rows = planned.shares.filter((share) => share.cp > 0).map((share) => ({
             kind, idem: `${stem}:${share.actor ?? "fund"}`, cp: share.cp, actor: share.actor, ...link,
         }));
-        return { rows, debits: [{ target: "strongbox", plan: planned.strongbox }], locks };
+        return { rows, debits: [{ target: "strongbox", plan: planned.strongbox }], locks,
+            ...(itemUpdates.length ? { itemUpdates: [{ target: "strongbox", updates: itemUpdates }] } : {}) };
     }, ledger);
 }
 

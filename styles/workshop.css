@@ -1044,3 +1044,21 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .pf2e-artisans-workshop-define .define-stage input[name^="stage"] { flex: 2; }
 .pf2e-artisans-workshop-define .define-stage input[name^="interval"] { flex: 1; }
 @media (prefers-reduced-motion: reduce) { .workshop-afflictions * { transition: none !important; } }
+
+/* M9a (6.16): the Treasure Vault (Remastered) variants on an order's detail, the Funds tab and the Downtime tab. */
+.pf2e-artisans-workshop .detail-variants { border-top: 1px solid var(--paw-line); margin-top: 0.5rem; padding-top: 0.25rem; }
+.pf2e-artisans-workshop .detail-variant-line { margin: 0.125rem 0; }
+.pf2e-artisans-workshop .detail-variant-line.warning { color: var(--paw-warning); }
+.pf2e-artisans-workshop .detail-variant-line.critical-success { border-left: 3px solid var(--paw-earned); padding-left: 0.4rem; }
+.pf2e-artisans-workshop .detail-variant-line.critical-failure { border-left: 3px solid var(--paw-warning); padding-left: 0.4rem; }
+.pf2e-artisans-workshop .detail-events li.event-open,
+.pf2e-artisans-workshop .detail-quest li:not(.found) { font-weight: 600; }
+.pf2e-artisans-workshop .detail-variants button[aria-pressed="true"] { border-color: var(--paw-earned); }
+.pf2e-artisans-workshop .funds-gardens li,
+.pf2e-artisans-workshop .funds-gifts li,
+.pf2e-artisans-workshop .downtime-harvests li { display: flex; align-items: center; gap: 0.375rem; flex-wrap: wrap; }
+.pf2e-artisans-workshop .funds-gardens .order-img,
+.pf2e-artisans-workshop .downtime-harvests .order-img { width: 1.5rem; height: 1.5rem; border: none; }
+.pf2e-artisans-workshop .funds-gifts li.dormant > span:first-child { opacity: 0.75; }
+.request-form .request-adjustments label.checkbox { display: flex; align-items: center; gap: 0.375rem; }
+.request-form .request-adjustments .money { margin-left: auto; }

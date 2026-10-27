@@ -1,9 +1,10 @@
 /**
  * Complex Crafting setup (DESIGN.md 6.16.1): setup days from Treasure Vault (Remastered) Table 5-1 and
- * rushing them for a higher DC. Only the setup lives here, because the setup plan of 6.2.2 calls it; the
- * rushed finish and its flat check are M9a.
+ * rushing them for a higher DC. Only the setup lives here, because the setup plan of 6.2.2 calls it; the rushed finish
+ * and its flat check are in `variants.mjs` (M9a).
  */
 import {
+    COMPLEX_RUSH_DC,
     COMPLEX_SETUP_DAYS,
     COMPLEX_SUBDAY_HOURS,
     QUICK_SETUP_LEVELS_BELOW,
@@ -46,4 +47,20 @@ export function complexSetup({ itemLevel, crafterLevel, consumable, route, rank,
     const hours = !quick ? COMPLEX_SUBDAY_HOURS.consumable
         : consumable ? COMPLEX_SUBDAY_HOURS.quickConsumable : COMPLEX_SUBDAY_HOURS.quickPermanent;
     return { days: 0, hours, rush, band, quick };
+}
+
+/**
+ * The start form's rush choices (6.16.1, M9a): for every rush the crafter's rank allows, the setup it leaves and the DC it
+ * adds (+5 per day actually rushed), with no two choices alike: a rush the caps cut short is the same choice as the one
+ * below it. Always at least the unrushed setup.
+ * @returns {{rush: number, days: number, hours: number, dcAdd: number, quick: boolean}[]}
+ */
+export function rushOptions(input) {
+    const out = [];
+    for (let rushDays = 0; rushDays <= RANK.legendary - RANK.trained; rushDays++) {
+        const c = complexSetup({ ...input, rushDays });
+        if (out.some((o) => o.rush === c.rush)) continue;
+        out.push({ rush: c.rush, days: c.days, hours: c.hours, dcAdd: COMPLEX_RUSH_DC * c.rush, quick: c.quick });
+    }
+    return out;
 }

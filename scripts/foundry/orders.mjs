@@ -36,7 +36,7 @@ import { allPass } from "../logic/gates.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
 import { PC_VERSION } from "../logic/downtime.mjs";
 import {
-    TARGETED, WITH_SUBJECT, acceptOrder, closedAs, closedRepair, lastEntry, leftAfterSpend, makeOrder, refundClaims, releaseOrder,
+    MONEYLESS, TARGETED, WITH_SUBJECT, acceptOrder, closedAs, closedRepair, lastEntry, leftAfterSpend, makeOrder, refundClaims, releaseOrder,
     settlementRepair, setupRepair, transitionChange, undoPlan, withdrawableCp,
 } from "../logic/orders.mjs";
 import { consentOf, fuluTradition, selfSubject, subjectProcess, subjectTypeOf } from "../logic/crafts.mjs";
@@ -51,6 +51,10 @@ import { postCard } from "../ui/chat.mjs";
 import { givingBack, heldLines } from "./custody.mjs";
 import { resolveDays } from "./downtime.mjs";
 import { applyIfResponsible, knownState } from "./formulas.mjs";
+import { craftTypeOn, madeDespite, makeQuest, rushedInAttempt } from "../logic/variants.mjs";
+import { inheritedDamage, noteItemDamage, retryPatch } from "./deconstruct.mjs";
+import { today } from "./downtime.mjs";
+import { rushFlatCheck } from "./variants.mjs";
 import { freeStacks, lockedWrite, moveCoins, pledge, reverseRows, withdraw } from "./money.mjs";
 import { finishOutputs } from "./outputs.mjs";
 import { crafterFacts, gatesFor, productFacts, skillFor, snapshotOf } from "./products.mjs";
@@ -58,7 +62,7 @@ import { isResponsibleFor } from "./responsible.mjs";
 import { rollCraft, settleOrder } from "./rolls.mjs";
 import { members } from "./roster.mjs";
 import { rulesFromSettings, setting } from "./settings.mjs";
-import { canWrite } from "./state.mjs";
+import { canWrite, shared } from "./state.mjs";
 import { newId, read, records, stampNow, write } from "./store.mjs";
 
 const refuse = (reason, data = {}) => ({ ok: false, reason, data });
@@ -144,6 +148,18 @@ export async function requestOrder({ uuid, quantity = 1, requester, recipient = 
     if (!(product.priceCp > 0)) return refuse("no-price");
     if (productType === "formula" && !FORMULA_ORDER_ROUTES.includes(route)) return refuse("no-route");
     const rules = rulesFromSettings();
+    // M9a (6.16): a Deconstruct, a Grow or a quest exists only while its variant is on; so do adjustments, the special flag
+    // and a bestowed gift, which are dropped from a request made while theirs is off.
+    if (craftType && !craftTypeOn(craftType, rules)) return refuse("variant-off");
+    variant = variantInput(craftType, variant, rules);
+    if (craftType === "deconstruct") {
+        const item = typeof target === "string" ? fromUuidSync(target, { strict: false }) : null;
+        if (!item?.isOfType?.("physical") || !item.parent) return refuse("no-target");
+        if (quantity !== 1) return refuse("quantity");
+        recipient = { kind: "actor", uuid: item.parent === shared().strongbox ? requester : item.parent.uuid };
+        // The damage an earlier Deconstruct's critical failure left on the item comes with it (review fix of M9a).
+        variant.deconstruct = { ...variant.deconstruct, ...inheritedDamage(item) };
+    }
     // M9 (6.14): a tattoo or graft is made on its subject, who receives it: one at a time, never for the strongbox.
     const tattoos = setting("features.tattoos") !== false;
     const subjectType = !tattoos ? null : productType === "item" && !craftType ? subjectTypeOf(product) : WITH_SUBJECT.includes(craftType) ? craftType : null;
@@ -162,7 +178,8 @@ export async function requestOrder({ uuid, quantity = 1, requester, recipient = 
     // M5: a scroll, wand, staff or spellheart is a spell-supplied item (6.9); a formula, an upgrade, an etching and a
     // transfer are one each. M9: so is a tattoo or a graft (6.14).
     const type = craftType ?? subjectType ?? (spellSupply(product) ? "spell-item" : "item");
-    const single = productType === "formula" || TARGETED.includes(type) || WITH_SUBJECT.includes(type);
+    const single = productType === "formula" || TARGETED.includes(type) || WITH_SUBJECT.includes(type) || type === "deconstruct" || type === "quest" ||
+        !!variant.adjustments?.length;
     const max = single ? 1 : crafter
         ? (await gatesFor({ id: "probe", quantity: 1, craftType: type }, crafterFacts(actorOf(crafter)), product, [], rules)).plan.batchMax
         : batchMax({ ...product }, { pledgedCastings: 4 }, rules);
@@ -176,6 +193,30 @@ export async function requestOrder({ uuid, quantity = 1, requester, recipient = 
     await write({ set: Object.fromEntries(made.map((order) => [`orders.${order.id}`, order])) });
     for (const order of made) await postCard("request", order);
     return { ok: true, orders: made.map((order) => order.id) };
+}
+
+/**
+ * The variant fields a request may carry (M9a, 6.16), each only while its variant is on: a Deconstruct's purpose (raw by
+ * default), a quest (one moderate encounter by default, configured before the start), an item's adjustments, the special
+ * flag (Critical Crafting) and a bestowed gift's giver. Anything else in `variant` (M5's transfer, M9's replaced tattoo)
+ * passes through.
+ */
+function variantInput(craftType, variant = {}, rules) {
+    const v = rules.variants;
+    const { deconstruct, quest, adjustments, special, bestow, ...rest } = variant ?? {};
+    const out = { ...rest };
+    if (craftType === "deconstruct") {
+        out.deconstruct = { purpose: deconstruct?.purpose === "similar" ? "similar" : "raw", similarTo: deconstruct?.similarTo ?? null, damaged: false,
+            lossPct: 0, followOn: null };
+    }
+    if (craftType === "quest") {
+        out.quest = quest?.components ? quest : makeQuest({ encounters: Math.max(1, Number(quest?.encounters) || 1), threats: quest?.threats ?? [],
+            labels: quest?.labels ?? [], differentLocations: quest?.differentLocations !== false });
+    }
+    if (v.adjustments && Array.isArray(adjustments) && adjustments.length && (!craftType || craftType === "item")) out.adjustments = [...adjustments];
+    if (v.criticalCrafting && special === true) out.special = true;
+    if (v.gifts && bestow) out.bestow = { giver: String(bestow.giver ?? "") };
+    return out;
 }
 
 /** Accept a requested order as `crafter` (a character this user owns). */
@@ -206,12 +247,17 @@ export async function release(id) {
 /*  Funding                                      */
 /* -------------------------------------------- */
 
-/** Pledge `cp` from `actor` (a character this user owns) to an order: coins into the strongbox (4.6 `pledge`). */
+/**
+ * Pledge `cp` from `actor` (a character this user owns) to an order: coins into the strongbox (4.6 `pledge`). M9a: a
+ * Deconstruct or a quest moves no money (`MONEYLESS`), so it takes none: its completion would leave the coins allocated to a
+ * closed order with no refund (review fix of M9a).
+ */
 export async function pledgeTo(id, actorUuid, cp) {
     const { order, refusal } = orderOrRefuse(id);
     if (refusal) return refusal;
     const actor = actorOf(actorUuid);
     if (!actor?.isOwner) return refuse("not-owner");
+    if (MONEYLESS.includes(order.craftType)) return refuse("moneyless");
     if (["complete", "cancelled", "archived", "rolled"].includes(order.status)) return refuse("state", { status: order.status });
     return pledge({ actor, cp, order: id, nonce: newId() });
 }
@@ -235,13 +281,16 @@ export async function withdrawFrom(id, actorUuid, cp) {
 
 /**
  * Start an accepted order (4.2.3): every gate must pass (P1); the plan is frozen (Price, up-front half, DC, setup,
- * route), a new attempt opens and the up-front half is committed.
+ * route), a new attempt opens and the up-front half is committed. M9a: a Deconstruct of an item an earlier one damaged starts
+ * once it was repaired, or with `acceptLoss` (5% of its value lost, 6.16.5), as a retry does.
  */
-export async function start(id) {
+export async function start(id, { acceptLoss = false } = {}) {
     const { order, refusal } = orderOrRefuse(id);
     if (refusal) return refusal;
     const crafter = actorOf(order.crafter);
     if (!crafter?.isOwner) return refuse("not-owner");
+    const damage = order.craftType === "deconstruct" && order.status === "accepted" ? retryPatch(order, { acceptLoss: acceptLoss === true }) : { ok: true, variant: null };
+    if (!damage.ok) return damage;
     const product = await productFacts(order.product.uuid);
     if (!product) return refuse("no-product");
     const rules = rulesFromSettings();
@@ -250,20 +299,30 @@ export async function start(id) {
     if (!allPass(gates)) return refuse("gates", { gates: gates.filter((gate) => !gate.ok) });
     const result = startOrder(order, plan);
     if (!result.ok) return result;
-    const patch = { ...result.patch, route: plan.route, skill: skillFor(order), product: { ...order.product, snapshot: { ...order.product.snapshot, priceCp: product.priceCp, per: product.per } } };
+    const patch = { ...result.patch, route: plan.route, skill: skillFor(order, rules), product: { ...order.product, snapshot: { ...order.product.snapshot, priceCp: product.priceCp, per: product.per } } };
     // M9: the tattoo process and a fulu's tradition are frozen with the plan, so a settings change mid-Craft changes nothing.
     const frozen = startFreeze(order, product, crafter, rules);
     if (frozen) patch.variant = { ...(patch.variant ?? order.variant ?? {}), ...frozen };
+    // M9a: a quest gathers its components first (6.16.9); a Grow order counts its seasons from today (6.16.6); a quest's
+    // equivalent cost is kept for the Funds tab.
+    if (order.craftType === "quest") Object.assign(patch, { status: "gathering", quest: plan.quest ?? null });
+    if (order.craftType === "grow") patch.variant = { ...(patch.variant ?? order.variant ?? {}), grow: { mode: "tended", since: null, startDay: today().day } };
+    // M9a (6.16.2): whether the plan priced the item with its adjustments is frozen with the Price, so the finish makes what
+    // was paid for whatever the setting says by then (review fix of M9a).
+    if (order.variant?.adjustments?.length) patch.variant = { ...(patch.variant ?? order.variant ?? {}), adjusted: !!plan.change?.parts?.length };
+    if (damage.variant) patch.variant = { ...(patch.variant ?? order.variant ?? {}), deconstruct: damage.variant.deconstruct };
     // Earmarked material items count toward the up-front half at their Price (M5, 6.6): the coins commit the rest.
     const commit = result.rows.map((row) => ({ kind: "commit", idem: idemKey("commit", id, patch.attempt, seqFor(rows, idemKey("commit", id, patch.attempt))),
         cp: Math.max(0, row.cp - materialsCp(order)), order: id })).filter((row) => row.cp > 0);
     const change = transitionChange(order, "start", patch, { rows: commit.map((row) => hashId(row.idem)) }, stampNow());
     // The crafter's downtime activity becomes this order (4.2.3, M6): the days the crafter resolves go to it by default.
-    const activity = { [`pcs.${crafter.id}.activity`]: { kind: "craft", ref: id } };
+    // A quest is earned through encounters, not downtime days (6.16.9): it leaves the crafter's activity alone.
+    const activity = order.craftType === "quest" ? {} : { [`pcs.${crafter.id}.activity`]: { kind: "craft", ref: id } };
     const status = { [`pcs.${crafter.id}.id`]: crafter.id, [`pcs.${crafter.id}.v`]: PC_VERSION };
     const posted = await lockedWrite([change.lock, returnSlotLockId(order, rows)], commit,
         { set: { ...change.set, ...status }, replace: { ...change.replace, ...activity } });
     if (!posted.ok) return posted;
+    if (damage.variant) await noteItemDamage(read(`orders.${id}`));
     await postCard("started", read(`orders.${id}`));
     return { ok: true };
 }
@@ -347,16 +406,25 @@ export async function resume(id) {
     return written.ok ? { ok: true } : written;
 }
 
-/** Retry a failed order from scratch: a new attempt and a new commit (4.2.3, 6.2.4). */
-export async function retry(id) {
+/**
+ * Retry a failed order from scratch: a new attempt and a new commit (4.2.3, 6.2.4). M9a: a damaged item's Deconstruct is
+ * retried once it was repaired, or with `acceptLoss` (5% of its value lost for this retry, 6.16.5).
+ */
+export async function retry(id, { acceptLoss = false } = {}) {
     const { order, refusal } = orderOrRefuse(id);
     if (refusal) return refusal;
     if (!owns(order.crafter)) return refuse("not-owner");
     const rows = orderRows(id);
     // M9 (6.14): a tattoo or graft is retried on a subject who still consents (the consent may be withdrawn after a failure).
     if (WITH_SUBJECT.includes(order.craftType) && !selfSubject(order) && !consentOf(order)?.consented) return refuse("no-consent");
+    // M9a: a quest whose assembly destroyed the item is over (6.16.9); a damaged item is repaired first or deconstructed
+    // again at a loss (6.16.5).
+    if (order.craftType === "quest") return refuse("state", { status: order.status });
+    const damage = order.craftType === "deconstruct" ? retryPatch(order, { acceptLoss: acceptLoss === true }) : { ok: true, variant: null };
+    if (!damage.ok) return damage;
     const result = retryOrder(order, { expendedCp: expendedFromRows(rows) });
     if (!result.ok) return result;
+    if (damage.variant) result.patch.variant = damage.variant;
     const escrow = rows.reduce((sum, row) => sum + (row.alloc ?? 0), 0);
     const need = Math.max(0, result.rows.reduce((sum, row) => sum + row.cp, 0) - materialsCp(order));
     if (escrow < need) return refuse("underfunded", { shortCp: need - escrow });
@@ -364,6 +432,7 @@ export async function retry(id) {
     const commit = need > 0 ? [{ kind: "commit", idem: idemKey("commit", id, attempt, seqFor(rows, idemKey("commit", id, attempt))), cp: need, order: id }] : [];
     const change = transitionChange(order, "retry", result.patch, { rows: commit.map((row) => hashId(row.idem)) }, stampNow());
     const posted = await lockedWrite([change.lock, returnSlotLockId(order, rows)], commit, { set: change.set, replace: change.replace });
+    if (posted.ok && damage.variant) await noteItemDamage(read(`orders.${id}`));
     return posted.ok ? { ok: true } : posted;
 }
 
@@ -393,7 +462,24 @@ export async function finish(id) {
     const allocations = allocationsByContributor(rows);
     const escrow = allocations.reduce((sum, a) => sum + a.cp, 0);
     if (escrow < remainder) return refuse("underfunded", { shortCp: remainder - escrow });
-    const outputs = await finishOutputs(order);
+    // M9a (6.16.1): a finish after a rushed day rolls the flat check first (kept on the check, so it is rolled once): a failure
+    // delivers the item with a quirk to describe, a critical failure ruins it or delivers it cursed. The rushed days are in the
+    // ledger at twice the reduction, so the check is rolled whatever the setting says now (review fix of M9a).
+    let rush = null;
+    if (rushedInAttempt(order, orderDays(id))) {
+        const flat = await rushFlatCheck(order);
+        if (!flat.ok) return flat;
+        rush = flat.flat;
+    }
+    const crafterName = actorOf(order.crafter)?.name ?? "";
+    // M9a (6.16.4): an item made despite a critical failure carries what the Critical Crafting record says happened (review fix
+    // of M9a); a rushed finish's own curse, if any, is the one the item keeps.
+    const critical = order.check?.critical;
+    const made = madeDespite(critical)
+        ? { curse: { from: "critical-crafting", order: id, crafter: crafterName, category: critical.category ?? null, note: critical.note ?? "" } } : {};
+    const flags = rush?.outcome === "quirk" ? { ...made, quirk: { from: "rushed-finish", order: id, note: "" } }
+        : rush?.outcome === "cursed" ? { curse: { from: "rushed-finish", order: id, crafter: crafterName, note: "" } } : made;
+    const outputs = await finishOutputs(order, { flags, make: rush?.outcome !== "ruined" });
     if (outputs.refuse) return refuse(outputs.refuse);
     const stem = idemKey("remainder", id, order.attempt);
     const key = `${stem}:${seqFor(rows, stem)}`;

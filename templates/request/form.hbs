@@ -14,6 +14,7 @@
         </select>
     </div>
     {{else}}
+    {{#unless noItemPick}}
     <fieldset class="request-item">
         <legend>{{localize "pf2e-artisans-workshop.Request.Item"}}</legend>
         <div class="request-drop{{#if product}} filled{{/if}}">
@@ -54,6 +55,7 @@
         {{/if}}
         {{/unless}}
     </fieldset>
+    {{/unless}}
     {{#unless (or single subjectType)}}
     <div class="form-group">
         <label for="{{formId}}-quantity">{{localize "pf2e-artisans-workshop.Request.Quantity"}}</label>
@@ -144,6 +146,57 @@
         <input type="checkbox" name="gift" id="{{formId}}-gift" {{#if state.gift}}checked{{/if}}>
     </div>
     {{/if}}
+    {{!-- M9a (6.16): the variant fields, each while its variant is on --}}
+    {{#with variantFields}}
+    {{#if deconstruct}}
+    <div class="form-group">
+        <label for="{{../formId}}-purpose">{{localize "pf2e-artisans-workshop.Variant.Deconstruct.PurposeLabel"}}</label>
+        <select name="purpose" id="{{../formId}}-purpose">
+            <option value="raw" {{#unless deconstruct.similar}}selected{{/unless}}>{{localize "pf2e-artisans-workshop.Variant.Deconstruct.Raw"}}</option>
+            <option value="similar" {{#if deconstruct.similar}}selected{{/if}}>{{localize "pf2e-artisans-workshop.Variant.Deconstruct.Similar"}}</option>
+        </select>
+        <p class="hint">{{localize "pf2e-artisans-workshop.Variant.Deconstruct.RequestHint"}}</p>
+    </div>
+    {{/if}}
+    {{#if quest}}
+    <div class="form-group">
+        <label for="{{../formId}}-encounters">{{localize "pf2e-artisans-workshop.Variant.Quest.Encounters"}}</label>
+        <input type="number" name="encounters" id="{{../formId}}-encounters" min="1" max="20" step="1" value="{{quest.encounters}}">
+    </div>
+    <div class="form-group">
+        <label for="{{../formId}}-locations">{{localize "pf2e-artisans-workshop.Variant.Quest.DifferentLabel"}}</label>
+        <input type="checkbox" name="differentLocations" id="{{../formId}}-locations" {{#if quest.differentLocations}}checked{{/if}}>
+        <p class="hint">{{localize "pf2e-artisans-workshop.Variant.Quest.RequestHint"}}</p>
+    </div>
+    {{/if}}
+    {{#if adjustments.length}}
+    <fieldset class="request-adjustments">
+        <legend>{{localize "pf2e-artisans-workshop.Variant.Adjustments.Heading"}}</legend>
+        {{#each adjustments}}
+        <label class="checkbox"><input type="checkbox" name="adjustment" value="{{uuid}}" {{#if checked}}checked{{/if}}> {{name}} <span class="money">{{price}}</span></label>
+        {{/each}}
+        <p class="hint">{{localize "pf2e-artisans-workshop.Variant.Adjustments.Hint"}}</p>
+    </fieldset>
+    {{/if}}
+    {{#if special}}
+    <div class="form-group">
+        <label for="{{../formId}}-special">{{localize "pf2e-artisans-workshop.Variant.Critical.Mark"}}</label>
+        <input type="checkbox" name="special" id="{{../formId}}-special" {{#if special.on}}checked{{/if}}>
+    </div>
+    {{/if}}
+    {{#if bestow}}
+    <div class="form-group">
+        <label for="{{../formId}}-bestow">{{localize "pf2e-artisans-workshop.Variant.Gift.RequestLabel"}}</label>
+        <input type="checkbox" name="bestow" id="{{../formId}}-bestow" {{#if bestow.on}}checked{{/if}}>
+    </div>
+    {{#if bestow.on}}
+    <div class="form-group">
+        <label for="{{../formId}}-giver">{{localize "pf2e-artisans-workshop.Variant.Gift.GiverLabel"}}</label>
+        <input type="text" name="giver" id="{{../formId}}-giver" value="{{bestow.giver}}">
+    </div>
+    {{/if}}
+    {{/if}}
+    {{/with}}
     <div class="form-group stacked">
         <label for="{{formId}}-note">{{localize "pf2e-artisans-workshop.Request.Note"}}</label>
         <textarea name="note" id="{{formId}}-note" rows="2">{{state.note}}</textarea>

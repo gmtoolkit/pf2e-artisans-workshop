@@ -17,13 +17,13 @@
  * (`spellNeeds`, 6.9), the crafter's spellcasting traditions, and a fulu's tradition (G12 until one is known).
  */
 import { MODULE_ID } from "../constants.mjs";
-import { batchMax } from "../logic/batches.mjs";
+import { batchMax, isConsumableForBatch } from "../logic/batches.mjs";
 import { ROUTES_WITH_FORMULA, isMagical } from "../logic/core.mjs";
 import { craftCost, setupPlan } from "../logic/craft.mjs";
 import { craftDC } from "../logic/dc.mjs";
 import { familyKey, formulaCoverage } from "../logic/families.mjs";
 import { craftRoute, formulaJobPlan, formulaOrderGates } from "../logic/formula-jobs.mjs";
-import { craftGates } from "../logic/gates.mjs";
+import { craftGates, gateAccess, gateRoute, missingCraftingFeats } from "../logic/gates.mjs";
 import { materialsCp, orderPrecious, runeLevelProblem } from "../logic/materials.mjs";
 import { CLOSED, TARGETED, WITH_SUBJECT, escrowCp } from "../logic/orders.mjs";
 import { castingsOf, spellGate, spellSupply } from "../logic/pledges.mjs";
@@ -31,8 +31,10 @@ import { spellNeedsOf } from "../logic/spell-lists.mjs";
 import { busyWith, fuluTradition, subjectCustody, subjectProcess } from "../logic/crafts.mjs";
 import { lockOf, pcStatusOf } from "../logic/downtime.mjs";
 import {
-    batchMultiplier, consumableFix, craftOptions, heldKeys, routeInputs, tools, unlocks,
+    batchMultiplier, consumableFix, craftOptions, heldKeys, holds, routeInputs, tools, unlocks,
 } from "../logic/registry.mjs";
+import { adjustmentFits, adjustmentsPlan, craftSkill, deconstructGates, growSkill, questCost } from "../logic/variants.mjs";
+import { DEFAULT_RULES } from "../logic/defaults.mjs";
 import {
     etchCheck, etchPriceCp, isRuneItemOf, priceDifferenceCp, runeOf, runeSlug, runesAfterEtch, transferCostCp, transferRunes, usageFits,
 } from "../logic/runes.mjs";
@@ -76,7 +78,7 @@ export async function productFacts(uuid) {
         options: [...item.getRollOptions("item")], isArtifact: traits.includes("artifact"), consumableFix: consumableFix(uuid),
         book: item.system?.publication?.title ?? null, usage: item.system?.usage?.value ?? null, spellcasting: spellcastingOf(uuid),
         material: { type: item.system?.material?.type ?? null, grade: item.system?.material?.grade ?? null }, magical: isMagical({ traits }),
-        runes: item.system?.runes ? structuredClone(item.system.runes) : null, isSpecific: !!item.isSpecific,
+        runes: item.system?.runes ? structuredClone(item.system.runes) : null, isSpecific: !!item.isSpecific, range: item.system?.range ?? null,
         spellNeeds: spellNeedsOf({ html: item.system?.description?.value ?? "", traits, name: doc.name ?? item.name, spellcasting: spellcastingOf(uuid) }),
     });
     facts.set(uuid, result);
@@ -160,8 +162,18 @@ export function crafterFacts(actor) {
     };
 }
 
-/** The skill an order rolls (M9): Medicine for a graft (Howl of the Wild p.97), else its own (Crafting by default). */
-export const skillFor = (order) => (order?.craftType === "graft" ? "medicine" : order?.skill ?? "crafting");
+/**
+ * The skill an order rolls (M9): Medicine for a graft (Howl of the Wild p.97), else its own (Crafting by default). M9a
+ * (6.16.6, 6.16.9): Grow uses the nature crafting setting's skill, every other Craft Arcana in its hybrid, and a quest's
+ * assembly the skill chosen for it.
+ */
+export function skillFor(order, rules = DEFAULT_RULES) {
+    if (order?.craftType === "graft") return "medicine";
+    if (order?.craftType === "grow" && rules.variants?.grow) return growSkill(rules);
+    if (order?.craftType === "quest") return order.variant?.quest?.assemblySkill ?? "crafting";
+    const own = order?.skill ?? "crafting";
+    return own === "crafting" ? craftSkill(rules) : own;
+}
 
 /** Registry keys of the gear in the strongbox, which counts for tools wherever the crafter is (G7). */
 function strongboxToolKeys() {
@@ -334,6 +346,9 @@ function replacePlan(order, product) {
 export async function planFor(order, crafter, product, rules) {
     if (order.product?.type === "formula") return formulaPlan(order, crafter, product);
     const craftType = order.craftType ?? "item";
+    // M9a (6.16.5, 6.16.9): a Deconstruct and a quest move no money; each has its own plan.
+    if (craftType === "deconstruct") return deconstructPlan(order);
+    if (craftType === "quest") return questPlan(order, crafter, product, rules);
     const route = await routeFor(crafter, product, rules);
     const options = craftOptions({ item: product.options, held: crafter.held, route, craftType });
     const targeted = TARGETED.includes(craftType);
@@ -361,14 +376,71 @@ export async function planFor(order, crafter, product, rules) {
         if (!change.ok) return { ...change, route, batchMax: max };
         ({ level, rarity } = change);
         cost = craftCost({ unitPriceCp: change.unitCp, quantity: 1, free: crafter.free });
+    } else if (rules.variants?.adjustments && order.variant?.adjustments?.length) {
+        // M9a (6.16.2): the item and its adjustments as one Craft: their Prices added, the highest part's level and rarity.
+        change = await adjustedPlan(order, product, crafter, rules);
+        if (!change.ok) return { ...change, route, batchMax: max };
+        ({ level, rarity } = change);
+        cost = craftCost({ unitPriceCp: change.unitCp, quantity: 1, free: crafter.free });
     } else {
         cost = craftCost({ unitPriceCp: product.priceCp, per: product.per, quantity: order.quantity, free: crafter.free });
     }
     if (!cost.ok) return { ...cost, route, batchMax: max };
+    // M9a (6.16.1): Complex Crafting's Table 5-1 setup, with the rush the crafter chose on the start form; a part without its
+    // formula (6.16.2) gives the whole the setup without one.
+    const setupRoute = change?.partsRoute ?? route;
+    const complex = rules.variants?.complexCrafting ? {
+        itemLevel: level, crafterLevel: crafter.level, consumable: isConsumableForBatch(product), rank: crafter.ranks?.[skillFor(order, rules)] ?? 0,
+        quickSetup: holds(crafter.held ?? [], "quick-setup", rules), rushDays: order.variant?.complex?.rush ?? order.variant?.rushRequest ?? 0,
+    } : null;
+    const setup = setupPlan({ route: setupRoute, craftType, productType: order.product?.type ?? "item", complex }, rules);
     return {
-        ...cost, route, batchMax: max, setup: setupPlan({ route, craftType }, rules), change,
-        dc: craftDC({ level, rarity, pwol: pwolOn() }, rules),
+        ...cost, route, batchMax: max, setup, change,
+        dc: craftDC({ level, rarity, pwol: pwolOn(), rush: setup.complex?.rush ?? 0 }, rules),
     };
+}
+
+/**
+ * The plan of a Deconstruct (6.16.5): no Price paid and nothing committed (the credit comes out of the item, not the
+ * escrow), one day of setup, and the item's level DC with its rarity adjustment (the easy repeat DC does not apply).
+ */
+function deconstructPlan(order) {
+    const target = liveItemFacts(targetOf(order));
+    if (!target) return { ok: false, reason: "no-target", route: null, batchMax: 1 };
+    if (target.quantity > 1) return { ok: false, reason: "target-stack", data: { qty: target.quantity }, route: null, batchMax: 1 };
+    return { ok: true, priceCp: 0, upfrontCp: 0, listPriceCp: target.priceCp, free: false, route: null, batchMax: 1,
+        setup: { days: 1, hours: 0 }, change: { target, level: target.level, rarity: target.rarity }, dc: craftDC({ level: target.level, rarity: target.rarity, pwol: pwolOn() }) };
+}
+
+/**
+ * The plan of a crafting quest (6.16.9): no coins (the item's equivalent cost counts against party treasure instead), no
+ * setup days, and the item's level DC with its rarity adjustment for an assembly check.
+ */
+function questPlan(order, crafter, product, rules) {
+    const listPriceCp = Math.round((product.priceCp * (order.quantity ?? 1)) / Math.max(1, product.per));
+    const encounters = Object.keys(order.variant?.quest?.components ?? {}).length;
+    return { ok: true, priceCp: 0, upfrontCp: 0, listPriceCp, free: false, route: null, batchMax: 1, setup: { days: 0, hours: 0 },
+        quest: questCost(listPriceCp, encounters), dc: craftDC({ level: product.level, rarity: product.rarity, pwol: pwolOn() }, rules) };
+}
+
+/**
+ * The parts of an item crafted with its adjustments (6.16.2): each adjustment's facts and whether it fits the base, the
+ * whole's unit Price, level and rarity, and the route the setup follows (without its formula if any part lacks one).
+ */
+async function adjustedPlan(order, product, crafter, rules) {
+    const parts = [];
+    for (const uuid of order.variant.adjustments) {
+        const facts = await productFacts(uuid);
+        if (!facts) return { ok: false, reason: "no-product" };
+        if (!adjustmentFits(facts, { type: product.type, category: product.category, range: product.range ?? null })) {
+            return { ok: false, reason: "adjustment-fit", data: { name: facts.name } };
+        }
+        parts.push({ ...facts, route: await routeFor(crafter, facts, rules) });
+    }
+    const whole = adjustmentsPlan([{ priceCp: Math.round(product.priceCp / product.per), level: product.level, rarity: product.rarity },
+        ...parts.map((p) => ({ priceCp: Math.round(p.priceCp / p.per), level: p.level, rarity: p.rarity }))]);
+    const formulaEverywhere = parts.every((p) => ROUTES_WITH_FORMULA.includes(p.route));
+    return { ok: true, unitCp: whole.priceCp, level: whole.level, rarity: whole.rarity, parts, partsRoute: formulaEverywhere ? null : "none" };
 }
 
 /**
@@ -423,6 +495,10 @@ export async function gatesFor(order, crafter, product, orderRows, rules) {
         return { gates, plan };
     }
     const craftType = order.craftType ?? "item";
+    // M9a (6.16.5, 6.16.9): a Deconstruct has its own gates; a quest needs none of the Craft's (it may not involve Crafting at
+    // all, TV-R p.170) but the crafter's own availability.
+    if (craftType === "deconstruct") return { gates: deconstructGatesFor(order, crafter, crafterGate, rules), plan };
+    if (craftType === "quest") return { gates: questGatesFor(order, crafter, crafterGate, product), plan };
     const supply = spellSupply(product);
     const spells = supply ? spellGate(order, supply) : {};
     const precious = orderPrecious({ product, crafter: { level: crafter.level, rank: crafter.ranks?.crafting ?? 0 }, order, upfrontCp, coinCp }, rules);
@@ -437,12 +513,20 @@ export async function gatesFor(order, crafter, product, orderRows, rules) {
     const busy = process?.oneAtATime ? busyWith(all, { id: order.id, crafter: crafter.uuid, craftType }) : null;
     const changeLevel = plan.change?.level ?? product.level;
     const gates = craftGates({
-        crafter: crafterGate, item: { ...item, level: changeLevel }, skill: skillFor({ ...order, craftType }),
+        crafter: crafterGate, item: { ...item, level: changeLevel }, skill: skillFor({ ...order, craftType }, rules),
         orderId: order.id, craftType, route: plan.route, accessGrant: routeInputs(crafter.held, product, options, crafter.level, rules).accessGrant,
         tools: { available }, escrowCp: escrow, upfrontCp, precious, spells, custody, busyWith: busy,
         rune: plan.change?.check ?? null,
     }, rules).map((gate) => (craftType === "rune-transfer" && (gate.id === "G5" || gate.id === "G6")
         ? { id: gate.id, ok: true, reason: null, data: null, unlock: null } : gate));
+    // M9a (6.16.6): Grow's tools are the crafter's to name (cultivation tools, an instrument): a checklist item, not G7's kit.
+    if (craftType === "grow") {
+        const at = gates.findIndex((gate) => gate.id === "G7");
+        gates[at] = order.checklist?.["grow-tools"] ? { id: "G7", ok: true, reason: null, data: null, unlock: null }
+            : { id: "G7", ok: false, reason: "grow-tools", data: {}, unlock: "checklist" };
+    }
+    // M9a (6.16.2): every adjustment's own feats, access and formula route (interpretation, OQ-45).
+    if (plan.ok && plan.change?.parts?.length) mergePartGates(gates, plan.change.parts, crafter, rules);
     if (!plan.ok && plan.reason === "quantity") gates.push({ id: "batch", ok: false, reason: "quantity", data: plan.data, unlock: null });
     else if (!plan.ok && plan.reason !== "no-price") gates.push({ id: "G12", ok: false, reason: plan.reason, data: plan.data ?? {}, unlock: null });
     // M9: a fulu takes its creator's tradition (Secrets of Magic p.158): the crafter's only one, or the one chosen for it.
@@ -450,6 +534,55 @@ export async function gatesFor(order, crafter, product, orderRows, rules) {
         gates.push({ id: "G12", ok: false, reason: "fulu-tradition", data: { traditions: [...(crafter.traditions ?? [])] }, unlock: null });
     }
     return { gates, plan };
+}
+
+/**
+ * Deconstruct's gates (6.16.5) for this crafter: the item's level, rarity and traits from the item itself, wherever it is;
+ * the tools as G7 reads them; the workshop the crafter confirms (`checklist.workshop`); custody as G10 (on the crafter, or
+ * earmarked in the strongbox).
+ */
+function deconstructGatesFor(order, crafter, crafterGate, rules) {
+    const target = targetOf(order);
+    const facts = liveItemFacts(target);
+    crafterGate.lockedBy = crafter.actorId ? lockOf(records("orders"), crafter.actorId, crafter.uuid) : null;
+    if (!facts) return [{ id: "G10", ok: false, reason: "no-target", data: {}, unlock: "custody" }];
+    const sourceId = facts.sourceId ?? null;
+    const item = { level: facts.level, rarity: facts.rarity, traits: facts.traits, priceCp: facts.priceCp, consumableFix: sourceId ? consumableFix(sourceId) : false };
+    const options = craftOptions({ item: [], held: crafter.held, craftType: "deconstruct" });
+    return deconstructGates({ crafter: crafterGate, item, tools: { available: toolsFor(crafter, options, rules) }, held: inCustody(order, target),
+        workshop: !!order.checklist?.workshop, orderId: order.id }, rules);
+}
+
+/** A quest's gates (6.16.9): its components named, and a crafter not locked to another order. */
+function questGatesFor(order, crafter, crafterGate, product) {
+    crafterGate.lockedBy = crafter.actorId ? lockOf(records("orders"), crafter.actorId, crafter.uuid) : null;
+    const components = Object.keys(order.variant?.quest?.components ?? {}).length;
+    return [
+        components > 0 ? { id: "G9", ok: true, reason: null, data: null, unlock: null } : { id: "G9", ok: false, reason: "quest-components", data: {}, unlock: null },
+        crafterGate.lockedBy && crafterGate.lockedBy !== order.id ? { id: "G11", ok: false, reason: "locked", data: { order: crafterGate.lockedBy }, unlock: "release" }
+            : { id: "G11", ok: true, reason: null, data: null, unlock: null },
+        product.isArtifact ? { id: "G12", ok: false, reason: "artifact", data: {}, unlock: null } : { id: "G12", ok: true, reason: null, data: null, unlock: null },
+    ];
+}
+
+/**
+ * Fold the adjustments' own requirements into the gates (6.16.2): the feats each part needs (G4), its access (G5) and its
+ * formula route (G6), each failure naming the part.
+ */
+function mergePartGates(gates, parts, crafter, rules) {
+    const fold = (id, failing) => {
+        if (!failing) return;
+        const at = gates.findIndex((gate) => gate.id === id);
+        if (at >= 0 && gates[at].ok) gates[at] = failing;
+    };
+    for (const part of parts) {
+        const missing = missingCraftingFeats(part, { feats: crafter.held, unlocks: crafter.unlocks, ranks: crafter.ranks }, "item", rules);
+        if (missing.feats.length || Object.keys(missing.ranks).length) fold("G4", { id: "G4", ok: false, reason: "feats", data: { ...missing, name: part.name }, unlock: "feats" });
+        const access = gateAccess(part, part.route, routeInputs(crafter.held, part, craftOptions({ item: part.options, held: crafter.held }), crafter.level, rules).accessGrant, rules);
+        if (!access.ok) fold("G5", { ...access, data: { ...access.data, name: part.name } });
+        const route = gateRoute(part.route, []);
+        if (!route.ok) fold("G6", { ...route, data: { ...route.data, name: part.name } });
+    }
 }
 
 /** A subject order's subject's downtime status (`pcs.<id>`), for G10 (M9). */

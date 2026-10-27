@@ -25,15 +25,18 @@ import { MODULE_ID } from "../constants.mjs";
 import { helperCheckPatch } from "../logic/communal.mjs";
 import { liveRows } from "../logic/core.mjs";
 import { committedFromRows, hasSettlementRows, recordCheck, settleCheck } from "../logic/craft.mjs";
+import { DEGREE } from "../logic/core.mjs";
+import { lineValueCp, materialLines } from "../logic/materials.mjs";
+import { canMakeDespite, componentsRuinCp, criticalRecord, moneyDegree, secretRoll } from "../logic/variants.mjs";
 import { wageDaysOf } from "../logic/downtime.mjs";
 import { wageKey, wageSeq } from "../logic/earn-income.mjs";
 import { returnSlotLockId } from "../logic/funds.mjs";
-import { hashId } from "../logic/ids.mjs";
+import { hashId, idemKey } from "../logic/ids.mjs";
 import { earnIncomeFlags } from "../logic/registry.mjs";
 import {
     checkFromContext, craftDegree, craftRollPlan, earnIncomeRollPlan, guardCheck, helpLink, jobCheckPatch, parseLink,
 } from "../logic/rolls.mjs";
-import { closedAs, settlementRecord, transitionChange } from "../logic/orders.mjs";
+import { closedAs, lastEntry, settlementRecord, transitionChange } from "../logic/orders.mjs";
 import { makeRow, seqFor } from "../logic/rows.mjs";
 import { allocationsByContributor, splitProRata } from "../logic/split.mjs";
 import { createClaims } from "./claims.mjs";
@@ -43,7 +46,12 @@ import { rememberReroll } from "./orders.mjs";
 import { featKeysOf, heldKeysOf, ranksOf } from "./registry.mjs";
 import { isResponsibleFor } from "./responsible.mjs";
 import { rulesFromSettings } from "./settings.mjs";
-import { canWrite } from "./state.mjs";
+import { runRequest } from "./batch.mjs";
+import { canWrite, shared } from "./state.mjs";
+import { settleDeconstruct } from "./deconstruct.mjs";
+import { recordSeasonCheck } from "./nature.mjs";
+import { settleQuest } from "./quests.mjs";
+import { liftCurse } from "./variants.mjs";
 import { exists, read, records, stampNow, write } from "./store.mjs";
 
 const refuse = (reason, data = {}) => ({ ok: false, reason, data });
@@ -86,8 +94,14 @@ export async function rollCraft(orderId, { skipDialog } = {}) {
     // An unsaved copy owned by the crafter, so its roll options are those of the item in the crafter's hands (OQ-2).
     // It is not passed as `item`: a bomb passed that way becomes the context item for weapon targeting.
     const item = new CONFIG.Item.documentClass(product.toObject(), { parent: crafter });
-    const plan = craftRollPlan({ item: item.getRollOptions("item"), held: heldKeysOf(crafter), ranks: ranksOf(crafter), order }, rulesFromSettings());
+    const rules = rulesFromSettings();
+    const plan = craftRollPlan({ item: item.getRollOptions("item"), held: heldKeysOf(crafter), ranks: ranksOf(crafter), order }, rules);
+    // M9a (6.16.4): Critical Crafting's secret checks are rolled blind while a GM is connected to see them (P2). pf2e's
+    // `Statistic#roll` reads only `messageMode`, a key of `CONFIG.ChatMessage.modes` (Foundry 14: public, gm, blind, self, ic);
+    // anything else falls back to the user's own chat mode, so a secret roll passes `blind` by that name.
+    const secret = secretRoll(order, rules, !!game.users.activeGM);
     const roll = await statistic.roll({
+        ...(secret ? { messageMode: "blind" } : {}),
         dc: { value: order.dc.final, label: game.i18n.localize("pf2e-artisans-workshop.Roll.CraftDC") },
         extraRollOptions: plan.options,
         modifiers: await pf2eModifiers(plan.modifiers),
@@ -182,9 +196,11 @@ export async function onCheckMessage(message) {
         ui.notifications.warn("pf2e-artisans-workshop.Roll.FortuneBlocked", { localize: true });
         return guarded;
     }
-    const check = { ...guarded.check, messageId: message.id };
+    // M9a (6.16.4): a blind roll is a secret check, hidden from players until it settles.
+    const check = { ...guarded.check, messageId: message.id, ...(message.blind === true ? { secret: true } : {}) };
     if (link.kind === "order") return recordOrderCheck(link, check, message.actor, context.options ?? []);
     if (link.kind === "help") return recordHelperCheck(link, check, message.actor);
+    if (link.kind === "season") return recordSeasonCheck(link, check, message.actor);
     return recordJobCheck(link, check, message.actor);
 }
 
@@ -242,6 +258,8 @@ async function recordOrderCheck({ id, attempt }, check, actor, options) {
     const reroll = !!order.check;
     await write({ replace: { [`orders.${id}.check`]: result.patch.check }, set: reroll ? {} : { [`orders.${id}.status`]: result.patch.status } });
     if (reroll) await rememberReroll(id, result.patch.check);
+    // M9a (6.16.4): a critical success at a Craft check lifts the crafter's curse.
+    if (degree === DEGREE.critSuccess && order.craftType !== "deconstruct" && order.craftType !== "quest") await liftCurse(crafter);
     return { ok: true, check: result.patch.check };
 }
 
@@ -291,9 +309,17 @@ async function recordJobCheck({ id: jobId, round }, check, actor) {
  */
 export async function settleOrder(orderId) {
     if (!canWrite()) return refuse("not-ready");
-    const order = read(`orders.${orderId}`);
-    if (!order) return refuse("no-order");
-    if (closedAs(order)) return refuse("state", { status: closedAs(order) });
+    const stored = read(`orders.${orderId}`);
+    if (!stored) return refuse("no-order");
+    if (closedAs(stored)) return refuse("state", { status: closedAs(stored) });
+    // M9a (6.16.5, 6.16.9): a Deconstruct and a quest settle through their own rows of 4.2.3, with no money.
+    if (stored.craftType === "deconstruct") return settleDeconstruct(stored);
+    if (stored.craftType === "quest") return settleQuest(stored);
+    // M9a (6.16.4): a check that triggers Critical Crafting is stamped with its record (and the mode the setting has now),
+    // which decides the money effect from here on.
+    const rules = rulesFromSettings();
+    const critical = stored.status === "rolled" && stored.check && !stored.check.settled ? criticalRecord(stored.check, stored, rules, stampNow()) : null;
+    const order = critical ? { ...stored, check: { ...stored.check, critical } } : stored;
     const rows = rowsOf("order", orderId);
     const alchemical = (order.product?.snapshot?.traits ?? []).includes("alchemical");
     const result = settleCheck(order, { committedCp: committedFromRows(rows), alchemical });
@@ -318,14 +344,80 @@ export async function settleOrder(orderId) {
     const settlement = settlementRecord(order, result.patch, rowIds, stamp);
     const change = transitionChange(order, "settle", { check, status: fields.status, settlement }, { rows: rowIds }, stamp);
     const ledger = { replace: change.replace, set: { ...change.set, ...Object.fromEntries(releases.map((row) => [`rows.${row.id}`, row])) } };
+    // M9a (6.16.5): a critical failure ruins 10% of a components line too, with the rest of the materials (unless Critical
+    // Crafting's `replace` took the money effect's place). The ruin is taken off the components item's own credit in the same
+    // request, so an item given back by a cancel and handed over again never counts it twice (review fix of M9a).
+    const itemUpdates = [];
+    if (fields.status === "failed" && moneyDegree(check) === DEGREE.critFail) {
+        for (const line of materialLines(order).filter((l) => l.components)) {
+            const ruined = componentsRuinCp(lineValueCp(line, order));
+            ledger.set[`orders.${orderId}.materials.${line.id}.ruinedCp`] = (order.materials?.[line.id]?.ruinedCp ?? 0) + ruined;
+            const credit = shared().strongbox?.items.get(line.itemId)?.flags?.[MODULE_ID]?.components;
+            if (credit && ruined > 0) {
+                itemUpdates.push({ _id: line.itemId, [`flags.${MODULE_ID}.components.valueCp`]: Math.max(0, (credit.valueCp ?? 0) - ruined),
+                    [`flags.${MODULE_ID}.components.rawCp`]: Math.max(0, (credit.rawCp ?? 0) - ruined) });
+            }
+        }
+    }
     // The log slot, and the return slot: a give-back or take-back planned from the same copy would change the shares.
     const locks = [change.lock, returnSlotLockId(order, rows)];
+    if (!spent && itemUpdates.length) {
+        // No coins to spend (the credit covered the up-front half): the item's update and the settlement in one request.
+        const done = await runRequest([{ op: "lock", ids: locks }, { op: "updateItems", target: "strongbox", updates: itemUpdates }, { op: "ledger", change: ledger }]);
+        if (done.outcome === "refused") return refuse("taken");
+        return done.outcome === "ok" ? { ok: true, outcome: "ok", status: fields.status, notices: result.notices } : refuse(done.reason ?? "error", { outcome: done.outcome });
+    }
     if (!spent) {
         const written = await lockedWrite(locks, [], ledger);
         return written.ok ? { ok: true, outcome: "ok", status: fields.status, notices: result.notices } : written;
     }
-    const moved = await spend({ kind: spent.kind, stem: keyed(spent.kind), cp: spent.cp, allocations, link: { order: orderId }, ledger, locks });
+    const moved = await spend({ kind: spent.kind, stem: keyed(spent.kind), cp: spent.cp, allocations, link: { order: orderId }, ledger, locks, itemUpdates });
     return { ...moved, status: fields.status, notices: result.notices };
+}
+
+/**
+ * Make the item despite a settled critical failure (6.16.4, review fix of M9a): the order's Critical Crafting record says it is
+ * made anyway (`critical.made`, TV-R p.162: secretly cursed, draining the crafter, completed by a malevolent mind, failing in
+ * use), so the order moves from `failed` to `finishing` as a success would have left it, in one undoable transition (`made`):
+ * what the settlement released is committed again and spent as the materials a success uses (a `commit` and the `expend`
+ * rows, pro rata by contributor; what the critical failure ruined stays spent, so the up-front half went into the item either
+ * way), and its extra days run at the success rate. Only while the order is still failed by this attempt's settlement
+ * (`canMakeDespite`). The caller checks who may (the crafter's owner or a GM). Refused: `state`, `no-critical`, `underfunded`,
+ * the coin move's.
+ */
+export async function makeDespite(orderId, critical) {
+    if (!canWrite()) return refuse("not-ready");
+    const order = read(`orders.${orderId}`);
+    if (!order) return refuse("no-order");
+    if (closedAs(order) || order.status !== "failed") return refuse("state", { status: closedAs(order) ?? order.status });
+    if (critical?.kind !== "failure" || !canMakeDespite({ ...order, check: { ...order.check, critical: { ...critical, made: false } } })) return refuse("no-critical");
+    const last = lastEntry(order);
+    const rows = rowsOf("order", orderId);
+    const released = liveRows(rows).filter((row) => row.kind === "release" && typeof row.idem === "string" && row.idem.startsWith(`release:${orderId}:${order.attempt}:`))
+        .reduce((sum, row) => sum + row.cp, 0);
+    const allocations = allocationsByContributor(rows);
+    const held = allocations.reduce((sum, a) => sum + a.cp, 0);
+    if (released > held) return refuse("underfunded", { shortCp: released - held });
+    const stamp = stampNow();
+    const check = { ...order.check, critical: { ...critical, made: true } };
+    // Keyed by the transition's log slot, so a made undone and made again commits under a new key.
+    const commit = released > 0
+        ? { ...makeRow({ kind: "commit", idem: idemKey("commit", orderId, order.attempt, "made", (last?.seq ?? 0) + 1), cp: released, order: orderId }, stamp), state: "applied" }
+        : null;
+    const stem = `expend:${orderId}:${order.attempt}`;
+    const keyed = `${stem}:${seqFor(rows, stem)}`;
+    const spendIds = released > 0
+        ? splitProRata(released, allocations.map((a) => ({ key: a.actor, cp: a.cp }))).filter((share) => share.cp > 0).map((share) => hashId(`${keyed}:${share.key ?? "fund"}`))
+        : [];
+    const change = transitionChange(order, "made", { check, status: "finishing" }, { rows: [...(commit ? [commit.id] : []), ...spendIds] }, stamp);
+    const ledger = { replace: change.replace, set: { ...change.set, ...(commit ? { [`rows.${commit.id}`]: commit } : {}) } };
+    const locks = [change.lock, returnSlotLockId(order, rows)];
+    if (!commit) {
+        const written = await lockedWrite(locks, [], ledger);
+        return written.ok ? { ok: true, outcome: "ok", status: "finishing" } : written;
+    }
+    const moved = await spend({ kind: "expend", stem: keyed, cp: released, allocations, link: { order: orderId }, ledger, locks });
+    return { ...moved, status: "finishing" };
 }
 
 /**

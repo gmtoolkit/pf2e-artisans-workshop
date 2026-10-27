@@ -273,7 +273,8 @@ export function craftGates(p, rules = DEFAULT_RULES) {
         gateProficiency(crafter, item, skill, rules),
         gateFeats(crafter, item, craftType, rules),
         gateAccess(item, p.route, p.accessGrant, rules),
-        gateRoute(p.route, p.acquisition, { needsFormula: craftType === "graft" }),
+        // M9a (6.16.6): Grow needs the formula too (TV-R p.165).
+        gateRoute(p.route, p.acquisition, { needsFormula: craftType === "graft" || craftType === "grow" }),
         gateTools(item, p.tools, rules),
         gateMaterials(p.escrowCp ?? 0, p.upfrontCp, p.precious),
         gateRequirements(crafter, p.requirements, p.spells),

@@ -3932,3 +3932,408 @@ Object.assign(BEHAVIOURS, {
     "m9-gadget": m9Gadget,
     "m9-shots": m9Shots,
 });
+
+/* -------------------------------------------- */
+/*  M9a: Treasure Vault (Remastered) variants    */
+/* -------------------------------------------- */
+
+/** Compendium items the M9a plans use (pf2e `packs/pf2e/`, pf2e-8.6.1). */
+export const M9A = Object.freeze({
+    cloak: "Compendium.pf2e.equipment-srd.Item.fXD42N5cGUYCtvp2",       // Cloak of Feline Rest, a common permanent magic item of level 1, 20 gp
+    fire: "Compendium.pf2e.equipment-srd.Item.yd3kEK21YknZLlcT",        // Alchemist's Fire (Lesser), a common alchemical consumable of level 1, 3 gp
+    tinderbox: "Compendium.pf2e.equipment-srd.Item.vqHSVgQJktWTXiDK",   // Versatile Tinderbox, a common magical wood item of level 1, 20 gp
+    breastplate: "Compendium.pf2e.equipment-srd.Item.r0ifJfoz8aqf0mwk", // Breastplate, level 0, 8 gp
+    latches: "Compendium.pf2e.equipment-srd.Item.HuC6uonXt6YXePjb",     // Armor Latches, a common adjustment applied to armor, level 1, 4 gp
+    quickSetup: "Compendium.pf2e.feats-srd.Item.bcEI0iIFhZXqjoaR",      // Quick Setup (Treasure Vault), skill feat 7, master in Crafting
+    alchemicalCrafting: "Compendium.pf2e.feats-srd.Item.is3Oz9wt11lNq62K", // Alchemical Crafting, skill feat 1 (a fighter's alchemist's fire)
+});
+
+/** The keys of the notes the M9a plans read from the pages' notification logs. */
+const MIXED_KEY = "pf2e-artisans-workshop.Settings.Variants.Mixed";
+const SEASON_KEY = "pf2e-artisans-workshop.Variant.Grow.SeasonDue";
+
+/** The notes each client showed since the last look with one of `keys`, by client. */
+async function notesBy(h, keys) {
+    const pages = await takeNotes(h);
+    return Object.fromEntries(Object.entries(pages).map(([client, page]) => [client, page.notes.filter((n) => keys.includes(n.message)).map((n) => plainNote(n))]));
+}
+const plainNote = (note) => ({ message: note.message, format: note.format ?? null });
+
+/** Every M9a plan starts here: the world reset, M9's and M9a's leftovers taken back, every variant off, the named variants on. */
+async function m9aReset(h, w, { actors = [], on = {} } = {}) {
+    await resetWorld(h, w);
+    const all = [w.pcs.p1.uuid, w.pcs.p2.uuid, ...actors.filter(Boolean)];
+    await h.step("gm", "m9a", "reset", { actors: all });
+    await h.step("gm", "m9", "reset", { actors: all });
+    if (Object.keys(on).length) await h.step("gm", "m9a", "variants", { on });
+}
+
+/**
+ * 13, the notice (6.16, TV-R p.157): the GM turns on Complex Crafting (one group) and then Grow (another): the GM is told,
+ * once, and the module's Settings show the notice; Player One is told nothing; both variants are on.
+ */
+async function m9aNotice(h, w) {
+    await m9aReset(h, w);
+    await h.only(["gm", "p1"]);
+    await h.settle("ready");
+    await notesBy(h, [MIXED_KEY]);
+    const one = await h.step("gm", "m9a", "variants", { on: { "variants.complexCrafting": true } });
+    h.check("one group: no notice", one.mixed === false && (await h.step("gm", "m9a", "notice", {})).notice === null, one);
+    const two = await h.step("gm", "m9a", "variants", { on: { "variants.grow": true } });
+    const told = await notesBy(h, [MIXED_KEY]);
+    h.check("two groups: both on, nothing blocked", two.mixed === true && two.groups.includes("alternate") && two.groups.includes("nature"), two);
+    h.check("the GM who turned the second group on is told, once; Player One is not", told.gm?.length === 1 && !told.p1?.length, told);
+    const notice = await h.step("gm", "m9a", "notice", {});
+    h.check("Settings shows the notice naming both groups", typeof notice.notice === "string" && notice.notice.length > 0, notice);
+    await checkStatuses(h);
+    return { two, notice };
+}
+
+/**
+ * 13a. Complex Crafting rushed in setup and in finishing (6.16.1). Player Two's fighter (master, level 10) makes a Cloak of
+ * Feline Rest without its formula: Table 5-1 gives 2 days, rushed by one to 1 day at +5 DC, frozen at the start; after the
+ * check, one finishing day is rushed and the finish's flat check (DC 10 + 1 - 16) cannot fail, so no die is rolled. Then the
+ * legacy alchemist fixture (expert, level 3) rushes Alchemist's Fire (Lesser) to 4 hours, which takes its downtime day on the
+ * order (only Quick Setup's 2-hour consumable setup fits into an adventuring day, TV-R p.159), so Set up now is refused and
+ * Work a day records the setup; then it rushes a finishing day: its flat check is DC 4, rolled once, and the outcome follows
+ * the die.
+ */
+async function m9aComplex(h, w) {
+    const alchemist = fixtureOf(h, w, "legacy-alchemist-3");
+    await m9aReset(h, w, { actors: [alchemist], on: { "variants.complexCrafting": true } });
+    const fighter = w.pcs.p2.uuid;
+    await h.step("gm", "m9a", "forget", { actor: fighter, uuids: [M9A.cloak] });
+    await h.only(["gm", "p2"]);
+    await h.settle("ready");
+    const filed = await h.step("p2", "m9", "request", { uuid: M9A.cloak, requester: fighter, crafter: fighter });
+    const rushed = await h.step("p2", "m9a", "rush", { order: filed.order, rush: 1 });
+    h.check("the crafter chooses one rushed day before the start", rushed.result?.ok === true && rushed.order.variant.rushRequest === 1, rushed);
+    const run = await h.step("p2", "m9", "run", { order: filed.order, crafter: fighter, payer: fighter, pledge: 1000, finish: false });
+    const started = await h.step("p2", "m9a", "order", { order: filed.order });
+    h.check("frozen at the start: 1 setup day, one day rushed, +5 DC", started.setup?.days === 1 && started.variant.complex?.rush === 1 && started.dc?.adjust === 5 &&
+        started.days.filter((d) => d.kind === "setup").length === 1, started);
+    const out = { run, started };
+    if (started.status === "finishing") {
+        const on = await h.step("p2", "m9a", "rushFinish", { order: filed.order, on: true });
+        h.check("the crafter rushes the finishing", on.result?.ok === true && on.order.variant.rushFinish === true, on);
+        const day = await h.step("p2", "m9a", "work", { order: filed.order, count: 1, while: ["finishing"] });
+        h.check("the day is recorded rushed", day.order.days.some((d) => d.rushed), day.order.days);
+        const finished = await h.step("p2", "m9a", "finish", { order: filed.order, payer: fighter });
+        const flat = finished.order.check?.rushFlat;
+        h.check("the flat check, DC 10 + 1 - 16, cannot fail: no die, a fine item", finished.result?.ok === true && flat?.dc <= 1 && flat.die === null &&
+            flat.outcome === "fine" && finished.order.status === "complete", finished);
+        out.finished = finished;
+    }
+    if (!alchemist) return out;
+    await h.step("gm", "m9a", "forget", { actor: alchemist, uuids: [M9A.fire] });
+    const fire = await h.step("gm", "m9", "request", { uuid: M9A.fire, requester: alchemist, crafter: alchemist });
+    await h.step("gm", "m9a", "rush", { order: fire.order, rush: 1 });
+    const begun = await h.step("gm", "m9a", "start", { order: fire.order, crafter: alchemist, payer: w.pcs.p1.uuid, pledge: 150 });
+    h.check("rushed below a day: 4 hours, +5 DC", begun.start?.ok === true && begun.order.setup?.days === 0 && begun.order.setup?.hours === 4 && begun.order.dc?.adjust === 5,
+        begun);
+    h.check("4 hours is no adventuring-day setup: Set up now is refused", (await h.step("gm", "m9a", "setUpNow", { order: fire.order })).result?.reason === "downtime-day");
+    const now = await h.step("gm", "m9a", "work", { order: fire.order, count: 1, while: ["setup"] });
+    h.check("Work a day: the crafter's own day record is the setup-hours record, and the order is at its check", now.order.status === "check" &&
+        now.order.days.some((d) => d.kind === "setup-hours" && d.hours === 4 && !d.id.endsWith(`-${fire.order}`)), now);
+    await h.step("gm", "m9a", "roll", { order: fire.order });
+    const settled = await h.step("gm", "m9a", "work", { order: fire.order, count: 1 });
+    out.fire = settled.order;
+    if (settled.order.status !== "finishing") return out;
+    await h.step("gm", "m9a", "rushFinish", { order: fire.order, on: true });
+    await h.step("gm", "m9a", "work", { order: fire.order, count: 1, while: ["finishing"] });
+    const done = await h.step("gm", "m9a", "finish", { order: fire.order, payer: w.pcs.p1.uuid });
+    const flat = done.order.check?.rushFlat;
+    h.check("the flat check: DC 10 + 1 - 7 = 4, one d20, its card posted once", flat?.dc === 4 && Number.isInteger(flat.die) && done.order.flatCards === 1, done.order);
+    h.check("the outcome follows the die: fine on a success, a quirk on a failure, ruined on a critical failure", flat && ((flat.degree >= 2) === (flat.outcome === "fine")) &&
+        (flat.degree !== 0 || done.order.status === "failed"), flat);
+    out.fire = done.order;
+    await checkStatuses(h);
+    return out;
+}
+
+/**
+ * 13b. Quick Setup (TV-R p.159) on a day spent on something else: Player Two's fighter, given Quick Setup and Alchemical
+ * Crafting, is in downtime subsisting. A Cloak of Feline Rest it has the formula for (1 day, 9 levels below) rushed to 4 hours
+ * is no adventuring-day setup: Set up now is refused (the feat lets only a batch of consumables be set up in 2 hours during an
+ * adventuring day). Alchemist's Fire (Lesser) rushed to 2 hours is: the day is logged and resolved as subsistence, and Set up
+ * now records the hours on the same day under its own key: two records, neither overwriting the other.
+ */
+async function m9aQuickSetup(h, w) {
+    await m9aReset(h, w, { on: { "variants.complexCrafting": true } });
+    const fighter = w.pcs.p2.uuid;
+    await h.step("gm", "m9", "give", { actor: fighter, uuid: M9A.quickSetup });
+    await h.step("gm", "m9", "give", { actor: fighter, uuid: M9A.alchemicalCrafting });
+    await h.step("gm", "m9", "learn", { actor: fighter, uuids: [M9A.cloak, M9A.fire] });
+    await h.only(["gm", "p2"]);
+    await h.settle("ready");
+    await h.step("p2", "m6", "downtime", { on: true });
+    await h.step("p2", "m6", "activity", { activity: "subsist" });
+    const cloak = await h.step("p2", "m9", "request", { uuid: M9A.cloak, requester: fighter, crafter: fighter });
+    await h.step("p2", "m9a", "rush", { order: cloak.order, rush: 1 });
+    const permanent = await h.step("p2", "m9a", "start", { order: cloak.order, crafter: fighter, payer: fighter, pledge: 1000 });
+    h.check("Quick Setup: 4 hours for a permanent item", permanent.start?.ok === true && permanent.order.setup?.days === 0 && permanent.order.setup?.hours === 4 &&
+        permanent.order.variant.complex?.quick === true, permanent);
+    h.check("a permanent item's 4 hours take a downtime day: Set up now is refused",
+        (await h.step("p2", "m9a", "setUpNow", { order: cloak.order })).result?.reason === "downtime-day");
+    const filed = await h.step("p2", "m9", "request", { uuid: M9A.fire, quantity: 4, requester: fighter, crafter: fighter });
+    await h.step("p2", "m9a", "rush", { order: filed.order, rush: 1 });
+    const begun = await h.step("p2", "m9a", "start", { order: filed.order, crafter: fighter, payer: fighter, pledge: 600 });
+    h.check("Quick Setup: 2 hours for a batch of consumables", begun.start?.ok === true && begun.order.setup?.days === 0 && begun.order.setup?.hours === 2 &&
+        begun.order.variant.complex?.quick === true, begun);
+    const logged = await h.step("p2", "m9a", "logDays", { days: 1 });
+    const resolved = await h.step("p2", "m6", "resolve", { activity: "subsist", count: 1 });
+    const now = await h.step("p2", "m9a", "setUpNow", { order: filed.order });
+    const days = await h.step("gm", "m9a", "actorDays", { actor: fighter, ms: 1500 });
+    const own = days.find((d) => d.day === logged.to && !d.order);
+    const hours = days.find((d) => d.day === logged.to && d.kind === "setup-hours");
+    h.check("the day is the fighter's subsistence and the batch's setup hours, two records", now.result?.ok === true && !!own && !!hours && own.id !== hours.id &&
+        hours.id.endsWith(`-${filed.order}`), { resolved, now, days });
+    h.check("the batch is at its check", now.order.status === "check", now.order);
+    await checkStatuses(h);
+    return { permanent, begun, now, days };
+}
+
+/**
+ * 13c. Deconstruct (6.16.5): Player Two's fighter breaks down a Cloak of Feline Rest for a similar item, another Cloak it has
+ * ordered (the follow-on). G9 waits for the workshop; the day is 1, with no Price; on a success the cloak becomes
+ * components worth 75% of its Price, and the deconstruct's day becomes the follow-on's first setup day, counted when the check
+ * settles; handed over, the components cover the follow-on's up-front half, so it starts with no coins.
+ */
+async function m9aDeconstruct(h, w) {
+    await m9aReset(h, w, { on: { "variants.deconstruct": true } });
+    const fighter = w.pcs.p2.uuid;
+    const cloak = await h.step("gm", "m9", "give", { actor: fighter, uuid: M9A.cloak });
+    await h.step("gm", "m9", "learn", { actor: fighter, uuids: [M9A.cloak] });
+    await h.only(["gm", "p2"]);
+    await h.settle("ready");
+    const next = await h.step("p2", "m9", "request", { uuid: M9A.cloak, requester: fighter, crafter: fighter });
+    h.check("the follow-on is confirmed similar", (await h.step("p2", "m9a", "checklist", { order: next.order, key: "similar" })).ok === true);
+    const filed = await h.step("p2", "m9", "request", { uuid: M9A.cloak, requester: fighter, crafter: fighter, craftType: "deconstruct", target: cloak.uuid,
+        variant: { deconstruct: { purpose: "similar" } } });
+    h.check("a deconstruct order for the cloak", filed.brief?.craftType === "deconstruct" && filed.brief.target === cloak.uuid, filed);
+    const waiting = await h.step("p2", "m5", "gates", { order: filed.order });
+    h.check("G9 waits for the workshop", waiting.failing.some(([id, reason]) => id === "G9" && reason === "workshop"), waiting);
+    await h.step("p2", "m9a", "checklist", { order: filed.order, key: "workshop" });
+    h.check("the follow-on is named", (await h.step("p2", "m9a", "followOn", { order: filed.order, followOn: next.order })).ok === true);
+    const begun = await h.step("p2", "m9a", "start", { order: filed.order, crafter: fighter });
+    h.check("1 day, no Price", begun.start?.ok === true && begun.order.priceCp === 0 && begun.order.setup?.days === 1, begun);
+    await h.step("p2", "m9a", "work", { order: filed.order, count: 2, while: ["setup"] });
+    await h.step("p2", "m9a", "roll", { order: filed.order });
+    const settled = await h.step("p2", "m9a", "work", { order: filed.order, count: 1 });
+    const out = { settled: settled.order };
+    if (settled.order.status !== "complete") {
+        h.check("a failure leaves the cloak as it was (a critical failure damages it)", ["failed", "rolled"].includes(settled.order.status), settled.order);
+        return out;
+    }
+    const made = await h.step("p2", "m9a", "items", { ms: 1000 });
+    const components = made.items.find((i) => i.components?.purpose === "similar");
+    h.check("the cloak is now components worth 75% of 20 gp, inert", components?.components.valueCp === 1500 && components.inert === true, made);
+    const follow = await h.step("p2", "m9a", "order", { order: next.order });
+    const day = settled.order.days.find((d) => d.kind === "setup")?.day;
+    h.check("the deconstruct's day is the follow-on's first setup day", follow.days.some((d) => d.kind === "setup" && d.day === day), { day, follow });
+    const handed = await h.step("p2", "m9a", "handOver", { order: next.order, item: components.uuid });
+    h.check("handed over as the follow-on's materials", handed.result?.ok === true, handed);
+    const begunNext = await h.step("p2", "m9a", "start", { order: next.order, crafter: fighter });
+    h.check("the components cover the up-front half: the follow-on starts with no coins", begunNext.start?.ok === true, begunNext);
+    await checkStatuses(h);
+    return { ...out, follow: begunNext.order };
+}
+
+/**
+ * 13d. Grow left untended across a season with no GM online (6.16.6): the druid fixture, lent to Player One, grows a
+ * Versatile Tinderbox with Nature (the setting): the formula required, 4 days, then untended after a success. The GM logs
+ * off; Player One logs 100 days (more than a season, by the calendar or by the day count); one season check is due and
+ * prompted on Player One's client only, Player Two cannot roll it, Player One rolls it once.
+ */
+async function m9aGrow(h, w) {
+    const druid = fixtureOf(h, w, "druid-grower-8");
+    if (!druid) return {};
+    await m9aReset(h, w, { actors: [druid], on: { "variants.grow": true, "variants.natureCrafting.skills": "nature" } });
+    await h.step("gm", "m9", "learn", { actor: druid, uuids: [M9A.tinderbox] });
+    await h.step("gm", "m9a", "lend", { actor: druid, user: ASSIGN[0].user });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const filed = await h.step("p1", "m9", "request", { uuid: M9A.tinderbox, requester: druid, crafter: druid, craftType: "grow" });
+    await h.step("p1", "m9a", "checklist", { order: filed.order, key: "grow-tools" });
+    const run = await h.step("p1", "m9", "run", { order: filed.order, crafter: druid, payer: w.pcs.p1.uuid, pledge: 1000, finish: false });
+    const grown = await h.step("p1", "m9a", "order", { order: filed.order });
+    h.check("Grow: Nature, 4 setup days", grown.skill === "nature" && grown.setup?.days === 4 && grown.days.filter((d) => d.kind === "setup").length === 4, { run, grown });
+    if (grown.status !== "finishing") return { grown };
+    const left = await h.step("p1", "m9a", "untended", { order: filed.order, on: true });
+    h.check("left untended", left.result?.ok === true && left.order.variant.grow?.mode === "untended", left);
+    await h.only(["p1", "p2"]);
+    await h.settle("ready");
+    await notesBy(h, [SEASON_KEY]);
+    await h.step("p1", "m9a", "logDays", { days: 100 });
+    const due = await h.step("p1", "m9a", "seasons", { order: filed.order, ms: 3000 });
+    h.check("one season check due", due.due.length === 1, due);
+    const told = await notesBy(h, [SEASON_KEY]);
+    h.check("prompted on Player One's client only", told.p1?.length === 1 && !told.p2?.length, told);
+    h.check("Player Two cannot roll it", (await h.step("p2", "m9a", "rollSeason", { order: filed.order })).result?.reason === "not-owner");
+    const rolled = await h.step("p1", "m9a", "rollSeason", { order: filed.order });
+    h.check("Player One rolls it; it is recorded", rolled.result?.ok === true && rolled.recorded, rolled);
+    const again = await h.step("p1", "m9a", "rollSeason", { order: filed.order });
+    const after = await h.step("p2", "m9a", "seasons", { order: filed.order, ms: 1500 });
+    h.check("once a season", again.result?.reason === "not-due" && after.records.length === 1 && after.due.length === 0, { again, after });
+    await h.only(["gm", "p1", "p2"]);
+    await checkStatuses(h);
+    return { due, rolled, after };
+}
+
+/**
+ * 13e. A garden (6.16.7): Player One adds one for Elixir of Life (Minor) (seed cost 60 gp, the top of a 3rd-level permanent
+ * item); with two PCs the party keeps one; Player One pledges 40 gp and Player Two 20 gp, which plants it, once, pro rata;
+ * both harvest at the same moment: one item, temporary, gone at the day's end; the next day Player Two harvests.
+ */
+async function m9aGarden(h, w) {
+    await m9aReset(h, w, { on: { "variants.gardens": true } });
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const added = await h.step("p1", "m9a", "addGarden", { uuid: ELIXIR, name: "Herb garden" });
+    h.check("seed cost 60 gp", added.ok === true && added.seedCostCp === 6000, added);
+    h.check("two PCs keep one garden", (await h.step("p2", "m9a", "addGarden", { uuid: ELIXIR })).reason === "garden-limit");
+    await h.step("p2", "m5", "seen", { path: `gardens.${added.garden}.seedCostCp` });
+    await h.step("p1", "m9a", "fundGarden", { garden: added.garden, cp: 4000 });
+    await h.step("p2", "m9a", "fundGarden", { garden: added.garden, cp: 2000 });
+    const planted = await h.step("gm", "m9a", "garden", { garden: added.garden, ms: 3000 });
+    h.check("planted once, pro rata", Number.isInteger(planted.garden?.plantedDay) && planted.plants.map((r) => r.cp).sort((a, b) => a - b).join() === "2000,4000", planted);
+    const both = await h.together([["p1", "m9a", "harvest", { garden: added.garden }], ["p2", "m9a", "harvest", { garden: added.garden }]]);
+    const won = both.filter((r) => r?.ok === true);
+    h.check("one harvest a day across two clients", won.length === 1 && both.some((r) => r?.reason === "harvested"), both);
+    const winner = both[0]?.ok ? "p1" : "p2";
+    const produce = await h.step(winner, "m9a", "items", { ms: 500 });
+    const item = produce.items.find((i) => i.produce?.garden === added.garden);
+    h.check("the produce is temporary and spoils at the day's end", item?.temporary === true && item.expiry?.rule === "world" && item.expiry.atDay === won[0].day + 1, produce);
+    await h.step("gm", "m9a", "logDays", { days: 1 });
+    await h.step("p2", "m5", "seen", { path: "meta.manual" });
+    const next = await h.step("p2", "m9a", "harvest", { garden: added.garden });
+    h.check("the next day's harvest", next.ok === true, next);
+    await checkStatuses(h);
+    return { planted, both, next };
+}
+
+/**
+ * 13f. A quest (6.16.9) for a Cloak of Feline Rest by Player One's alchemist, three encounters in different places (no
+ * assembly check): it starts gathering with no coins; Player One marks the first component, then Player One and Player Two
+ * mark the last two at the same moment; the quest leaves `gathering` exactly once, delivered once.
+ */
+async function m9aQuest(h, w) {
+    await m9aReset(h, w, { on: { "variants.quests": true } });
+    const crafter = w.pcs.p1.uuid;
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const filed = await h.step("p1", "m9", "request", { uuid: M9A.cloak, requester: crafter, crafter, craftType: "quest",
+        variant: { quest: { encounters: 3, differentLocations: true } } });
+    const begun = await h.step("p1", "m9a", "start", { order: filed.order, crafter });
+    h.check("gathering, no Price, no assembly check", begun.order?.status === "gathering" && begun.order.priceCp === 0 && begun.order.variant.quest?.assemblyCheck === false,
+        begun);
+    await h.step("p1", "m9a", "found", { order: filed.order, component: "c1" });
+    await h.step("p2", "m5", "seen", { path: `orders.${filed.order}.variant.quest.components.c1.found.by` });
+    const marks = await h.together([["p1", "m9a", "found", { order: filed.order, component: "c2" }], ["p2", "m9a", "found", { order: filed.order, component: "c3" }]]);
+    h.check("both marks land", marks.every((r) => r?.ok === true), marks);
+    await h.step("gm", "m4", "waitStatus", { order: filed.order, status: "complete", ms: 15000 });
+    const done = await h.step("gm", "m9a", "order", { order: filed.order, ms: 1500 });
+    h.check("left gathering exactly once, delivered once", done.status === "complete" && done.log.filter((e) => e.from === "gathering").length === 1 &&
+        done.log.filter((e) => e.event === "assemble").length === 1, done);
+    await h.step("p1", "m9", "collect", {});
+    const items = await h.step("p1", "m9a", "items", { order: filed.order, ms: 1500 });
+    h.check("one cloak on Player One's alchemist", items.items.length === 1, items);
+    await checkStatuses(h);
+    return { done, items };
+}
+
+/**
+ * 13g. An item with its adjustments (6.16.2), delivered to another PC: Player One orders a Breastplate with Armor Latches
+ * from Player Two's fighter, for Player One's alchemist: one Price (12 gp), made together; Player One's client collects both,
+ * the latches applied to the breastplate on Player One's alchemist.
+ */
+async function m9aAdjust(h, w) {
+    await m9aReset(h, w, { on: { "variants.adjustments": true } });
+    const fighter = w.pcs.p2.uuid;
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const filed = await h.step("p1", "m9", "request", { uuid: M9A.breastplate, requester: w.pcs.p1.uuid, crafter: fighter, recipient: w.pcs.p1.uuid,
+        variant: { adjustments: [M9A.latches] } });
+    h.check("one order with the adjustment", filed.ok === true && !!filed.order, filed);
+    await h.step("p2", "m5", "seen", { path: `orders.${filed.order}.status` });
+    const run = await h.step("p2", "m9", "run", { order: filed.order, crafter: fighter, payer: fighter, pledge: 600 });
+    h.check("one Price for both: 12 gp", run.order?.priceCp === 1200, run.order);
+    if (run.order?.status !== "complete") return { run };
+    await h.step("p1", "m9", "collect", {});
+    const items = await h.step("p1", "m9a", "items", { order: filed.order, ms: 1500 });
+    const host = items.items.find((i) => i.name === "Breastplate");
+    const latches = items.items.find((i) => i.name === "Armor Latches");
+    h.check("both on Player One's alchemist, the latches applied to the breastplate", !!host && latches?.appliedTo?.host === host.id, items);
+    await checkStatuses(h);
+    return { run, items };
+}
+
+/**
+ * 13h. A secret Critical Crafting roll (6.16.4): Player Two orders an Elixir of Life (Minor) marked special from Player
+ * One's alchemist; with a GM online the check is rolled blind: both players read "rolled (secret)", the GM reads the degree;
+ * once the GM reveals it, the players read it too.
+ */
+async function m9aSecret(h, w) {
+    await m9aReset(h, w, { on: { "variants.criticalCrafting": true, "variants.critical.secret": true } });
+    await h.evaluate("gm", pageStoreItem, { mod: MOD, uuid: LAB }, "an alchemist's lab in the strongbox");
+    await h.only(["gm", "p1", "p2"]);
+    await h.settle("ready");
+    const filed = await h.step("p2", "m4", "request", { product: ELIXIR, quantity: 1 });
+    h.check("marked special by the requester", (await h.step("p2", "m9a", "special", { order: filed.order })).ok === true);
+    await h.step("p2", "m4", "pledge", { order: filed.order, cp: 150 });
+    await h.step("p1", "m4", "accept", { order: filed.order });
+    await h.step("p1", "m4", "start", { order: filed.order });
+    await h.step("p1", "m4", "work", { order: filed.order, until: "check" });
+    const rolled = await h.step("p1", "m4", "roll", { order: filed.order });
+    h.check("the check is recorded, secret", rolled.recorded === true, rolled);
+    const views = Object.fromEntries(await Promise.all(["gm", "p1", "p2"].map(async (c) => [c, await h.step(c, "m9a", "view", { order: filed.order, ms: 1000 })])));
+    h.check("rolled blind", views.gm.blind === true, views);
+    h.check("both players read \"rolled (secret)\"; the GM reads the degree", views.p1.secretCheck && views.p2.secretCheck && !views.gm.secretCheck &&
+        views.gm.checkText !== views.p2.checkText, views);
+    const revealed = await h.step("gm", "m9a", "reveal", { order: filed.order });
+    const after = await h.step("p2", "m9a", "view", { order: filed.order, ms: 1500 });
+    h.check("revealed: the players read the degree", revealed.result?.ok === true && !after.secretCheck && after.checkText === views.gm.checkText, { revealed, after });
+    await checkStatuses(h);
+    return { views, after };
+}
+
+/** The Queue's Complex Crafting detail and the Funds tab's gardens photographed (17.1, M9a): as Player Two, 1440x900 and 1024x768, dark and light. */
+async function m9aShots(h, w) {
+    await m9aReset(h, w, { on: { "variants.complexCrafting": true, "variants.gardens": true } });
+    const fighter = w.pcs.p2.uuid;
+    await h.only(["gm", "p2"]);
+    await h.settle("ready");
+    const filed = await h.step("p2", "m9", "request", { uuid: M9A.cloak, requester: fighter, crafter: fighter });
+    await h.step("p2", "m9a", "rush", { order: filed.order, rush: 1 });
+    await h.step("p2", "m9a", "addGarden", { uuid: ELIXIR, name: "Herb garden" });
+    const opened = [];
+    for (const scheme of ["dark", "light"]) {
+        await h.step("p2", "m4", "theme", { scheme });
+        for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }]) {
+            for (const [tab, order] of [["queue", filed.order], ["funds", null]]) {
+                await h.screenshot("p2", `m9a-p2-${tab}-${size.width}x${size.height}-${scheme}.png`, size, async () => {
+                    const view = await h.step("p2", "m5", "open", { tab, order });
+                    opened.push({ scheme, tab, ...size, open: view.open });
+                    return view;
+                });
+            }
+        }
+        await h.step("p2", "m5", "close", {});
+    }
+    await h.step("p2", "m4", "theme", { scheme: "dark" });
+    h.check("the window opened every time", opened.every((o) => o.open), opened);
+    return { opened, shots: h.shots.filter((s) => s.label === h.label).map((s) => s.file) };
+}
+
+Object.assign(BEHAVIOURS, {
+    "m9a-notice": m9aNotice,
+    "m9a-complex": m9aComplex,
+    "m9a-quick-setup": m9aQuickSetup,
+    "m9a-deconstruct": m9aDeconstruct,
+    "m9a-grow": m9aGrow,
+    "m9a-garden": m9aGarden,
+    "m9a-quest": m9aQuest,
+    "m9a-adjust": m9aAdjust,
+    "m9a-secret": m9aSecret,
+    "m9a-shots": m9aShots,
+});

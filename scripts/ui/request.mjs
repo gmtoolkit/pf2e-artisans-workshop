@@ -35,6 +35,7 @@ import { rulesFromSettings } from "../foundry/settings.mjs";
 import { canWrite } from "../foundry/state.mjs";
 import { setting } from "../foundry/settings.mjs";
 import { subjectTypeOf } from "../logic/crafts.mjs";
+import { adjustmentFits } from "../logic/variants.mjs";
 import { showDcs } from "./context.mjs";
 import { focusState, restoreFocus } from "./focus.mjs";
 import { gateText, money, number, report } from "./format.mjs";
@@ -46,8 +47,26 @@ const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const MATCHES = 12;
 /** What a request can be (M5). */
 const KINDS = Object.freeze(["item", "upgrade", "rune-etch", "rune-transfer", "service"]);
-/** Kinds that work on one of the requester's items. */
-const ON_ITEM = new Set(["upgrade", "rune-etch", "rune-transfer"]);
+/** Kinds that work on one of the requester's items. M9a: a Deconstruct breaks one down (6.16.5). */
+const ON_ITEM = new Set(["upgrade", "rune-etch", "rune-transfer", "deconstruct"]);
+/** M9a (6.16): the variant kinds, each offered only while its variant is on, and the item types adjustments go on. */
+const VARIANT_KINDS = Object.freeze({ deconstruct: "deconstruct", grow: "grow", quest: "quests" });
+const ADJUSTABLE = new Set(["armor", "weapon", "shield"]);
+
+/** The kinds the form offers now: M5's, then the variants' that are on (M9a), then services. */
+export function kindsNow(rules = rulesFromSettings()) {
+    const variantKinds = Object.entries(VARIANT_KINDS).filter(([, key]) => rules.variants?.[key] === true).map(([kind]) => kind);
+    return [...KINDS.filter((k) => k !== "service"), ...variantKinds, "service"];
+}
+
+/** The adjustments that fit a product (6.16.2), from the equipment catalogue, cheapest first. */
+export async function adjustmentChoices(product) {
+    if (!product || !ADJUSTABLE.has(product.type)) return [];
+    const { catalogue } = await import("../foundry/catalogue.mjs");
+    const base = { type: product.type, category: product.category ?? null, range: product.range ?? null };
+    return (await catalogue()).filter((facts) => adjustmentFits(facts, base)).sort((a, b) => a.priceCp - b.priceCp || a.name.localeCompare(b.name))
+        .map((facts) => ({ uuid: facts.uuid, name: facts.name, price: money(facts.priceCp) }));
+}
 /** Services the form files (4.5); a formula copy is asked from the Formulas tab. */
 const SERVICE_KINDS = Object.freeze(["repair", "affix", "unaffix", "identify-alchemy"]);
 
@@ -74,6 +93,10 @@ export function itemChoices(actor, kind, product, { serviceKind = null, source =
     };
     const fits = (i) => i.type === rune.target && usageFits(product.usage, liveItemFacts(i));
     if (kind === "rune-etch") return rune ? items.filter(fits).map(view) : [];
+    // M9a (6.16.5): a permanent item with a Price, not already components.
+    if (kind === "deconstruct") {
+        return items.filter((i) => !traitsOf(i).has("consumable") && (i.price?.value?.copperValue ?? 1) > 0 && !i.flags?.[MODULE_ID]?.components).map(view);
+    }
     const runeItem = (i) => isRuneItemOf({ sourceId: i.sourceId ?? i._stats?.compendiumSource ?? null, slug: i.slug ?? null, usage: i.system?.usage?.value ?? null }, product);
     if (kind === "rune-transfer" && source === "pick") return rune ? items.filter((i) => holds(i) || runeItem(i)).map(view) : [];
     if (kind === "rune-transfer") return rune ? items.filter((i) => fits(i) && !holds(i)).map(view) : [];
@@ -120,6 +143,8 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
     draft = {
         uuid: null, quantity: 1, requester: null, recipient: null, crafter: "", gift: false, note: "", search: "",
         kind: "item", target: "", source: "", serviceKind: "repair", host: "", performer: "", subject: "", replaces: "",
+        // M9a (6.16): a Deconstruct's purpose, a quest's encounters, adjustments, the special flag, a bestowed gift.
+        purpose: "raw", encounters: 3, differentLocations: true, adjustments: [], special: false, bestow: false, giver: "",
     };
 
     /** Whether the next render puts focus in the item search (the Queue's magnifying glass). */
@@ -132,14 +157,18 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
         this.draft.uuid = uuid;
         this.draft.requester = requester ?? choices.find((a) => a === game.user.character)?.uuid ?? choices[0]?.uuid ?? null;
         this.draft.recipient = this.draft.requester;
-        if (KINDS.includes(kind)) this.draft.kind = kind;
+        if (KINDS.includes(kind) || Object.hasOwn(VARIANT_KINDS, kind)) this.draft.kind = kind;
     }
 
     async _prepareContext(options) {
         const context = await super._prepareContext(options);
         const s = this.draft;
+        const rules = rulesFromSettings();
+        if (!kindsNow(rules).includes(s.kind)) s.kind = "item";
         const service = s.kind === "service";
-        const product = !service && s.uuid ? await productFacts(s.uuid) : null;
+        // M9a (6.16.5): a Deconstruct's item is the one chosen to break down, not one picked from the compendium.
+        const deconstructKind = s.kind === "deconstruct";
+        const product = deconstructKind ? (s.target ? await productFacts(sourceUuidOf(s.target)) : null) : !service && s.uuid ? await productFacts(s.uuid) : null;
         // M9: a tattoo or graft is made on a subject, who receives it (6.14).
         const subjectType = product && s.kind === "item" && setting("features.tattoos") !== false ? subjectTypeOf(product) : null;
         const people = members();
@@ -154,7 +183,8 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
         const mark = (list, current) => list.map((i) => ({ ...i, selected: i.uuid === current }));
         return Object.assign(context, {
             formId: this.id, ready: canWrite(), state: s, product, service, single, canBrowse: !!game.pf2e?.compendiumBrowser,
-            kinds: KINDS.map((k) => option(k, k === "service" ? "pf2e-artisans-workshop.Request.Kind.Service" : CRAFT_TYPE[k], s.kind)),
+            kinds: kindsNow(rules).map((k) => option(k, k === "service" ? "pf2e-artisans-workshop.Request.Kind.Service" : CRAFT_TYPE[k], s.kind)),
+            noItemPick: deconstructKind, variantFields: await this.#variantFields(product, rules),
             serviceKinds: SERVICE_KINDS.map((k) => option(k, SERVICE[k], s.serviceKind)),
             targets: single ? mark(items({}), s.target) : service && s.serviceKind !== "identify-alchemy"
                 ? mark(itemChoices(requester, "service", null, { serviceKind: s.serviceKind }), s.target) : [],
@@ -176,6 +206,21 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
             candidates: product && (!single || s.target) ? await this.#candidates(product, quantity, people, subjectType) : [],
             matches: service ? [] : await this.#matches(),
         });
+    }
+
+    /** The variant fields the form shows (M9a, 6.16), each only while its variant is on. */
+    async #variantFields(product, rules) {
+        const s = this.draft;
+        const v = rules.variants ?? {};
+        const plainItem = s.kind === "item";
+        const adjustments = v.adjustments && plainItem ? await adjustmentChoices(product) : [];
+        return {
+            deconstruct: s.kind === "deconstruct" ? { similar: s.purpose === "similar" } : null,
+            quest: s.kind === "quest" ? { encounters: s.encounters, differentLocations: s.differentLocations !== false } : null,
+            adjustments: adjustments.map((a) => ({ ...a, checked: s.adjustments.includes(a.uuid) })),
+            special: v.criticalCrafting && s.kind !== "service" && s.kind !== "deconstruct" ? { on: s.special === true } : null,
+            bestow: v.gifts && s.kind !== "service" && s.kind !== "deconstruct" ? { on: s.bestow === true, giver: s.giver } : null,
+        };
     }
 
     /** Every member with Crafting, and how they would make the item at this quantity (4.3, 4.4, 6.5). */
@@ -258,10 +303,21 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
     #onChange(event) {
         const { name, value, checked, type } = event.target;
         if (!name || name === "search") return;
+        // M9a (6.16.2): one checkbox per adjustment.
+        if (name === "adjustment") {
+            const list = new Set(this.draft.adjustments);
+            if (checked) list.add(value);
+            else list.delete(value);
+            this.draft.adjustments = [...list];
+            this.render();
+            return;
+        }
         this.draft[name] = type === "checkbox" ? checked : value;
         if (name === "kind" || name === "serviceKind" || name === "requester") Object.assign(this.draft, { target: "", source: "", host: "" });
         if (name === "subject") this.draft.replaces = "";
-        if (["quantity", "crafter", "recipient", "requester", "kind", "serviceKind", "target", "source", "host", "subject", "replaces"].includes(name)) this.render();
+        if (name === "kind" || name === "uuid") this.draft.adjustments = [];
+        if (["quantity", "crafter", "recipient", "requester", "kind", "serviceKind", "target", "source", "host", "subject", "replaces", "purpose", "encounters",
+            "differentLocations"].includes(name)) this.render();
     }
 
     async #onDrop(event) {
@@ -306,6 +362,20 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
             }
             return;
         }
+        // M9a (6.16.5): a Deconstruct files the item it breaks down; its product is that item's own.
+        if (s.kind === "deconstruct") {
+            if (!s.target) {
+                ui.notifications.warn("pf2e-artisans-workshop.Request.NoTarget", { localize: true });
+                return;
+            }
+            const result = report(await requestOrder({ uuid: sourceUuidOf(s.target), quantity: 1, requester: s.requester, crafter: s.crafter || null, note: s.note,
+                craftType: "deconstruct", target: s.target, variant: { deconstruct: { purpose: s.purpose === "similar" ? "similar" : "raw" } } }));
+            if (result?.ok) {
+                ui.notifications.info("pf2e-artisans-workshop.Request.Filed", { format: { count: String(result.orders.length) } });
+                await this.close();
+            }
+            return;
+        }
         if (!s.uuid) {
             ui.notifications.warn("pf2e-artisans-workshop.Request.NoItem", { localize: true });
             return;
@@ -329,16 +399,28 @@ export class RequestForm extends HandlebarsApplicationMixin(ApplicationV2) {
             return;
         }
         const recipient = s.recipient === "strongbox" ? { kind: "strongbox" } : { kind: "actor", uuid: s.recipient || s.requester };
+        const variant = s.kind === "rune-transfer" ? { transfer: { source: s.source } } : {};
+        // M9a (6.16): a quest's encounters, adjustments, the special flag and a bestowed gift (each dropped while its variant is off).
+        if (s.kind === "quest") variant.quest = { encounters: Math.max(1, Number(s.encounters) || 1), differentLocations: s.differentLocations !== false };
+        if (s.adjustments.length && s.kind === "item") variant.adjustments = [...s.adjustments];
+        if (s.special) variant.special = true;
+        if (s.bestow) variant.bestow = { giver: s.giver ?? "" };
         const result = report(await requestOrder({
-            uuid: s.uuid, quantity: single ? 1 : Math.max(1, Number(s.quantity) || 1), requester: s.requester, recipient,
+            uuid: s.uuid, quantity: single || s.kind === "quest" || variant.adjustments ? 1 : Math.max(1, Number(s.quantity) || 1), requester: s.requester, recipient,
             crafter: s.crafter || null, note: s.note, gift: s.gift === true, craftType: s.kind === "item" ? null : s.kind,
-            target: single ? s.target : null, variant: s.kind === "rune-transfer" ? { transfer: { source: s.source } } : {},
+            target: single ? s.target : null, variant,
         }));
         if (result?.ok) {
             ui.notifications.info("pf2e-artisans-workshop.Request.Filed", { format: { count: String(result.orders.length) } });
             await this.close();
         }
     }
+}
+
+/** The compendium source of an item on an actor (what a Deconstruct order names as its product), else the item itself. */
+function sourceUuidOf(itemUuid) {
+    const item = fromUuidSync(itemUuid, { strict: false });
+    return item?._stats?.compendiumSource ?? item?.sourceId ?? itemUuid;
 }
 
 /**

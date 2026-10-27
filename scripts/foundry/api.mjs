@@ -1,7 +1,8 @@
 /**
  * The public API (DESIGN.md 11.2), as far as M4-M8 build it: opening the window, the order lifecycle, the funds, formulas
  * (M5), downtime, Earn Income jobs and Communal Crafting helpers (M6), daily preparations (M7, `prep`), and combat
- * alchemy and "Use best consumable" (M8, `alchemy`, `consumables`), and the affliction tracker (M8a, `afflictions`, `rules.afflictionStep`). It is
+ * alchemy and "Use best consumable" (M8, `alchemy`, `consumables`), the affliction tracker (M8a, `afflictions`, `rules.afflictionStep`), M9's
+ * crafts and M9a's Treasure Vault (Remastered) variants (`variants`). It is
  * published at `game.modules.get("pf2e-artisans-workshop").api` in `ready`, and the `pf2e-artisans-workshop.ready` hook
  * fires right after with the same object. Later milestones add their namespaces; M11 completes the macros of 11.1.
  *
@@ -25,6 +26,12 @@ import * as services from "./services.mjs";
 import { handOver } from "./custody.mjs";
 import * as communal from "./communal.mjs";
 import * as crafts from "./crafts.mjs";
+import * as deconstruct from "./deconstruct.mjs";
+import * as nature from "./nature.mjs";
+import * as quests from "./quests.mjs";
+import * as variants from "./variants.mjs";
+import { rulesFromSettings } from "./settings.mjs";
+import { variantGroupsOn } from "../logic/variants.mjs";
 import * as downtime from "./downtime.mjs";
 import * as jobs from "./jobs.mjs";
 import * as morning from "./morning.mjs";
@@ -471,6 +478,71 @@ export function buildApi() {
             deploy: ({ actor = null, pool, index } = {}) => {
                 const who = resolveActor(actor);
                 return who ? crafts.deploySnare(who.uuid, pool, index) : Promise.resolve(noActor());
+            },
+        },
+        // M9a (11.2): the Treasure Vault (Remastered) variants (6.16); each call is refused as `variant-off` while its setting is off.
+        variants: {
+            groups: () => variantGroupsOn(rulesFromSettings()),
+            sweep: () => variants.variantSweep(),
+            complex: {
+                rush: (order, rush) => variants.chooseRush(order, rush),
+                rushFinish: (order, on = true) => variants.setRushFinish(order, on),
+                setUpNow: (order) => variants.setUpNow(order),
+            },
+            events: {
+                roll: (order) => variants.rollEvent(order),
+                resolve: (order, slot, { note = "" } = {}) => variants.resolveEvent(order, slot, { note }),
+            },
+            critical: {
+                special: (order, on = true) => variants.setSpecial(order, on),
+                record: (order, { category = null, note = "" } = {}) => variants.recordCritical(order, { category, note }),
+                curse: (order, size = 1) => variants.curseCrafter(order, size),
+                reveal: (order) => variants.revealCheck(order),
+            },
+            note: (order, text) => variants.recordNote(order, text),
+            deconstruct: {
+                request: ({ item, purpose = "raw", crafter = null, actor = null, note = "" } = {}) => {
+                    const requester = resolveActor(actor);
+                    const source = fromUuidSync(item ?? "", { strict: false });
+                    if (!requester) return Promise.resolve(noActor());
+                    return orders.requestOrder({ uuid: source?._stats?.compendiumSource ?? source?.sourceId ?? item, quantity: 1, requester: requester.uuid, crafter,
+                        note, craftType: "deconstruct", target: item, variant: { deconstruct: { purpose } } });
+                },
+                purpose: (order, purpose, { note = "" } = {}) => deconstruct.setPurpose(order, purpose, { note }),
+                confirm: (order, key, on = true) => deconstruct.confirmChecklist(order, key, on),
+                followOn: (order, followOn) => deconstruct.chooseFollowOn(order, followOn),
+                retry: (order, { acceptLoss = false } = {}) => orders.retry(order, { acceptLoss }),
+                start: (order, { acceptLoss = false } = {}) => orders.start(order, { acceptLoss }),
+                useComponents: (order, item) => handOver({ order, item, purpose: "material" }),
+            },
+            grow: {
+                untended: (order, on = true) => nature.setUntended(order, on),
+                due: (order) => nature.seasonChecksDue(read(`orders.${order}`)),
+                rollSeason: (order, season = null, { skipDialog } = {}) => nature.rollSeason(order, season, { skipDialog }),
+            },
+            gardens: {
+                list: () => nature.gardensOf(),
+                add: ({ name = "", kind = "", uuid } = {}) => nature.addGarden({ name, kind, uuid }),
+                fund: (garden, { source = "purse", actor = null, cp } = {}) => nature.fundGarden(garden, { source, actor: actor ?? resolveActor(null)?.uuid ?? null, cp }),
+                withdraw: (garden, { source = "purse", actor = null, cp } = {}) => nature.withdrawGarden(garden, { source, actor: actor ?? resolveActor(null)?.uuid ?? null, cp }),
+                plant: (garden) => nature.plantGarden(garden),
+                harvest: (garden, { actor = null } = {}) => {
+                    const who = resolveActor(actor);
+                    return who ? nature.harvest(garden, who.uuid) : Promise.resolve(noActor());
+                },
+                remove: (garden) => nature.removeGarden(garden),
+            },
+            gifts: {
+                list: () => variants.partyGifts().map(({ item, holder, gift, dormant, priceCp }) => ({ item: item.uuid, holder: holder.uuid, gift, dormant, priceCp })),
+                bestow: (item, { giver = "" } = {}) => variants.bestow(item, { giver }),
+                heir: (item, heir) => variants.nameHeir(item, heir),
+            },
+            quests: {
+                configure: (order, options = {}) => quests.configureQuest(order, options),
+                component: (order, component, options = {}) => quests.setComponent(order, component, options),
+                found: (order, component, { actor = null } = {}) => quests.markFound(order, component, { actor: resolveActor(actor)?.uuid ?? null }),
+                unfound: (order, component) => quests.unmarkFound(order, component),
+                advance: (order) => quests.advanceQuest(order),
             },
         },
         communal: {

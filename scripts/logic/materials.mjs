@@ -88,12 +88,30 @@ export function stockMaterial(item) {
  * The live material lines of an order (`orders.<id>.materials`, 4.2.1): items earmarked in the strongbox and counted at
  * their Price toward the up-front materials (Player Core p.267). Consumed lines (`used`) and returned ones are left out.
  */
-export function materialLines(order) {
-    return Object.values(order?.materials ?? {}).filter((line) => line && !line.used && !line.returned && Number.isSafeInteger(line.valueCp));
+export function materialLines(order, { includeUsed = false } = {}) {
+    return Object.values(order?.materials ?? {})
+        .filter((line) => line && (includeUsed || !line.used) && !line.returned && Number.isSafeInteger(line.valueCp))
+        .map((line) => (line.components ? { ...line, valueCp: lineValueCp(line, order) } : line));
 }
 
-/** What an order's earmarked material items are worth, at Price. */
-export const materialsCp = (order) => materialLines(order).reduce((sum, line) => sum + line.valueCp, 0);
+/**
+ * What a material line counts for (M9a, 6.16.5): an item's Price; a components line its credit, at its purpose's share
+ * when the crafter has confirmed the product similar (`checklist.similar`), at the raw share otherwise, less what a
+ * critical failure ruined (`ruinedCp`).
+ */
+export function lineValueCp(line, order) {
+    if (!line?.components) return line?.valueCp ?? 0;
+    const c = line.components;
+    const similar = c.purpose === "similar" && !!order?.checklist?.similar;
+    return Math.max(0, (similar ? c.valueCp : c.rawCp) - (line.ruinedCp ?? 0));
+}
+
+/** What an order's earmarked material items are worth, at Price (a components line at its credit). */
+export const materialsCp = (order, options = {}) => materialLines(order, options).reduce((sum, line) => sum + line.valueCp, 0);
+
+/** What an order's components line is worth (M9a, 6.16.5), used or not: at most one line, from one deconstructed item. */
+export const componentsCp = (order) => materialLines(order, { includeUsed: true }).filter((line) => line.components)
+    .reduce((sum, line) => sum + line.valueCp, 0);
 
 /** The value of an order's earmarked stock of one precious material type. */
 export const stockCpOf = (order, type) =>

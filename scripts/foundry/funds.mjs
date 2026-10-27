@@ -17,7 +17,7 @@
 import {
     earmarkInputs, fundReturnableCp, fundSlotLockId, isFundRow, returnSlotLockId, shortfallOf, unallocatedCp,
 } from "../logic/funds.mjs";
-import { CLOSED, closedAs } from "../logic/orders.mjs";
+import { CLOSED, MONEYLESS, closedAs } from "../logic/orders.mjs";
 import { canReverse, fundWithdrawableCp } from "../logic/views.mjs";
 import { sweepClaims } from "./claims.mjs";
 import { lockedWrite, pledge, reverseRows, withdraw } from "./money.mjs";
@@ -56,12 +56,14 @@ export function withdrawFund(actorUuid, cp) {
 
 /**
  * The order if money may be earmarked for it now: open by its log and its state, and not waiting while a check is
- * recorded and not settled (`rolled`), as a pledge waits.
+ * recorded and not settled (`rolled`), as a pledge waits. M9a: never a Deconstruct or a quest, which move no money
+ * (`MONEYLESS`).
  */
 function fundableOrder(id) {
     if (!canWrite()) return { refusal: refuse("not-ready") };
     const order = read(`orders.${id}`);
     if (!order) return { refusal: refuse("no-order") };
+    if (MONEYLESS.includes(order.craftType)) return { refusal: refuse("moneyless") };
     const status = closedAs(order) ?? order.status;
     if (CLOSED.includes(status) || status === "rolled") return { refusal: refuse("state", { status }) };
     return { order };

@@ -34,10 +34,15 @@ export function helpLink(orderId, actorId) {
     return `${LINK_PREFIX}:help:${orderId}:${actorId}`;
 }
 
+/** The link option of a Grow order's season check (M9a, 6.16.6): `<MOD>:season:<orderId>:<season>`. */
+export function seasonLink(orderId, season) {
+    return `${LINK_PREFIX}:season:${orderId}:${requireInteger(season, "season")}`;
+}
+
 /**
  * The order, job or helper a check's roll options link to, or null: `{kind: "order", id, attempt}`, `{kind: "job", id,
- * round}` (round 1 for a link written before M6, which had none) or `{kind: "help", id, actor}`. The first link wins; a
- * roll carries one.
+ * round}` (round 1 for a link written before M6, which had none), `{kind: "help", id, actor}` or (M9a) `{kind: "season",
+ * id, season}`. The first link wins; a roll carries one.
  */
 export function parseLink(options = []) {
     for (const option of options) {
@@ -46,6 +51,7 @@ export function parseLink(options = []) {
         if (kind === "order" && id && /^\d+$/.test(third ?? "")) return { kind, id, attempt: Number(third) };
         if (kind === "job" && id && (third === undefined || /^\d+$/.test(third))) return { kind, id, round: third === undefined ? 1 : Number(third) };
         if (kind === "help" && id && third) return { kind, id, actor: third };
+        if (kind === "season" && id && /^\d+$/.test(third ?? "")) return { kind, id, season: Number(third) };
     }
     return null;
 }
@@ -56,7 +62,11 @@ export function parseLink(options = []) {
  * `action:implant-graft`).
  */
 function activityOptions({ craftType, route }) {
-    const options = ["action:craft"];
+    // M9a (6.16): Deconstruct is its own action, not a Craft; Grow is a variant of the Craft activity; a quest's assembly
+    // check is no Craft at all (TV-R pp.162, 165, 172).
+    if (craftType === "deconstruct") return ["action:deconstruct"];
+    if (craftType === "quest") return [];
+    const options = craftType === "grow" ? ["action:craft", "action:grow"] : ["action:craft"];
     if (route === "reverse-engineer") options.push("action:reverse-engineer");
     if (craftType === "graft") options.push("action:implant-graft");
     return options;
@@ -124,7 +134,9 @@ export function checkFromContext(context, roll) {
         ? unadjustedDegree({ total: roll.total, dc, die: roll.die })
         : DEGREE_FROM_OUTCOME[context.unadjustedOutcome] ?? degree;
     const fortune = context.isReroll === true || options.includes("check:reroll") || context.rollTwice === "keep-higher";
-    return { ok: true, check: { degree, unadjusted, total: roll.total ?? null, rerolled: !!context.isReroll, fortune } };
+    // M9a (6.16.4): the d20 is kept, so Critical Crafting can tell a natural 20 or 1.
+    return { ok: true, check: { degree, unadjusted, total: roll.total ?? null, die: Number.isInteger(roll.die) ? roll.die : null, rerolled: !!context.isReroll,
+        fortune } };
 }
 
 /**
