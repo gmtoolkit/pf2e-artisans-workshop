@@ -987,3 +987,40 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
     flex-wrap: wrap;
     gap: 0.25rem;
 }
+
+/* -------------------------------------------- */
+/*  M8a: the Afflictions window (8.10.9)          */
+/* -------------------------------------------- */
+
+.workshop-afflictions-window .window-content { padding: 0.5rem; }
+.workshop-afflictions { display: flex; flex-direction: column; gap: 0.75rem; font-size: var(--font-size-13, 0.8125rem); }
+.workshop-afflictions .afflictions-backend { color: var(--color-text-secondary, #6b6b6b); margin: 0; }
+.workshop-afflictions .affliction-actor { border: 1px solid var(--color-border-light-2, #c9c7b8); border-radius: 4px; padding: 0.5rem; }
+.workshop-afflictions .affliction-actor > h3 { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.5rem; }
+.workshop-afflictions .affliction-actor > h3 img,
+.workshop-afflictions .affliction-head img { width: 1.75rem; height: 1.75rem; border: none; object-fit: cover; }
+.workshop-afflictions .affliction-head { display: flex; align-items: center; gap: 0.5rem; }
+.workshop-afflictions .affliction-stage { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+.workshop-afflictions .affliction-line { margin: 0.25rem 0; }
+.workshop-afflictions .affliction-due { font-weight: 600; }
+.workshop-afflictions .affliction-stages { margin: 0.25rem 0 0.25rem 1.25rem; padding: 0; }
+.workshop-afflictions .affliction-stages li { margin: 0.125rem 0; }
+.workshop-afflictions .affliction-stages li.current { font-weight: 600; }
+.workshop-afflictions .affliction-stages .stage-parts,
+.workshop-afflictions .affliction-stages .stage-interval { margin-left: 0.5rem; }
+.workshop-afflictions .affliction-stages .stage-interval::before { content: "("; }
+.workshop-afflictions .affliction-stages .stage-interval::after { content: ")"; }
+.workshop-afflictions .stage-text { font-weight: normal; border-left: 2px solid var(--color-border-light-2, #c9c7b8); padding-left: 0.5rem; }
+.workshop-afflictions .affliction-ops,
+.pf2e-artisans-workshop-affliction-augment { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.25rem; }
+.workshop-afflictions .affliction-ops button,
+.pf2e-artisans-workshop-affliction-augment button,
+.workshop-bandolier .bandolier-poisons button { height: auto; min-height: 0; width: auto; flex: 0 0 auto; }
+.workshop-bandolier .bandolier-poisons { list-style: none; margin: 0.25rem 0; padding: 0; }
+.workshop-bandolier .bandolier-poisons li { display: flex; align-items: center; gap: 0.25rem; }
+.workshop-bandolier .bandolier-poisons img { width: 1.5rem; height: 1.5rem; border: none; }
+.workshop-header .workshop-afflictions-count.waiting button { font-weight: 600; }
+.pf2e-artisans-workshop-define .define-stage { display: flex; gap: 0.25rem; }
+.pf2e-artisans-workshop-define .define-stage input[name^="stage"] { flex: 2; }
+.pf2e-artisans-workshop-define .define-stage input[name^="interval"] { flex: 1; }
+@media (prefers-reduced-motion: reduce) { .workshop-afflictions * { transition: none !important; } }

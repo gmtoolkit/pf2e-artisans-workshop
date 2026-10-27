@@ -143,7 +143,14 @@ npm run harness:live -- --scenarios none --behaviours m6-clock,m6-wizard-gm,m6-w
 npm run harness:live -- --scenarios none --behaviours m7-morning,m7-expiry,m7-rest,m7-dailies,m7-standing,m7-affix,m7-shots --runs 1 --shots /tmp/m7-shots
 npm run harness:live -- --scenarios none --behaviours m8-panel,m8-bandolier,m8-turn,m8-vials,m8-healing-bomb,m8-duct-tape,m8-use-best,m8-shots --runs 1 --shots /tmp/m8-shots
 npm run harness:live -- --scenarios none --behaviours m8-hud,m8-bandolier,m8-panel --runs 1 --canvas
+npm run harness:live -- --scenarios none --behaviours m8a-cloud,m8a-once,m8a-powerful,m8a-timing,m8a-forge,m8a-backends,m8a-panel,m8a-familiar,m8a-shots --runs 1 --shots /tmp/m8a-shots
+npm run harness:live -- --scenarios none --behaviours m8a-strike --runs 1 --canvas
 ```
+
+The registry check also reads every pf2e item with stages, onset or a maximum duration as an affliction (`DESIGN.md`
+8.10.2): each must read cleanly, have an override in `scripts/data/afflictions.mjs`, or be on its ignore list, or the run
+fails. `--affliction-baseline <json>` (an earlier run's `--json` output) lists the items whose reading changed between two
+pf2e releases.
 
 The M4 behaviours run the order lifecycle with a GM and two players (`m4-lifecycle`), with two players and no GM, the
 recipient offline at the finish (`m4-no-gm`), a cancel with refunds (`m4-cancel`), the double-delivery race

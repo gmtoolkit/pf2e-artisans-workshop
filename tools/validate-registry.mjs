@@ -19,6 +19,10 @@
  * named as skipped, and the run fails when a registry entry or ignored UUID is in one of them (or, with `--enforce`,
  * when any Item pack is missing), so a check never passes by reading nothing.
  *
+ * Afflictions (M8a, 8.10.2): the parser runs over every candidate in the checkout's Item packs; each parses fully, has an
+ * override (`scripts/data/afflictions.mjs`) or is on its ignore list, or the run fails (`checkAfflictions`). With
+ * `--affliction-baseline <json>` (an earlier run's `--json` output) it also lists the candidates whose parse changed.
+ *
  * `PF2E_SRC=<checkout> npm test` runs the same checks (`test/validate-registry.test.mjs`).
  */
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -26,6 +30,9 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { REGISTRY, SPECIALTY_DEFAULTS } from "../scripts/data/registry.mjs";
 import { IGNORE_REASONS, REGISTRY_IGNORE } from "../scripts/data/registry-ignore.mjs";
+import { AFFLICTION_IGNORE, AFFLICTION_IGNORE_REASONS, AFFLICTION_OVERRIDES } from "../scripts/data/afflictions.mjs";
+import { isCandidate, parseAffliction } from "../scripts/logic/affliction-parse.mjs";
+import { applyOverride, definitionDigest, kindOf } from "../scripts/logic/affliction.mjs";
 
 /* -------------------------------------------- */
 /*  pf2e's own rules                             */
@@ -272,12 +279,99 @@ export function unlisted({ registry = REGISTRY, ignore = REGISTRY_IGNORE, source
 }
 
 /* -------------------------------------------- */
+/*  Afflictions (8.10.2, 15.2)                   */
+/* -------------------------------------------- */
+
+/** The affliction parse of a compendium document, with its override merged in when it has one. */
+export function afflictionOf(doc, override = null) {
+    const statistic = doc.system?.defense?.save?.statistic ?? null;
+    const parsed = parseAffliction(doc.system?.description?.value ?? "", { level: doc.system?.level?.value ?? 0, traits: doc.system?.traits?.value ?? [],
+        save: statistic ? { type: statistic, against: "spell" } : null });
+    return override ? applyOverride(parsed, override) : parsed;
+}
+
+/**
+ * The affliction corpus check (8.10.2, 15.2): the parser over every candidate item of every Item pack in the checkout (any
+ * Stage or Stages label, or an Onset or Maximum Duration paragraph). Each must parse fully, have an override, or be on the
+ * affliction ignore list; an intro that mentions further, additional or multiple exposure needs an entry too, as does a
+ * candidate with no affliction kind (poison, disease or curse) among its traits. Overrides and ignored UUIDs are checked
+ * like registry entries (they resolve, the slug matches, not both). `baseline` (`{uuid: digest}`, from an earlier run's
+ * `--json`) reports every candidate whose parse changed between two pf2e tags, for the churn watch (3.3).
+ *
+ * @returns {{problems: {key, problem}[], unchecked: string[], summary: object, digests: Record<string, string>,
+ *   changed: {uuid, name}[], notes: {key, note}[]}}
+ */
+export function checkAfflictions({ source, overrides = AFFLICTION_OVERRIDES, ignore = AFFLICTION_IGNORE, reasons = AFFLICTION_IGNORE_REASONS, baseline = null }) {
+    const problems = [];
+    const unchecked = [];
+    const notes = [];
+    const byUuid = new Map();
+    for (const [key, entry] of Object.entries(overrides)) {
+        const report = (problem) => problems.push({ key, problem });
+        if (byUuid.has(entry.uuid)) report(`same UUID as ${byUuid.get(entry.uuid)}`);
+        byUuid.set(entry.uuid, key);
+        if (entry.uuid in ignore) report("overridden and on the affliction ignore list");
+        const doc = source.get(entry.uuid);
+        if (doc === null) unchecked.push(key);
+        else if (!doc) report(`${entry.uuid} does not resolve`);
+        else if (slugOf(doc) !== key) report(`slug is now ${slugOf(doc)}`);
+    }
+    for (const [uuid, reason] of Object.entries(ignore)) {
+        if (!(reason in reasons)) problems.push({ key: uuid, problem: `unknown affliction ignore reason ${reason}` });
+        const doc = source.get(uuid);
+        if (doc === null) unchecked.push(uuid);
+        else if (!doc) problems.push({ key: uuid, problem: "ignored affliction UUID does not resolve" });
+    }
+    const summary = { candidates: 0, full: 0, overridden: 0, ignored: 0, failed: 0, poisons: { candidates: 0, full: 0, overridden: 0, ignored: 0 } };
+    const digests = {};
+    const changed = [];
+    for (const doc of source.items()) {
+        const html = doc.system?.description?.value ?? "";
+        if (!isCandidate(html)) continue;
+        summary.candidates += 1;
+        const poison = (doc.system?.traits?.value ?? []).includes("poison");
+        if (poison) summary.poisons.candidates += 1;
+        const count = (field) => {
+            summary[field] += 1;
+            if (poison) summary.poisons[field] += 1;
+        };
+        if (doc.__uuid in ignore) {
+            count("ignored");
+            continue;
+        }
+        const key = byUuid.get(doc.__uuid) ?? null;
+        const override = key ? overrides[key] : null;
+        const parsed = afflictionOf(doc);
+        const def = override ? applyOverride(parsed, override) : parsed;
+        digests[doc.__uuid] = definitionDigest(def);
+        if (baseline && baseline[doc.__uuid] && baseline[doc.__uuid] !== digests[doc.__uuid]) changed.push({ uuid: doc.__uuid, name: doc.name });
+        const report = (problem) => {
+            problems.push({ key: doc.__uuid, problem: `${doc.name}: ${problem}` });
+            summary.failed += 1;
+        };
+        if (override) {
+            count("overridden");
+            if (parsed.confidence === "full" && !override.traits && !override.reExposure && !override.keepsCoating && !override.save) {
+                notes.push({ key, note: "parses fully now: check whether its override is still needed" });
+            }
+            continue;
+        }
+        if (parsed.confidence !== "full") report(`does not parse fully (${parsed.problems.join(", ")}): add an override or an ignore-list entry`);
+        else if (parsed.intro.reExposure) report("its intro changes what further exposure does: review it and add an override or an ignore-list entry");
+        else if (!kindOf(parsed)) report("no affliction kind (poison, disease, curse) in its traits: add an override or an ignore-list entry");
+        else count("full");
+    }
+    return { problems, unchecked, summary, digests, changed, notes };
+}
+
+/* -------------------------------------------- */
 /*  Command line                                 */
 /* -------------------------------------------- */
 
 /** The command line; `data` replaces the shipped registry, ignore list and specialty defaults (tests). */
 export function main(argv = process.argv.slice(2), log = console.log, data = {}) {
     const { registry = REGISTRY, ignore = REGISTRY_IGNORE, reasons = IGNORE_REASONS, defaults = SPECIALTY_DEFAULTS } = data;
+    const afflictions = data.afflictions ?? { overrides: AFFLICTION_OVERRIDES, ignore: AFFLICTION_IGNORE, reasons: AFFLICTION_IGNORE_REASONS };
     const { values } = parseArgs({
         args: argv,
         options: {
@@ -285,6 +379,7 @@ export function main(argv = process.argv.slice(2), log = console.log, data = {})
             enforce: { type: "boolean", default: false },
             json: { type: "string" },
             limit: { type: "string", default: "40" },
+            "affliction-baseline": { type: "string" },
         },
     });
     if (!values.pf2e) {
@@ -295,6 +390,10 @@ export function main(argv = process.argv.slice(2), log = console.log, data = {})
     const { problems, unchecked } = checkEntries({ registry, ignore, reasons, source });
     problems.push(...checkReferences({ registry, defaults, source }));
     const missing = unlisted({ registry, ignore, source });
+    const baseline = values["affliction-baseline"] ? JSON.parse(readFileSync(values["affliction-baseline"], "utf8")).afflictions?.digests ?? null : null;
+    const ailing = checkAfflictions({ source, ...afflictions, baseline });
+    problems.push(...ailing.problems);
+    unchecked.push(...ailing.unchecked);
     log(`registry: ${Object.keys(registry).length} entries, ${Object.keys(ignore).length} ignored UUIDs`);
     if (source.skipped.size) log(`not in this checkout, so not checked: ${[...source.skipped].sort().join(", ")}`);
     if (unchecked.length) log(`FAIL ${unchecked.length} entries and ignored UUIDs are in packs this checkout lacks, so were not checked`);
@@ -303,7 +402,15 @@ export function main(argv = process.argv.slice(2), log = console.log, data = {})
     log(`completeness: ${missing.length} candidate items in neither the registry nor the ignore list${values.enforce ? "" : " (report only)"}`);
     for (const item of missing.slice(0, Number(values.limit))) log(`  ${item.uuid} ${item.name} [${item.mentions.join(", ")}]`);
     if (missing.length > Number(values.limit)) log(`  ... and ${missing.length - Number(values.limit)} more (--json for all)`);
-    if (values.json) writeFileSync(values.json, JSON.stringify({ problems, unchecked, unlisted: missing, skipped: [...source.skipped] }, null, 2));
+    const a = ailing.summary;
+    log(`afflictions: ${a.candidates} candidates: ${a.full} parse fully, ${a.overridden} have an override, ${a.ignored} ignored, ${a.failed} fail; ` +
+        `poisons ${a.poisons.candidates}: ${a.poisons.full} parse fully, ${a.poisons.overridden} have an override, ${a.poisons.ignored} ignored`);
+    for (const { key, note } of ailing.notes) log(`  note ${key}: ${note}`);
+    for (const { uuid, name } of ailing.changed) log(`  changed parse since the baseline: ${uuid} ${name}`);
+    if (values.json) {
+        writeFileSync(values.json, JSON.stringify({ problems, unchecked, unlisted: missing, skipped: [...source.skipped],
+            afflictions: { summary: a, digests: ailing.digests, changed: ailing.changed, notes: ailing.notes } }, null, 2));
+    }
     const incomplete = unchecked.length > 0 || (values.enforce && (missing.length > 0 || source.skipped.size > 0));
     return problems.length || incomplete ? 1 : 0;
 }

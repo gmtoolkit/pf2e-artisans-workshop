@@ -1,0 +1,16 @@
+<div class="pf2e chat-card pf2e-artisans-workshop-card card-{{kind}}">
+    <header class="card-header flexrow">
+        {{#if img}}<img src="{{img}}" alt="">{{/if}}
+        <h3>{{heading}}</h3>
+    </header>
+    <div class="card-content">
+        {{#if summary}}<p class="card-summary">{{summary}}</p>{{/if}}
+        {{#each lines}}<p class="card-line">{{#if icon}}<i class="{{icon}}" inert></i> {{/if}}{{text}}</p>{{/each}}
+        <p class="card-line card-state" hidden></p>
+        {{#if buttons.length}}
+        <div class="card-buttons pf2e-artisans-workshop-ops">
+            {{#each buttons}}<button type="button" data-pf2e-artisans-workshop-op="{{op}}"{{#if actor}} data-actor="{{actor}}"{{/if}}{{#if run}} data-run="{{run}}"{{/if}}{{#if seq}} data-seq="{{seq}}"{{/if}}{{#if claim}} data-claim="{{claim}}"{{/if}}{{#if gm}} data-gm="true"{{/if}}><i class="{{icon}}" inert></i> {{label}}</button>{{/each}}
+        </div>
+        {{/if}}
+    </div>
+</div>

@@ -1,0 +1,65 @@
+<section class="workshop-afflictions">
+    {{#unless on}}
+    <p class="afflictions-off"><i class="fa-solid fa-circle-info" inert></i> {{localize "pf2e-artisans-workshop.Affliction.Off"}}</p>
+    {{else}}
+    <p class="afflictions-backend">{{backendText}}</p>
+    {{#each actors}}
+    <article class="affliction-actor" data-actor="{{uuid}}">
+        <h3><img src="{{img}}" alt=""> {{name}}</h3>
+        {{#each pending}}
+        <div class="affliction-pending">
+            <p class="affliction-line"><i class="fa-solid fa-dice-d20" inert></i> {{text}}</p>
+            {{#if waitingText}}<p class="affliction-waiting"><i class="fa-solid fa-hourglass-half" inert></i> {{waitingText}}</p>{{/if}}
+            <div class="affliction-ops">
+                {{#if canRoll}}<button type="button" data-affliction="roll" data-actor="{{../uuid}}" data-run="{{runId}}" data-seq="{{seq}}"><i class="fa-solid fa-dice-d20" inert></i> {{localize "pf2e-artisans-workshop.Affliction.Roll"}}</button>{{/if}}
+                {{#if canFail}}<button type="button" data-affliction="fail" data-actor="{{../uuid}}" data-run="{{runId}}" data-seq="{{seq}}"><i class="fa-solid fa-face-dizzy" inert></i> {{localize "pf2e-artisans-workshop.Affliction.FailVoluntarily"}}</button>{{/if}}
+                {{#if canVoid}}<button type="button" data-affliction="void" data-claim="{{claim}}"><i class="fa-solid fa-shield" inert></i> {{localize "pf2e-artisans-workshop.Affliction.NoDamageThrough"}}</button>{{/if}}
+                {{#if canBreath}}<button type="button" data-affliction="breath" data-claim="{{claim}}"><i class="fa-solid fa-wind" inert></i> {{localize "pf2e-artisans-workshop.Affliction.HeldBreath"}}</button>{{/if}}
+            </div>
+        </div>
+        {{/each}}
+        {{#each trackers}}
+        <div class="affliction-tracker" data-run="{{runId}}">
+            <header class="affliction-head">
+                <img src="{{img}}" alt="">
+                <strong>{{name}}</strong>
+                <span class="affliction-stage">{{stageText}}</span>
+            </header>
+            {{#if nextText}}<p class="affliction-line"><i class="fa-solid fa-clock" inert></i> {{nextText}}</p>{{/if}}
+            {{#if maxText}}<p class="affliction-line"><i class="fa-solid fa-hourglass-end" inert></i> {{maxText}}</p>{{/if}}
+            {{#if pendingText}}<p class="affliction-line affliction-due"><i class="fa-solid fa-dice-d20" inert></i> {{pendingText}}</p>{{/if}}
+            {{#if partial}}<p class="affliction-line affliction-partial"><i class="fa-solid fa-triangle-exclamation" inert></i> {{localize "pf2e-artisans-workshop.Affliction.Partial"}}</p>{{/if}}
+            <ol class="affliction-stages">
+                {{#each stages}}
+                <li class="{{#if current}}current{{/if}}">
+                    <span class="stage-name">{{label}}</span>
+                    {{#if parts}}<span class="stage-parts">{{parts}}</span>{{/if}}
+                    {{#if interval}}<span class="stage-interval">{{interval}}</span>{{/if}}
+                    {{#if html}}<div class="stage-text">{{{html}}}</div>{{/if}}
+                </li>
+                {{/each}}
+            </ol>
+            <div class="affliction-ops">
+                {{#if canRoll}}<button type="button" data-affliction="roll" data-actor="{{../uuid}}" data-run="{{runId}}" data-seq="{{seq}}"><i class="fa-solid fa-dice-d20" inert></i> {{localize "pf2e-artisans-workshop.Affliction.Roll"}}</button>{{/if}}
+                {{#if canEdit}}
+                {{#if onset}}<button type="button" data-affliction="end-onset" data-uuid="{{uuid}}"><i class="fa-solid fa-forward" inert></i> {{localize "pf2e-artisans-workshop.Affliction.EndOnset"}}</button>{{/if}}
+                <button type="button" data-affliction="reduce" data-uuid="{{uuid}}" data-stage="{{stage}}"><i class="fa-solid fa-arrow-down" inert></i> {{localize "pf2e-artisans-workshop.Affliction.Reduce"}}</button>
+                <button type="button" data-affliction="end" data-uuid="{{uuid}}"><i class="fa-solid fa-xmark" inert></i> {{localize "pf2e-artisans-workshop.Affliction.End"}}</button>
+                {{#if undo}}<button type="button" data-affliction="undo" data-uuid="{{uuid}}"><i class="fa-solid fa-rotate-left" inert></i> {{localize "pf2e-artisans-workshop.Affliction.Undo"}}</button>{{/if}}
+                {{#if repair}}<button type="button" data-affliction="repair" data-uuid="{{uuid}}"><i class="fa-solid fa-wrench" inert></i> {{localize "pf2e-artisans-workshop.Affliction.Repair"}}</button>{{/if}}
+                {{/if}}
+            </div>
+        </div>
+        {{/each}}
+        {{#each ended}}
+        <p class="affliction-line affliction-ended">
+            <i class="fa-solid fa-circle-check" inert></i> {{text}}
+            <button type="button" data-affliction="undo-end" data-actor="{{../uuid}}" data-run="{{runId}}"><i class="fa-solid fa-rotate-left" inert></i> {{localize "pf2e-artisans-workshop.Affliction.UndoEnd"}}</button>
+        </p>
+        {{/each}}
+    </article>
+    {{else}}
+    <p class="afflictions-none">{{localize "pf2e-artisans-workshop.Affliction.None"}}</p>
+    {{/each}}
+    {{/unless}}
+</section>

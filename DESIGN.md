@@ -3864,6 +3864,12 @@ README, its `docs/API.md` and `docs/DATA_CONTRACT.md`, and its source; none of i
   Its strengths (multi-save gates, identification states, a template editor, per-stage reactions) are
   not copied; a table that needs them hands off.
 
+As built in M8a (10.15): 8.10.1-8.10.11 are built as written except where 10.15 says otherwise: the Afflictions "drawer" is a
+window of its own (`AfflictionsApp`); the parser also reads a spell's save from its defense and an affliction's own Level
+paragraph; overrides may mark stages whose remaining text is for the table (`prose`), and `reExposure` also takes `reset-max`
+(Toiler's Gruel) and `table` (Grolna); saves on logged days are ordinary due-save prompts, not listed in the day resolver; the
+native backend is written behind feature detection and has not run.
+
 ---
 
 ## 9. Time
@@ -3968,7 +3974,7 @@ with `foundry.utils.debounce`, never `requestAnimationFrame`.
 | Settings | user and client settings | world settings (including the variants, 6.16), integrations, conflicts, data tools (migrations, reconciliation, active afflictions and pending saves, purge), "view as player" |
 
 Afflictions have no tab: they show in the pf2e effects panel and in the Afflictions drawer opened from
-the header (8.10.9).
+the header (8.10.9). As built in M8a: the drawer is a window of its own, the Afflictions window (10.15).
 
 There is no inbox: nothing waits for approval.
 
@@ -5626,6 +5632,189 @@ the character's Strike variants, `item/physical/document.ts` `isStackableWith`, 
   - Pf2e's sheet may drop the stamp tag from `system.traits.otherTags` when a player edits a Quick Alchemy item's other tags
     there (the tag is not one of pf2e's options); the item may then stack with another stamp's again.
 
+### 10.15 As built in M8a
+
+M8a builds the affliction tracker (section 8.10): the rules engine (`scripts/logic/affliction.mjs`), the runtime stage parser
+(`scripts/logic/affliction-parse.mjs`) with its overrides and ignore list (`scripts/data/afflictions.mjs`) and the corpus check
+(`tools/validate-registry.mjs` `checkAfflictions`); definitions, the backend and the DCs (`scripts/foundry/affliction-defs.mjs`);
+exposure claims, saves, recording, pending state, timing, manual changes and the stage guard (`scripts/foundry/afflictions.mjs`);
+coatings, Strikes and the other deliveries (`scripts/foundry/coatings.mjs`); Affliction Forge (`scripts/foundry/forge.mjs`); the
+Afflictions window, its cards and the item-card augment (`scripts/ui/afflictions.mjs`, `templates/afflictions/`,
+`templates/chat/affliction.hbs`); the DC stamp at creation in `morning.mjs`, `alchemy.mjs` and `outputs.mjs`; coatings voided with
+their poison in `expiry.mjs`; the Bandolier's "Apply poison"; the Workshop header's pending count. Unit tests cover the pure parts
+(`test/logic/affliction.test.mjs`, `affliction-parse.test.mjs`, the corpus check in `test/validate-registry.test.mjs`); stub tests the
+Foundry and window parts over a fake of pf2e's saves, conditions and damage rolls (`test/foundry/pf2e-afflictions.mjs`:
+`actor.saves[type].roll` records the item and options it is given and makes the message pf2e would, with `flags.pf2e.context`;
+the ephemeral item is physical with a level, as `Statistic#roll`'s incapacitation reads it; `ConditionManager.getCondition`;
+`DamageRoll`; core's `preUpdateItem` and `preDeleteItem`; `test/foundry/afflictions.test.mjs`, `ui-m8a.test.mjs`,
+`harness-m8a.test.mjs`). The live plans are written and not yet run. pf2e read: the dev head `be4ab21b`
+(`item/affliction/data.ts`, `document.ts` (`handleStageChange`, `EXPIRING_CONDITIONS`, `getLinkedItems`, `_onCreate`, `_onUpdate`,
+`rollRecovery`), `item/effect/document.ts` (`increase`, `decrease`, the badge clamp and deletion in `_preUpdate`),
+`item/abstract-effect/values.ts` and `helpers.ts` (`DURATION_UNITS`, `calculateRemainingDuration`), `system/statistic/statistic.ts`
+(the incapacitation adjustment from a physical `item`'s level), `chat-message/data.ts` and `document.ts` (`flags.pf2e.context`,
+`damageRoll.types`, `isDamageRoll`), `item/condition/values.ts`, the poisons, spells and creature abilities of the packs);
+Affliction Forge 0.1.74's `README.md`, `docs/API.md`, `docs/DATA_CONTRACT.md` and `docs/REFERENCES_AND_DND.md` (it is not installed
+in the dev world).
+
+- **The rules engine** (8.10.6) is as specified: `applyDegree` for the initial, stage and re-exposure saves (`kind`), `enterStage`
+  and `startOnset`, and `advance`, which applies the onset's end and the maximum duration each at its own moment, in time order, and
+  stops at the first stage save that is due (the maximum wins a tie). `recordSave` keeps each save's `before` and replaces a result
+  only for a reroll once pf2e has deleted the original, and only the latest save. The run state is the specified one plus
+  `enteredAt`, `onset` (the rolled onset), `manual` (the undo log of manual changes) and `mods` (the modifiers that held for the
+  target); a dice interval or onset is rolled once, when it starts (`rollDuration`).
+- **The modifiers** (8.10.6) are registry `afflictionModifier {mod, as}` effects (6.11, the new kind): Tenacious Toxins and the
+  toxicologist's acid (kept only against a poison-immune target) as the creator; Pinpoint Poisoner (kept only against an
+  off-guard target, or an inhaled poison), Blowgun Poisoner (a critical hit makes the initial save one degree worse; a blowgun
+  exposes without piercing or slashing damage), Sticky Poison and Double Poison as the deliverer; Pernicious Poison and Combustible
+  Poison carried as the poison's Quick Alchemy additive; Acquired Tolerance as the victim (pf2e's own reroll menu, recorded as a
+  reroll); legacy Potent Poisoner as the creator (its DC stamp). Seven feats left the ignore list for the registry (284 entries,
+  1167 ignored).
+- **The parser** (8.10.2) reads the specified parts, and also: a spell's save from its defense (`system.defense.save`, against its
+  caster's spell DC), a "Level" paragraph (the affliction's own level), a blank `dc:` (a creature's DC), a plain-text save ("DC
+  32 Fortitude"), pf2e's options after an `@Damage` formula, "carrier with no ill effect", an interval followed by a comma. Weeks,
+  months and years become days (7, 30, 365); pf2e's effect units stop at days. A stage is `unparsed` when any text is left after
+  its mapped parts and connectors; a definition is `full` only when the save, onset, maximum duration and every stage with an
+  interval read cleanly.
+- **Coverage** (the corpus check, every Item pack of pf2e at `pf2e-8.6.1` and at the dev head `be4ab21b`, the same both ways):
+  201 candidates; 86 read fully, 110 have an
+  override, 5 are ignored, none fails. The poisons (the poison trait): 149, of which 76 read fully and 73 have an override; of the
+  equipment pack's 139 poison items, 68 read fully and 71 have an override. Of the 110 overrides, 29 carry data (a missing
+  interval, a maximum duration "(but see stage 3)", a save the text gives no type or DC for, a kind the traits leave out,
+  `reExposure` for Lethargy Poison, Stupor Poison, Toiler's Gruel and Grolna, `keepsCoating` for Forgetful Ink) and 81 mark stages
+  whose remaining text is for the table (`prose`: item bonuses, choices, death, "can't recover"). An interval an item leaves out is
+  one round where its maximum duration is in rounds (one day for Mosquito Blight's stage 4): an interpretation. The ignore list
+  holds Shrinking Potion (an onset, not an affliction) and the four boon items whose stages have no save (Elder Seed, Heartblood
+  Ring, Phoenix Cinder, Void Fragment). `--affliction-baseline` reports a changed reading between two pf2e tags (3.3).
+- **Definitions at runtime**: the parse of the compendium source's description, cached per source and pf2e version; an override by
+  source UUID (else by slug); a world definition (`afflictionDefs.<hash>` in the ledger) first. The world-definition form, opened by
+  Expose when nothing reads, takes a save and DC, onset, maximum duration and up to six stages written in plain words ("1d6 poison,
+  sickened 1", "1 round"), read by the same grammar (`defineFlow`).
+- **The backend** (8.10.1): `backend()` by feature detection; every pf2e release is `effect`. The effect backend's tracker is an
+  `effect` with unlimited duration, the source's effect traits, a counter badge whose labels are pf2e's stage names (all "Onset"
+  during an onset, so the badge's value is always the run's stage), `flags.MOD.affliction = {v, run, system, def?}` (`def` for a
+  Double Poison or a world definition), and the hidden-information rule of 8.10.8 (a generic name and image on a player's creature,
+  `unidentified` on others). The native backend's paths are written (an `affliction` item created only when a stage is active,
+  `system.onset` never written, a repeated stage's conditions and `createStageMessage()` the module's, the migration at a GM's
+  `ready`) and tested only through the pure parts: no pf2e build here has the type.
+- **Stage conditions** (8.10.1) come from `game.pf2e.ConditionManager.getCondition`, granted by the tracker with `grantedBy.onDelete`
+  `detach` for the six expiring conditions and unlinked ones and `cascade` for the rest, linked ones with `references.parent` as pf2e
+  links them; the tracker's own `itemGrants` are all `detach`. A stage change follows `handleStageChange` (`stageConditionPlan`):
+  the tracker's linked, non-expiring conditions and stage effects go, the new stage's are created or have their value updated.
+  Ending a tracker deletes it and its `cascade` grantees in one request; drained and the other expiring ones stay.
+- **Exposure** (8.10.3): `expose()` writes one claim per target, keyed `expose:<message or nonce>:<hash of the target>`, with the
+  source snapshot, the definition key (or the definition itself for a Double Poison or a coating's), the frozen DC, the delivery,
+  the modifiers, the deliverer's encounter, the run id the tracker will take, and `exposedAt` (the affliction clock). The claims
+  sweep (5.5) applies it on the target's responsible client, or the active GM's for an Affliction Forge hand-off
+  (`registerClaimKind`'s new `responsible` option), whatever the user's auto-claim setting (exposure and coating-spend claims are
+  never deliveries). A claim waits behind an earlier open one of the same definition on the same target. It resolves with an
+  outcome (`afflicted`, `unaffected`, `immune`, `no-effect`, `no-save`, `forge`, `forge-owns`, `voided`, `no-definition`) or stays
+  open with `pending = {kind, runId, seq}` while its save waits; a re-exposure whose affliction ended before its save was recorded
+  starts it again as an initial exposure (review fix).
+- **Saves** (8.10.8): `rollSave` uses `actor.saves[type].roll` with the frozen DC, the ephemeral source item at the affliction's level
+  (a weapon or ammunition source as a consumable), its roll options and the link `<MOD>:affliction:<runId>:<seq>`, the initial
+  save's circumstance modifiers (Pinpoint Poisoner, Combustible Poison, held breath), and the affliction's kind traits. Who rolls is
+  `rollerFor` (the table of 8.10.8); a prompt is a card (one per save and state, so a "waiting for the player" card is followed by
+  the player's own when they connect) and a notification by `afflictions.notify`. Recording (`onAfflictionMessage`) happens on the
+  message author's tab: `recordResult` takes the lock page `afflict:<runId>:<seq>:<results so far>`, resolves the claim and writes
+  the tracker and its conditions in one lock-first request, then posts the damage as a pf2e damage roll (applied by pf2e's buttons;
+  `afflictions.autoApplyDamage` applies it). A drug's "fail on purpose" records a failure without a roll.
+- **Timing** (8.10.7): `processAfflictions` (single-flight) on `updateWorldTime`, `combatTurnChange`, `deleteCombat`, a logged day
+  (`meta.manual`), a user connecting, `ready` and after each record; it writes only the pending key, never the whole run, and clears
+  a pending save another client already recorded (review fix: an older copy of the run must not overwrite a result). The clock is
+  `afflictionNow` over the workshop day's logged days. In an encounter `isDue` is pf2e's convention against the run's anchor
+  (`afflictions.combatAnchor`). Catch-up: automatic stage saves of one affliction in a chain stop at `afflictions.catchUpLimit`
+  (`pause`: after the first) with a Continue button; a save rolled by hand starts the count again.
+- **Manual changes** (8.10.9): `adjust` (a stage, the onset's end, an end, undo of the last manual change, each recorded in
+  `run.manual` with its author), `undoEnd` (a manual end, from the snapshot kept on the actor in `flags.MOD.afflictionEnded`), and
+  `repair` (the stage's conditions again, no damage). The stage guard cancels a change of a tracker's badge, status or onset the
+  module did not make (its own writes carry `{[MOD]: {affliction: true}}`, passed by `toOperations`'s new `options`) and replays it
+  as an adjust; a deletion it did not make is allowed and recorded as a manual end.
+- **The DC** (8.10.4): `exposureDc` follows the order (a world definition's DC or an override's `save.value`, a typed DC, the stamp,
+  the inline DC as pf2e upgrades it for the holder, the printed DC). `dcStampFor` writes `flags.MOD.dcStamp = {value, rule, creator,
+  printed, at}`: Powerful Alchemy for an infused item that allows a save (the morning's outputs, Quick Alchemy's items from the panel
+  and from pf2e's own action) only when the class DC beats the printed DC; legacy Potent Poisoner (`legacy: true`) for a poison
+  crafted by any means, downtime orders included. A Talisman Dabbler stamp's `dc` is read the same way.
+- **Coatings** (8.10.5): `applyPoison` (owner of both; the host by delivery; refused on a weapon Affliction Forge coats), the dose
+  spent by a quantity update, the DC frozen, the infused poison's stamp copied (`voidCoatings` in the expiry sweep removes the
+  coating with it, never marking the weapon); a second injury poison replaces after a confirmation, or merges with Double Poison
+  (`mergeDoublePoison`: the longer maximum duration and onset, an interpretation). Ammunition: one piece split off the stack. Strikes
+  (`onStrikeMessage`, on the attacker's responsible client): the attack roll arms, keeps or spends; the hit's damage roll exposes
+  through `expose` (the deliverer's modifiers added to the coating's) and spends; Sticky Poison's flat checks (DC 17, DC 5) keep it,
+  until the end of the attacker's next turn (a round of world time outside an encounter). A voided exposure ("no piercing or
+  slashing damage got through" on the target's prompt) lets the attacker's client roll the DC 5 check and give the coating back.
+  Contact and ingested coatings: Touched or Eaten (`touchCoating`) behind the lock page `coating:<id>` (per toucher for an item that
+  keeps its potency) with a coating-spend claim. Inhaled poisons: `unleash` spends the dose and posts a cloud card whose button
+  exposes the creatures picked while it lasts (a minute of world time).
+- **Affliction Forge** (8.10.11) as specified; its controllers are found by `api.instances.listForActor` (origin or definition
+  metadata source), its templates by a reference on the item or `api.templates.list` (the importer's `sourceUuid`). Not run against
+  the real module (OQ-41): the live plan uses a stand-in that throws on a player's client, as its engine does.
+- **The interface** (8.10.9, 10.5): the Afflictions window is a window of its own (`AfflictionsApp`), not a drawer inside the
+  Workshop, so it stays open beside an encounter and opens from the Workshop header ("Saves: n"), the Bandolier, the API and the
+  cards. Cards: the save prompt, the stage change (none for a successful initial save), the coating, the cloud; the item-card
+  augment offers Expose, Apply poison, and Touched or Eaten. Settings 14.5 are registered as listed (`features.afflictions` W on).
+- **API** (11.2): `afflictions.{definition, define, expose, applyPoison, unleash, touch, active, pending, rollPending, roll, adjust,
+  repair, process, backend, open}` and `rules.afflictionStep`; internal hooks `afflictionPrompt`, `afflictionCoating`,
+  `afflictionCloud`, `afflictionNotice`; the public `afflictionChanged` (12.3) with `reason` initial, re-exposure, stage, onset,
+  max-duration or manual.
+- **Live plans** (15.3 scenario 12; `tools/harness/affliction-scenarios.mjs`, scenario `m8a`; `live-plans.mjs`), to run later:
+  - `m8a-strike` (12a; GM, P1; `--canvas`, the NPC fixture 17a placed): a dagger coated with Black Adder Venom, Sticky Poison given;
+    pf2e's Strike and damage expose the NPC once; its initial save rolled once, on the GM's client; stage saves at the turn ends of
+    the round after; the 3-round maximum ends it; the coating kept exactly when the flat check succeeded. Skipped without a canvas.
+  - `m8a-cloud` (12b; P1, P2, the GM only to move the clock): an inhaled poison at both characters; one prompt each, each rolled by
+    its owner; Player Two's Hero Point reroll replaces the result; Player Two away with a save due: pending, nothing rolled for them;
+    back online, they roll it.
+  - `m8a-once` (12c; GM, assistant GM, P1 in two tabs, P2): `pcSaves: auto`; one claim and one roll per creature.
+  - `m8a-powerful` (12d; GM, P1, P2): the bomber prepares Black Adder Venom with Advanced Alchemy (stamped with its class DC), hands
+    it to the fighter, who coats a dagger with it (the coating keeps the stamped DC); the bomber's next preparations remove the
+    coating; an affliction already running from the poison continues.
+  - `m8a-timing` (12e; GM, P1, P2): re-exposure during Arsenic's onset; an hour of world time with `catchUpLimit` 2; King's Sleep
+    on the fighter (in downtime) and the bomber, two days logged, then "advance the clock to match": no save rolled twice.
+  - `m8a-forge` (12f; GM, P1, P2): Affliction Forge's stand-in on every client; a template-linked poison handed off on the GM's
+    client with the Workshop's DC, no player client calling it; with only players connected, tracked by the Workshop.
+  - `m8a-backends` (12g): every client reads one backend; the effect backend's tracker is an `effect` whose badge is the stage (the
+    native half needs a development build of pf2e).
+  - `m8a-panel` (12h): pf2e's own `increase()` and `decrease()` on the fighter's tracker: a recorded manual adjust, then a recorded
+    manual end.
+  - `m8a-familiar` (12i; P1, P2): an unidentified poison on the fighter shows Player Two a stage badge under a generic name. (A
+    familiar fixture does not exist yet; the familiar half waits for one.)
+  - `m8a-shots`: the Afflictions window as Player Two at 1440x900 and 1024x768, dark and light (`--shots`).
+- **After the M8a review** (one pass; the medium findings fixed, each with a stub test that fails on the code before it,
+  `test/foundry/afflictions.test.mjs`, "After the M8a review"):
+  - A re-exposure whose affliction ended (a manual end, the maximum duration) before its save was recorded made a tracker stuck in
+    an onset with no end: it now starts the affliction again as an initial exposure.
+  - The clock's processing wrote the whole run back with its pending save, so a result another client recorded at the same moment
+    could be overwritten by the older copy, and a pending save already recorded stayed pending for ever: only the pending key is
+    written, a stale one is cleared, and a transition is skipped when the run moved meanwhile.
+  - The corpus check ran only over the packs of the sparse checkout used during development; over every Item pack it found 26
+    spells and creature abilities that did not read (a spell's save is its defense; creature abilities leave `dc:` blank): the
+    grammar reads those, and the rest have overrides.
+
+#### Follow-ups (M8a, low)
+
+- Purge (5.9) strips the trackers' module flags and leaves them as plain effects with their badge; it neither lists them nor
+  offers to remove them (8.10.10).
+- Saves due on logged days are ordinary due-save prompts; the day resolver and the wizard's checks step do not list them, and day
+  records carry no `afflictionSaves` (8.10.7, 9.1, 9.2).
+- Native backend: the module does not apply a stage itself when `actor.primaryUpdater` is not connected, and the migration's
+  re-posted damage card is not marked (OQ-44); none of it has run (no pf2e build has the type).
+- The world-definition form has six stage rows and reads English words only (OQ-46).
+- A spell's or creature ability's DC (`against`) is typed on a manual Expose; nothing reads the caster's or creature's DC.
+- Pinpoint Poisoner checks the target's off-guard condition when the claim is applied, not at the hit.
+- Blowgun Poisoner's critical makes the initial save one degree worse by the module, not as pf2e's misfortune.
+- Effects-panel clicks during an onset change the target stage (effect backend) rather than end the onset.
+- A stage's linked effect items are deleted and created again when the stage repeats.
+- A reroll that ends an affliction leaves a pre-existing expiring condition at the value the superseded result raised it to.
+- A coated piece of ammunition is a stack of one with a coating; pf2e's stack test ignores flags and may merge it back on a later
+  stack operation.
+- The inhaled cloud is a card with a button for a minute of world time; no region or template (OQ-29), and a strong wind is the
+  table's.
+- `reExposure: "table"` (Grolna) rolls nothing and says the item's own text decides.
+- The time words are drafts with plural trouble ("in 1 rounds"), as M4's "Setup 1 of 1 days".
+- A tracker on an unlinked token's actor is processed only while its scene's tokens are loaded (`game.scenes`).
+- Affliction Forge's controller and template matching is read from its documentation, not run (OQ-41).
+- The Bandolier's "Apply poison" is gone with the Bandolier while Duct Tape is active; the item card and the API remain (8.10.9
+  says so).
+
 ---
 
 ## 11. Macros and public API
@@ -5695,6 +5884,12 @@ As built in M7: `prep.{open({actor, loadout, apply}), sources(actor), plan(actor
 saveLoadout(actor, loadout), captureLoadout(actor, name), deleteLoadout(actor, id), applyLoadout(actor, id), standing:
 {list(actor), place(opts), end(id)}, affixBoard({actor}), affix({actor, talisman, host}), unaffix({actor, talisman}),
 preserve({actor, items})}` and an `expiry` namespace, `{sweep(), beginCycle(actor)}` (10.13).
+
+As built in M8a: `afflictions.{definition(uuidOrItem), define(uuid, def) (a world definition), expose({item, targets, delivery, dc,
+actor}), applyPoison({poison, weapon, actor, replace, double, saveType}), unleash({poison, actor, targets}), touch({host, actor}),
+active(actor), pending(actor), rollPending({actor, skipDialog}), roll({actor, runId, seq, skipDialog, voluntaryFail}),
+adjust(itemOrUuid, {stage, end, endOnset, undo}), repair(itemOrUuid), process(), backend(), open()}` and `rules.afflictionStep`
+(10.15).
 
 As built in M8: `alchemy.{facts(actor), quickAlchemy({actor, uuid, second, additive, combine, then, map}) (the panel without a
 uuid), quickBomb({actor, family, uuid, damageType, material, createIfNone, map}), quickVial({actor, damageType, material,
@@ -5811,6 +6006,10 @@ As built in M7: `preparationCompleted` `{actor, cycle, created}` fires once per 
 `created` the outputs `[{id, uuid, pool, qty, name}]` (10.13). `morningSummary`, `itemsExpired` and `morningPrompt` also
 fire, for the module's own cards and window; they are internal (prefixed like the public ones, not documented as API).
 
+As built in M8a: `afflictionChanged` `{actor, affliction, from, to, reason, run, ...}` fires on the client that wrote the change
+(`reason` initial, re-exposure, stage, onset, max-duration or manual); `afflictionPrompt`, `afflictionCoating`, `afflictionCloud`
+and `afflictionNotice` fire for the module's own cards and are internal (10.15).
+
 As built in M8: `quickAlchemy` `{actor, items, additive, kind}`, `healingBomb` `{actor, card}`, `vialsRegained` `{actor, from, to,
 gained, why}` and `consumableUsed` `{actor, item, family}` fire on the client that did it, for the combat cards (10.14); they
 are internal too.
@@ -5853,7 +6052,8 @@ All circus numbers, rules and names ship only in that module; nothing in the shi
 | PF2e Convenient Consumables | active flag | "Use best consumable" (8.9) covers the same ground; both are user-triggered, so nothing competes; Settings notes the overlap |
 | PF2e Talisman Manager | active flag | it owns affixing: the module records no affixes and shows its state where readable; daily talisman creation is still the system's and ours |
 | PF2e Alchemist Remaster Duct Tape | `game.modules.get("pf2e-alchemist-remaster-ducttape")?.active` | 8.1-8.8 step aside entirely (8); the affliction tracker (8.10) stays; its Level Up feature (writes every tier into the book) is compatible with families. As built in M8: every combat action refuses with `duct-tape`, the Bandolier says why, turn expiry and the effect cap stop, and the settings window notes it under `features.combat` (10.14) |
-| PF2E Affliction Forge | `game.modules.get("pf2e-affliction-forge")?.active`; API on its module object | one engine per affliction: the Workshop never tracks an affliction or a coating that Affliction Forge owns, and hands off exposures whose source item has a linked Affliction Forge template (8.10.11, OQ-41) |
+| PF2E Affliction Forge | `game.modules.get("pf2e-affliction-forge")?.active`; API on its module object | one engine per affliction: the Workshop never tracks an affliction or a coating that Affliction Forge owns, and hands off exposures whose source item has a linked Affliction Forge template (8.10.11, OQ-41). As built in M8a: the hand-off is
+the active GM's; refused coating of a weapon it coats; not run against the real module, the live plan uses a stand-in (10.15) |
 | pf2e-downtime-scaling, Simplified Crafting, Heroic Crafting Automation | active flags | they replace or extend the Craft button or use a different ruleset: Settings and a GM notice warn about overlapping crafting; no `conflicts` entry in the manifest |
 | SpazzMods PF2e Earn Income | active flag | warning against paying the same job in both modules |
 | PF2e Downtime Tracker, Rutz's PF2e Days | active flags | coexist; Rutz's Days moves the world clock, which our accrual simply sees |
@@ -5969,7 +6169,7 @@ read them, with the defaults listed here; `strongbox: party` comes with the Fund
 `features.morning`, `features.expiry` and `expiry.action` (10.13). As built in M8: `features.combat` (W, on),
 `features.consumables` (W, on), `features.vialGathering` (W, off), `expiry.quickAlchemyAtCombatEnd` (W, on; off gives an
 encounter's items one round of world time from its end), `bandolier.autoOpen` (U, on) and the hidden `bandolier.position`
-(U, `{left, top}`) (10.14).
+(U, `{left, top}`) (10.14). As built in M8a: `features.afflictions` (W, on) and every setting of 14.5 with its default (10.15).
 
 ### 14.4 Treasure Vault (Remastered) variants
 
@@ -6137,6 +6337,14 @@ registry entry or ignored UUID is in a pack the checkout lacks, so a sparse-chec
 instead of checking nothing. The affliction parser part and the
 churn watch come with M8a and the release workflow.
 
+As built in M8a: `checkAfflictions` runs the parser over every candidate of every Item pack in the checkout and fails on one that
+neither reads fully, nor has an override, nor is on the affliction ignore list; on an intro that mentions further, additional or
+multiple exposure, and on a candidate with no affliction kind, without an entry; and on an override or ignored UUID that does not
+resolve, whose slug changed, or that is both. An override whose item now reads fully is noted. `--json` writes each candidate's
+definition digest, and `--affliction-baseline <json>` lists the candidates whose reading changed since (the churn watch's input).
+Against the pinned `pf2e-8.6.1` and the dev head `be4ab21b`, with every Item pack (CI's checkout takes all 25): 201 candidates, 86
+read fully, 110 overridden, 5 ignored, none failing (10.15); `spells` and `bestiary-family-ability-glossary` hold 37 of them.
+
 ### 15.3 Local Foundry harness
 
 - Foundry Node build under Node 24 with its own data path and port, not reachable by anyone but the
@@ -6269,6 +6477,11 @@ churn watch come with M8a and the release workflow.
   `m8-hud` needs `--canvas` and a scene with Player One's token, and says it was skipped without one. Encounters are made of
   token-less combatants, so the turn plans need no scene either; Duct Tape is a stand-in package entry on each client when it
   is not installed.
+- As built in M8a: scenario `m8a` (`tools/harness/affliction-scenarios.mjs`) and the behaviours `m8a-strike`, `m8a-cloud`,
+  `m8a-once`, `m8a-powerful`, `m8a-timing`, `m8a-forge`, `m8a-backends`, `m8a-panel`, `m8a-familiar` and `m8a-shots`, described in
+  10.15; not run yet. They are scenario 12 of the list above. `m8a-strike` needs `--canvas` (a Strike's target is a token) and
+  says it was skipped without one; Affliction Forge is a stand-in package entry on each client when it is not installed, which
+  throws on a player's client as its engine does.
 - As built after the first live runs: the scenario steps were fixed where they, not the module, failed. `purseAfter`
   counts the rows that are new since `purseBefore` by id, not by a server-time cut-off (two devices' estimates of
   the server's time differ by milliseconds, and one real row was left out); the `claim` step reports its own rows
@@ -6464,7 +6677,7 @@ draft; the letters keep the existing milestone numbers stable.
 | M6 | Downtime | per-PC status, clock accrual and prompts, day resolver, Advance days wizard, Communal Crafting helpers, Earn Income jobs, settlement profiles; built, live plans not yet run (10.12) | M4 |
 | M7 | Morning | daily sources panel, loadouts, standing orders, Talisman Dabbler and Esoterica lists, the Dabbler DC stamp, affix records, party-wide expiry, rest ordering, pf2e-dailies custom daily; built, live plans not yet run (10.13) | M5 |
 | M8 | Combat | Bandolier, HUD palette, Quick Alchemy panel, quick vials, Quick Bomber, Healing Bomb, additives, vial gathering, turn expiry, Duct Tape step-aside, Use best consumable; built, live plans not yet run (10.14) | M7 |
-| M8a | Afflictions | 8.10: the affliction rules engine with tests; the parser, `scripts/data/afflictions.mjs` overrides and the corpus check in the validation script; backend detection, the effect backend and the native backend with its constraints and migration; grant flags and the stage guard; exposure and coating-spend claims; coatings and Strike handling; saves (with the source item, for incapacitation), recording and pending state; turn and world-time timing, catch-up and the affliction time function for logged days; the DC stamp at creation; Afflictions drawer and cards; Affliction Forge coexistence and the GM-routed hand-off; harness scenario 12 | M3 (validation script, roll recording), M6 (day resolver for logged days), M7 (creation stamps, infused expiry), M8 (Bandolier entry point) |
+| M8a | Afflictions | 8.10: the affliction rules engine with tests; the parser, `scripts/data/afflictions.mjs` overrides and the corpus check in the validation script; backend detection, the effect backend and the native backend with its constraints and migration; grant flags and the stage guard; exposure and coating-spend claims; coatings and Strike handling; saves (with the source item, for incapacitation), recording and pending state; turn and world-time timing, catch-up and the affliction time function for logged days; the DC stamp at creation; Afflictions drawer and cards; Affliction Forge coexistence and the GM-routed hand-off; harness scenario 12; built, live plans not yet run (10.15) | M3 (validation script, roll recording), M6 (day resolver for logged days), M7 (creation stamps, infused expiry), M8 (Bandolier entry point) |
 | M9 | Tattoos and remaining crafts | tattoo process and toggle, grafts, spellhearts, fulus, missives, snares and gadgets specifics, spell-supplied items beyond scrolls and wands | M5, M6 |
 | M9a | Treasure Vault (Remastered) variants | 6.16 behind their settings: Complex Crafting and Quick Setup (setup, rush, sub-day setups, rushed finishing), crafting with adjustments, downtime events, Critical Crafting, Deconstruct and components, Grow with untended growth and seasons, gardens, bestowed gifts, crafting quests; the one-group-at-a-time notice; harness scenario 13 | M5 (service orders, materials, Repair), M6 (day resolver, seasons, events), M7 (expiry stamps and the inert guard for produce, components and gifts) |
 | M10 | Extension API | registration, interfaces, hooks, extension store; the separate circus module built against it as acceptance test | M6 |

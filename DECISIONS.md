@@ -2,6 +2,31 @@
 
 Newest first.
 
+## 2026-10-27: The affliction tracker as built (M8a)
+
+**Decision:** six rules settled while building 8.10 (DESIGN 10.15):
+
+- The Afflictions "drawer" is a window of its own, opened from the Workshop header's pending count, the Bandolier, the API and
+  the cards, not a panel inside the Workshop.
+- An override may mark stages whose remaining text is for the table (`prose`): a reviewed acceptance, numbers only. The corpus
+  check counts it as covered; the window shows that stage's own paragraph from the installed compendium. `reExposure` takes
+  `reset-max` (Toiler's Gruel) and `table` (Grolna, whose rule is the table's) beside `none`.
+- Spells and creature abilities with stages are in the corpus and can be started with Expose: a spell's save is its defense,
+  against its caster's spell DC, and a creature ability's blank DC is its creature's; either is typed on the Expose.
+- A stage interval an item leaves out is one round when its maximum duration is in rounds; weeks, months and years are 7, 30 and
+  365 days.
+- Catch-up's `pause` stops after the first automatic save of a chain (the one that fell due), `roll-each` after
+  `afflictions.catchUpLimit`; a save rolled by hand starts the count again.
+- A re-exposure whose affliction ended before its save was recorded starts the affliction again, as a new initial exposure.
+
+**Why:** a window can stay open beside an encounter and opens from places the Workshop is not; most unread stage text is prose no
+number can carry (item bonuses, choices, death), and the rules engine runs the rest; the system packs give spells and abilities the
+same stage paragraphs; pf2e's effect units stop at days; a time skip should not roll a pile of saves unseen, but one save that is
+simply due in combat must not stop; an exposure applied to nothing would otherwise leave a tracker that never ends.
+
+**Consequences:** DESIGN 8.10 (As built in M8a), 10.15 and its follow-ups; `scripts/data/afflictions.mjs` holds 110 overrides
+and 5 ignored items against pf2e-8.6.1, checked in CI.
+
 ## 2026-10-27: Combat alchemy after the second M8 review
 
 **Decision:** five rules for combat alchemy (DESIGN 8, 10.14 After the second M8 review):

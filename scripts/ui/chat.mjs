@@ -403,7 +403,7 @@ function orderOfMessage(message) {
  * too), or in the popout alone. A message shown nowhere is left alone: `updateMessage` would post it at the bottom of the
  * log, out of order, and the log renders it from the ledger as it is when it gets there.
  */
-function rerenderShown(message) {
+export function rerenderShown(message) {
     const selector = `.message[data-message-id="${message.id}"]`;
     if (ui.chat.element?.querySelector(selector)) return ui.chat.updateMessage(message);
     const popout = ui.chat.popout;

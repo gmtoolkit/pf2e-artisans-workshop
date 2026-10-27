@@ -66,6 +66,8 @@ const KINDS = {
     gather: (e) => Number.isInteger(e.per10) && e.per10 > 2,
     quickVial: (e) => e.quickened === true,
     quickBomber: () => true,
+    // M8a (8.10.4-8.10.6).
+    afflictionModifier: (e) => typeof e.mod === "string" && ["creator", "deliverer", "victim", "additive"].includes(e.as) && (e.when === undefined || typeof e.when === "object"),
 };
 
 test("every entry has the schema of scripts/data/registry.mjs, tier 4 exactly for legacy entries", () => {
