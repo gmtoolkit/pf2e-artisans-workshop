@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ARCHIVE_THRESHOLDS, archivePageId, archiveSlotId, archivedRecords, carryRows, planArchive } from "../../scripts/logic/archive.mjs";
 import { fundAccounts, fundDebitCount, fundSlotLockId, unallocatedCp } from "../../scripts/logic/funds.mjs";
+import { hashId } from "../../scripts/logic/ids.mjs";
 import { jobLogLockId } from "../../scripts/logic/jobs.mjs";
 import { logLockId } from "../../scripts/logic/orders.mjs";
 import { memberBalances } from "../../scripts/logic/reconcile.mjs";
@@ -89,7 +90,10 @@ test("a closed, settled, old order moves with its rows, claims and days; the fun
     assert.equal(fundSlotLockId(now), fundSlotLockId(before));
     assert.equal(fundAccounts(now).balanced, true, "the Funds tab's identity holds");
     assert.equal(p.change.replace["meta.archive"].runs, 1);
-    assert.deepEqual(p.locks, [archiveSlotId(0), logLockId("o1", 4), logLockId("o2", 4)], "the run's slot, then each order's next log slot");
+    const reversals = lists.rows.slice(0, 3).map((r) => `reversal:${r.id}`);
+    assert.deepEqual(p.locks, [archiveSlotId(0), logLockId("o1", 4), logLockId("o2", 4), ...reversals.map(hashId)],
+        "the run's slot, each order's next log slot, then the reversal row id of each fund row a reversal could still take back");
+    assert.deepEqual(Object.values(p.keys), reversals, "keyed, so the pruner knows them");
     assert.ok(p.lockPages.includes(lists.rows[0].id), "the archived rows' lock pages go with them");
     assert.ok([...p.years.keys()].every((y) => y === 0), "day 200 is in the first world year");
     assert.equal(p.years.get(0).orders.o1.id, "o1");
@@ -148,6 +152,20 @@ test("the fund's rows: a reversal moves only with the row it reverses; rows an o
     assert.ok(!plan(toFlags({ ...lists, rows: [...lists.rows, ext] })).rows.includes(ext.id), "an extension's row: its day records say what it owes");
     const fresh = row({ kind: "deposit", idem: "deposit:fund:A:n9", cp: 5, actor: A }, TODAY - 59);
     assert.ok(!plan(toFlags({ ...lists, rows: [...lists.rows, fresh] })).rows.includes(fresh.id), "younger than the row age");
+});
+
+test("a service's payment row stays while the service is in the ledger: its cancel refunds it from the live row", () => {
+    const lists = campaign();
+    // A formula copy paid for from the party fund, and one from a purse (`purchaseInputs`), 185 days ago; the services stay open.
+    const fromFund = row({ kind: "purchase", how: { via: "box" }, idem: "purchase:formula-copy:s1:n1", cp: 50, actor: null }, 15);
+    const fromPurse = row({ kind: "purchase", how: { via: "purse" }, idem: "purchase:formula-copy:s2:n2", cp: 50, actor: A }, 15);
+    const service = (id, paid, source) => ({ id, v: 1, kind: "formula-copy", status: "open", payment: { row: paid.id, source, cp: 50 }, ...on(15) });
+    const flags = { ...toFlags({ ...lists, rows: [...lists.rows, fromFund, fromPurse] }),
+        services: { s1: service("s1", fromFund, "fund"), s2: service("s2", fromPurse, "purse") } };
+    const p = plan(flags);
+    assert.ok(!p.rows.includes(fromFund.id) && !p.rows.includes(fromPurse.id), "both payments stay live");
+    assert.ok(p.rows.includes(lists.rows[0].id), "the fund's other old rows still move");
+    assert.ok(plan({ ...flags, services: {} }).rows.includes(fromFund.id), "with no service naming it, an old purchase moves");
 });
 
 test("a job moves only once ended with every day paid; a PC's latest day record and an extension run's days stay", () => {

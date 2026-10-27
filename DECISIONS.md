@@ -2,6 +2,26 @@
 
 Newest first.
 
+## 2026-10-27: What pruning depends on, and what an archive run guards (M12b review)
+
+**Decision:**
+
+- A client whose connection drops at all stops writing until it reloads (stale cause "dropped"), not only when a request was out.
+  Pruning removed the server's refusal of a request planned from a copy that missed broadcasts (its pages existed for ever before
+  M12b), and Foundry 14.368 reloads only after 5 s offline, so a short drop or a laptop waking from sleep left such a copy writable.
+- An archive run's request creates a page of its own in the Crafting Log (`archive-run`, one per run and attempt, never deleted),
+  so the same run planned again from a copy that missed it is refused however late; its ledger slot stays an "age" page.
+- A run takes the reversal row id of every fund row it moves that could still be reversed, so a Funds-tab reversal and the run
+  never both land; and it never moves a service's payment row, which a cancel refunds from the live ledger.
+
+**Why:** the review's probes showed each of these landing: a stale cancel rewriting a log entry and a stale resume moving a purse
+twice; a replayed run re-creating folded carry rows (every total twice); a reversal after the run leaving the member half the fund;
+an open service's cancel refunding nothing. Keeping each landed run's slot in the ledger would also have refused the replay, but it
+adds a lock page per run for ever, and lock pages are what every write pays for (15.7); the Crafting Log is written only by runs.
+
+**Consequences:** DESIGN 5.3.3 and 5.4 (As built in M12b: the run's page, the reversal guard, Races), 15.7 Follow-ups (the
+review's low findings); a new notice string (`Sync.Stale.Dropped`) and page name (`Archive.RunPageName`).
+
 ## 2026-10-27: Archiving and lock pruning (M12b)
 
 **Decision:** how the ledger is kept small (DESIGN 5.3.3 and 5.4, As built in M12b; OQ-36):

@@ -9,7 +9,7 @@
  *   rows, its claims and its day records;
  * - an ended Earn Income job whose every day is paid and whose claims are resolved, with its rows, claims and day records;
  * - the party fund's own rows (no order, garden, job or extension source), applied, a reversal only with the row it reverses,
- *   none an open order's log names (its undo reverses them);
+ *   none an open order's log names (its undo reverses them), nor a live service's payment (its cancel refunds it);
  * - day records of nothing still live, and resolved claims of nothing still live, past the row age.
  * What stays: every PC's latest day record (`resolvedThrough` is derived from them, 4.8), extension runs and rows (their day
  * records say what they owe, 12.6), gardens, services and everything else.
@@ -20,13 +20,15 @@
  * and `fundDebits`, the fund rows that took money out, so the fund slot's number never goes back (`fundDebitCount`). Each run
  * folds the carry rows already there into its own, so there is one per actor however many runs there were.
  *
- * A run is one request (`scripts/foundry/housekeeping.mjs`), in this order: its lock pages, the Crafting Log's pages, then the
- * ledger update that writes the carry rows and deletes the archived records, then the deletion of the archived rows' lock
- * pages. Its lock pages are the run's slot (`archive:<runs>`, `meta.archive.runs` before it), so of two runs planned from the
- * same copy only one lands, and the next log slot of every order and job it archives, so an undo or any other transition
- * planned from a copy that still had them open cannot land with it (an order reopened by undo is not archived; one archived
- * is not reopened). A run that stops after its lock leaves the records live and its slot taken; the slot is an "age" lock
- * page, so the pruner frees it (5.4) and the next run repeats the work.
+ * A run is one request (`scripts/foundry/housekeeping.mjs`), in this order: its lock pages, the Crafting Log's pages (the run's
+ * own page first, `archiveRunPageId`), then the ledger update that writes the carry rows and deletes the archived records, then
+ * the deletion of the archived rows' lock pages. Its lock pages are the run's slot (`archive:<runs>`, `meta.archive.runs`
+ * before it), so of two runs planned from the same copy only one lands; the next log slot of every order and job it archives,
+ * so an undo or any other transition planned from a copy that still had them open cannot land with it (an order reopened by
+ * undo is not archived; one archived is not reopened); and the row id of the reversal of every fund row it moves that could
+ * still be reversed (`reversal:<row>`), so a Funds-tab reversal and the run cannot both land. A run that stops after its lock
+ * leaves the records live and its slot taken; the slot is an "age" lock page, so the pruner frees it (5.4) and the next run
+ * repeats the work. The run's own page in the Crafting Log is never pruned: a run planned again from a stale copy is refused.
  */
 import { compareRows, liveRows, stampTime } from "./core.mjs";
 import { isDayRecord } from "./downtime.mjs";
@@ -37,6 +39,7 @@ import { isPlainObject, liveRecords } from "./keypath.mjs";
 import { lockIdOf } from "./locks.mjs";
 import { lastEntry, logLockId } from "./orders.mjs";
 import { makeRow } from "./rows.mjs";
+import { REVERSIBLE_KINDS } from "./views.mjs";
 
 /** OQ-36's archive ages, in workshop days, and the real age nothing younger than is archived (ms, on the server's clock). */
 export const ARCHIVE_THRESHOLDS = Object.freeze({ orderDays: 30, rowDays: 60, minRealMs: 24 * 60 * 60 * 1000 });
@@ -55,6 +58,34 @@ export const archivePageId = (year) => hashId(idemKey("archive-year", year));
 
 /** The lock page of an archive run's slot: the number of runs before it (`meta.archive.runs`). */
 export const archiveSlotId = (runs) => lockIdOf("archive", runs);
+
+/**
+ * The Crafting Log's page that records one archive run (5.3.3, As built in M12b: a run planned from a stale copy). The run's
+ * request creates it, with its id kept, before the ledger update, so the server refuses at its dry run any later request that
+ * names it. The run's slot in the ledger (`archiveSlotId`) is an "age" lock page the pruner deletes after `PRUNE_AGE_MS`; this
+ * page is never deleted, so a run planned again from a copy that missed it is refused however late it comes, and none of it
+ * costs a ledger write anything. `attempt`: a run that stopped after this page and before its ledger update left
+ * `meta.archive.runs` where it was, so the next try at the same run takes the next attempt's page (`archiveRunAttempt`).
+ */
+export const archiveRunPageId = (runs, attempt) => hashId(idemKey("archive-run", runs, attempt));
+
+/** The first attempt at run `runs` whose page `has` (a copy of the Crafting Log's pages) does not find. */
+export function archiveRunAttempt(runs, has) {
+    let attempt = 0;
+    while (has(archiveRunPageId(runs, attempt))) attempt += 1;
+    return attempt;
+}
+
+/**
+ * A run's page in the Crafting Log (`archiveRunPageId`): which run, which attempt, what it moved. Hidden from players (the
+ * year pages hold the records; ownership NONE over the journal's OBSERVER).
+ */
+export function archiveRunPageData(runs, attempt, { name, counts, stamp }) {
+    return {
+        _id: archiveRunPageId(runs, attempt), name, type: "text", ownership: { default: 0 },
+        flags: { "pf2e-artisans-workshop": { role: "archive-run", v: ARCHIVE_PAGE_VERSION, run: runs, attempt, counts, by: stamp.by, at: stamp.at } },
+    };
+}
 
 /** Fund rows that change a member's claim on the fund (as `memberBalances` counts them). */
 const FUND_SHARE_KINDS = Object.freeze(["deposit", "withdraw", "refund"]);
@@ -91,8 +122,9 @@ export const yearOf = (day, daysPerYear = 365) => Math.floor((Number.isInteger(d
  * @returns {{empty: boolean, runs: number, slot: string, locks: string[], keys: object, orders: string[], jobs: string[],
  *            rows: string[], days: string[], claims: string[], stubs: string[], carries: object[], folded: string[],
  *            years: Map<number, object>, change: {set: object, replace: object, del: string[]}, lockPages: string[]}}
- *          `locks`: the run's lock pages (its slot, then the log slots); `lockPages`: the lock pages of the archived rows and
- *          claims (their own, apply marks, re-creation locks) to delete if they exist; `years`: each world year's records
+ *          `locks`: the run's lock pages (its slot, the log slots, then the reversal row ids of the fund rows it moves that could
+ *          still be reversed, whose keys are in `keys`); `lockPages`: the lock pages of the archived rows and claims (their own,
+ *          apply marks, re-creation locks) to delete if they exist; `years`: each world year's records
  */
 export function planArchive({ flags, today, now, dayOf, held = new Set(), stamp, thresholds = ARCHIVE_THRESHOLDS, daysPerYear = 365, limit = ARCHIVE_RUN_LIMIT }) {
     const t = { ...ARCHIVE_THRESHOLDS, ...thresholds };
@@ -170,12 +202,14 @@ export function planArchive({ flags, today, now, dayOf, held = new Set(), stamp,
     const staysOrder = (id) => typeof id === "string" && liveOrderIds.has(id) && !archivedOrders.has(id);
     const staysJob = (id) => typeof id === "string" && liveJobIds.has(id) && !archivedJobs.has(id);
 
-    // Rows an order that stays names in its log (an undo reverses them).
+    // Rows an order that stays names in its log (an undo reverses them), and a service's payment (a cancel refunds it,
+    // `refundPayment`, which reads the live row; services are never archived).
     const named = new Set();
     for (const order of live.orders) {
         if (archivedOrders.has(order.id)) continue;
         for (const entry of Object.values(order.log ?? {})) for (const id of isPlainObject(entry) ? entry.rows ?? [] : []) named.add(id);
     }
+    for (const service of liveRecords(flags?.services)) if (typeof service.payment?.row === "string") named.add(service.payment.row);
 
     // The party fund's own rows, a reversal only with the row it reverses.
     const reversalOf = new Map(live.rows.filter((r) => r.kind === "reversal" && r.reverses).map((r) => [r.reverses, r.id]));
@@ -264,8 +298,17 @@ export function planArchive({ flags, today, now, dayOf, held = new Set(), stamp,
     for (const c of claims) put(yearFor(c, dayOfAt(c.resolved?.at ?? c.at)), "claims", c);
 
     const slot = archiveSlotId(runs);
+    // The fund's rows a Funds-tab reversal could still take back (`canReverse`): the run takes each one's reversal row id, which
+    // the reversal's own lock request takes too, so of the two only the first lands. Otherwise a reversal landing after the run
+    // would leave the row it reverses counted in a carry row's `share`, and the member's balance with it.
+    const keys = {};
+    for (const row of rows) {
+        if (!fundIds.has(row.id) || !REVERSIBLE_KINDS.includes(row.kind) || row.reversedBy || reversalOf.has(row.id)) continue;
+        const key = `reversal:${row.id}`;   // `reversalRow`'s idempotency key, whose hash is the reversal's row id
+        keys[hashId(key)] = key;
+    }
     const locks = [slot, ...keptOrders.map((o) => logLockId(o.id, (lastEntry(o)?.seq ?? 0) + 1)),
-        ...keptJobs.map((j) => jobLogLockId(j.id, (jobLog(j).at(-1)?.seq ?? 0) + 1))];
+        ...keptJobs.map((j) => jobLogLockId(j.id, (jobLog(j).at(-1)?.seq ?? 0) + 1)), ...Object.keys(keys)];
     const del = [
         ...keptOrders.map((o) => `orders.${o.id}`), ...keptJobs.map((j) => `jobs.${j.id}`), ...rows.map((r) => `rows.${r.id}`),
         ...foldedIds.map((id) => `rows.${id}`), ...days.map((d) => `days.${d.id}`), ...claims.map((c) => `claims.${c.id}`), ...stubs,
@@ -281,7 +324,7 @@ export function planArchive({ flags, today, now, dayOf, held = new Set(), stamp,
         ...claims.map((c) => c.id),
     ])];
     return {
-        empty, runs, slot, locks, orders: keptOrders.map((o) => o.id), jobs: keptJobs.map((j) => j.id), rows: [...rowIds],
+        empty, runs, slot, locks, keys, orders: keptOrders.map((o) => o.id), jobs: keptJobs.map((j) => j.id), rows: [...rowIds],
         days: [...dayIds], claims: claims.map((c) => c.id), stubs, carries, folded: foldedIds, years, change, lockPages, counts,
         more: keptOrders.length < orders.length || keptJobs.length < jobs.length || budget <= 0,
     };

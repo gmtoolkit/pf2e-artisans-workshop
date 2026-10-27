@@ -189,6 +189,15 @@ export function preflight(operations) {
 const LOST = Symbol("lost");
 const TIMED_OUT = Symbol("timed out");
 
+let out = 0;
+
+/**
+ * How many requests this client is waiting to hear back about (`awaitAnswer`). A connection that drops while one is out
+ * makes this client stale with the cause that says so ("disconnected"); the sync's own listener (`sync.mjs`) covers a drop
+ * with none out ("dropped").
+ */
+export const requestsOut = () => out;
+
 /**
  * The answer `promise` resolves to; or LOST if the connection drops first, since socket.io then drops the
  * acknowledgement of every request in flight (socket.io-client 4.8 `Socket#_clearAcks`, called on "disconnect");
@@ -198,12 +207,14 @@ const TIMED_OUT = Symbol("timed out");
 function awaitAnswer(promise) {
     let timer;
     let onDisconnect;
+    out += 1;
     const lost = new Promise((resolve) => {
         onDisconnect = () => resolve(LOST);
         game.socket?.on("disconnect", onDisconnect);
     });
     const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(TIMED_OUT), ANSWER_LIMIT_MS); });
     return Promise.race([promise, lost, timeout]).finally(() => {
+        out -= 1;
         clearTimeout(timer);
         game.socket?.off("disconnect", onDisconnect);
     });

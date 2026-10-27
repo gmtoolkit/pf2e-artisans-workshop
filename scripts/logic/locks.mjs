@@ -86,7 +86,9 @@ export const kindOfKey = (key) => String(key).split(":")[0];
 /**
  * How each keyed kind is pruned once old (`pruneVerdict`). Unknown kinds are kept.
  * - "age": a race guard on a counter or a moment that only moves forward (a log slot, a fund slot, a PC's days from a day,
- *   a gathering at one world time, a cycle raised from a number); once old, the live data names the next slot.
+ *   a gathering at one world time, a cycle raised from a number), or on a row an archive run moved (`reversal`: its reversal's
+ *   row id, so a reversal planned before the run cannot land after it); once old, the live data names the next slot, or the
+ *   row is no longer there to plan from.
  * - "row": an apply mark or a re-creation lock: kept while its row is pending.
  * - "stack": a purse stack at one version: kept while the stack is still at that version (a move stopped on it).
  * - "cycle": a cycle's preparations or standing deliveries: kept while that cycle is the character's current one.
@@ -97,7 +99,7 @@ export const kindOfKey = (key) => String(key).split(":")[0];
  */
 export const LOCK_RULES = Object.freeze({
     log: "age", "job-log": "age", "fund-slot": "age", "fund-return-slot": "age", "garden-slot": "age", days: "age",
-    gather: "age", cycle: "age", archive: "age", "give-back": "age", service: "age",
+    gather: "age", cycle: "age", archive: "age", "give-back": "age", service: "age", reversal: "age",
     apply: "row", recreate: "row",
     stack: "stack",
     prep: "cycle", standing: "cycle",

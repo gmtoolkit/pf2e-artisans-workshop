@@ -21,7 +21,7 @@
  */
 import { MODULE_ID } from "../constants.mjs";
 import { compareIds } from "../logic/ids.mjs";
-import { registerBatchWatcher } from "./batch.mjs";
+import { registerBatchWatcher, requestsOut } from "./batch.mjs";
 import { sweepWages } from "./downtime.mjs";
 import { sweepExtRows } from "./extensions.mjs";
 import { expirySweep } from "./expiry.mjs";
@@ -43,7 +43,7 @@ import { registerRollHooks } from "./rolls.mjs";
 import { publishAll, registerRosterHooks } from "./roster.mjs";
 import { isEnabled, registerSettings } from "./settings.mjs";
 import { gmMaintenance, locateShared } from "./shared-docs.mjs";
-import { canWrite, setShared, shared, status } from "./state.mjs";
+import { canWrite, markStale, setShared, shared, status } from "./state.mjs";
 
 /** The sweep waits this long after a change, plus `SWEEP_STAGGER_MS` for each connected user ahead of this one. */
 export const SWEEP_DELAY_MS = 500;
@@ -125,6 +125,21 @@ export function initSync() {
     Hooks.on("deleteActor", (doc) => onSharedDelete(doc));
     Hooks.on("createItem", (item) => onStrongboxItem(item));
     Hooks.on("userConnected", () => onUserConnected());
+    game.socket?.on("disconnect", () => onDisconnect());
+}
+
+/**
+ * The connection dropped (5.4, As built in M12b: Races). What the server broadcast while it was down never reaches this
+ * client, and Foundry 14.368 reloads only a client that was disconnected for 5 s or more, timed from when it noticed the drop
+ * (`client/game.mjs`, the "reconnect" handler): a shorter drop, or a laptop waking from sleep (the drop is noticed on waking,
+ * the reconnection takes half a second, the server had let the client go long before), leaves this client's copies behind
+ * the server's while it could still write. A request planned from them can name lock pages the pruner has since deleted,
+ * which the server would then no longer refuse; so this client stops writing until it reloads. A request out at the time
+ * makes it stale with the cause that says so (`batch.mjs`, "disconnected"). With the master switch off nothing writes.
+ */
+function onDisconnect() {
+    if (!isEnabled() || requestsOut() > 0) return;
+    markStale("dropped");
 }
 
 /** `ready`: ask for the lease (when it is granted, this tab checks again and sweeps), then check the shared documents. */

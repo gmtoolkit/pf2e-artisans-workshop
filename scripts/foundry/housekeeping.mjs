@@ -7,8 +7,10 @@
  *   is older than `PRUNE_AGE_MS` and what it guards says the same thing on every client, and never while a move it belongs to
  *   is pending or resumable, nor a stack lock while the stack is still at the version a move planned from.
  * - Archiving waits for a GM: the Crafting Log is GM-owned (players read it), so only a GM writes it. The plan is pure
- *   (`planArchive`, `scripts/logic/archive.mjs`); the run is one request: its lock pages (the run's slot and the next log slot
- *   of every order and job it moves), the log's pages, then the ledger update that writes the carry rows and deletes what moved.
+ *   (`planArchive`, `scripts/logic/archive.mjs`); the run is one request: its lock pages (the run's slot, the next log slot of
+ *   every order and job it moves, the reversal row id of every fund row it moves that could still be reversed), the log's
+ *   pages (the run's own page first, which is never pruned), then the ledger update that writes the carry rows and deletes what
+ *   moved.
  *   The lock pages of the rows that moved are pruned right after, in a request of their own: a page some other client pruned
  *   meanwhile would make the server refuse the whole run at its dry run.
  *
@@ -16,7 +18,9 @@
  * tab is elected, and soon after a lock page takes the ledger past `LOCK_PAGE_BOUND`.
  */
 import { MODULE_ID } from "../constants.mjs";
-import { ARCHIVE_THRESHOLDS, ARCHIVED, archivePageData, archivePageId, archivePageUpdate, archivedRecords, planArchive } from "../logic/archive.mjs";
+import {
+    ARCHIVE_THRESHOLDS, ARCHIVED, archivePageData, archivePageId, archivePageUpdate, archiveRunAttempt, archiveRunPageData, archivedRecords, planArchive,
+} from "../logic/archive.mjs";
 import { stampTime } from "../logic/core.mjs";
 import { clockDayOf } from "../logic/downtime.mjs";
 import { hashId, idemKey } from "../logic/ids.mjs";
@@ -140,15 +144,19 @@ export async function archiveRun({ now = serverNow(), today: day = null, thresho
     const plan = planArchive({ flags: ledger.flags?.[MODULE_ID] ?? {}, today: day ?? today().day, now, dayOf, held: heldOrders(strongbox), stamp,
         thresholds, daysPerYear: daysPerYear(), ...(limit ? { limit } : {}) });
     if (plan.empty) return { ok: true, outcome: "nothing", counts: plan.counts };
-    const creates = [];
+    // The run's own page first: it exists for good once the run's request has landed, so the same run planned again from a
+    // copy that missed it is refused at the server's dry run, long after its slot in the ledger is pruned.
+    const attempt = archiveRunAttempt(plan.runs, (id) => log.pages.has(id));
+    const creates = [archiveRunPageData(plan.runs, attempt, { name: game.i18n.format("pf2e-artisans-workshop.Archive.RunPageName", { run: String(plan.runs + 1) }),
+        counts: plan.counts, stamp })];
     const updates = [];
     for (const [year, records] of plan.years) {
         if (log.pages.has(archivePageId(year))) updates.push(archivePageUpdate(year, records, { stamp }));
         else creates.push(archivePageData(year, records, { name: game.i18n.format("pf2e-artisans-workshop.Archive.PageName", { year: String(year + 1) }), stamp }));
     }
     const result = await runRequest([
-        { op: "lock", ids: plan.locks },
-        ...(creates.length ? [{ op: "createPages", target: "archive", data: creates }] : []),
+        { op: "lock", ids: plan.locks, keys: plan.keys },
+        { op: "createPages", target: "archive", data: creates },
         ...(updates.length ? [{ op: "updatePages", target: "archive", updates }] : []),
         { op: "ledger", change: plan.change },
     ], { ...shared(), archive: log });

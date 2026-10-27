@@ -13,13 +13,16 @@ import {
 
 installFoundry();
 const { holdingsOf, valueCp } = await import("../../scripts/logic/coins.mjs");
-const { archivePageData } = await import("../../scripts/logic/archive.mjs");
+const { archivePageData, archiveRunPageId, archiveSlotId } = await import("../../scripts/logic/archive.mjs");
+const { hashId } = await import("../../scripts/logic/ids.mjs");
+const { memberBalances } = await import("../../scripts/logic/reconcile.mjs");
 const { applyMarkId } = await import("../../scripts/logic/lock-first.mjs");
 const { PRUNE_AGE_MS } = await import("../../scripts/logic/locks.mjs");
 const { logLockId } = await import("../../scripts/logic/orders.mjs");
 const { fundsView } = await import("../../scripts/logic/views.mjs");
 const { registerBatchWatcher } = await import("../../scripts/foundry/batch.mjs");
 const claims = await import("../../scripts/foundry/claims.mjs");
+const funds = await import("../../scripts/foundry/funds.mjs");
 const { coinStacks, setCoinTemplates } = await import("../../scripts/foundry/coins.mjs");
 const housekeeping = await import("../../scripts/foundry/housekeeping.mjs");
 const { requestLease, resetLease } = await import("../../scripts/foundry/lease.mjs");
@@ -39,6 +42,8 @@ const realNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
 const silence = (t) => { for (const level of ["warn", "error", "info", "table"]) t.mock.method(console, level, () => {}); };
 const flush = async () => { for (let i = 0; i < 50; i++) await new Promise((resolve) => setImmediate(resolve)); };
 const lockOf = (id) => docs.ledger.pages.get(id)?.flags[MOD].lock;
+/** The Crafting Log's pages of a role: "archive-page" (a world year's records) or "archive-run" (one per run that landed). */
+const logPages = (role) => log.pages.filter((p) => flagsOf(p).role === role);
 
 let docs;
 let log;
@@ -197,7 +202,7 @@ test("an archive run while a refund waits to be resumed leaves its order; once r
     const report = reconciliationReport();
     assert.deepEqual([report.differenceCp, report.pending.length], [0, 0], "reconciliation still balances");
     assert.equal(report.expectedCp, cpOf(docs.strongbox));
-    const page = log.pages.contents[0];
+    const [page] = logPages("archive-page");
     assert.equal(flagsOf(page).orders.o1.id, "o1", "the order is in the Crafting Log");
     assert.ok(flagsOf(page).rows[refund.id]);
     assert.deepEqual(housekeeping.archived("orders").map((o) => o.id), ["o1"]);
@@ -232,8 +237,8 @@ test("two archivers at once from the same copy: one run lands, the other is refu
     } finally {
         restore();
     }
-    assert.equal(log.pages.size, 1);
-    assert.deepEqual(Object.keys(flagsOf(log.pages.contents[0]).orders), ["o1"]);
+    assert.deepEqual([logPages("archive-page").length, logPages("archive-run").length], [1, 1]);
+    assert.deepEqual(Object.keys(flagsOf(logPages("archive-page")[0]).orders), ["o1"]);
     assert.equal(read("meta.archive.runs"), 1);
     assert.equal(reconciliationReport().differenceCp, 0);
 });
@@ -269,6 +274,130 @@ test("two archivers whose copies disagree: the run that sees more lands, the oth
     assert.deepEqual([carry.box, carry.share], [300, 300], "Vera's carry row holds both deposits: the stale run did not overwrite it");
     assert.equal(reconciliationReport().expectedCp, expected, "the expected coins did not move");
     assert.equal((await housekeeping.archiveRun({ now: late, today: 100 })).outcome, "nothing", "nothing is left to move twice");
+});
+
+/** Each member's balance (5.9), by actor UUID: their share of the party fund, and Bo's 5 gp earmarked for o1. */
+const balances = () => Object.fromEntries(memberBalances(records("rows")).byActor.map((b) => [b.actor, b.cp]));
+
+/** Vera's two deposits, a day apart, judged half a day after the second: the first is past the real-day floor, the second not. */
+async function twoDeposits(clock) {
+    await asUser("p1", () => funds.deposit(vera.uuid, 200))();
+    clock.server += DAY_MS;
+    await asUser("p1", () => funds.deposit(vera.uuid, 100))();
+    world.currentUser = GM;
+    resetLease();
+    requestLease(GM);
+    // An earlier run's page for this world year: the runs add to it, so the year page does not refuse a run a second time.
+    await log.createEmbeddedDocuments("JournalEntryPage", [archivePageData(0, { orders: {}, rows: {}, days: {}, claims: {}, jobs: {} },
+        { name: "Year 1", stamp: { by: GM, at: {} } })], { keepId: true });
+    clock.server += DAY_MS / 2;
+}
+
+test("a run planned again from a copy that missed it is refused however late, its slot in the ledger long pruned", async (t) => {
+    silence(t);
+    const clock = controlClock(t);
+    await twoDeposits(clock);
+    const before = world.batches.length;
+    const run0 = await housekeeping.archiveRun({ now: serverNow(), today: 100 });   // the first deposit only
+    assert.deepEqual([run0.outcome, run0.counts.rows], ["ok", 1]);
+    assert.ok(log.pages.has(archiveRunPageId(0, 0)), "the run's own page in the Crafting Log");
+    const replay = world.batches.slice(before).find((ops) => ops.some((op) => op.parent === log)).map((op) => ({
+        ...op, ...(op.data ? { data: op.data.map((d) => structuredClone(d)) } : {}), ...(op.updates ? { updates: op.updates.map((u) => ({ ...u })) } : {}),
+    }));
+    clock.server += DAY_MS;
+    const run1 = await housekeeping.archiveRun({ now: serverNow(), today: 100 });   // the second deposit; folds run 0's carry row
+    assert.deepEqual([run1.outcome, read("meta.archive.runs")], ["ok", 2]);
+    clock.server += PRUNE_AGE_MS + 60 * 1000;
+    await housekeeping.pruneLocks();
+    assert.ok(!docs.ledger.pages.has(archiveSlotId(0)) && !docs.ledger.pages.has(archiveSlotId(1)), "both runs' slots are pruned");
+    const carries = () => records("rows").filter((r) => r.kind === "carry").map((r) => [r.idem, r.box, r.share]);
+    const expected = reconciliationReport().expectedCp;
+    assert.deepEqual(carries(), [[`carry:${vera.uuid}:1`, 300, 300]]);
+
+    // A GM's client whose copy missed run 0 (a laptop asleep through it) plans run 0 again: the same request reaches the server.
+    await foundry.documents.modifyBatch(replay);
+    assert.deepEqual(carries(), [[`carry:${vera.uuid}:1`, 300, 300]], "run 0's carry row is not back beside the one that folded it");
+    assert.equal(read("meta.archive.runs"), 2, "the run count does not go back");
+    assert.equal(reconciliationReport().expectedCp, expected);
+    assert.equal(reconciliationReport().differenceCp, 0);
+    assert.deepEqual(balances(), { [vera.uuid]: 300, [bo.uuid]: 500 });
+});
+
+test("a run that stopped after its Crafting Log write is tried again, once the pruner frees its slot, as the run's next attempt", async (t) => {
+    silence(t);
+    const clock = controlClock(t);
+    await twoDeposits(clock);
+    // The ledger update fails at the server: the run's page and its records' copies are in the Crafting Log, the ledger as it was.
+    world.server.beforeApply = (i, op) => {
+        if (op.documentName === "JournalEntry") world.collections.JournalEntry.delete(docs.ledger.id);
+    };
+    let stopped;
+    try {
+        stopped = await housekeeping.archiveRun({ now: serverNow(), today: 100 });
+    } finally {
+        world.server.beforeApply = null;
+        world.collections.JournalEntry.set(docs.ledger.id, docs.ledger);
+    }
+    assert.equal(stopped.ok, false);
+    assert.equal(read("meta.archive"), undefined);
+    assert.ok(log.pages.has(archiveRunPageId(0, 0)));
+    assert.equal((await housekeeping.archiveRun({ now: serverNow(), today: 100 })).reason, "taken", "its slot is young");
+    clock.server += PRUNE_AGE_MS + 60 * 1000;
+    await housekeeping.pruneLocks();
+    assert.ok(!docs.ledger.pages.has(archiveSlotId(0)), "the pruner freed the slot");
+    const retry = await housekeeping.archiveRun({ now: serverNow() - DAY_MS / 2, today: 100 });
+    assert.deepEqual([retry.outcome, retry.counts.rows, read("meta.archive.runs")], ["ok", 1, 1]);
+    assert.ok(log.pages.has(archiveRunPageId(0, 1)), "the run's second attempt has a page of its own");
+    assert.equal(reconciliationReport().differenceCp, 0);
+});
+
+test("a Funds-tab reversal and an archive run of the row it reverses: whichever reaches the server second is refused", async (t) => {
+    silence(t);
+    const clock = controlClock(t);
+    const [deposit] = (await asUser("p1", () => funds.deposit(vera.uuid, 200))()).rows;
+    await asUser("p2", () => funds.deposit(bo.uuid, 200))();
+    clock.server += 2 * DAY_MS;
+    world.currentUser = GM;
+    resetLease();
+    requestLease(GM);
+
+    // The reversal first: the run, planned from a copy without it, names the reversal's row id and is refused.
+    let reversed;
+    let restore = interleave((ops) => ops.some((op) => op.parent === log), async () => { reversed = await asUser("p1", () => funds.reverse(deposit.id))(); });
+    let run;
+    try {
+        run = await housekeeping.archiveRun({ now: serverNow(), today: 100 });
+    } finally {
+        restore();
+    }
+    assert.equal(reversed.ok, true);
+    assert.deepEqual([run.ok, run.reason], [false, "taken"]);
+    assert.deepEqual(balances(), { [bo.uuid]: 700 }, "Vera has her deposit back: none of the fund is hers");
+
+    // The run first: a reversal planned from the copy before it is refused at the row id the run took.
+    const [again] = (await asUser("p1", () => funds.deposit(vera.uuid, 200))()).rows;
+    clock.server += 2 * DAY_MS;
+    const guard = hashId(`reversal:${again.id}`);
+    let ran;
+    restore = interleave((ops) => ops.some((op) => op.parent === docs.ledger && op.action === "create" && op.data.some((d) => d._id === guard)),
+        async () => { ran = await asUser(GM, () => housekeeping.archiveRun({ now: serverNow(), today: 100 }))(); });
+    let late;
+    const purse = cpOf(vera);
+    try {
+        late = await asUser("p1", () => funds.reverse(again.id))();
+    } finally {
+        restore();
+    }
+    assert.equal(ran.outcome, "ok");
+    assert.equal(read(`rows.${again.id}`), undefined, "the deposit is in the Crafting Log");
+    assert.equal(late.ok, false, "the reversal is refused");
+    assert.equal(cpOf(vera), purse, "and moved nothing");
+    assert.equal(lockOf(guard).kind, "reversal", "the run's guard says what it is");
+    assert.deepEqual(balances(), { [vera.uuid]: 200, [bo.uuid]: 700 }, "each member's share is what they put in");
+    assert.equal(reconciliationReport().differenceCp, 0);
+    clock.server += PRUNE_AGE_MS + 60 * 1000;
+    await housekeeping.pruneLocks();
+    assert.ok(!docs.ledger.pages.has(guard), "and goes once old: the row is no longer live to plan a reversal from");
 });
 
 test("an order reopened by undo while a run is on its way: the undo lands first and the run is refused, or the run lands and the undo is", async (t) => {
@@ -307,7 +436,7 @@ test("an order reopened by undo while a run is on its way: the undo lands first 
         restore();
     }
     assert.equal(read("orders.o4"), undefined, "archived, and no stub left by the refused undo");
-    assert.equal(flagsOf(log.pages.contents[0]).orders.o4.status, "complete");
+    assert.equal(flagsOf(logPages("archive-page")[0]).orders.o4.status, "complete");
 });
 
 test("archiving waits for a GM and the Crafting Log; the GM's next check creates the log in a world from before it", async (t) => {
