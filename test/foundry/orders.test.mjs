@@ -438,3 +438,27 @@ test("a purge's refunds leave out what a cancel's open refund claim owes, and wa
     await claims.sweepClaims({ force: true });
     assert.deepEqual([cpOf(vera), cpOf(bo), cpOf(docs.strongbox)], [5000, 5000, 0], "everyone is paid what they put in, once");
 });
+
+test("the lifecycle's extension hooks fire once each on the client that wrote: orderStatusChanged, ledgerPosted, itemCrafted (12.3, M10)", async () => {
+    const seen = { status: [], posted: [], crafted: [] };
+    Hooks.on("pf2e-artisans-workshop.orderStatusChanged", (p) => seen.status.push([p.from, p.to, Object.isFrozen(p.order)]));
+    Hooks.on("pf2e-artisans-workshop.ledgerPosted", (p) => seen.posted.push(...p.rows.map((r) => r.kind)));
+    Hooks.on("pf2e-artisans-workshop.itemCrafted", (p) => seen.crafted.push(p));
+    const id = await toRolled();
+    await orders.workDay(id);
+    world.currentUser = "p2";
+    await orders.pledgeTo(id, bo.uuid, 250);
+    world.currentUser = "p1";
+    assert.equal((await orders.finish(id)).outcome, "ok");
+    const transitions = seen.status.map(([from, to]) => `${from}>${to}`);
+    for (const step of ["null>requested", "accepted>setup", "check>rolled", "rolled>finishing", "finishing>complete"]) assert.ok(transitions.includes(step), `${step} in ${transitions}`);
+    assert.ok(seen.status.every(([, , frozen]) => frozen), "frozen snapshots");
+    for (const kind of ["pledge", "expend", "remainder", "shelved"]) assert.ok(seen.posted.includes(kind), `${kind} posted: ${seen.posted}`);
+    assert.equal(seen.posted.filter((k) => k === "remainder").length, records("rows").filter((r) => r.kind === "remainder").length, "each row once, when it applied");
+    assert.equal(seen.crafted.length, 1);
+    const [crafted] = seen.crafted;
+    assert.deepEqual([crafted.order.id, crafted.items.map((i) => [i.name, i.qty]), crafted.crafter, crafted.delivery],
+        ["o1", [["Elixir of Life (Minor)", 2]], vera.uuid, "shelf"]);
+    assert.equal((await orders.finish(id)).reason, "state");
+    assert.equal(seen.crafted.length, 1, "finished once, announced once");
+});

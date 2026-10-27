@@ -39,10 +39,15 @@ export function seasonLink(orderId, season) {
     return `${LINK_PREFIX}:season:${orderId}:${requireInteger(season, "season")}`;
 }
 
+/** The link option of an extension activity's run check (M10, 12.2): `<MOD>:ext:<runId>`. */
+export function extLink(runId) {
+    return `${LINK_PREFIX}:ext:${runId}`;
+}
+
 /**
  * The order, job or helper a check's roll options link to, or null: `{kind: "order", id, attempt}`, `{kind: "job", id,
- * round}` (round 1 for a link written before M6, which had none), `{kind: "help", id, actor}` or (M9a) `{kind: "season",
- * id, season}`. The first link wins; a roll carries one.
+ * round}` (round 1 for a link written before M6, which had none), `{kind: "help", id, actor}`, (M9a) `{kind: "season",
+ * id, season}` or (M10) `{kind: "ext", id}`, an extension activity's run. The first link wins; a roll carries one.
  */
 export function parseLink(options = []) {
     for (const option of options) {
@@ -52,6 +57,7 @@ export function parseLink(options = []) {
         if (kind === "job" && id && (third === undefined || /^\d+$/.test(third))) return { kind, id, round: third === undefined ? 1 : Number(third) };
         if (kind === "help" && id && third) return { kind, id, actor: third };
         if (kind === "season" && id && /^\d+$/.test(third ?? "")) return { kind, id, season: Number(third) };
+        if (kind === "ext" && id && third === undefined) return { kind, id };
     }
     return null;
 }

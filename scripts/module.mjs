@@ -3,6 +3,7 @@ import { registerAfflictionHooks, readyAfflictions } from "./foundry/afflictions
 import { registerAlchemyHooks } from "./foundry/alchemy.mjs";
 import { registerCoatingHooks } from "./foundry/coatings.mjs";
 import { publishApi } from "./foundry/api.mjs";
+import { closeRegistration, openRegistration } from "./foundry/extensions.mjs";
 import { registerFormulaClaims } from "./foundry/formulas.mjs";
 import { registerDowntimeHooks } from "./foundry/downtime.mjs";
 import { registerCraftHooks } from "./foundry/crafts.mjs";
@@ -89,7 +90,12 @@ Hooks.once("init", () => {
     registerEntryPoints();
 });
 
+// M10 (DESIGN.md 12.1): the extension registry is open from `setup` (after every module's `init`, where extensions subscribe to
+// `pf2e-artisans-workshop.register`) until `ready`.
+Hooks.once("setup", () => openRegistration());
+
 Hooks.once("ready", async () => {
+    closeRegistration();
     await readySync();
     primeNotifications();
     publishApi();

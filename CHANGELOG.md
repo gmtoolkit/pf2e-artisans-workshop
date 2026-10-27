@@ -180,6 +180,14 @@ All notable changes to this module are documented here. The format follows
   request, and harvested once a day; bestowed gifts that lie dormant in the wrong hands; crafting quests gathered by the
   party and delivered once every component is found. An order started under a variant finishes as it started if the
   variant is turned off. Live-harness plans `m9a-*`.
+- Extension API (milestone M10) for other modules, such as adventure-path subsystems: a registration hook during setup
+  for downtime activities, income sources, consumable sinks and check-modifier sources, checked and closed at ready, with a
+  warning to the GM for an extension built for another API version. Each extension keeps its data in its own space in
+  the shared ledger. Its downtime activities appear among a character's activities in the Downtime tab, the Advance days
+  wizard and the day resolver, with their checks (and Aid) rolled through the system's statistics and their results
+  written with the day, once. Extensions can post income and expenses to the party fund or a purse, pay income per event,
+  per day or per week, take alchemical items through the Bandolier, and add modifiers to the Workshop's downtime checks.
+  New hooks for status changes, ledger rows, crafted items, computed income and spent items.
 
 ### Changed
 

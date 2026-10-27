@@ -33,6 +33,7 @@ import { lockedWrite, moveCoins, reverseRows } from "./money.mjs";
 import { payPurchase } from "./purchases.mjs";
 import { heldKeysOf, ranksOf, toolKeysOf } from "./registry.mjs";
 import { rulesFromSettings, setting } from "./settings.mjs";
+import { extensionModifiers } from "./extensions.mjs";
 import { canWrite, shared } from "./state.mjs";
 import { exists, newId, read, records, stampNow, write } from "./store.mjs";
 
@@ -188,9 +189,12 @@ async function performRepair(service, performer, { skipDialog }) {
     const statistic = performer.skills?.crafting;
     if (!statistic) return refuse("no-skill", { skill: "crafting" });
     const pwol = game.pf2e?.settings?.variants?.pwol?.enabled === true;
+    const options = ["action:repair", ...[...(item.traits ?? [])].map((trait) => `target:trait:${trait}`)];
     const roll = await statistic.roll({
         dc: { value: levelDC(item.level ?? 0, { pwol }), label: game.i18n.localize("pf2e-artisans-workshop.Service.RepairDC") },
-        extraRollOptions: ["action:repair", ...[...(item.traits ?? [])].map((trait) => `target:trait:${trait}`)],
+        extraRollOptions: options,
+        // M10 (12.2): the registered check-modifier sources' modifiers.
+        modifiers: await extensionModifiers({ actor: performer, statistic: "crafting", kind: "service", rollOptions: options, extra: { service: service.id } }),
         traits: ["exploration", "manipulate"], label: game.i18n.format("pf2e-artisans-workshop.Service.RepairRoll", { item: item.name }),
         skipDialog, createMessage: true,
     });

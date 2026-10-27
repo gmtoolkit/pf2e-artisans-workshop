@@ -13,8 +13,10 @@
  * own current copy; two clients writing different keys at the same moment both land.
  */
 import { MODULE_ID } from "../constants.mjs";
+import { RESERVED_SCOPES } from "../logic/extensions.mjs";
 import { idFromRandom } from "../logic/ids.mjs";
-import { checkPath, flagUpdate, liveRecords, readPath } from "../logic/keypath.mjs";
+import { flagUpdate, liveRecords, readPath, scopeUpdate } from "../logic/keypath.mjs";
+import { announceAfter } from "./events.mjs";
 import { canWrite, shared, status } from "./state.mjs";
 
 /** The ledger's module flags, or an empty object while there is no ledger. */
@@ -43,14 +45,21 @@ export function exists(path) {
     return liveRecords({ record: read(path) }).length === 1;
 }
 
-/** One key-path change as a document update for the ledger's flags, for use inside a batch. */
-export function ledgerChange(change) {
-    return flagUpdate(MODULE_ID, change, { deletion: _del, replacement: _replace });
+/**
+ * One key-path change as a document update for the ledger's flags, for use inside a batch. M10: `scopes` holds changes to
+ * extensions' own flag scopes on the ledger (12.4), `{[moduleId]: {set, replace, del}}`, written in the same update.
+ */
+export function ledgerChange({ scopes = {}, ...change } = {}) {
+    const operators = { deletion: _del, replacement: _replace };
+    const update = flagUpdate(MODULE_ID, change, operators);
+    for (const [scope, scoped] of Object.entries(scopes)) Object.assign(update, scopeUpdate(scope, scoped, operators, RESERVED_SCOPES));
+    return update;
 }
 
 /**
- * Write to the ledger. Refused (returns false, writes nothing) unless this client may write (`canWrite`).
- * @param {{set?: object, replace?: object, del?: string[]}} change
+ * Write to the ledger. Refused (returns false, writes nothing) unless this client may write (`canWrite`). M10: rows that
+ * become applied and orders whose status changes are announced once it landed (`ledgerPosted`, `orderStatusChanged`).
+ * @param {{set?: object, replace?: object, del?: string[], scopes?: object}} change
  */
 export async function write(change, options = {}) {
     const update = ledgerChange(change);   // throws on a bad path even when not writable
@@ -58,7 +67,9 @@ export async function write(change, options = {}) {
         console.warn(`${MODULE_ID} | ledger write refused while ${status()}`, Object.keys(update));
         return false;
     }
+    const announce = announceAfter(update);
     await shared().ledger.update(update, { ...options, diff: false });
+    announce();
     return true;
 }
 
@@ -97,16 +108,7 @@ export function newId() {
     }
 }
 
-/**
- * An extension's namespaced store (DESIGN.md 12.4): `get`, `set` and `delete` over `ext.<moduleId>.<key>`,
- * with the same key-path rules.
- */
-export function extStore(moduleId) {
-    const path = (key) => `ext.${moduleId}.${key}`;
-    checkPath(path("x"));
-    return {
-        get: (key) => read(path(key)),
-        set: (key, value) => write({ set: { [path(key)]: value } }),
-        delete: (key) => write({ del: [path(key)] }),
-    };
+/** The value at a path of an extension's own flag scope on the ledger (12.4), or undefined. */
+export function readScope(moduleId, path) {
+    return readPath(shared().ledger?.flags?.[moduleId] ?? {}, path);
 }

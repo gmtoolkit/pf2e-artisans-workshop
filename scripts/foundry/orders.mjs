@@ -56,6 +56,7 @@ import { inheritedDamage, noteItemDamage, retryPatch } from "./deconstruct.mjs";
 import { today } from "./downtime.mjs";
 import { rushFlatCheck } from "./variants.mjs";
 import { freeStacks, lockedWrite, moveCoins, pledge, reverseRows, withdraw } from "./money.mjs";
+import { frozenCopy } from "./events.mjs";
 import { finishOutputs } from "./outputs.mjs";
 import { crafterFacts, gatesFor, productFacts, skillFor, snapshotOf } from "./products.mjs";
 import { isResponsibleFor } from "./responsible.mjs";
@@ -522,7 +523,25 @@ export async function finish(id) {
         if (claim) await applyIfResponsible(claim);
     }
     await postCard("complete", read(`orders.${id}`));
+    announceCrafted(read(`orders.${id}`));
     return result;
+}
+
+/**
+ * The `itemCrafted` hook (12.3, M10), once, on the client that finished the order: `{order, items, crafter, recipient,
+ * delivery}`. `items` are what the finish put in the strongbox (`flags.MOD.crafted` naming the order and attempt):
+ * `[{uuid, name, qty}]`; `delivery` is "shelf" for a character recipient (its client takes it off the pickup shelf, 4.7) and
+ * "strongbox" for an order made for the strongbox. An order that makes no item there (a formula, an etching put back with
+ * its owner) announces no item.
+ */
+function announceCrafted(order) {
+    if (!order) return;
+    const made = [...(shared().strongbox?.items ?? [])].filter((item) => {
+        const crafted = item.flags?.[MODULE_ID]?.crafted;
+        return crafted?.order === order.id && crafted.attempt === order.attempt;
+    }).map((item) => ({ uuid: item.uuid, name: item.name, qty: item.quantity ?? 1 }));
+    Hooks.callAll(`${MODULE_ID}.itemCrafted`, frozenCopy({ order, items: made, crafter: order.crafter, recipient: order.recipient ?? null,
+        delivery: order.recipient?.kind === "strongbox" ? "strongbox" : "shelf" }));
 }
 
 /**

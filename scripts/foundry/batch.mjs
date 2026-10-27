@@ -27,6 +27,7 @@
  */
 import { MODULE_ID } from "../constants.mjs";
 import { coinItemData } from "./coins.mjs";
+import { announceAfter } from "./events.mjs";
 import { markStale, shared } from "./state.mjs";
 import { ledgerChange, stampNow } from "./store.mjs";
 
@@ -177,6 +178,10 @@ async function send(operations) {
     const early = preflight(operations);
     if (early) return { outcome: "refused", applied: 0, reason: early };
     const sizes = operations.map(sizeOf);
+    // M10 (12.3): rows applied and order transitions in this request's ledger changes, announced for what landed.
+    const ledger = shared().ledger;
+    const announcers = operations.map((op) => (op.documentName === "JournalEntry" && op.action === "update"
+        ? (op.updates ?? []).filter((u) => u._id === ledger?.id).map((u) => announceAfter(u)) : []));
     let results;
     inBatch = true;
     refused = false;
@@ -197,6 +202,12 @@ async function send(operations) {
     const shrunk = operations.some((op, i) => sizeOf(op) !== sizes[i]);
     if (sent === 0) return { outcome: "refused", applied: 0, reason: "emptied" };
     if (results.length === 0) return { outcome: "refused", applied: 0, reason: "first" };
+    // The server applies operations in order and the client returns a result for each one applied (none were left out by
+    // the client unless the request shrank, when nothing is announced: which one went missing is not known).
+    if (!shrunk) {
+        const sentIndexes = operations.map((op, i) => (sizeOf(op) > 0 ? i : -1)).filter((i) => i >= 0);
+        for (const i of sentIndexes.slice(0, results.length)) for (const announce of announcers[i]) announce();
+    }
     if (shrunk) return { outcome: "partial", applied: results.length, first: results[0], reason: "shrunk" };
     if (results.length < sent) return { outcome: "partial", applied: results.length, first: results[0], reason: "stopped" };
     return { outcome: "ok", applied: results.length };

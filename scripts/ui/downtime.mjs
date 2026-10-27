@@ -28,6 +28,7 @@ import {
     startJob, undoJob, workedOn,
 } from "../foundry/jobs.mjs";
 import { owns, viewer as currentViewer } from "../foundry/orders.mjs";
+import { activityChoices } from "../foundry/extensions.mjs";
 import { members } from "../foundry/roster.mjs";
 import { rulesFromSettings } from "../foundry/settings.mjs";
 import { canWrite } from "../foundry/state.mjs";
@@ -75,6 +76,15 @@ export function activityOptions(actor, current, { extra = [] } = {}) {
         }
     }
     if (incomeOn()) for (const job of records("jobs")) if (job.actor === actor.uuid && job.status === "open") options.push({ kind: "earn", ref: job.id });
+    // M10 (12.2): the extensions' downtime activities, and an Aid to another member whose days go to one that has an Aid.
+    for (const { def } of activityChoices(actor)) {
+        options.push({ kind: "ext", ref: def.id });
+        if (!def.aid) continue;
+        for (const other of members()) {
+            const theirs = other.id !== actor.id ? statusOf(other).activity : null;
+            if (theirs?.kind === "ext" && theirs.ref === def.id && !theirs.aid) options.push({ kind: "ext", ref: def.id, aid: other.id });
+        }
+    }
     for (const kind of PLAIN_ACTIVITIES) options.push({ kind, ref: null });
     const key = typeof current === "string" ? current : activityKey(current);
     return [

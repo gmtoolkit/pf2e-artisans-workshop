@@ -114,6 +114,10 @@ against the small fake of Foundry in `test/foundry/stubs.mjs`. `scripts/ui/` is 
 Workshop window, its chat cards and entry points (M4), with its Handlebars templates in `templates/` (no literal text:
 every word is a key) and its stylesheet in `styles/`; `scripts/logic/views.mjs` holds the window's view models as pure
 functions. A later milestone adds `macros/` (copy-paste macros; the lint rules and key check already cover that folder).
+The extension API (`DESIGN.md` 12) is `scripts/foundry/extensions.mjs` with its pure parts in `scripts/logic/extensions.mjs`;
+`test/foundry/ext-fixture.mjs` is a small extension module, registered the way a real one is, that the tests run the
+Workshop against. An extension module of your own can use the Workshop checkout as a development dependency by path
+(`"pf2e-artisans-workshop": "file:../pf2e-artisans-workshop"`) and run its tests over `test/foundry/stubs.mjs`.
 
 Local Foundry harness: symlink the checkout into `Data/modules/`, enable the module in a
 test world, and as GM run `await game.settings.set("pf2e-artisans-workshop", "dev", true)`

@@ -341,6 +341,24 @@ export const REFUSAL = Object.freeze({
     missing: "pf2e-artisans-workshop.Refusal.Missing",
     "not-due": "pf2e-artisans-workshop.Refusal.NotDue",
     "adjustment-fit": "pf2e-artisans-workshop.Refusal.AdjustmentFit",
+    // M10 (12): the extension API.
+    "ext-unknown": "pf2e-artisans-workshop.Refusal.ExtUnknown",
+    "ext-no-check": "pf2e-artisans-workshop.Refusal.ExtNoCheck",
+    "no-income-source": "pf2e-artisans-workshop.Refusal.ExtNoSource",
+    resolved: "pf2e-artisans-workshop.Refusal.ExtResolved",
+    "no-run": "pf2e-artisans-workshop.Refusal.ExtNoRun",
+    "unknown-extension": "pf2e-artisans-workshop.Refusal.ExtUnknownModule",
+    "bad-kind": "pf2e-artisans-workshop.Refusal.ExtBadRow",
+    "bad-amount": "pf2e-artisans-workshop.Refusal.ExtBadRow",
+    "bad-key": "pf2e-artisans-workshop.Refusal.ExtBadRow",
+    "bad-source": "pf2e-artisans-workshop.Refusal.ExtBadRow",
+    "bad-via": "pf2e-artisans-workshop.Refusal.ExtBadRow",
+    "bad-day": "pf2e-artisans-workshop.Refusal.ExtBadRow",
+    "bad-note": "pf2e-artisans-workshop.Refusal.ExtBadRow",
+    "bad-result": "pf2e-artisans-workshop.Refusal.ExtBadResult",
+    "no-sink": "pf2e-artisans-workshop.Refusal.ExtNoSink",
+    "not-accepted": "pf2e-artisans-workshop.Refusal.ExtNotAccepted",
+    "sink-error": "pf2e-artisans-workshop.Refusal.ExtSinkError",
     other: "pf2e-artisans-workshop.Refusal.Other",
 });
 
@@ -577,6 +595,11 @@ export const DAY_STOP = Object.freeze({
     event: "pf2e-artisans-workshop.DayStop.Event",
     "event-due": "pf2e-artisans-workshop.DayStop.EventDue",
     "setup-hours": "pf2e-artisans-workshop.DayStop.SetupHours",
+    // M10 (12.2): an extension's downtime activity.
+    "ext-unknown": "pf2e-artisans-workshop.DayStop.ExtUnknown",
+    "ext-ineligible": "pf2e-artisans-workshop.DayStop.ExtIneligible",
+    "ext-check": "pf2e-artisans-workshop.DayStop.ExtCheck",
+    "ext-aid-check": "pf2e-artisans-workshop.DayStop.ExtAidCheck",
     other: "pf2e-artisans-workshop.DayStop.Other",
 });
 

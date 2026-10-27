@@ -2,6 +2,42 @@
 
 Newest first.
 
+## 2026-10-27: The extension API as built (M10)
+
+**Decision:** seven rules settled while building DESIGN 12 (12.6):
+
+- An extension's store is its own flag scope on the Workshop ledger (`flags.<moduleId>`), not `ext.<moduleId>` under the
+  Workshop's flags. It is written by the same key-path rules, in the same update as the Workshop's keys when they go
+  together (an activity's result with its day records).
+- An extension's downtime activity takes runs of its `days` days. A `consecutive` activity broken by another day starts
+  again, and the broken run counts for nothing. Its check may be rolled any time before the run's last day is written,
+  and the result is written with that day, behind the PC's day lock.
+- Aid is the aide's own run of the activity with its own check. It is used by the aided PC's next check of that activity,
+  once.
+- Income cadences: `perEvent` pays when the extension asks, once per key. `perDay` pays for each day record of a PC in
+  downtime. `perWeek` pays on the last day of each seven-day block of workshop days.
+- A spend through a consumable sink takes one item off on its holder's own client, logged in `spends` and keyed by the
+  extension's key. Inert and expired items are refused. The Bandolier offers it, and the Morning tab counts what each sink
+  would take.
+- Check-modifier sources apply to the Workshop's own downtime rolls (Craft, Earn Income, helper, season, Repair, extension
+  activity and Aid checks) and to extensions' rolls through `api.ext.modifiers`. They do not apply to affliction saves or to
+  combat.
+- Payload details the design left open: `itemCrafted`'s `delivery` is "shelf" or "strongbox" (every finished item goes
+  through the shelf); `downtimeDayEnd`'s `notes` for an extension run's last day are the extension's notes;
+  `ledgerPosted` and `orderStatusChanged` are announced by the write path itself, once, on the writing client.
+
+**Why:** the Workshop's migrations rewrite its own flags (4.14) and must never touch an extension's data, which the
+extension versions itself (12.4). Foundry accepts any package id as a flag scope. A run's days, its check and its result
+have to survive being resolved twice, by two clients or by the wizard and the owner, like an order's days (M6). pf2e's Aid
+is a separate check by the helper. A cadence has to be computable by whoever resolves the day, with no timer (9.1). A
+spend changes an item on a character, which only its owner's client may write (P2, P3). Combat already has its own sources
+of modifiers (pf2e's rule elements). Announcing from the write path is the only place every row and transition passes
+through.
+
+**Consequences:** DESIGN 4.1, 4.8, 5.1, 5.3.1, 11.2, 12.4 and 12.6. New ledger keys `extRuns` and `spends`, a claim kind
+`income`, refusal codes `ext-*`, `unknown-extension`, `no-income-source`, `not-accepted`, `sink-error`. The circus module is
+built in its own repository as the first consumer.
+
 ## 2026-10-27: Treasure Vault (Remastered) variants after the second M9a review
 
 **Decision:** six rules settled while fixing the second M9a review (DESIGN 6.16, 10.17, After the second M9a review):
