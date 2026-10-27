@@ -72,6 +72,11 @@ Crafting and Quick Setup, adjustments, downtime events, Critical Crafting, Decon
 quests; pure parts in `scripts/logic/variants.mjs` and `scripts/data/variants.mjs`; `scripts/foundry/variants.mjs`,
 `deconstruct.mjs`, `nature.mjs`, `quests.mjs`; the window's parts in `scripts/ui/variants.mjs`); DESIGN 10.17 says what was
 built, and the live plans `m9a-*` (`tools/harness/variant-scenarios.mjs`) passed their first live pass (10.17, M9a live pass).
+M10 is in place: the extension API (registration at `setup`, the four interfaces, the hooks, each extension's store in its own
+flag scope on the ledger, extension activity runs in the day planner and resolver, rows, income sources and consumable sinks;
+pure parts in `scripts/logic/extensions.mjs`; `scripts/foundry/extensions.mjs`, `events.mjs`; a test extension of every
+interface in `test/foundry/ext-fixture.mjs`); DESIGN 12.6 says what was built. The circus module is a separate repository
+built against it; no live plan has run yet.
 README screenshots: `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN 17.1) stages a demo party in the dev
 world and writes `docs/screenshots/`, the only folder where the asset check allows images.
 `DECISIONS.md` holds every

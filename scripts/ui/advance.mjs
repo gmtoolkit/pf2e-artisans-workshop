@@ -35,7 +35,8 @@ import { isResponsibleFor } from "../foundry/responsible.mjs";
 import { canWrite, shared } from "../foundry/state.mjs";
 import { read } from "../foundry/store.mjs";
 import { activityOptions } from "./downtime.mjs";
-import { dayLines, jobName, orderName, spanText, stopText } from "./days.mjs";
+import { dayLines, extActivityName, jobName, orderName, spanText, stopText } from "./days.mjs";
+import { rollActivity } from "../foundry/extensions.mjs";
 import { focusState, restoreFocus } from "./focus.mjs";
 import { money, number, refusalText, report } from "./format.mjs";
 
@@ -219,6 +220,13 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
                 const order = read(`orders.${activity.ref}`);
                 const helper = order?.helpers?.[actor.id];
                 if (helper && !helper.check && order.dc?.final) due.push({ kind: "help", ref: order.id, actor: actor.uuid, text: fmt("pf2e-artisans-workshop.Wizard.Due.Help", { name: actor.name, item: orderName(order.id) }), canRoll: actor.isOwner });
+            }
+            // M10 (12.2): an extension activity's run (or Aid) whose last day needs its check: rollable now, whatever comes before it.
+            if (plan?.stop && ["ext-check", "ext-aid-check"].includes(plan.stop.reason)) {
+                const stop = plan.stop;
+                due.push({ kind: "ext", ref: stop.activity, from: stop.from, aid: stop.aid ?? "", actor: actor.uuid, canRoll: actor.isOwner,
+                    text: fmt(stop.aid ? "pf2e-artisans-workshop.Wizard.Due.ExtAid" : "pf2e-artisans-workshop.Wizard.Due.Ext",
+                        { name: actor.name, activity: extActivityName(stop.activity), other: game.actors?.get(stop.aid)?.name ?? "" }) });
             }
             if (plan?.stop && ["check", "income-check"].includes(plan.stop.reason) && plan.records.length) later.push(fmt("pf2e-artisans-workshop.Wizard.Due.Later", { name: actor.name, stop: stopText(plan.stop) }));
         }
@@ -415,6 +423,8 @@ export class AdvanceDaysApp extends HandlebarsApplicationMixin(ApplicationV2) {
             if (kind === "craft") return report(await rollCraft(ref));
             if (kind === "earn") return report(await rollJob(ref));
             if (kind === "help") return report(await rollHelp(ref, actor));
+            // M10: an extension activity's check (or an Aid's) for the run starting on `from`.
+            if (kind === "ext") return report(await rollActivity({ actor, activity: ref, from: Number(target.dataset.from), aid: target.dataset.aid || null }));
             return null;
         } finally {
             if (target.isConnected) target.disabled = false;

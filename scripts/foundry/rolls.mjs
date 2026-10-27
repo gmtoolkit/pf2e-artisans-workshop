@@ -40,6 +40,7 @@ import { closedAs, lastEntry, settlementRecord, transitionChange } from "../logi
 import { makeRow, seqFor } from "../logic/rows.mjs";
 import { allocationsByContributor, splitProRata } from "../logic/split.mjs";
 import { createClaims } from "./claims.mjs";
+import { extensionModifiers, recordExtCheck } from "./extensions.mjs";
 import { holdsLease } from "./lease.mjs";
 import { lockedWrite, mint, spend } from "./money.mjs";
 import { rememberReroll } from "./orders.mjs";
@@ -104,7 +105,9 @@ export async function rollCraft(orderId, { skipDialog } = {}) {
         ...(secret ? { messageMode: "blind" } : {}),
         dc: { value: order.dc.final, label: game.i18n.localize("pf2e-artisans-workshop.Roll.CraftDC") },
         extraRollOptions: plan.options,
-        modifiers: await pf2eModifiers(plan.modifiers),
+        // M10 (12.2): the registered check-modifier sources' modifiers join the registry's.
+        modifiers: [...await pf2eModifiers(plan.modifiers),
+            ...await extensionModifiers({ actor: crafter, statistic: order.skill ?? "crafting", kind: "craft", rollOptions: plan.options, extra: { order: order.id } })],
         traits: ["downtime", "manipulate"],
         label: game.i18n.format("pf2e-artisans-workshop.Roll.Craft", { item: item.name }),
         skipDialog,
@@ -126,9 +129,11 @@ export async function rollEarnIncome(jobId, { skipDialog } = {}) {
     if (!earner?.isOwner) return refuse("not-owner");
     const statistic = statisticOf(earner, job.skill);
     if (!statistic) return refuse("no-skill", { skill: job.skill });
+    const options = earnIncomeRollPlan(job.id, job.round ?? 1).options;
     const roll = await statistic.roll({
         dc: { value: job.dc, label: game.i18n.localize("pf2e-artisans-workshop.Roll.EarnIncomeDC") },
-        extraRollOptions: earnIncomeRollPlan(job.id, job.round ?? 1).options,
+        extraRollOptions: options,
+        modifiers: await extensionModifiers({ actor: earner, statistic: job.skill, kind: "earn-income", rollOptions: options, extra: { job: job.id } }),
         traits: ["downtime"],
         label: game.i18n.format("pf2e-artisans-workshop.Roll.EarnIncome", { skill: statistic.label }),
         skipDialog,
@@ -156,6 +161,7 @@ export async function rollHelper(orderId, actorUuid, { skipDialog } = {}) {
     const roll = await statistic.roll({
         dc: { value: order.dc.final, label: game.i18n.localize("pf2e-artisans-workshop.Roll.HelperDC") },
         extraRollOptions: [helpLink(orderId, actor.id)],
+        modifiers: await extensionModifiers({ actor, statistic: helper.skill, kind: "help", rollOptions: [helpLink(orderId, actor.id)], extra: { order: orderId } }),
         traits: ["downtime"],
         label: game.i18n.format("pf2e-artisans-workshop.Roll.Helper", { item: order.product?.snapshot?.name ?? "" }),
         skipDialog,
@@ -201,6 +207,8 @@ export async function onCheckMessage(message) {
     if (link.kind === "order") return recordOrderCheck(link, check, message.actor, context.options ?? []);
     if (link.kind === "help") return recordHelperCheck(link, check, message.actor);
     if (link.kind === "season") return recordSeasonCheck(link, check, message.actor);
+    // M10 (12.2): an extension activity's run check, or an Aid's.
+    if (link.kind === "ext") return recordExtCheck(link, check, message.actor);
     return recordJobCheck(link, check, message.actor);
 }
 

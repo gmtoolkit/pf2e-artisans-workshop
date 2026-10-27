@@ -129,7 +129,7 @@ test("extra days take the crafter's rate off once the check is settled; a paid-o
     const nearly = order({ status: "finishing", check: settled(), priceCp: 3450 });
     const done = planDays({ ...PC, days: [30, 31, 32], activity: { kind: "craft", ref: "o1" }, orders: [nearly], facts }, stamp);
     assert.deepEqual([done.records.length, done.stop.reason, done.stop.day], [2, "paid-off", 32], "200 cp left: two days, then finish it");
-    assert.deepEqual(pending, { records: [], status: {}, wages: [], stop: { day: 20, reason: "settle", ref: "o1" } });
+    assert.deepEqual(pending, { records: [], status: {}, wages: [], ext: [], stop: { day: 20, reason: "settle", ref: "o1" } });
 });
 
 test("a recorded check that is not settled stops the days whatever its degree: a reroll could still replace it (review fix, 6.2.3)", () => {
@@ -149,7 +149,7 @@ test("a recorded check that is not settled stops the days whatever its degree: a
 test("a setup the day records already completed stops at its check: no setup day past the count (review fix)", () => {
     const records = [{ id: "c1-11", actor: "c1", day: 11, order: "o1", attempt: 1, kind: "setup" }, { id: "c1-12", actor: "c1", day: 12, order: "o1", attempt: 1, kind: "setup" }];
     const plan = planDays({ ...PC, days: [13, 14, 15], activity: { kind: "craft", ref: "o1" }, orders: [order()], records, facts }, stamp);
-    assert.deepEqual(plan, { records: [], status: { o1: "check" }, wages: [], stop: { day: 13, reason: "check", ref: "o1" } });
+    assert.deepEqual(plan, { records: [], status: { o1: "check" }, wages: [], ext: [], stop: { day: 13, reason: "check", ref: "o1" } });
     const half = planDays({ ...PC, days: [13, 14], activity: { kind: "craft", ref: "o1" }, orders: [order()], records: records.slice(0, 1), facts }, stamp);
     assert.deepEqual([half.records.map((r) => r.kind), half.stop.reason], [["setup"], "check"], "one more day completes it");
 });

@@ -26,6 +26,7 @@ import { productFacts } from "./products.mjs";
 import { isElected, isResponsibleFor, isResponsibleForShared } from "./responsible.mjs";
 import { members } from "./roster.mjs";
 import { rulesFromSettings } from "./settings.mjs";
+import { extensionModifiers } from "./extensions.mjs";
 import { canWrite, shared } from "./state.mjs";
 import { exists, newId, read, records, stampNow, write } from "./store.mjs";
 import { registerVariantSweep, variantOn, whisperTo } from "./variants.mjs";
@@ -136,9 +137,12 @@ export async function rollSeason(orderId, season = null, { skipDialog } = {}) {
     if (!due) return refuse("not-due");
     const statistic = crafter.skills?.[order.skill ?? "crafting"];
     if (!statistic) return refuse("no-skill", { skill: order.skill });
+    const options = ["action:craft", "action:grow", seasonLink(orderId, due.season)];
     const roll = await statistic.roll({
         dc: { value: order.dc.final, label: game.i18n.localize("pf2e-artisans-workshop.Roll.CraftDC") },
-        extraRollOptions: ["action:craft", "action:grow", seasonLink(orderId, due.season)], traits: ["downtime"],
+        extraRollOptions: options, traits: ["downtime"],
+        // M10 (12.2): the registered check-modifier sources' modifiers.
+        modifiers: await extensionModifiers({ actor: crafter, statistic: order.skill ?? "crafting", kind: "season", rollOptions: options, extra: { order: orderId } }),
         label: game.i18n.format("pf2e-artisans-workshop.Variant.Grow.SeasonRoll", { item: order.product?.snapshot?.name ?? "" }),
         skipDialog, createMessage: true,
     });

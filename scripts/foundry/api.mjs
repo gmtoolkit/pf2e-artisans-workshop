@@ -50,9 +50,12 @@ import { openAfflictions } from "../ui/afflictions.mjs";
 import { parseActivity } from "../logic/downtime.mjs";
 import { read, records } from "./store.mjs";
 import { status } from "./state.mjs";
+import * as ext from "./extensions.mjs";
+import { API_VERSION } from "../logic/extensions.mjs";
+import { levelDC } from "../logic/dc.mjs";
 
-/** The integer that changes only when an extension interface or hook payload changes incompatibly (11.3). */
-export const API_VERSION = 1;
+/** The integer that changes only when an extension interface or hook payload changes incompatibly (11.3, 12). */
+export { API_VERSION };
 
 /** The actor the call is about (11.1). */
 function resolveActor(actor) {
@@ -168,7 +171,12 @@ export function buildApi() {
                 return order ? orders.withdrawFrom(order, actor.uuid, amountCp(amount)) : funds.withdrawFund(actor.uuid, amountCp(amount));
             },
             reverse: (rowId) => funds.reverse(rowId),
+            // M10 (12.4): an extension's own `income` or `expense` row, `{kind, cp | amount, key, source: "<moduleId>:<slug>", via, actor, note, day}`.
+            post: (row = {}) => ext.postExtRow({ ...row, cp: row.cp ?? (row.amount === undefined ? undefined : amountCp(row.amount)),
+                actor: row.actor ? resolveActor(row.actor)?.uuid ?? row.actor : null }),
             rows: (filter = {}) => records("rows").filter((r) => (!filter.order || r.order === filter.order) && (!filter.actor || r.actor === filter.actor)),
+            // M10 review: an extension's row by its key, and whether it was reversed (`{id, kind, cp, state, reversed}` or null).
+            posted: ({ source, key } = {}) => ext.postedRow({ source, key }),
             claims: (actor = null) => openClaims(read("claims"), resolveActor(actor)?.uuid ?? null).map((claim) => ({ ...claim, row: claimRowInput(claim) })),
             claimAll: () => funds.takeAll(),
         },
@@ -448,6 +456,40 @@ export function buildApi() {
         },
         rules: {
             afflictionStep: (run, def, degree, kind, now, ctx = {}) => applyDegree(run, def, degree, kind, now, ctx),
+            // M10: the level-based DC (GM Core p.53), under Proficiency without Level when pf2e's variant is on.
+            levelDC: (level) => levelDC(level, { pwol: game.pf2e?.settings?.variants?.pwol?.enabled === true }),
+        },
+        // M10 (12): what extensions registered, their stores, and what they ask the Workshop to do. The lists are the registered
+        // objects as normalised (frozen); `apiVersion` is the root's.
+        ext: {
+            apiVersion: API_VERSION,
+            activities: () => ext.registered("downtimeActivity"),
+            incomeSources: () => ext.registered("incomeSource"),
+            sinks: () => ext.registered("consumableSink"),
+            modifierSources: () => ext.registered("checkModifierSource"),
+            modules: () => ext.extensionModules(),
+            store: (moduleId) => ext.extStore(moduleId),
+            partyLevel: () => ext.partyLevel(),
+            // An activity's check (or an Aid's) for the run starting on `from`; the day planner names the run where it stops.
+            roll: ({ actor = null, activity, from, aid = null, skipDialog } = {}) => ext.rollActivity({ actor: resolveActor(actor), activity, from, aid, skipDialog }),
+            runs: (filter = {}) => records("extRuns").filter((r) => (!filter.activity || r.activity === filter.activity) && (!filter.actor || r.actor === filter.actor)),
+            run: (id) => ext.runOf(id),
+            openAids: ({ actor = null, activity } = {}) => {
+                const who = resolveActor(actor);
+                return who ? ext.openAids(who, activity) : [];
+            },
+            income: (sourceId, { key, actor = null, day = null, data = {}, recipients = null, note = null } = {}) =>
+                ext.postIncome(sourceId, { key, actor: actor ? resolveActor(actor) : null, day, data, recipients, note }),
+            // Whether the payment with `key` is made: recorded, its rows in the ledger or claimed (M10 review).
+            incomePaid: (sourceId, key) => ext.incomePaid(sourceId, key),
+            spend: (sinkId, { actor = null, item, key = null, data = {} } = {}) => ext.spendItem(sinkId, { actor: resolveActor(actor), item, key, data }),
+            sinkItems: (sinkId, actor = null) => ext.sinkItems(sinkId, resolveActor(actor)),
+            spends: (filter = {}) => ext.spends(filter),
+            // The registered sources' modifiers for an extension's own roll of `statistic`, as pf2e modifiers (`data: true`: plain data).
+            modifiers: async ({ actor = null, statistic, rollOptions = [], data = false, extra = {} } = {}) => {
+                const list = await ext.modifierData({ actor: resolveActor(actor), statistic, kind: "extension", rollOptions, extra });
+                return data ? list : ext.pf2eModifiers(list);
+            },
         },
         consumables: {
             useBest: ({ family, actor = null, partyWide = false, map = 0 } = {}) => consumables.useBest({ family, actor: resolveActor(actor), partyWide, map }),

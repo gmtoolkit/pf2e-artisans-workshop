@@ -19,6 +19,7 @@ import { CLOSED, DAY_VERSION, workDayRecord } from "./orders.mjs";
 import { remainingCp, setupComplete, setupDaysDone } from "./progress.mjs";
 import { subjectLockOf } from "./crafts.mjs";
 import { eventPause, madeDespite, settledAsSuccess, setupAnywhere } from "./variants.mjs";
+import { extActivityKey, extRunId } from "./extensions.mjs";
 
 /** Seconds in a day of the core calendar. */
 export const SECONDS_PER_DAY = 86400;
@@ -33,8 +34,8 @@ export const PC_VERSION = 1;
  * tattoo's or graft's subject sits for it (6.14).
  */
 export const ACTIVITY_KINDS = Object.freeze(["craft", "help", "earn", "subject", "formula", "subsist", "retrain", "prep-only", "other", "ext"]);
-/** Activities that name an order or a job (`ref`). */
-export const REF_KINDS = Object.freeze(["craft", "help", "earn", "subject"]);
+/** Activities that name an order, a job or (M10) an extension's downtime activity (`ref`). */
+export const REF_KINDS = Object.freeze(["craft", "help", "earn", "subject", "ext"]);
 
 /* -------------------------------------------- */
 /*  The workshop day                             */
@@ -154,13 +155,21 @@ export function daySpan(from, to) {
     return Array.from({ length: to - from + 1 }, (_, i) => from + i);
 }
 
-/** An activity as a key for a select (`craft:<orderId>`, `other`), and back. */
-export const activityKey = (activity) => (activity ? (activity.ref ? `${activity.kind}:${activity.ref}` : activity.kind) : "");
+/**
+ * An activity as a key for a select (`craft:<orderId>`, `other`), and back. M10: an extension's activity is
+ * `ext:<activityId>`, or `ext:<activityId>:<actorId>` when the PC aids that character's run of it (12.2 `aid`).
+ */
+export const activityKey = (activity) => {
+    if (!activity) return "";
+    if (activity.kind === "ext" && activity.ref) return extActivityKey(activity);
+    return activity.ref ? `${activity.kind}:${activity.ref}` : activity.kind;
+};
 export function parseActivity(key) {
     if (typeof key !== "string" || !key) return null;
-    const [kind, ref = null] = key.split(":");
+    const [kind, ref = null, aid = null] = key.split(":");
     if (!ACTIVITY_KINDS.includes(kind)) return null;
     if (REF_KINDS.includes(kind) && !ref) return null;
+    if (kind === "ext") return aid ? { kind, ref, aid } : { kind, ref };
     return { kind, ref: REF_KINDS.includes(kind) ? ref : null };
 }
 
@@ -221,13 +230,24 @@ export function notDowntimeRecord(actorId, from, to, stamp) {
  * - `income-check`: the job's Earn Income check is due (6.10: rolled after the first day; every day pays its result);
  * - `event`, `event-due` (M9a, 6.16.3): with `variants.eventsPauses`, a crafting event is open, or due and not rolled yet;
  * - `setup-hours` (M9a, 6.16.1): Quick Setup's 2-hour consumable setup waits for its "Set up now" (it takes no downtime day);
- *   any other setup of hours takes the day itself, as its `setup-hours` record.
+ *   any other setup of hours takes the day itself, as its `setup-hours` record;
+ * - M10, an extension's downtime activity (12.2, `ext`): `ext-unknown` (no extension registers it now, or it has no Aid
+ *   when the PC aids), `ext-ineligible` (its `eligible(actor)` refuses the PC as a block would start, with `why`),
+ *   `ext-check` and `ext-aid-check` (the block's last day needs its check, or its Aid check, rolled first: `ref` is the
+ *   run's id, with `activity`, `from` and `aid`).
  *
  * A craft day is the order's setup or extra day (`workDayRecord`, 6.2.3); a setup day that completes the setup moves the
  * order to `check` (`status`, for the crafter's owner to write; the crafter's responsible client writes it otherwise). A
  * help day records the
  * day spent helping: the helper's share is in the crafter's extra-day record. An earn day pays the job's daily wage
  * (`wages`, keyed `wage:<jobId>:<day>:<seq>`, 4.6); a day of a job the roll fired the earner from pays nothing.
+ *
+ * An extension activity's day (M10) belongs to a run: a block of the activity's `days` days (an Aid's `aid.days`), with its
+ * own id (`extRunId`: actor, activity, first day, whom it aids). A day continues the PC's last unfinished run of the same
+ * activity: for a `consecutive` activity only from the day before, so a break starts the block again and the broken run's
+ * days count for nothing. The record says where it is in the run (`ext: {run, n, of, from}`); the run's last day waits for
+ * its check (`ext.runs[run].check`) when the activity has one, and every Aid's does, and is listed in `ext` for the Foundry
+ * side to resolve (the activity's `resolve(ctx)`) and write with it.
  *
  * @param {object} p
  * @param {string} p.actorId
@@ -240,13 +260,17 @@ export function notDowntimeRecord(actorId, from, to, stamp) {
  * @param {object[]} [p.rows]               the ledger rows (a wage's correction sequence)
  * @param {{level: number, ranks: Record<string, number>}} [p.facts]   the PC today (a crafter's rate)
  * @param {Record<string, number|null>} [p.rateLevels]  registry rate levels by order id
+ * @param {{activities?: Record<string, {days: number, consecutive: boolean, hasCheck: boolean, aid: {days: number}|null,
+ *   eligible: {ok: boolean, reason?: string}}>, runs?: Record<string, {check?: object|null}>}} [p.ext]  M10: the registered
+ *   extension activities as this PC sees them, and the recorded runs
  * @param {{by: string, at: object}} stamp
  * @returns {{records: object[], status: Record<string, string>, wages: {job: string, day: number, cp: number, idem: string}[],
+ *   ext: {run: string, activity: string, aid: string|null, from: number, to: number, record: string}[],
  *   stop: {day: number, reason: string, ref?: string, status?: string}|null}}
  */
-export function planDays({ actorId, actorUuid, days, activity, orders = [], jobs = [], records = [], rows = [], facts = {}, rateLevels = {} },
+export function planDays({ actorId, actorUuid, days, activity, orders = [], jobs = [], records = [], rows = [], facts = {}, rateLevels = {}, ext = {} },
     stamp, rules = DEFAULT_RULES) {
-    const out = { records: [], status: {}, wages: [], stop: null };
+    const out = { records: [], status: {}, wages: [], ext: [], stop: null };
     if (!days.length) return out;
     days.forEach((d) => requireInteger(d, "day"));
     const stop = (day, reason, data = {}) => {
@@ -274,7 +298,8 @@ export function planDays({ actorId, actorUuid, days, activity, orders = [], jobs
         if (lock && !lockActivity(activity, lock)) return stop(day, locked, { ref: lock });
         const base = {
             id: `${actorId}-${day}`, v: DAY_VERSION, actor: actorId, day, toDay: day,
-            activity: { kind: activity.kind, ref: activity.ref ?? null }, rows: [], result: null, ...stamp,
+            activity: { kind: activity.kind, ref: activity.ref ?? null, ...(activity.kind === "ext" && activity.aid ? { aid: activity.aid } : {}) },
+            rows: [], result: null, ...stamp,
         };
         let record = base;
         if (activity.kind === "craft") {
@@ -339,11 +364,40 @@ export function planDays({ actorId, actorUuid, days, activity, orders = [], jobs
             const idem = cp > 0 ? wageKey(job.id, day, wageSeq(rows, job.id, day)) : null;
             record = { ...base, job: job.id, wageCp: cp, rows: idem ? [hashId(idem)] : [], result: fired ? "fired" : null };
             if (idem) out.wages.push({ job: job.id, day, cp, idem });
+        } else if (activity.kind === "ext") {
+            // M10 (12.2): a day of an extension's downtime activity, or of an Aid to another PC's run of it.
+            const def = ext.activities?.[activity.ref];
+            const aidFor = activity.aid ?? null;
+            if (!def || (aidFor && !def.aid)) return stop(day, "ext-unknown", { ref: activity.ref });
+            const block = extBlockOf({ actorId, ref: activity.ref, aidFor, day, all, length: aidFor ? def.aid.days : def.days, consecutive: def.consecutive });
+            if (block.n === 1 && !aidFor && def.eligible?.ok === false) return stop(day, "ext-ineligible", { ref: activity.ref, why: def.eligible.reason ?? null });
+            const last = block.n === block.of;
+            if (last && (aidFor || def.hasCheck) && !ext.runs?.[block.run]?.check) {
+                return stop(day, aidFor ? "ext-aid-check" : "ext-check", { ref: block.run, activity: activity.ref, from: block.from, aid: aidFor });
+            }
+            record = { ...base, ext: block, result: last ? (aidFor ? "ext-aid" : "ext") : null };
+            if (last) out.ext.push({ run: block.run, activity: activity.ref, aid: aidFor, from: block.from, to: day, record: record.id });
         }
         out.records.push(record);
         all.push(record);
     }
     return out;
+}
+
+/**
+ * Where an extension activity's day falls in its run (M10, 12.2): the PC's last unfinished run of the same activity (and the
+ * same aided PC) goes on, from the day before for a `consecutive` activity, from any earlier day otherwise; else a new run
+ * starts on this day. `{run, n, of, from}`: the run's id, the day's place in it, its length and its first day.
+ */
+export function extBlockOf({ actorId, ref, aidFor = null, day, all, length, consecutive }) {
+    const mine = all.filter((d) => isDayRecord(d) && d.actor === actorId && d.day < day).sort((a, b) => a.day - b.day);
+    const same = (d) => d.activity?.kind === "ext" && d.activity.ref === ref && (d.activity.aid ?? null) === aidFor && d.ext;
+    const lastSame = [...mine].reverse().find(same) ?? null;
+    const before = mine.at(-1) ?? null;
+    const goesOn = lastSame && lastSame.ext.n < lastSame.ext.of && lastSame.ext.of === length &&
+        (!consecutive || (before === lastSame && (Number.isInteger(lastSame.toDay) ? lastSame.toDay : lastSame.day) === day - 1));
+    if (goesOn) return { run: lastSame.ext.run, n: lastSame.ext.n + 1, of: length, from: lastSame.ext.from };
+    return { run: extRunId(actorId, ref, day, aidFor), n: 1, of: length, from: day };
 }
 
 /**
@@ -411,8 +465,10 @@ export function daysSummary(records = []) {
         from = from === null ? record.day : Math.min(from, record.day);
         to = to === null ? last : Math.max(to, last);
         const kind = record.result === "not-downtime" ? "not-downtime"
-            : record.kind === "setup" || record.kind === "extra" ? record.kind : record.activity?.kind ?? "other";
-        const ref = record.order ?? record.job ?? null;
+            : record.kind === "setup" || record.kind === "extra" ? record.kind
+                : record.activity?.kind === "ext" && record.activity.aid ? "ext-aid" : record.activity?.kind ?? "other";
+        // M10: an extension activity's days are summed per activity (and, for an Aid, per PC aided).
+        const ref = record.order ?? record.job ?? (record.activity?.kind === "ext" ? [record.activity.ref, record.activity.aid].filter(Boolean).join(":") : null);
         const key = `${kind}:${ref ?? ""}`;
         const part = parts.get(key) ?? { kind, ref, n: 0, cp: 0 };
         part.n += n;

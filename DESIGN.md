@@ -204,7 +204,10 @@ Target: a `verified` bump within a week of each pf2e release. Upstream issues wo
 | Components | flags on a deconstructed item (6.16.5) | the item's owner | item |
 | Garden | Workshop ledger `gardens` (6.16.7) | any member; harvests by the harvester's owner | random id |
 | Gift binding | flags on the item (6.16.8) | the item's owner | item |
-| Extension data | Workshop ledger `ext.<moduleId>` | the extension, same rules | extension-defined |
+| Extension data | Workshop ledger, the extension's own flag scope `flags.<moduleId>` (As built in M10, 12.4) | the extension, same rules | extension-defined |
+| Extension activity run | Workshop ledger `extRuns` (12.6) | the roller of its check | hash of actor, activity, first day, aided PC |
+| Consumable spend | Workshop ledger `spends` (12.6) | the item's owner | hash of sink and the extension's key |
+| Income payment | Workshop ledger `incomes` (12.6, M10 review) | the client that pays it | hash of income source and the extension's key |
 
 Every record carries `by` (user id) and `at` (`{world: worldTime seconds, real: Date.now(), server:
 game.time.serverTime, launch}`) for the last write. `real` is the author's own clock, for display; ages and
@@ -681,6 +684,8 @@ rows.<id> = {
   owner to resolve them or mark them "not downtime" (one day record covering the span, without effects).
 - **As built in M9**: activity `subject` (a ref kind): the days a tattoo's or graft's subject sits for it, `{order, result:
   "subject"}`; the subject is locked as a helper is (6.14, 10.16).
+- **As built in M10**: activity `ext` is a ref kind, `{kind: "ext", ref: <activity id>, aid?: <actor id>}`; its day records
+  carry `ext: {run, n, of, from}`, and a run's last day `extRows` (the rows it owes) and `extNotes` (12.6).
 - **Day records** (`days.<actorId>-<day>`, keyed by the record's first day):
   `{actor, day, toDay, activity, order?, attempt?, kind?: "setup" | "extra" | "setup-hours" | "season",
   hours?, rushed?, crafterCp?, helpers?: {[actorId]: cp}, afflictionSaves?: [ids], result, rows: [rowIds],
@@ -843,7 +848,7 @@ says so once per session (`scripts/foundry/state.mjs`, `sync.mjs`).
 | Store | Scope | Holds | Who can write |
 |---|---|---|---|
 | World settings | world | feature toggles, rules-gap settings, settlement profiles, ids of the shared documents | GM and assistant GMs (`SETTINGS_MODIFY`) |
-| **Workshop ledger** | a JournalEntry created by the module, default ownership OWNER, in a "module data" folder | `meta` (current settlement, manual day log, day offset, archive and migration locks), `orders`, `services`, `rows`, `claims`, `pcs`, `days`, `jobs`, `roster`, `formulas`, `standing`, `gardens`, `afflictionDefs`, `ext` | every player |
+| **Workshop ledger** | a JournalEntry created by the module, default ownership OWNER, in a "module data" folder | `meta` (current settlement, manual day log, day offset, archive and migration locks), `orders`, `services`, `rows`, `claims`, `pcs`, `days`, `jobs`, `roster`, `formulas`, `standing`, `gardens`, `afflictionDefs`, `extRuns`, `spends`, `incomes`; and, beside the module's own flags, each extension's store under its own module id (As built in M10, 12.4) | every player |
 | Ledger archive pages | JournalEntryPages inside the ledger | archived orders, rows and day records as flags | every player (page creation needs OWNER of the parent journal, which players have) |
 | Lock pages | JournalEntryPages inside the ledger, `_id` = the id of what they lock (a row, a strongbox item, a purse coin stack at one version, a coin move's apply request, a lost delivery's re-creation) | the lock stamp (`lock`); on a coin move's first row, also the move itself (`move`), for a resume (5.4, As built: Resume); and a lock page may carry `hand: {kind, row}`: an apply mark or re-creation lock taken by a close by hand (`kind` "close", `row` the row closed) or a GM's adjust ("adjust", `row` the adjust row) for a row that needed a hand, so reconciliation knows no request is behind it (5.4, As built: Closing by hand); their existence is the lock | every player |
 | **Strongbox** | a pf2e `loot` Actor created by the module, then updated to default ownership OWNER (5.2) | escrowed coins, earmarked materials, shelf items | every player |
@@ -931,7 +936,10 @@ totals are derived from keyed records (4.2.1, 4.8), and strongbox coins follow t
 As built in M2 (`scripts/logic/keypath.mjs`, `scripts/foundry/store.mjs`): the store is `read(path)`,
 `records(collection)` (live records only), `exists(path)` and `write({set, replace, del})`; `extStore(moduleId)`
 is the extension store of 12.4 over it. A path starts with a known ledger key and reaches at least a record:
-`rows.<id>`, `meta.<key>`, `meta.manual.<runId>`, `formulas.<actorId>.<hash>`, `ext.<moduleId>.<key>`.
+`rows.<id>`, `meta.<key>`, `meta.manual.<runId>`, `formulas.<actorId>.<hash>`, `ext.<moduleId>.<key>`. As built in M10:
+`ext` is gone (an extension's store is its own flag scope on the ledger, written by `write({scopes: {[moduleId]: {set,
+replace, del}}})` in the same update as the Workshop's keys, `scopeUpdate` and `checkScopePath` in `keypath.mjs`), and
+`extRuns.<id>` and `spends.<id>` join the known keys (12.6), and `incomes.<id>` after the M10 review.
 Segments are letters, digits, `_` and `-`, so the `-=` and `==` keys cannot be written either. `replace`
 uses Foundry's `_replace` (no merge) and `del` uses `_del`. Writes go out with `diff: false`: otherwise the
 client drops a `_del` for a key its own copy lacks, and any key whose value it already holds (`diffObject`,
@@ -6761,6 +6769,10 @@ active(actor), pending(actor), rollPending({actor, skipDialog}), roll({actor, ru
 adjust(itemOrUuid, {stage, end, endOnset, undo}), repair(itemOrUuid), process(), backend(), open()}` and `rules.afflictionStep`
 (10.15).
 
+As built in M10: `ext.{apiVersion, activities, incomeSources, sinks, modifierSources, modules, store, partyLevel, roll, runs,
+run, openAids, income, incomePaid, spend, sinkItems, spends, modifiers}`, `funds.post(row)`, `funds.posted({source, key})` and
+`rules.levelDC(level)` (12.6; `incomePaid` and `funds.posted` from the M10 review).
+
 As built in M8: `alchemy.{facts(actor), quickAlchemy({actor, uuid, second, additive, combine, then, map}) (the panel without a
 uuid), quickBomb({actor, family, uuid, damageType, material, createIfNone, map}), quickVial({actor, damageType, material,
 quickened, then}), healingBomb({actor, grade, target}) (made, and thrown when `target` is given), throwHealingBomb({actor,
@@ -6888,7 +6900,9 @@ are internal too.
 
 - `api.ext.store(moduleId)` returns `get(key)`, `set(key, value)`, `delete(key)` over
   `ext.<moduleId>.<key>` in the Workshop ledger, using key-path updates. Extensions version their own
-  data.
+  data. As built in M10 the store is the extension's own flag scope on the ledger, `flags.<moduleId>.<key>`, not a key
+  under the Workshop's flags (DECISIONS.md 2026-10-27, the extension API as built): the Workshop's migrations rewrite
+  its own flags and never an extension's, and its purge removes the ledger with both (12.6).
 - Extension ledger rows use `kind: "income" | "expense"` with `source: "<moduleId>:<sourceId>"`.
 - Interfaces and hook payloads are covered by `apiVersion` (11.3).
 
@@ -6907,6 +6921,201 @@ Workshop internals. It would register:
 - `CheckModifierSource` entries for roles, upgrades and trick traits.
 
 All circus numbers, rules and names ship only in that module; nothing in the shipped Workshop refers to them.
+
+### 12.6 As built in M10
+
+M10 builds the extension API (pure parts in `scripts/logic/extensions.mjs` and the `ext` branch of the day planner in
+`scripts/logic/downtime.mjs`; the Foundry side in `scripts/foundry/extensions.mjs`, the ledger hooks in
+`scripts/foundry/events.mjs`, and additions to `downtime.mjs`, `rolls.mjs`, `claims.mjs`, `store.mjs`, `batch.mjs`,
+`orders.mjs`, `nature.mjs`, `services.mjs`, `sync.mjs`, `api.mjs` and `module.mjs`; the window's parts in
+`scripts/ui/downtime.mjs`, `days.mjs`, `advance.mjs`, `bandolier.mjs`, `morning.mjs` and their templates). Unit tests in
+`test/logic/extensions.test.mjs`; stub tests in `test/foundry/extensions.test.mjs`, `ui-m10.test.mjs` and the lifecycle
+hooks test of `orders.test.mjs`, all against a test extension of every interface (`test/foundry/ext-fixture.mjs`, module
+`workshop-test-ext`). The first real consumer is the separate circus module (12.5), built in its own repository against
+this API with the Workshop checkout as a development dependency; no live plan has run yet.
+
+**Registration (12.1).** The Workshop's `setup` hook opens the registry and fires `pf2e-artisans-workshop.register` with it
+(`openRegistration`); its `ready` hook closes it (`closeRegistration`) before the API is published. The registry hands
+out `apiVersion` (1), `downtimeActivity(def)`, `incomeSource(def)`, `consumableSink(def)`, `checkModifierSource(def)` (each
+returns `{ok, id}` or `{ok: false, reason}`) and `extension(moduleId, {requiresApi})`, which declares the extension and
+returns those four methods restricted to its own ids (`foreign-id` otherwise), or null when it is ignored. Every id is
+`<moduleId>.<slug>` (a Foundry package id, not `core`, `world`, `pf2e` or the Workshop's, then a lowercase slug), the module
+must be active, and a duplicate is refused. `requiresApi` comes from the first declaration or the extension's manifest
+(`flags["pf2e-artisans-workshop"].requiresApi`); another major ignores everything the module registers, and at `ready` a GM
+is warned once (`Ext.ApiMismatch`). Every refusal is logged to the console. A call before `setup` (`not-open`) or after
+`ready` (`closed`) is refused.
+
+**Interfaces as built (12.2).** Definitions are checked and frozen (`normaliseActivity`, `normaliseIncomeSource`,
+`normaliseSink`, `normaliseModifierSource`); callbacks get a frozen `ctx` with `store` (a read-only view of the extension's
+own store, `get(path)` returning a copy), `rules` (`levelDC`) and what is listed below. A callback that throws counts as
+"nothing" (an activity resolves nothing, a source adds no modifier, an income is refused `bad-result`, a spend `sink-error`).
+- *DowntimeActivity*: `{id, label, icon?, days, consecutive?, eligible?(actor), check?: {statistic: slug | (actor) => slug,
+  dc: number | "partyLevel" | "actorLevel" | (ctx) => number, traits?, rollOptions?}, aid?: {days, statistic, dc, bonus},
+  compendiumUuid?, resolve(ctx)}`. A PC's activity is `{kind: "ext", ref: <activity id>}`, or `{kind: "ext", ref, aid:
+  <actor id>}` to aid that PC (keys `ext:<id>` and `ext:<id>:<actorId>`). Its days form *runs* of `days` days (an Aid's
+  `aid.days`): a day continues the PC's last unfinished run of the same activity (and aided PC), for a `consecutive`
+  activity only from the day before, so a break starts again and the broken run counts for nothing; each day record says
+  `ext: {run, n, of, from}`. The run's id hashes the actor, the activity, its first day and whom it aids (`extRunId`). The
+  planner stops (4.8) with `ext-unknown` (no active module provides it, or it has no Aid), `ext-ineligible` (`eligible`
+  refuses as a run would start; `why` its reason), `ext-check` and `ext-aid-check` (the run's last day waits for the
+  check; every Aid has one). The check may be rolled any time before the last day is written (`api.ext.roll({actor,
+  activity, from, aid})`, the wizard's checks step, the resolver): the run's record `extRuns.<id> = {id, v, actor, actorId,
+  activity, aidFor, from, dc, aids, check, by, at}` is written first, then the roll goes through the statistic (pf2e's
+  `getStatistic`) with an explicit DC (the party level is the members' levels averaged and rounded, GM Core p.75), the
+  link option `pf2e-artisans-workshop:ext:<runId>`, `pf2e-artisans-workshop:activity:<id>`, the activity's roll options and
+  traits (and `downtime`), the registered modifier sources' modifiers and, for the activity's own check, an Aid modifier
+  for each open Aid run aiding this PC in it (`aidModifier`: the activity's bonus on a success or better, -1 on a critical
+  failure, circumstance, so pf2e keeps the highest). The message's author records the check (`recordExtCheck`): a reroll
+  replaces it until the run's last day is written and is kept as `conflict` after; a second roll that is no reroll is kept
+  nowhere; the Aid runs it counted are marked `usedBy`, so one Aid helps one check. The run's last day calls
+  `resolve(ctx)` (`ctx`: `actor, actorId, activity, run, check, degree, from, to, day, aids, partyLevel, store, rules`) on
+  the resolving client; its `ActivityResult` is checked (`activityResult`): `ext` store writes go into the same request as
+  the day records, behind the PC's day lock (so a day resolved twice writes them once); `ledger` rows (income or expense,
+  keyed `run.<runId>.<n>` unless they give a key) are kept on that day record (`extRows`) and posted after the write;
+  `notes` are kept as `extNotes` and are the day's notes in `downtimeDayEnd`. An Aid's last day resolves nothing. After the
+  M10 review, a result's store path that is a prefix of another path of the same result (`tally` beside `tally.b`) is dropped
+  (counted, the deeper one kept), and so is a path of a later run of the same span inside or around an earlier run's (a later
+  run's same path wins): the two in one update would refuse the day's whole write, so the PC's days would never be written.
+- *IncomeSource*: `{id, label, cadence, distribute, compute(ctx)}`. `perEvent` sources pay through `api.ext.income(id, {key,
+  actor, day, data, recipients, note})`; `perDay` sources are asked for every day record of a PC in downtime with an
+  activity, `perWeek` sources on the last day of each week of seven workshop days (`day % 7 === 6`), each with `ctx.record`
+  (`cadenceKey` keys them by actor and day or week), their rows kept on the record like an activity's. Each computed
+  payment fires `incomeComputed` before it is posted. `strongbox` mints `income` into the party fund (box +n, fund
+  allocation +n), `actor` into `ctx.actor`'s purse, `split` evenly among `recipients` (the members by default; largest
+  remainder, the first ones get the odd copper). The `key` makes a payment idempotent: rows are keyed
+  `ext:<moduleId>:<slug>:<key>` (`.<recipient UUID>` for a split). After the M10 review a `perEvent` payment is idempotent
+  per payment, not per row: before its rows are posted it is recorded once, `incomes.<id> = {id, v, source, key, cp,
+  breakdown, distribute, rows, by, at}` (its id hashes the source and the key; written behind a lock page of the same id),
+  and paying the key again computes nothing and posts exactly the recorded rows (each once), whatever the members or
+  `recipients` are now (`outcome` "already"); of two clients paying at once, the one whose record lands pays and the other
+  posts its rows. `api.ext.incomePaid(sourceId, key)` says whether a payment is made: recorded, and each of its rows in the
+  ledger or claimed for its purse's owner.
+- *ConsumableSink*: `{id, label, accepts(item), spend(ctx)}`. `api.ext.spend(id, {actor, item, key, data})` refuses an item
+  that is inert or expired by the Morning's and the Bandolier's own expiry (`isInert`, `expiredWhy`), one the sink does not
+  accept, or one the user does not own; otherwise it calls `spend(ctx)` (`actor, item, sink, key, data, store, rules`),
+  takes one off the item (or deletes the last) in one request behind a lock page named by the spend and the stack's lock page
+  at the version its quantity was read from (as the Workshop's own item moves lock it, M10 review: two spends with different
+  keys planned from the same copy of the stack take two items, or the second is refused `conflict`), with the log record
+  `spends.<id> = {id, v, sink, key, actor, item: {id, uuid, name, img, sourceId}, modifiers, notes, source, by, at}` (its id
+  hashes the sink and the extension's `key`, so a spend sent twice spends one item), returns `{modifiers, notes, record}` and
+  fires `consumableSpent`. The Bandolier offers "Spend on <sink>" beside each ready item a sink accepts (a fresh key each
+  click, `source: "bandolier"`); the Morning tab lists what each sink would take of what the character carries.
+- *CheckModifierSource*: `{id, selectors, modifiers(ctx)}`. A roll answers the selectors `rollSelectors` gives its
+  statistic (`<slug>`, `skill-check` or `saving-throw`, `check`, `all`); `ctx` has `actor, statistic, selectors, kind,
+  rollOptions` and the roll's own ids (`order`, `job`, `activity`, `service`). Modifier data `{slug, label, modifier, type,
+  predicate?}` is checked (`modifierData`: a lowercase slug, a whole non-zero modifier, one of pf2e's types) and becomes
+  pf2e `Modifier`s with the label localized. The Workshop's own rolls take them: a Craft check (`kind` "craft"), an Earn
+  Income check ("earn-income"), a helper's ("help"), a Grow season check ("season"), a Repair ("service"), an extension
+  activity's check ("activity") and an Aid's ("aid"); extensions get them for their own rolls from `api.ext.modifiers`
+  ("extension"). Affliction saves, Quick Alchemy and the rest of combat do not.
+- No adventure-path adapter (12.2): an extension's tracks, calendars and purchases live in its store and its own window.
+
+**Rows (12.4).** `api.funds.post({kind, cp | amount, key, source: "<moduleId>:<slug>", via, actor, note, day})` posts an
+extension's `income` (minted into the strongbox's party fund, `via` "box", the default without an actor; or into a purse,
+`via` "purse", minted when this user owns it and an `income` claim for the owner's client otherwise, like a wage) or
+`expense` (out of the unallocated party fund behind the fund slot, refused `fund-short` with `maxCp`). Only a module that
+registered something (and is not ignored) may post (`unknown-extension`). The same key posts once (`already`).
+`api.funds.posted({source, key})` (M10 review) finds an extension's row by its key, `{id, kind, cp, state, reversed}` or null:
+any member may reverse an `expense` row in the Funds tab (its author, 10.10), so an extension that sells something for one
+treats it as bought only while its row stands and buys it again under a new key (the circus module's purchases do). The sweep
+gains "extension rows": the rows day records owe (`extRows`) that are not in the ledger, posted on the PC's responsible
+client. Claims gain the `income` kind.
+
+**Hooks as built (12.3).** `register` (the registry, in `setup`); `ready`; `downtimeDayStart` and `downtimeDayEnd` as M6
+built them, the end's payload made after the write, with an extension run's rows among `rows`, its `extNotes` as `notes`
+and the record's `ext` place (after the M10 review the wizard's `downtimeDayEnd` names only the PCs whose days its own write
+landed: a PC refused as `taken`, because another client resolved those days first and announced them, or whose write failed
+is left out, and a day nobody's write landed for has no end hook); `incomeComputed` `{source, actor, day, key, result}` (frozen but `result`, which listeners may
+change; what they leave is posted); `itemCrafted` `{order, items: [{uuid, name, qty}], crafter, recipient, delivery}` once
+on the finishing client, `delivery` "shelf" for a character (every finished item goes through the pickup shelf, 4.7) or
+"strongbox" (not "direct"); `formulaAcquired`, `preparationCompleted` and `afflictionChanged` as built before;
+`ledgerPosted` `{rows}` and `orderStatusChanged` `{order, from, to}` announced by the write path itself (`announceAfter`,
+called by `store.write` and for each ledger operation of a batch request that landed): the rows that write made `applied`
+(a lock request's pending rows are announced when their apply request settles them) and each order whose `status` changed
+(`from` null for a new order), on the writing client only. M10 adds `consumableSpent` `{sink, actor, item, key, modifiers,
+notes, record}`. Payloads are deep-frozen copies (`frozenCopy`).
+
+**API (11.2).** `ext.{apiVersion, activities(), incomeSources(), sinks(), modifierSources(), modules(), store(moduleId),
+partyLevel(), roll(opts), runs(filter), run(id), openAids({actor, activity}), income(id, opts), incomePaid(id, key),
+spend(id, opts), sinkItems(id, actor), spends(filter), modifiers({actor, statistic, rollOptions, data, extra})}`,
+`funds.post(row)`, `funds.posted({source, key})` and `rules.levelDC(level)`. `store(moduleId)` is `{get(path), set(path, value), delete(path), write({set, replace, del}),
+exclusive(lockKey, change)}`; `exclusive` writes only if no earlier write took the same lock key (a lock page), for a
+once-only step two clients could take at the same moment (a show resolved once).
+
+**The window.** The Downtime tab and the wizard offer each registered activity by its own label, and "Aiding <PC>: <label>"
+for a member whose days go to an activity with an Aid; extension days and stops read "N days: <label>", "N days aiding
+<PC>: <label>", "Day N: <label> needs its check before its last day...". The wizard's checks step lists an extension run's
+check (or Aid check) with Roll for the PC's owner and "waiting for its player" for others. Refusals and stops have keys
+(`Refusal.Ext*`, `DayStop.Ext*`).
+
+**Stability promise for extensions.** `apiVersion` is 1. Within it, the registry's methods, the four interfaces' fields
+and callbacks with the `ctx` fields listed here, the ids and key formats (`<moduleId>.<slug>`, `ext:<moduleId>:<slug>:
+<key>`, run ids, `ext:<id>[:<actorId>]` activity keys), `api.ext`, `api.funds.post` and the payloads of the public hooks
+above keep their names and meaning; fields may be added. A change that breaks any of them raises `apiVersion`, and the
+Workshop then ignores extensions that declare the old one rather than calling them with what they do not expect.
+Deprecations follow 11.3. The extension's own store layout is the extension's to version; the Workshop's flags, `extRuns`
+and `spends` are not API (read them through `api.ext`). Internal hooks (11.2, 12.3 "internal") are not covered.
+
+#### Follow-ups (M10, low)
+
+- No live plan exercises the API yet; the circus module's harness plan is its first (it needs the server restarted to see a
+  new package).
+- One activity per PC per span in the wizard (M6), so a run of a two-day activity and a day of something else in one span
+  take two runs of the wizard.
+- `perWeek` weeks are fixed seven-day blocks of the workshop day (`day % 7`), not seven days from when a PC's downtime began.
+- An Aid can be rolled before the PC it aids has started a run, and is used by that PC's next check of the activity whatever
+  run it is for; an Aid whose PC never rolls stays open.
+- `spends` and `extRuns` are never archived (5.3.3 is not built).
+- The Bandolier's "Spend on" gives the sink's modifiers to nobody but the `consumableSpent` listener; an extension that wants
+  them on a roll listens for the hook.
+- Check-modifier sources do not reach affliction saves, Quick Alchemy, vial checks or pf2e's own sheet rolls.
+- `eligible(actor)` is asked on every preview, for every registered activity and PC.
+- The day planner asks `resolve(ctx)` on the client that writes the day: a resolution refused as `taken` has called it for
+  nothing (it is pure, so nothing is lost).
+- From the review pass (low, logged, not fixed):
+  - A per-day or per-week income is computed, and `incomeComputed` fires, before the day records are written; a resolution
+    then refused as `taken` has announced a payment that the other client's resolution makes instead.
+  - `perDay` sources are also asked for the day an order's "Work a day" writes for a crafter who is not in downtime.
+  - The Downtime tab offers an Aid only while the aided PC's activity is that activity; a PC whose aided PC has moved on shows
+    its Aid as no option selected until it chooses again.
+  - An extension store's `exclusive` lock pages are never pruned, like the day lock pages (M6 follow-up).
+  - `downtimeDayEnd`'s `notes` is an array for an extension run's last day and the day's result code (a string or null)
+    otherwise.
+- From the M10 review against the circus module (low, logged, not fixed; the mediums are fixed above):
+  - `api.ext.roll`, `setActivity` and the day planner never check whom an Aid aids or whether its run has days: a PC can Aid
+    itself (the Downtime tab excludes it, the API does not), an Aid can be rolled for any `from` with no day spent and still
+    count, and a second Roll after a run's check is recorded makes a new chat roll and rewrites the run's `aids` with what is
+    still open (none), so `ctx.aids` is empty when the run resolves. Refuse `aid === actor.id` in the three, refuse a second
+    roll with `rolled` (a reroll goes through pf2e's reroll path), and do not rewrite `aids` or `dc` on an existing run.
+  - `api.ext.runs()`, `api.ext.spends()` and `api.funds.rows()` hand out the ledger's own objects (a mutation changes what
+    this client's Workshop reads, `run(id)` copies); `downtimeDayStart` and `downtimeDayEnd` payloads are frozen only at the
+    top, though 12.6 promises deep-frozen copies. Use `structuredClone` or `frozenCopy`.
+  - The registry has two registration paths with different guarantees: the top-level methods accept any active module's
+    ids with no own-id check, and fix that module's `requiresApi` at the first call, so a later `extension(id, {requiresApi:
+    2})` is accepted rather than ignored. Make `extension(moduleId, {requiresApi})` the only path (and 12.1's example use
+    it), or read `requiresApi` only from the manifest there. The store's `set`, `delete` and `write` resolve to booleans,
+    `exclusive` to `{ok, outcome, reason}`: one shape.
+  - An `expense` row a `resolve(ctx)` returns that the party fund cannot cover stays owed on the day record: every sweep
+    retries it, nobody is told, and it is paid silently when the fund later has the money. Either refuse expense rows in an
+    `ActivityResult` (extensions pay through `api.funds.post` with their own window) or mark the refusal on the record and
+    tell the PC's owner.
+  - A DowntimeActivity cannot say how many PCs may Aid it (Promote the Circus allows one): every open Aid run counts, and
+    each extra aider who critically fails adds another -1. Add `aid.max` (default unlimited), using the earliest runs.
+  - A recorded income payment whose rows did not all post (the client went away between the record and its rows) is
+    completed by the next call with its key (`api.ext.incomePaid` says it is not paid), not by the sweep; `incomes` is
+    never archived, like `spends` and `extRuns`.
+  - Before this repository is public: DESIGN 12.5 (the circus module's line) and the DECISIONS entry of 2026-10-25 ("Circus
+    management is a separate module") name the adventure path, and the M4 live-pass notes (10.10) name a player's character:
+    replace them with "the circus module" and "a fixture alchemist". The M10 commits add no such name.
+
+**Acceptance (12.5).** The circus module was built in its own repository (`pf2e-big-top`, local, branch `main`) against
+this API with this checkout as a development dependency by path, and its first build needed no change to the Workshop
+(its review then asked for `api.ext.incomePaid` and `api.funds.posted`, added within API version 1, and found the medium
+defects fixed above: overlapping result paths, split payments per recipient, the wizard's end hook, stack locks on spends): its stub tests run
+it against this branch's real registry, day resolver, ledger, sink and modifier sources over `test/foundry/stubs.mjs`
+(Promote the Circus with an Aid through the resolver, show preparation, purchases as `expense` rows, a trick rolled with
+the Workshop's modifiers and an alchemical item spent through its sink, payouts into the party fund and split with claims,
+two members ending a show at once). Its live harness plan is written and has not run.
 
 ---
 
@@ -7587,7 +7796,7 @@ draft; the letters keep the existing milestone numbers stable.
 | M8a | Afflictions | 8.10: the affliction rules engine with tests; the parser, `scripts/data/afflictions.mjs` overrides and the corpus check in the validation script; backend detection, the effect backend and the native backend with its constraints and migration; grant flags and the stage guard; exposure and coating-spend claims; coatings and Strike handling; saves (with the source item, for incapacitation), recording and pending state; turn and world-time timing, catch-up and the affliction time function for logged days; the DC stamp at creation; Afflictions drawer and cards; Affliction Forge coexistence and the GM-routed hand-off; harness scenario 12; built, first live pass run (10.15) | M3 (validation script, roll recording), M6 (day resolver for logged days), M7 (creation stamps, infused expiry), M8 (Bandolier entry point) |
 | M9 | Tattoos and remaining crafts | tattoo process and toggle, grafts, spellhearts, fulus, missives, snares and gadgets specifics, spell-supplied items beyond scrolls and wands; harness scenario 14; built, first live pass run (10.16) | M5, M6 |
 | M9a | Treasure Vault (Remastered) variants | 6.16 behind their settings: Complex Crafting and Quick Setup (setup, rush, sub-day setups, rushed finishing), crafting with adjustments, downtime events, Critical Crafting, Deconstruct and components, Grow with untended growth and seasons, gardens, bestowed gifts, crafting quests; the one-group-at-a-time notice; harness scenario 13; built, live plans passed (10.17, M9a live pass) | M5 (service orders, materials, Repair), M6 (day resolver, seasons, events), M7 (expiry stamps and the inert guard for produce, components and gifts) |
-| M10 | Extension API | registration, interfaces, hooks, extension store; the separate circus module built against it as acceptance test | M6 |
+| M10 | Extension API | registration, interfaces, hooks, extension store; the separate circus module built against it as acceptance test; built, live plans not yet run (12.6) | M6 |
 | M11 | Integration surface | sheet and party entry points, macros and shelf, keybindings, theming, accessibility pass | M4-M9a |
 | M12 | Hardening | full section 15 matrix, performance, pre-release to a test table by manifest URL; the first pre-release run at a real table hosted on the Forge is the Forge smoke test (15.6) | M10, M11 |
 | M13 | Listing | author rewrites every string, README and description; sign-off gate passes; notices final; release workflow dry run; listing submission; 1.0.0 | M12 |

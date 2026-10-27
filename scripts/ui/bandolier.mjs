@@ -13,6 +13,7 @@
  * handlers of their own, and are found again after a render by it (10.9). Detached-window safe: listeners are delegated
  * from the window's element and elements are tested with `isElementInstanceOf`.
  */
+import { sinksFor, spendItem } from "../foundry/extensions.mjs";
 import { MODULE_ID } from "../constants.mjs";
 import { afflictionsOn } from "../foundry/afflictions.mjs";
 import { alchemyFacts, healingBomb, quickAbilityOf, quickVial, throwHealingBomb } from "../foundry/alchemy.mjs";
@@ -131,6 +132,8 @@ export async function bandolierContext(app) {
                 additive: r.additive ? additiveText(r.additive, r.quick?.combine ?? null) : null,
                 strikes: r.bomb && !r.healingBomb ? strikeButtons(actor, item) : [],
                 throw: r.healingBomb, use: r.elixir && !r.healingBomb && item?.type === "consumable", quick: !!r.quick,
+                // M10 (12.2): the extensions' consumable sinks that take this item.
+                sinks: item ? sinksFor(item).map((sink) => ({ id: sink.id, label: loc(sink.label) })) : [],
             };
         }),
         gather: vial.regains, full: v ? v.value >= v.max : true,
@@ -288,6 +291,8 @@ export class BandolierApp extends HandlebarsApplicationMixin(ApplicationV2) {
                 const { openAfflictions } = await import("./afflictions.mjs");
                 return openAfflictions();
             }
+            // M10 (12.2): spend the item through an extension's consumable sink (its `consumableSpent` hook tells the extension).
+            case "spend": return item && data.sink ? spendItem(data.sink, { actor, item, source: "bandolier" }) : null;
             case "gather": return gatherReagents(actor, { minutes: 10 });
             case "admixture": return improviseAdmixture(actor);
             case "haversack": return haversackVial(actor);

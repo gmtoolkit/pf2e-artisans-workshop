@@ -46,7 +46,7 @@
         <ul class="wizard-checks">
             {{#each checks.due}}
             <li><span>{{text}}</span>
-                {{#if canRoll}}<button type="button" class="small primary" data-action="roll" data-kind="{{kind}}" data-ref="{{ref}}" data-actor="{{actor}}"><i class="fa-solid fa-dice-d20" inert></i>{{localize "pf2e-artisans-workshop.Wizard.Roll"}}</button>
+                {{#if canRoll}}<button type="button" class="small primary" data-action="roll" data-kind="{{kind}}" data-ref="{{ref}}" data-actor="{{actor}}" {{#if from}}data-from="{{from}}" data-aid="{{aid}}"{{/if}}><i class="fa-solid fa-dice-d20" inert></i>{{localize "pf2e-artisans-workshop.Wizard.Roll"}}</button>
                 {{else}}<span class="pending">{{localize "pf2e-artisans-workshop.Wizard.Pending"}}</span>{{/if}}</li>
             {{/each}}
         </ul>

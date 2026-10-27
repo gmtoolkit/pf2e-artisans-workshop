@@ -27,6 +27,7 @@ import { hashId, idemKey } from "../logic/ids.mjs";
 import { subjectLockOf } from "../logic/crafts.mjs";
 import { closedAs } from "../logic/orders.mjs";
 import { postDaysCard } from "../ui/chat.mjs";
+import { planFacts, postRow, resolvePlan } from "./extensions.mjs";
 import { lockedWrite } from "./money.mjs";
 import { ranksOf } from "./registry.mjs";
 import { isElected, isResponsibleFor } from "./responsible.mjs";
@@ -214,7 +215,8 @@ export async function setActivity(actorUuid, activity) {
     if (!canWrite()) return refuse("not-ready");
     const actor = actorOf(actorUuid);
     if (!actor?.isOwner) return refuse("not-owner");
-    const value = activity ? { kind: activity.kind, ref: activity.ref ?? null } : null;
+    // M10: an Aid to another PC's run of an extension activity keeps whom it aids.
+    const value = activity ? { kind: activity.kind, ref: activity.ref ?? null, ...(activity.kind === "ext" && activity.aid ? { aid: activity.aid } : {}) } : null;
     const set = { ...statusBase(actor, stampNow()), ...(value ? {} : { [`pcs.${actor.id}.activity`]: null }) };
     await write({ set, replace: value ? { [`pcs.${actor.id}.activity`]: value } : {} });
     return { ok: true };
@@ -246,7 +248,7 @@ export function previewDays(actor, days, activity, { simulate = true } = {}) {
     const orders = records("orders").map((o) => (simulate && activity?.kind === "craft" && o.id === activity.ref && settlesFirst(o) ? asSettled(o) : o));
     return planDays({
         actorId: actor.id, actorUuid: actor.uuid, days, activity, orders, jobs: records("jobs"), records: records("days"),
-        rows: records("rows"), facts: factsOf(actor),
+        rows: records("rows"), facts: factsOf(actor), ext: planFacts(actor),
     }, stampNow(), rulesFromSettings());
 }
 
@@ -270,7 +272,9 @@ async function planFor(actor, days, activity) {
  * Write a PC's planned days in one request behind its lock page (`days:<actorId>:<first day>`): the day records, an
  * order's move to `check` when this user owns its crafter, and `extra` keys (a status change). Then each wage: minted by
  * the earner's responsible client, a claim otherwise (`payWage`); a wage that does not land is paid by the sweep
- * (`sweepWages`), since the day record says what it owes.
+ * (`sweepWages`), since the day record says what it owes. M10: the extension runs the plan finishes are resolved first
+ * (`resolvePlan`): their store writes go in the same request, their rows (and the per-day income sources') on the
+ * records, posted after the write (`postRow`) and by the sweep (`sweepExtRows`) if they do not land.
  */
 async function writePlan(actor, plan, { extra = {} } = {}) {
     const moves = {};
@@ -284,13 +288,16 @@ async function writePlan(actor, plan, { extra = {} } = {}) {
         return { ok: true, outcome: plan.stop ? "stopped" : "nothing", records: [], stop: plan.stop, wages: [] };
     }
     const set = { ...extra, ...moves };
+    const ext = await resolvePlan(actor, plan);
     const replace = Object.fromEntries(plan.records.map((record) => [`days.${record.id}`, record]));
     const lock = hashId(idemKey("days", actor.id, plan.records[0].day));
-    const written = await lockedWrite([lock], [], { set, replace });
+    const written = await lockedWrite([lock], [], { set, replace, scopes: ext.scopes });
     if (!written.ok) return written;
     const wages = [];
     for (const wage of plan.wages) wages.push({ ...wage, result: await payWage(wage.job, wage.day, { cp: wage.cp }) });
-    return { ok: true, outcome: "ok", records: plan.records, stop: plan.stop, wages };
+    const extRows = [];
+    for (const input of ext.rows) extRows.push({ idem: input.idem, result: await postRow(input) });
+    return { ok: true, outcome: "ok", records: plan.records, stop: plan.stop, wages, extRows };
 }
 
 /** The hook payloads of 12.3 for a set of plans, by day: who is resolved that day, with what. */
@@ -306,15 +313,21 @@ function dayHooks(entries, mode) {
     return [...byDay.entries()].sort((a, b) => a[0] - b[0]).map(([day, list]) => ({
         start: Object.freeze({ day, mode, actors: list.map((e) => e.actor.uuid),
             assignments: Object.fromEntries(list.map((e) => [e.actor.id, e.activity ? { ...e.activity } : null])) }),
-        end: Object.freeze({ day, results: Object.fromEntries(list.map((e) => [e.actor.id, { activity: e.activity ? { ...e.activity } : null,
-            rows: [...(e.record.rows ?? [])], notes: e.record.result ?? null }])) }),
+        // Made when it fires, after the write: an extension run's rows and notes are on the record by then (M10).
+        end: () => Object.freeze({ day, results: Object.fromEntries(list.map((e) => [e.actor.id, { activity: e.activity ? { ...e.activity } : null,
+            rows: [...(e.record.rows ?? []), ...(e.record.extRows ?? []).map((r) => hashId(r.idem))],
+            // M10: an extension run's notes on its last day (`resolve(ctx).notes`); otherwise the day's result code.
+            notes: e.record.extNotes ? [...e.record.extNotes] : e.record.result ?? null,
+            ...(e.record.ext ? { ext: { ...e.record.ext } } : {}) }])) }),
     }));
 }
 
 /** An assignment as the planner takes it: an activity, null for "not downtime", or undefined to leave the days alone. */
 function activityOfChoice(choice) {
     if (choice === "not-downtime") return null;
-    if (choice && typeof choice === "object" && choice.kind) return { kind: choice.kind, ref: choice.ref ?? null };
+    if (choice && typeof choice === "object" && choice.kind) {
+        return { kind: choice.kind, ref: choice.ref ?? null, ...(choice.kind === "ext" && choice.aid ? { aid: choice.aid } : {}) };
+    }
     return undefined;
 }
 
@@ -343,7 +356,7 @@ export async function resolveDays({ actor: actorRef, activity = undefined, count
     for (const { start } of hooks) Hooks.callAll("pf2e-artisans-workshop.downtimeDayStart", start);
     const result = await writePlan(actor, planned.plan);
     if (result.ok && result.records.length) {
-        for (const { end } of hooks) Hooks.callAll("pf2e-artisans-workshop.downtimeDayEnd", end);
+        for (const { end } of hooks) Hooks.callAll("pf2e-artisans-workshop.downtimeDayEnd", end());
         if (mode !== "work") await postDaysCard([{ actor, ...result }], { toDay: to });
     }
     return result;
@@ -397,12 +410,18 @@ export async function advanceDays({ kind = "days", count = 1, through = null, ba
         const result = await planFor(actor, days, choice);
         planned.push({ actor, activity: choice, plan: result.plan ?? null, refusal: result.refusal ?? null });
     }
-    const hooks = dayHooks(planned.filter((p) => p.plan), "wizard");
-    for (const { start } of hooks) Hooks.callAll("pf2e-artisans-workshop.downtimeDayStart", start);
+    for (const { start } of dayHooks(planned.filter((p) => p.plan), "wizard")) Hooks.callAll("pf2e-artisans-workshop.downtimeDayStart", start);
     const results = [];
-    for (const { actor, plan, refusal } of planned) {
-        results.push({ actor, ...(refusal ?? await writePlan(actor, plan)) });
+    // M10 review: `downtimeDayEnd` tells only of the days this client wrote; a PC whose write was refused ("taken": another
+    // client resolved those days first, and announced them) or failed is left out, and a day nobody's write landed for
+    // ends with no hook.
+    const written = [];
+    for (const entry of planned) {
+        const result = entry.refusal ?? await writePlan(entry.actor, entry.plan);
+        results.push({ actor: entry.actor, ...result });
+        if (!entry.refusal && result.ok && result.records?.length) written.push(entry);
     }
+    const hooks = dayHooks(written, "wizard");
     if (span.advances > 0) {
         const runId = newId();
         await write({ set: { [`meta.manual.${runId}`]: { id: runId, v: 1, fromDay: span.fromDay, toDay: span.toDay, ...stampNow() } } });
@@ -412,7 +431,7 @@ export async function advanceDays({ kind = "days", count = 1, through = null, ba
         await game.time.advance((span.toDay - now.clockDay) * secondsPerDay());
         clock = span.toDay;
     }
-    for (const { end } of hooks) Hooks.callAll("pf2e-artisans-workshop.downtimeDayEnd", end);
+    for (const { end } of hooks) Hooks.callAll("pf2e-artisans-workshop.downtimeDayEnd", end());
     if (results.some((r) => r.records?.length)) await postDaysCard(results, { toDay: span.toDay });
     return { ok: true, toDay: span.toDay, clock, results };
 }

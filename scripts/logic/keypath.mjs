@@ -11,15 +11,17 @@
 
 /**
  * The ledger's top-level keys (5.1) and how many path segments a write or a deletion needs at least. A
- * collection needs its id (`rows.<id>`); `formulas.<actorId>.<hash>`, `ext.<moduleId>.<key>` and
- * `meta.manual.<runId>` are collections one level down. The longest matching prefix decides.
+ * collection needs its id (`rows.<id>`); `formulas.<actorId>.<hash>` and `meta.manual.<runId>` are collections one level
+ * down. The longest matching prefix decides. M10 adds `extRuns` (an extension activity's runs, 12.2), `spends` (the log
+ * of items spent through a consumable sink) and `incomes` (an income source's payments, recorded once per key); an
+ * extension's own data is not here but in the ledger's flags under the extension's module id (12.4, `scopeUpdate`).
  */
 const MIN_DEPTH = new Map([
     ["schema", 1], ["role", 1],
     ["meta", 2], ["meta.manual", 3],
     ["orders", 2], ["services", 2], ["rows", 2], ["claims", 2], ["pcs", 2], ["days", 2], ["jobs", 2],
     ["roster", 2], ["standing", 2], ["gardens", 2], ["afflictionDefs", 2],
-    ["formulas", 3], ["ext", 3],
+    ["formulas", 3], ["extRuns", 2], ["spends", 2], ["incomes", 2],
 ]);
 
 /** A path segment: an id, a slug or a camelCase name. Dots separate segments; "=" (the banned -= and == keys) never appears. */
@@ -60,14 +62,14 @@ export function flagKey(scope, path) {
  * @param {object} operators  Foundry's data operators: `{deletion: _del, replacement: _replace}`
  * @returns {Record<string, *>}  the update object, without `_id`
  */
-export function flagUpdate(scope, { set = {}, replace = {}, del = [] } = {}, { deletion, replacement }) {
+export function flagUpdate(scope, { set = {}, replace = {}, del = [] } = {}, { deletion, replacement }, check = checkPath) {
     const entries = [
         ...Object.entries(set).map(([path, value]) => [path, value]),
         ...Object.entries(replace).map(([path, value]) => [path, replacement(value)]),
         ...del.map((path) => [path, deletion]),
     ];
     const paths = entries.map(([path]) => path);
-    for (const path of paths) checkPath(path);
+    for (const path of paths) check(path);
     for (const a of paths) {
         for (const b of paths) {
             if (a !== b && b.startsWith(`${a}.`)) throw new TypeError(`"${a}" and "${b}" overlap in one update`);
@@ -75,6 +77,28 @@ export function flagUpdate(scope, { set = {}, replace = {}, del = [] } = {}, { d
     }
     if (new Set(paths).size !== paths.length) throw new TypeError("a path appears twice in one update");
     return Object.fromEntries(entries.map(([path, value]) => [flagKey(scope, path), value]));
+}
+
+/**
+ * A path inside an extension's own flag scope on the ledger (12.4, M10): dot-separated segments of letters, digits, `_` and
+ * `-`, at least one. Unlike the Workshop's own paths there are no known top-level keys: the layout is the extension's.
+ */
+export function checkScopePath(path) {
+    if (typeof path !== "string" || path === "") throw new TypeError("an extension store path must be a non-empty string");
+    const segments = path.split(".");
+    for (const segment of segments) {
+        if (!SEGMENT.test(segment) || FORBIDDEN.has(segment)) throw new TypeError(`bad extension store path segment in "${path}"`);
+    }
+    return segments;
+}
+
+/**
+ * One key-path update for an extension's own flag scope on the ledger (12.4): as `flagUpdate`, with the scope's own paths.
+ * `scope` must be a package id other than the Workshop's (`reserved` names the scopes refused).
+ */
+export function scopeUpdate(scope, change, operators, reserved = []) {
+    if (typeof scope !== "string" || !/^[A-Za-z0-9_-]+$/.test(scope) || reserved.includes(scope)) throw new TypeError(`"${scope}" is not an extension's flag scope`);
+    return flagUpdate(scope, change, operators, checkScopePath);
 }
 
 /** Whether a stored value is a plain object (a record or a collection). */

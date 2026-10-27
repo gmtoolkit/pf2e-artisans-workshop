@@ -17,6 +17,7 @@
  * The window keeps the tab's state (`app.morning`): the character, each pool's plan, the talismans picked, the standing
  * orders left out, the loadout name being typed.
  */
+import { registered, sinkItems } from "../foundry/extensions.mjs";
 import { familyBaseName } from "../logic/families.mjs";
 import { MAX_QTY } from "../logic/morning.mjs";
 import { deploySnare, setSnareMark } from "../foundry/crafts.mjs";
@@ -208,6 +209,9 @@ export async function morningContext(app) {
             frequencies: facts.frequencies.map((f) => ({ name: f.name, text: fmt("pf2e-artisans-workshop.Morning.Frequency", { value: number(f.value), max: number(f.max) }) })),
             gaps,
             preservable: preservable(actor).map((item) => ({ id: item.id, name: item.name, preserved: !!stampOf(item).exempt })),
+            // M10 (12.2): what the extensions' consumable sinks would take of what the character holds now (not inert, not expired).
+            sinks: registered("consumableSink").map((sink) => ({ sink, n: sinkItems(sink.id, actor).reduce((sum, item) => sum + (item.quantity ?? 1), 0) }))
+                .filter((s) => s.n > 0).map((s) => fmt("pf2e-artisans-workshop.Morning.SinkLine", { sink: loc(s.sink.label), n: number(s.n) })),
             loadouts: loadouts.map((l) => ({ id: l.id, name: l.name, pools: Object.keys(l.pools ?? {}).concat(Object.keys(l.talismans ?? {}))
                 .map((slug) => facts.pools.find((p) => p.slug === slug)?.label ?? slug).join(", ") })),
             loadoutName: state.loadoutName,

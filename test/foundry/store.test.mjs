@@ -84,15 +84,35 @@ test("a stamp is a moment on the server's clock: the launch the server sent plus
     assert.equal(stampTime(later) - stampTime(earlier), 60 * 1000);
 });
 
-test("stamps, random ids and the extension store", async () => {
+test("stamps and random ids", () => {
     const stamp = store.stampNow();
     assert.equal(stamp.by, "gm00000000000000");
     assert.equal(stamp.at.world, 1000);
     assert.match(store.newId(), /^[a-z0-9]{16}$/);
-    const ext = store.extStore("circus-module");
-    await ext.set("prestige", 4);
-    assert.equal(ext.get("prestige"), 4);
-    await ext.delete("prestige");
-    assert.equal(ext.get("prestige"), undefined);
-    assert.throws(() => store.extStore("bad id"), TypeError);
+});
+
+test("an extension's store is its own flag scope on the ledger, written by key path in the same request as the Workshop's keys (12.4, M10)", async () => {
+    const { extStore } = await import("../../scripts/foundry/extensions.mjs");
+    const ext = extStore("circus-module");
+    await ext.set("prestige.shows.s1", 4);
+    assert.equal(ext.get("prestige.shows.s1"), 4);
+    assert.deepEqual(docs.ledger.flags["circus-module"], { prestige: { shows: { s1: 4 } } }, "under the extension's own scope");
+    assert.equal(flagsOf(docs.ledger).ext, undefined, "nothing under the Workshop's");
+    const copy = ext.get("prestige");
+    copy.shows.s1 = 99;
+    assert.equal(ext.get("prestige.shows.s1"), 4, "get returns a copy");
+    await ext.write({ set: { "a.b": 1 }, del: ["prestige.shows.s1"] });
+    assert.deepEqual([ext.get("a.b"), ext.get("prestige.shows.s1")], [1, undefined]);
+    await ext.delete("a");
+    assert.equal(ext.get("a"), undefined);
+    assert.throws(() => extStore("bad id"), TypeError);
+    for (const reserved of ["pf2e-artisans-workshop", "core", "world", "pf2e"]) assert.throws(() => extStore(reserved), TypeError, reserved);
+    await assert.rejects(() => ext.set("bad path", 1), TypeError);
+    assert.throws(() => ext.get("__proto__.x"), TypeError);
+    const both = store.ledgerChange({ set: { "meta.x": 1 }, scopes: { "circus-module": { set: { y: 2 } } } });
+    assert.deepEqual(both, { "flags.pf2e-artisans-workshop.meta.x": 1, "flags.circus-module.y": 2 }, "one update for the Workshop's keys and the extension's");
+    assert.throws(() => store.ledgerChange({ scopes: { "pf2e-artisans-workshop": { set: { y: 2 } } } }), TypeError, "the Workshop's own scope is not an extension's");
+    const first = await ext.exclusive("show-1", { set: { "shows.s1.done": true } });
+    const second = await ext.exclusive("show-1", { set: { "shows.s1.done": false } });
+    assert.deepEqual([first.ok, second.ok, second.outcome, ext.get("shows.s1.done")], [true, false, "taken", true], "an exclusive write lands once");
 });

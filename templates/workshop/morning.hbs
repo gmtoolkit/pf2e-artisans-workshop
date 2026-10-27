@@ -167,6 +167,12 @@
                 </ul>
             </section>
             {{/if}}
+            {{#if sinks.length}}
+            <section class="morning-sinks">
+                <h3>{{localize "pf2e-artisans-workshop.Morning.Sinks"}}</h3>
+                <ul>{{#each sinks}}<li><i class="fa-solid fa-hand-holding-droplet" inert></i> {{this}}</li>{{/each}}</ul>
+            </section>
+            {{/if}}
             {{#if preservable.length}}
             <section class="morning-preserve">
                 <h3>{{localize "pf2e-artisans-workshop.Morning.Preserve"}}</h3>

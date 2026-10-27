@@ -22,6 +22,7 @@ import { MODULE_ID } from "../constants.mjs";
 import { compareIds } from "../logic/ids.mjs";
 import { registerBatchWatcher } from "./batch.mjs";
 import { sweepWages } from "./downtime.mjs";
+import { sweepExtRows } from "./extensions.mjs";
 import { expirySweep } from "./expiry.mjs";
 import { subjectSweep } from "./crafts.mjs";
 import { variantSweep } from "./variants.mjs";
@@ -202,6 +203,8 @@ const SWEEP_STEPS = [
     ["roster", () => publishAll()],
     // M6: wages that day records owe and that never landed (the earner's responsible client mints them, 6.10).
     ["wages", () => sweepWages()],
+    // M10: extension rows that day records owe (an activity's result, a per-day income), on the PC's responsible client (12.2).
+    ["extension rows", () => sweepExtRows()],
     // M6: order repairs the hook missed, such as a setup a runner's day records completed while nobody was responsible.
     ["orders", () => sweepOrderRepairs()],
     // M7: party-wide expiry (7.7): items the actors this tab is responsible for hold, and its share of the strongbox.

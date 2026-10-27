@@ -20,10 +20,12 @@ export const CLAIM_VERSION = 1;
 const CLAIM_ROWS = Object.freeze({
     refund: "refund",
     wage: "wage",
+    // M10 (12.2, 12.4): an extension's income into a purse the paying user does not own, minted by the owner's client.
+    income: "income",
 });
 
 /** Every claim kind of 5.5 except deliveries; later milestones register their appliers. */
-export const CLAIM_KINDS = Object.freeze(["refund", "wage", "formula", "expiry", "invest", "exposure", "coating-spend"]);
+export const CLAIM_KINDS = Object.freeze(["refund", "wage", "formula", "expiry", "invest", "exposure", "coating-spend", "income"]);
 
 /**
  * A claim record.
@@ -55,8 +57,10 @@ export function openClaims(claims, actorUuid = null) {
 export function claimRowInput(claim) {
     const kind = CLAIM_ROWS[claim.kind];
     if (!kind) return null;
+    // M10: income is minted into the purse and names the extension it came from.
+    const income = kind === "income" ? { how: { via: "purse" }, source: claim.source ?? null, note: claim.note ?? null } : {};
     return { kind, idem: claim.idem, cp: claim.cp, actor: claim.actor, order: claim.order ?? null,
-        garden: claim.garden ?? null, job: claim.job ?? null, day: claim.day ?? null };
+        garden: claim.garden ?? null, job: claim.job ?? null, day: claim.day ?? null, ...income };
 }
 
 /**

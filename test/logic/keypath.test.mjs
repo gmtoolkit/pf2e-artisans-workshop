@@ -12,9 +12,11 @@ test("paths into records are accepted; whole collections and unknown keys are re
     assert.doesNotThrow(() => checkPath("meta.settlement"));
     assert.doesNotThrow(() => checkPath("meta.manual.run1"));
     assert.doesNotThrow(() => checkPath("formulas.actor1.hash1"));
-    assert.doesNotThrow(() => checkPath("ext.my-module.key"));
+    assert.doesNotThrow(() => checkPath("extRuns.run1"));
+    assert.doesNotThrow(() => checkPath("spends.s1.notes"));
+    assert.throws(() => checkPath("ext.my-module.key"), /not under a known ledger key/, "M10: an extension's data is in its own flag scope (12.4)");
     assert.doesNotThrow(() => checkPath("schema"));
-    for (const path of ["rows", "orders", "meta", "meta.manual", "formulas.actor1", "ext.my-module", "claims"]) {
+    for (const path of ["rows", "orders", "meta", "meta.manual", "formulas.actor1", "extRuns", "spends", "claims"]) {
         assert.throws(() => checkPath(path), /whole collection/, path);
     }
     assert.throws(() => checkPath("ordres.o1"), /not under a known ledger key/);

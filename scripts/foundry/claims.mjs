@@ -27,6 +27,8 @@ import { exists, read, records, serverNow, stampNow, write } from "./store.mjs";
 const APPLIERS = new Map([
     ["refund", (claim, actor) => payout({ actor, row: claimRowInput(claim), ledger: resolved(claim) })],
     ["wage", (claim, actor) => mint({ actor, row: claimRowInput(claim), ledger: resolved(claim) })],
+    // M10 (12.2): an extension's income into this purse.
+    ["income", (claim, actor) => mint({ actor, row: claimRowInput(claim), ledger: resolved(claim) })],
 ]);
 
 /**
