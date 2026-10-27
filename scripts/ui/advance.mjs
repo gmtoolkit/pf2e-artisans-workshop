@@ -458,7 +458,9 @@ export async function openAdvance({ mode = "advance", actor = null, parent = nul
     // One wizard at a time, under one id: the old window is gone before the new one renders.
     await AdvanceDaysApp.instance?.close({ animate: false });
     const app = new AdvanceDaysApp({ mode, actor, count, advanceClock });
-    if (parent?.renderChild) parent.renderChild(app);
-    else app.render({ force: true });
+    // Resolved once the window is open (M11 live pass): `api.macros.run("advance-days")` answers with a rendered wizard, and a
+    // second run finds this one as the instance to close rather than rendering a second window under the same id.
+    if (parent?.renderChild) await parent.renderChild(app);
+    else await app.render({ force: true });
     return app;
 }

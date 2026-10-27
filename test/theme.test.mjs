@@ -83,3 +83,11 @@ test("the sheet entries keep the light tokens in either scheme; Parchment lays p
 test("labels set no text shadow (the light scheme's smudge, from the first captures)", () => {
     assert.ok(blocks(".pf2e-artisans-workshop dt").some((b) => /text-shadow:\s*none/.test(b.body)));
 });
+
+test("the shelf's call line wraps inside its tile: core's `code` never wraps (M11 live pass)", () => {
+    const [call] = blocks(".macro-tile .tile-call");
+    assert.ok(call, "the call line has its rule");
+    assert.match(call.body, /white-space:\s*(normal|pre-wrap|break-spaces)\s*;/, "a white-space that wraps, over core's nowrap");
+    assert.match(call.body, /overflow-wrap:\s*anywhere\s*;/, "a long token breaks anywhere");
+    assert.match(call.body, /display:\s*block\s*;/, "a block in the tile's text column, not core's inline block");
+});

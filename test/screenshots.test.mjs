@@ -66,6 +66,8 @@ test("a new tab's capture waits in NEXT_CAPTURES until it has been checked; the 
     const { NEXT_CAPTURES } = await import("../tools/harness/screenshots.mjs");
     assert.ok(CAPTURES.some((c) => c.file === "morning.png" && c.view === "morning"));
     assert.ok(CAPTURES.some((c) => c.file === "tattoo.png" && c.order === "tattoo" && c.scroll), "the tattoo's detail, linked since the M9 live pass");
+    assert.ok(CAPTURES.some((c) => c.file === "macro-shelf.png" && c.view === "shelf"), "the macro shelf, linked since the M11 live pass");
+    assert.ok(CAPTURES.some((c) => c.file === "sheet-strip.png" && c.view === "strip"), "the Crafting tab strip, linked since the M11 live pass");
     for (const capture of NEXT_CAPTURES) {
         assert.ok(!CAPTURES.some((c) => c.file === capture.file), capture.file);
         assert.ok(isScreenshotPath(`${SCREENSHOT_DIR}${capture.file}`), capture.file);

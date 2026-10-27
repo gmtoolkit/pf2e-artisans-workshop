@@ -4490,6 +4490,9 @@ async function m11CompanionsPlan(h, w) {
     const party = await h.step("gm", "m11", "party", {});
     h.check("the Party card is there with the companions too (the GM's Overview)", party.first.region && party.first.cards === 1 && party.again.cards === 1, party);
     await checkStatuses(h);
+    // The companions' settings as they were (M11 live pass: the plan left them on), then the module configuration.
+    await h.step("p1", "m11", "companions", { restore: settings.p1.before ?? {} });
+    await h.step("gm", "m11", "companions", { restore: settings.gm.before ?? {} });
     await m11Companions(h, { toolbelt: before.toolbelt, workbench: before.workbench });
     return { settings, sheet, party };
 }
@@ -4520,11 +4523,19 @@ async function m11Party(h, w) {
 }
 
 /** Right-click an Actors directory entry and pick "Open Workshop" from core's context menu, with real clicks. */
-async function contextOpen(h, role, actorId) {
+async function contextOpen(h, role, actorId, { party = false } = {}) {
     const { page } = h.clients.get(role);
-    await h.evaluate(role, () => ui.sidebar.changeTab("actors", "primary"), null, "the Actors tab");
-    await sleep(500);
-    await page.click(`#actors .directory-item[data-entry-id="${actorId}"]`, { button: "right" });
+    // M11 live pass: the sidebar starts collapsed (48 px wide), so the directory's entries are off the screen until it expands;
+    // and the party's entry is pf2e's folder of its members, whose middle is a member: the click goes on its header.
+    await h.evaluate(role, () => {
+        ui.sidebar.expand();
+        ui.sidebar.changeTab("actors", "primary");
+        return ui.sidebar.expanded;
+    }, null, "the Actors tab, expanded");
+    await sleep(800);
+    const target = party ? `#actors li.directory-item[data-party][data-entry-id="${actorId}"] > .folder-header .folder-name`
+        : `#actors li.directory-item[data-entry-id="${actorId}"] .entry-name`;
+    await page.click(target, { button: "right" });
     await sleep(400);
     const label = await page.locator("#context-menu .context-item").allTextContents().catch(() => []);
     await page.locator("#context-menu .context-item", { hasText: "Open Workshop" }).first().click();
@@ -4532,10 +4543,18 @@ async function contextOpen(h, role, actorId) {
     return { label, open: await h.step(role, "m11", "open", {}) };
 }
 
-/** The Actors directory's context menu (10.4): "Open Workshop" on the party and, acting as it, on the user's own member. */
+/**
+ * The Actors directory's context menu (10.4): "Open Workshop" on the party and, acting as it, on the user's own member. Needs
+ * `--canvas` (M11 live pass): without one, pf2e 8.6.1's "Request Trade" entry reads `canvas.tokens.controlled` while core
+ * checks which entries to show, throws, and core renders no menu at all for any actor; without a canvas it says it was skipped.
+ */
 async function m11Context(h, w) {
+    if (!h.canvas) {
+        h.check("m11-context needs --canvas (pf2e's Request Trade entry throws without one, so no directory menu opens): skipped", true, { skipped: true });
+        return { skipped: true };
+    }
     await m11Reset(h, w);
-    const party = await contextOpen(h, "p1", w.party.id);
+    const party = await contextOpen(h, "p1", w.party.id, { party: true });
     h.check("Open Workshop is in the party's context menu and opens the window", party.label.some((l) => l.includes("Open Workshop")) && party.open.open, party);
     await h.step("p1", "m11", "close", {});
     const own = await contextOpen(h, "p1", w.pcs.p1.id);
@@ -4557,6 +4576,9 @@ async function m11Shelf(h, w) {
         shelf.draggable === shelf.tiles.length && shelf.hotbarButtons === shelf.tiles.length, { tiles: shelf.tiles.length, canScript: shelf.canScript });
     h.check("the shelf's controls have names", shelf.audit?.unnamed.length === 0 && shelf.audit.positive.length === 0, shelf.audit);
     const { page } = h.clients.get("p1");
+    // M11 live pass: at its default size the Workshop covers the hotbar's middle slots (1060 x 780 at 1440 x 900), so the
+    // windows go to the top of the screen first, as a player would move them.
+    await h.step("p1", "m11", "place", {});
     await page.dragAndDrop('.macro-tile[data-macro="open-workshop"]', '#hotbar .slot[data-slot="5"]');
     await sleep(1500);
     const first = await h.step("p1", "m11", "hotbar", {});
@@ -4690,12 +4712,16 @@ async function keyboardWalk(h, role, order, arena) {
     // M11 review: the keybinding puts focus in the window, on its active tab; no Tab press is needed to get there.
     const toTabs = await h.step(role, "m11", "focus", {});
     h.check(`${who}: the keybinding puts focus on the Workshop's active tab`, toTabs.inWorkshop && toTabs.tab === toTabs.currentTab, toTabs);
+    // M11 live pass: the window opens on the tab it was last on (`ui.lastTab`), not always the Queue: the next tab is the one after it.
+    const next = toTabs.tabs?.[(toTabs.tabs.indexOf(toTabs.currentTab) + 1) % (toTabs.tabs.length || 1)] ?? "funds";
     await page.keyboard.press("ArrowDown");
     await sleep(600);
     const funds = await h.step(role, "m11", "focus", {});
-    h.check(`${who}: ArrowDown moves to the next tab and shows it`, funds.currentTab === "funds" && funds.tab === "funds", funds);
+    h.check(`${who}: ArrowDown moves to the next tab and shows it`, funds.currentTab === next && funds.tab === next, { next, funds });
     await page.keyboard.press("ArrowUp");
     await sleep(600);
+    const onQueue = await pressUntil(h, role, "ArrowUp", (f) => f.currentTab === "queue" && f.tab === "queue", 8);
+    h.check(`${who}: ArrowUp goes back, and on to the Queue`, onQueue.currentTab === "queue" && onQueue.tab === "queue", onQueue);
     const toRow = await pressUntil(h, role, "Tab", (f) => f.inWorkshop && f.orderId && f.tag === "LI", 40);
     h.check(`${who}: Tab reaches the order list's one tab stop`, toRow.orderId === order, toRow);
     const openKey = role === "gm" ? "Space" : "Enter";
@@ -4735,7 +4761,7 @@ async function keyboardWalk(h, role, order, arena) {
     h.check(`${who}: the Workshop and the shelf: no control without a name, no positive tab index, no tab outside its tablist`,
         ["workshop", "shelf"].every((k) => audit[k] && audit[k].unnamed.length === 0 && audit[k].positive.length === 0 && audit[k].looseTabs === 0), audit);
     const table1 = await h.step(role, "m11", "table", {});
-    h.check(`${who}: none of the keys reached core: the pause${arena ? ", the view, the controlled tokens and the tokens' places" : ""} are as they were`,
+    h.check(`${who}: none of the keys reached core: ${arena ? "the pause, the view, the controlled tokens and the tokens' places are" : "the pause is"} as before`,
         tableState(table1) === tableState(table0), { before: table0, after: table1 });
     await h.step(role, "m11", "keybinding", { bind: false });
     await h.step(role, "m11", "close", {});

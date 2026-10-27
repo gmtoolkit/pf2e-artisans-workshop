@@ -71,6 +71,12 @@ until 1.0: every string is rewritten before the first release, and these capture
 ![A tattoo in the Queue](docs/screenshots/tattoo.png)\
 *A tattoo in the Queue: made on its subject, who agrees from here and sits for it in downtime before the work can start.*
 
+![The macro shelf](docs/screenshots/macro-shelf.png)\
+*The macro shelf: every Workshop macro with what it calls, to run, drag onto the hotbar or add to it from the keyboard.*
+
+![The Crafting tab's Workshop strip](docs/screenshots/sheet-strip.png)\
+*The character sheet's Crafting tab with the Workshop's strip at its top: the character's jobs and what waits on them.*
+
 ## For GMs
 
 <!-- Draft written with the code (DESIGN.md 16.8); the author rewrites it before 1.0, like every string (16.4). The
@@ -432,11 +438,14 @@ The M11 behaviours (DESIGN 10.18) drive the integration surface as Player One: t
 Crafting tab strip without companions (`m11-sheet`) and with PF2e Toolbelt and PF2e Workbench switched on in the world's module
 configuration, their crafting settings on, every page reloaded and the configuration put back afterwards (`m11-companions`); the
 Party sheet's card, also after pf2e renders its overview again (`m11-party`); "Open Workshop" from the Actors directory's
-context menu with real right-clicks (`m11-context`); the macro shelf, a tile dragged onto the hotbar twice (one macro) and
-Add to hotbar (`m11-shelf`); every catalogue macro once (`m11-macros`); the keybinding, bound for the plan only (`m11-keys`);
-a keyboard-only walkthrough with an accessibility audit (`m11-keyboard`); the contrast of the window's text in the dark and
-light schemes and with Parchment (`m11-themes`); and screenshots of the strip, the card and the shelf (`m11-shots`). The macros
-the plans make are deleted again with their hotbar slots.
+context menu with real right-clicks (`m11-context`, with `--canvas` only: pf2e's own directory menu fails without a canvas);
+the macro shelf, a tile dragged onto the hotbar twice (one macro) and Add to hotbar (`m11-shelf`); every catalogue macro once
+(`m11-macros`); the keybinding, bound for the plan only (`m11-keys`); a keyboard-only walkthrough with an accessibility audit,
+as Player One (`m11-keyboard`) and as the GM (`m11-keyboard-gm`), which checks that no key pressed in the Workshop reaches
+Foundry's own shortcuts (the pause; with `--canvas`, a marked scene with both characters' tokens, the view and the selected
+tokens); the contrast of the window's and the shelf's text in the dark and light schemes and with Parchment (`m11-themes`);
+and screenshots of the strip, the card and the shelf (`m11-shots`). The macros the plans make are deleted again with their
+hotbar slots.
 
 `npm run screenshots` (`tools/harness/screenshots.mjs`, DESIGN.md 17.1) takes the README's screenshots in the same dev
 world, through the same driver. It copies four fixture actors into a demo party with generic names (Player One plays the
@@ -444,8 +453,8 @@ alchemist, Player Two the fighter), makes them the party and the players' charac
 in the party fund, three formulas and downtime (a settlement, two days of an Earn Income job, a day to resolve on an
 order; the GM moves the world clock forward, so use the dev world), and captures the Workshop window cropped to its frame
 as Player One at 1440x900: the Queue with an order's detail, the request form, Funds, Formulas, Downtime and Morning (a
-loadout and a standing order staged for the alchemist) in the dark theme, and the Queue in the light one.
-Each capture is checked for raw i18n keys, fixture names and overflowing boxes, compressed with ImageMagick's `magick`
+loadout and a standing order staged for the alchemist) in the dark theme, and the Queue in the light one, then the macro shelf
+and the alchemist's sheet on its Crafting tab with the Workshop's strip. Each capture is checked for raw i18n keys, fixture names and overflowing boxes, compressed with ImageMagick's `magick`
 when it is installed (to 256 colours only if it would be over 400 KiB), and written to `docs/screenshots/` (`--out` for
 elsewhere; `--results` for the run's JSON). Then it gives the party and the users their own characters back, deletes the
 demo actors and the run's chat messages, and resets the shared documents as `harness:live` does. The captures show the

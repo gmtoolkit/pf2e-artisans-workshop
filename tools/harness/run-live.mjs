@@ -95,6 +95,23 @@ function instrumentPage() {
     }, 20);
 }
 
+/**
+ * In the page (or over `doc`): whether a style sheet whose URL contains `href` is loaded, as a `<link>` or as an `@import`
+ * of another sheet (Foundry 14.368 imports system and module styles in a `<style>` element).
+ */
+export function styleLoaded(href, doc = globalThis.document) {
+    const imports = (sheet) => {
+        try {
+            return [...(sheet.cssRules ?? [])].filter((rule) => rule.styleSheet);
+        } catch {
+            return [];   // a sheet of another origin keeps its rules
+        }
+    };
+    const matches = (sheet, depth = 0) => (sheet?.href ?? "").includes(href) || (depth < 3 && imports(sheet).some((rule) => (rule.href ?? "").includes(href)
+        || matches(rule.styleSheet, depth + 1)));
+    return [...(doc.styleSheets ?? [])].some((sheet) => matches(sheet));
+}
+
 /** In the page: ready once the game is and the module has published its dev harness. */
 const harnessReady = (mod) => globalThis.game?.ready === true && !!globalThis.game.modules.get(mod)?.dev?.scenarios;
 
@@ -234,11 +251,14 @@ export class Harness {
     }
 
     /**
-     * The module's stylesheet, added to the page if the server did not link it. Foundry links a module's `styles` from
+     * The module's stylesheet, added to the page if the server did not load it. Foundry loads a module's `styles` from
      * the manifest it read when the world was launched (`global.game.world.modules`, `dist/server/views/view.mjs`), so a
      * world launched before `module.json` named the stylesheet serves pages without it until it is launched again. The
      * harness adds the same file the manifest names, so the window looks as it will; the run's results say whether it
-     * had to (`styleAdded` on each client, and a check in the screenshot plan).
+     * had to (`styleAdded` on each client, and a check in the screenshot plan). Foundry 14.368 loads module styles as
+     * `@import` rules in a `<style>` element (`templates/views/layouts/main.hbs`), not as `<link>`s, so the test is the
+     * page's style sheets and their imports (`styleLoaded`); a test of links alone added every module stylesheet a second
+     * time (M11 live pass).
      * @returns {Promise<boolean>} whether it was added
      */
     async ensureStyles(page) {
@@ -246,7 +266,7 @@ export class Harness {
         let added = false;
         for (const style of manifest.styles ?? []) {
             const path = `modules/${MODULE_ID}/${typeof style === "string" ? style : style.src}`;
-            const linked = await page.evaluate((href) => [...document.querySelectorAll("link[rel=stylesheet]")].some((l) => l.href.includes(href)), path);
+            const linked = await page.evaluate(styleLoaded, path);
             if (!linked) {
                 await page.addStyleTag({ url: `${this.url}/${path}` });
                 added = true;

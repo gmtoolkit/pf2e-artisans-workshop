@@ -405,8 +405,21 @@ test("Roll Craft check without an order rolls the actor's oldest order waiting f
     assert.deepEqual(world.notes.at(-1), ["warn", "Eve has no order waiting for its Craft check.", undefined]);
     const tried = await api.orders.rollCheck({ actor: bo }).catch((error) => ({ threw: error }));
     assert.notEqual(tried?.reason, "no-order", "Bo's order waiting for its check was taken up");
-    const wizard = await macros.runMacro(api, "advance-days", { days: 3 });
+    // M11 live pass: the run resolves once the wizard is open, not before its first render (a render that takes a turn of
+    // the event loop, as Foundry's template fetch does).
+    const prepare = AdvanceDaysApp.prototype._prepareContext;
+    AdvanceDaysApp.prototype._prepareContext = async function (...args) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return prepare.apply(this, args);
+    };
+    let wizard;
+    try {
+        wizard = await macros.runMacro(api, "advance-days", { days: 3 });
+    } finally {
+        AdvanceDaysApp.prototype._prepareContext = prepare;
+    }
     assert.ok(wizard instanceof AdvanceDaysApp);
+    assert.equal(wizard.rendered, true, "the wizard is open when the run resolves");
     assert.equal(wizard.wizard.count, 3);
     assert.equal(wizard.wizard.advanceClock, false, "moving the clock stays a GM's");
     await wizard.close();

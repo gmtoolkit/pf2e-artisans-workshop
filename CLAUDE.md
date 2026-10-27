@@ -82,7 +82,7 @@ the Actors directory's context menu and the Open Workshop keybinding, `scripts/u
 `scripts/logic/macros.mjs`, run through `api.macros.run`, the macro shelf and the hotbar drop, `scripts/ui/macros.mjs`, and the
 copy-paste macros in `macros/`, written by `npm run macros`; Parchment and the window's remembered size, `scripts/ui/theme.mjs`;
 the accessibility and contrast pass); DESIGN 10.18 says what was built, and the live plans `m11-*`
-(`tools/harness/integration-scenarios.mjs`) have not run yet.
+(`tools/harness/integration-scenarios.mjs`) passed their first live pass, with and without a canvas (10.18, M11 live pass).
 M12's release engineering is in place, not run yet (DESIGN 16.9): the release workflow (`.github/workflows/release.yml`:
 `tools/release-plan.mjs` picks enforce or report mode by the release's pre-release flag, `tools/package-release.mjs` stamps
 `module.json` and builds `module.zip` with `tools/zip.mjs`, `tools/publish-foundry.mjs` registers stable releases, a dry run
