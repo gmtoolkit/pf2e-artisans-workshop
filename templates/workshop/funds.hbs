@@ -148,7 +148,7 @@
             {{#each funds.ledger}}
             <tr data-row-id="{{id}}" class="state-{{state}}{{#if reversed}} reversed{{/if}}{{#if mine}} mine{{/if}}">
                 <td class="when">{{when}}</td>
-                <td>{{localize kindLabel}}{{#if (eq state "pending")}} <span class="pending">{{localize "pf2e-artisans-workshop.Funds.Pending"}}</span>{{/if}}{{#if reversed}} <span class="reversed-mark">{{localize "pf2e-artisans-workshop.Funds.Reversed"}}</span>{{/if}}</td>
+                <td>{{localize kindLabel}}{{#if note}} <span class="row-note">{{note}}</span>{{/if}}{{#if (eq state "pending")}} <span class="pending">{{localize "pf2e-artisans-workshop.Funds.Pending"}}</span>{{/if}}{{#if reversed}} <span class="reversed-mark">{{localize "pf2e-artisans-workshop.Funds.Reversed"}}</span>{{/if}}</td>
                 <td class="money">{{#if amount}}{{amount}}{{/if}}</td>
                 <td>{{actor}}</td>
                 <td class="low">{{order}}</td>

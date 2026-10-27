@@ -221,6 +221,8 @@ All notable changes to this module are documented here. The format follows
 - A rushed finish that ruined the item no longer reads "On its way to ...'s inventory." for good: the Queue says nothing was
   made.
 - The request form no longer offers coin stacks to deconstruct.
+- The Funds tab shows a ledger row's note beside its kind, so a row another module posted (an expense, an income) says what
+  it was for, rather than "Expense 50 gp" with nothing to tell which purchase a member is about to reverse.
 - Live harness (M9a): the plans that craft, deconstruct or grow roll at a fixed die (or the face that lands the degree they
   check) and check the order got there, and the rushed finish's flat check rolls a natural 1 so the ruined path is checked;
   the Complex Crafting and Quick Setup plans put an alchemist's lab in the strongbox, the adjustment plan lets the crafter's

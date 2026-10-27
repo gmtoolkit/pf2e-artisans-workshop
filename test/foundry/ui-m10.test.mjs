@@ -26,7 +26,9 @@ foundry.applications.api.ApplicationV2 = class {
 };
 
 const { RANK } = await import("../../scripts/logic/core.mjs");
-const { extRunId } = await import("../../scripts/logic/extensions.mjs");
+const { extRowInput, extRunId } = await import("../../scripts/logic/extensions.mjs");
+const { makeRow } = await import("../../scripts/logic/rows.mjs");
+const { fundsView } = await import("../../scripts/logic/views.mjs");
 const settings = await import("../../scripts/foundry/settings.mjs");
 const state = await import("../../scripts/foundry/state.mjs");
 const ext = await import("../../scripts/foundry/extensions.mjs");
@@ -103,6 +105,16 @@ test("the wizard's checks step offers an extension activity's check to its owner
     world.currentUser = "p1";
     const after = await app._prepareContext({});
     assert.equal(after.checks.due.some((d) => d.kind === "ext"), false, "rolled: nothing due");
+});
+
+test("an extension's row shows the note it was posted with in the Funds tab's ledger, so members can tell what a row they reverse was for", () => {
+    const made = extRowInput({ kind: "expense", cp: 5000, key: "upgrade.tickets.p1", source: `${EXT_ID}:upgrades`, note: "Circus upgrade: tickets" });
+    const row = { ...makeRow(made.input, { by: "p1", at: { real: 1, world: 0 } }), state: "applied" };
+    const view = fundsView({ rows: [row], actualCp: 0, viewer: { userId: "p1", isGM: false, owns: () => true }, nameOf: () => null, userName: (id) => id });
+    assert.equal(view.ledger[0].note, "Circus upgrade: tickets");
+    const funds = readFileSync(join(ROOT, "templates/workshop/funds.hbs"), "utf8");
+    const entry = funds.match(/<tr data-row-id="\{\{id\}\}"[\s\S]*?<\/tr>/)[0].match(/<td>\{\{localize kindLabel\}\}.*?<\/td>/)[0];
+    assert.match(entry, /\{\{#if note\}\}.*\{\{note\}\}.*\{\{\/if\}\}/, "the Entry cell shows the row's note beside its kind");
 });
 
 test("every M10 label is a key in lang/en.json", () => {

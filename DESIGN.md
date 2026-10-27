@@ -7056,10 +7056,34 @@ Workshop then ignores extensions that declare the old one rather than calling th
 Deprecations follow 11.3. The extension's own store layout is the extension's to version; the Workshop's flags, `extRuns`
 and `spends` are not API (read them through `api.ext`). Internal hooks (11.2, 12.3 "internal") are not covered.
 
+**Live pass (the circus module's plan, 2026-10-27).** The circus module's live driver (its `tools/harness/run-live.mjs`,
+over this repository's `Harness`, `prepareWorld`, `resetWorld` and `finishWorld` through the checkout it has as a development
+dependency) enabled the module in the dev world, ran its plan with a GM and both players, and disabled it again (129
+checks): registration on every client and no raw key, placeholder or adventure name in any window, the wizard, pf2e's
+dialogs or the chat log; Promote the Circus with an Aid through the Advance days wizard (the Aid rolled from one player's
+checks step, the promoter's check from the other's with the Aid's +2 in pf2e's dialog, two days written for both, the
+result in the extension's store); advertising and an upgrade as `expense` rows from the party fund with no GM online, the
+upgrade reversed in the Funds tab and bought again as the next purchase; a trick rolled from the extension's window through
+pf2e, spending one alchemical item through the sink with its modifier applied; the show's payout as one `income` row,
+paid once (`outcome` "already" after); two members ending one show at once (one result, one payout; the loser's lock page
+is refused by the server, which core logs as an error on that page); a split payout whose other share the other player's
+client collected; the Bandolier's Spend on; reconciliation. The die is fixed at 20 for the checks whose outcome later checks
+need (the fixtures are untrained in Society and Performance, so a random roll left the show with no payout to check).
+Fixed: the Funds tab now shows a row's `note` beside its kind; an extension's rows read "Expense 50 gp" with nothing to say
+what they were for, though members reverse them there (the circus module now posts a note with each). With the module
+disabled again, `m4-lifecycle`, `m6-income`, `m9a-off`, `m8-turn`, `m7-morning` and scenario 7 passed without it (75
+checks; their console errors are the known ones: scenario 7's injected failure, `m6-income`'s two devices racing for a lock
+page, and pf2e's at a token-less encounter's end on a client with no canvas).
+
 #### Follow-ups (M10, low)
 
-- No live plan exercises the API yet; the circus module's harness plan is its first (it needs the server restarted to see a
-  new package).
+- The circus module's live plan is the only one that exercises the API live; the Workshop has no live plan of its own
+  extension fixture (`test/foundry/ext-fixture.mjs` runs over the stubs only).
+- `store.exclusive` (and every lock page) losing a race logs core's "The _id ... already exists" error in the losing
+  client's console: the refusal is the design, but a player with the console open sees an error. Check the lock page in the
+  client's copy first (it narrows the window; the race itself stays), or note it in the README's troubleshooting.
+- A claim for an extension's income share (a split payout) carries the row's note, but the claim's own wording in the Funds
+  tab was not checked live; the row it becomes shows the note.
 - One activity per PC per span in the wizard (M6), so a run of a two-day activity and a day of something else in one span
   take two runs of the wizard.
 - `perWeek` weeks are fixed seven-day blocks of the workshop day (`day % 7`), not seven days from when a PC's downtime began.
