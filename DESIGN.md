@@ -4446,6 +4446,21 @@ not run.
   not the quantity).
 - `allyCopyCostCp` is a setting typed in copper ("(cp)" in its name), unlike every amount the windows ask for.
 
+- From the merge review (low, not yet fixed):
+  - The Compendium Browser opener exists twice (`browse()` in `scripts/ui/formulas.mjs` and the request form's);
+    export one helper. `payPurchase` should use the viewer's `hasCharacter` rather than its own check.
+  - Reversing a party-fund purchase made for an order in the Funds ledger reverses only the `purchase` row; the
+    order's earmark pair stays. Reverse the pair with it, or document that the money stays earmarked to the order.
+  - `payPurchase` does not re-check inside the coin mutex that the order is still open, and a purse-paid purchase
+    for an order takes neither the order's log slot nor its return slot.
+  - `pledges.fulfil(order, pledge, {cost, pay: {source: "purse"}})` without `from` refuses "no-actor"; default the
+    payer to the pledge's payer or caster.
+  - The Buy / Copy from an NPC dialog shows the price from the rendered button, while `acquire()` recomputes it; a
+    stale render can show a different price. Recompute before asking, or refuse when the confirmed amount differs.
+  - G9 reports "checklist" whenever another checklist key is open, which hides the spells fix buttons; key the
+    actions on the missing spells instead.
+  - A scroll order accepts more bought castings than it has scrolls.
+
 #### Follow-ups (M5, low)
 
 - Stock is at risk only once an attempt succeeds: a critical failure ruins 10% of the committed coins and nothing of
