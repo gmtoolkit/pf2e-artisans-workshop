@@ -174,8 +174,12 @@ export async function finishOutputs(order) {
                 }
             }
         }
+        // On the crafter, for the crafter, the item is changed where it is and never goes on the shelf (`placeChanged`):
+        // the row says so, so the order reads as changed in place rather than on its way (M5 on M4.1, `deliveryOf`).
+        const inPlace = target.parent?.uuid === order.crafter && order.recipient?.kind === "actor" && order.recipient.uuid === order.crafter;
         out.rows.push({ kind: "shelved", idem: idemKey("shelve", order.id, order.attempt), cp: 0, order: order.id,
-            actor: order.recipient?.kind === "actor" ? order.recipient.uuid : null, items: [{ uuid: order.product.uuid, name: target.name, qty: 1 }] });
+            actor: order.recipient?.kind === "actor" ? order.recipient.uuid : null,
+            items: [{ uuid: order.product.uuid, name: target.name, qty: 1, ...(inPlace ? { inPlace: true } : {}) }] });
     } else {
         const base = await sourceOf(order.product.uuid, order.quantity, order);
         if (!base) return { refuse: "no-product" };

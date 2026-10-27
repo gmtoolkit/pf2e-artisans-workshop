@@ -53,15 +53,16 @@ export const percent = (part, whole) => (whole > 0 ? Math.max(0, Math.min(100, M
 /**
  * The progress bar of an order (10.3): one bar measured against the Price, the up-front half paid (solid), the
  * reduction earned (hatched) and what is left (empty); before start, the escrow against the up-front half. Segment
- * widths are percentages that add up to 100.
+ * widths are percentages that add up to 100. Before start, `plan` is the order's plan as G8 judges it (`estimateOf`, M5
+ * on M4.1), so the bar measures against the half the order will commit.
  *
  * @returns {{phase: "funding"|"crafting"|"done", segments: {kind: string, pct: number}[], pct: number,
  *   paidCp: number, earnedCp: number, remainingCp: number, escrowCp: number, upfrontCp: number, priceCp: number}}
  */
-export function orderProgress(order, { rows = [], days = [], rules = DEFAULT_RULES } = {}) {
+export function orderProgress(order, { rows = [], days = [], rules = DEFAULT_RULES, plan = null } = {}) {
     // Earmarked material stock counts toward the up-front half at its Price, as G8 counts it (6.6, M5).
     const escrow = escrowCp(rows) + materialsCp(order);
-    const { priceCp, upfrontCp, frozen } = estimateOf(order);
+    const { priceCp, upfrontCp, frozen } = estimateOf(order, plan);
     if (!frozen || order.status === "accepted" || order.status === "requested") {
         const pct = percent(escrow, upfrontCp);
         return { phase: "funding", segments: [{ kind: "escrow", pct }, { kind: "empty", pct: 100 - pct }], pct,
@@ -176,20 +177,33 @@ export function costSummary(order, rows = [], days = [], rules = DEFAULT_RULES) 
         totalCp: upfrontCp + ruinedCp + finishCp + stockCp + purchasesCp };
 }
 
+/** Row kinds that move items and no money (4.6): the ledger and the order's detail show no amount for them. */
+const ITEM_ROW_KINDS = Object.freeze(["delivered", "material-in", "material-out", "custody-in", "custody-out"]);
+
+/** Whether a `shelved` row records an item changed where it was, in its recipient's inventory (M5 on M4.1, 6.13). */
+const changedInPlace = (row) => row.kind === "shelved" && Array.isArray(row.items) && row.items.some((item) => item?.inPlace === true);
+
 /**
  * Where a finished order's item went (E, As built in M4.1): "delivered" into the recipient's inventory (a `delivered`
  * row that applied), "arriving" (a delivery under way, or the shelf item not here yet), "shelf" (on the pickup shelf,
  * for the recipient's owners to collect), or "strongbox" (an order for the strongbox keeps its item there). Null before
  * the order is complete.
+ *
+ * As built in M5 on M4.1, two finishes put nothing on the shelf: a formula job's formula goes into the recipient's book
+ * by a formula claim ("book"), and an item the crafter etched, upgraded or gave a rune while holding it for themself is
+ * changed where it is ("in-place", the finish's `shelved` row says so). Neither ever "arrives".
  * @param {object} order
  * @param {object[]} rows       the order's rows
  * @param {number} shelfCount   the order's items on the pickup shelf now
- * @returns {{state: "delivered"|"arriving"|"shelf"|"strongbox", to: string|null} | null}
+ * @returns {{state: "delivered"|"arriving"|"shelf"|"strongbox"|"book"|"in-place", to: string|null} | null}
  */
 export function deliveryOf(order, rows = [], shelfCount = 0) {
     if (order.status !== "complete") return null;
+    if (order.product?.type === "formula") return { state: "book", to: order.recipient?.uuid ?? null };
     if (order.recipient?.kind !== "actor") return { state: "strongbox", to: null };
-    const delivered = liveRows(rows).find((row) => row.kind === "delivered" && row.order === order.id);
+    const live = liveRows(rows).filter((row) => row.order === order.id);
+    if (live.some(changedInPlace)) return { state: "in-place", to: order.recipient.uuid };
+    const delivered = live.find((row) => row.kind === "delivered");
     if (delivered) return { state: delivered.state === "applied" ? "delivered" : "arriving", to: delivered.actor ?? order.recipient.uuid };
     return { state: shelfCount > 0 ? "shelf" : "arriving", to: order.recipient.uuid };
 }
@@ -208,10 +222,12 @@ export function deliveryOf(order, rows = [], shelfCount = 0) {
  * @param {(uuid: string|null) => string|null} p.nameOf
  * @param {number} [p.no]         the order's number in the queue
  * @param {number} [p.shelfCount] the order's items on the pickup shelf now, for where a finished item went
+ * @param {{priceCp: number, upfrontCp: number}|null} [p.plan]  before start, what the order would freeze now, as G8
+ *        judges it (M5 on M4.1): the progress bar and what it still needs follow it rather than the snapshot's Price
  */
 export function orderView(order, { rows = [], days = [], gates = null, crafterToday = null, viewer, nameOf, no = null, rules = DEFAULT_RULES,
-    shelfCount = 0 }) {
-    const progress = orderProgress(order, { rows, days, rules });
+    shelfCount = 0, plan = null }) {
+    const progress = orderProgress(order, { rows, days, rules, plan });
     const perDay = perDayCp(order, crafterToday, rules);
     const extraDays = recordsOf(order, days, "extra").length;
     const remaining = progress.phase === "funding" ? Math.max(0, progress.priceCp - progress.upfrontCp) : progress.remainingCp;
@@ -242,7 +258,7 @@ export function orderView(order, { rows = [], days = [], gates = null, crafterTo
         blocked, contributors, committedCp: committedFromRows(rows), spent: spentBySource(rows),
         // Material stock earmarked for an open order, by who handed it over (M5 on M4.1): it stands in for coins.
         stock: CLOSED.includes(order.status) ? [] : stockBySource(order).map((s) => ({ ...s, name: s.actor ? nameOf(s.actor) : null })),
-        shortfall: shortfallOf(order, rows, days, rules),
+        shortfall: shortfallOf(order, rows, days, rules, plan),
         requirements: order.status === "accepted" && gates ? requirementsView(gates, order) : null,
         workDays: workDaysView(order, days, rules),
         cost: order.status === "complete" ? costSummary(order, rows, days, rules) : null,
@@ -340,15 +356,17 @@ export function canReverse(row, allRows, viewer, orders = {}) {
  * How the Funds ledger names a row (As built in M4.1), as a `code` the window maps to a key: its kind, except that an allocation says which way it went (to an
  * order from the party fund, "earmark", or back, "unearmark"), and a finished order's item put in the strongbox rather
  * than on the shelf is "kept". The fund's side of an allocation pair is the mirror of its order's side and is not listed
- * (`mirror`); item rows (`shelved`, `delivered`) move no money (`items`).
+ * (`mirror`); item rows (`shelved`, `delivered`) move no money (`items`). As built in M5 on M4.1, M5's item rows (an
+ * item handed over and given back, stock in and out) move no money either, and an item changed where it was, in its
+ * recipient's inventory, is "in-place" rather than "shelved".
  */
 export function rowLabel(row) {
     if (row.kind === "allocate") {
         if (!row.order && !row.garden) return { code: "allocate", mirror: true, items: false };
         return { code: (row.alloc ?? 0) >= 0 ? "earmark" : "unearmark", mirror: false, items: false };
     }
-    if (row.kind === "shelved") return { code: row.actor ? "shelved" : "kept", mirror: false, items: true };
-    return { code: row.kind, mirror: false, items: row.kind === "delivered" };
+    if (row.kind === "shelved") return { code: changedInPlace(row) ? "in-place" : row.actor ? "shelved" : "kept", mirror: false, items: true };
+    return { code: row.kind, mirror: false, items: ITEM_ROW_KINDS.includes(row.kind) };
 }
 
 /** A row label's `code` and `items`, for the ledger list. */

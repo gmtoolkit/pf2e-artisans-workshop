@@ -1209,6 +1209,11 @@ becomes a claim that the target's owner client applies.
   recipient's owners while the shelf item is there, "On its way" between the two, or "Kept in the strongbox". Collect
   stays until the item is delivered, and then the card says so instead. The header's "Pickup shelf: N for you" is itself
   the Collect button while something waits; "Take it" is renamed Collect everywhere.
+- **As built in M5 on M4.1.** Two finishes put nothing on the shelf, so they never read "On its way": a formula job's
+  formula goes into the recipient's book by a formula claim ("The formula goes into <actor>'s formula book"), and an
+  item the crafter etched, upgraded or gave a rune while holding it for themself is changed where it is ("Changed where
+  it is, in <actor>'s inventory"; its `shelved` row's item carries `inPlace`, and the ledger names it "Changed in
+  place").
 
 ### 5.6 The responsible client
 
@@ -4421,6 +4426,13 @@ not run.
   {spell, castings, from, pay})` and `services.request({..., pay})`, `pay` being `{source: "fund"}` or `{source: "purse",
   from}` (the acting character's purse by default).
 - **Live plan** `m5-fund` (15.3), to run with the other `m5-*` plans.
+- **Review fixes of the merge.** Before start, what an order still needs, the Queue's funding bar and "Fill the
+  shortfall" are judged against the plan it would freeze now, as G8 judges it (`planEstimate`, `estimateOf`'s `plan`),
+  not the snapshot's Price: a formula job costs the formula's Price, an upgrade or a rune upgraded in its slot the
+  difference, a transfer a tenth of the rune's Price or nothing, a free crafter nothing. With no crafter yet, an item
+  change is estimated at its list Price; a plain Craft keeps its snapshot. A finished formula job and an item changed
+  in place say where they went (5.5 As built in M5 on M4.1) instead of "On its way" for ever, and M5's item rows
+  (handed over, given back, stock in and out) show no amount in the ledger, as M4.1's item rows do.
 
 #### Follow-ups (M5 on M4.1, low)
 

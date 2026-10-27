@@ -324,6 +324,30 @@ export async function planFor(order, crafter, product, rules) {
     };
 }
 
+/**
+ * What an order would freeze if it started now (`{priceCp, upfrontCp}`), for what it still needs before start and its
+ * progress bar (M5 on M4.1, `estimateOf`): with a crafter, the crafter's plan, which gate G8 judges (a formula's Price, a
+ * change's Price difference or a transfer's, a free crafter's nothing); with none, an item change's at its list Price.
+ * Null once the plan is frozen, for a plain Craft with no crafter (its snapshot's Price stands), or when no plan can be
+ * made (the gates say why).
+ */
+export async function planEstimate(order, rules) {
+    if (Number.isInteger(order?.priceCp)) return null;
+    const crafter = order.crafter ? fromUuidSync(order.crafter, { strict: false }) : null;
+    if (!crafter && !TARGETED.includes(order.craftType)) return null;
+    const product = await productFacts(order.product?.uuid);
+    if (!product) return null;
+    if (crafter) {
+        const plan = await planFor(order, crafterFacts(crafter), product, rules);
+        return plan.ok ? { priceCp: plan.priceCp, upfrontCp: plan.upfrontCp } : null;
+    }
+    const change = await changePlan(order, product);
+    if (!change.ok) return null;
+    if (change.unitCp === 0 && order.craftType === "rune-transfer") return { priceCp: 0, upfrontCp: 0 };
+    const cost = craftCost({ unitPriceCp: change.unitCp, quantity: 1 });
+    return cost.ok ? { priceCp: cost.priceCp, upfrontCp: cost.upfrontCp } : null;
+}
+
 /** G7's tools for this crafter and Craft: theirs and the strongbox's. */
 function toolsFor(crafter, options, rules) {
     return tools([...new Set([...crafter.toolKeys, ...strongboxToolKeys()])], options, rules);

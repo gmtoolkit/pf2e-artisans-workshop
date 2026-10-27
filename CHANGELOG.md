@@ -85,6 +85,9 @@ All notable changes to this module are documented here. The format follows
   shortfall" asks for and is listed beside the money; requirements for scrolls, etchings and formula jobs have their own
   plain names and a button that meets them (add stock, offer or buy a casting, hand the item over); the Formulas tab has
   a "Browse" button for pf2e's Compendium Browser. A cancelled formula copy refunds its cost to where it came from.
+  Before start, a formula job, an upgrade, a rune or a transfer asks for half of its own Price (what its requirements
+  check), not half of the item's; a finished formula job says it went into the book, and an item changed in place says
+  so, instead of "On its way".
 
 ### Changed
 

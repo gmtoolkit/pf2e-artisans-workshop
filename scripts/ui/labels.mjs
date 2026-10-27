@@ -204,6 +204,8 @@ export const ROW_KIND = Object.freeze({
     earmark: "pf2e-artisans-workshop.Row.Earmark",
     unearmark: "pf2e-artisans-workshop.Row.Unearmark",
     kept: "pf2e-artisans-workshop.Row.Kept",
+    // An item an order changed where it was, in its recipient's inventory (`rowLabel`, M5 on M4.1).
+    "in-place": "pf2e-artisans-workshop.Row.InPlace",
 });
 
 /**
@@ -241,6 +243,9 @@ export const DELIVERY = Object.freeze({
     /** The shelf, said to a user who can collect it, next to the Collect button. */
     shelfYours: "pf2e-artisans-workshop.Delivery.ShelfYours",
     strongbox: "pf2e-artisans-workshop.Delivery.Strongbox",
+    // M5 on M4.1: a formula job's formula goes into a book, and an item changed where it was never goes anywhere.
+    book: "pf2e-artisans-workshop.Delivery.Book",
+    "in-place": "pf2e-artisans-workshop.Delivery.InPlace",
 });
 
 /** Formula routes (4.3). */

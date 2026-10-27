@@ -196,7 +196,7 @@ test("every M5 label is a key in lang/en.json", () => {
         ...Object.values(labels.ACQUIRE_ROUTE), ...Object.values(labels.PROVENANCE).map((p) => p.key), ...Object.values(labels.CRAFT_TYPE),
         ...Object.values(labels.SERVICE), ...Object.values(labels.SERVICE_STATUS).map((s) => s.key), ...Object.values(labels.PLEDGE_STATUS),
         ...Object.values(labels.PURPOSE), ...Object.values(labels.GATE), ...Object.values(labels.REFUSAL), ...Object.values(labels.ROW_KIND),
-        ...Object.values(labels.REQUIREMENT),
+        ...Object.values(labels.REQUIREMENT), ...Object.values(labels.DELIVERY),
     ];
     assert.deepEqual(keys.filter((key) => !(key in lang)), []);
 });
@@ -297,4 +297,24 @@ test("requirements have a plain name for each kind of order (M5 on M4.1)", async
     const queue = readFileSync(join(ROOT, "templates/workshop/queue.hbs"), "utf8");
     for (const action of ["stock", "castings", "hand-over"]) assert.match(queue, new RegExp(`\\(eq action "${action}"\\)`), `the ${action} fix is offered`);
     assert.match(queue, /data-fix="requirement"/, "the fix buttons are told from the same buttons below them (10.9)");
+});
+
+test("a finished formula job and an in-place etching say where they went, never that they are on their way (M5 on M4.1 review fix)", async () => {
+    const { decorate } = await import("../../scripts/ui/context.mjs");
+    const { orderView } = await import("../../scripts/logic/views.mjs");
+    const { makeRow } = await import("../../scripts/logic/rows.mjs");
+    const stamp = { by: "p1", at: { real: 1 } };
+    const viewer = { userId: "p1", isGM: false, owns: () => true, hasCharacter: true };
+    const nameOf = (uuid) => fromUuidSync(uuid)?.name ?? null;
+    const job = { ...makeOrder({ id: "o1", requester: vera.uuid, recipient: { kind: "actor", uuid: vera.uuid }, crafter: vera.uuid, productType: "formula",
+        route: "reverse-engineer", product: { uuid: "U", snapshot: { name: "Elixir", priceCp: 300, per: 1 } }, quantity: 1 }, stamp), status: "complete" };
+    const book = decorate(orderView(job, { viewer, nameOf }), job);
+    assert.deepEqual([book.deliveryState, book.deliveryText, book.canCollect], ["book", "The formula goes into Vera's formula book.", false]);
+    const etch = { ...makeOrder({ id: "o2", requester: vera.uuid, recipient: { kind: "actor", uuid: vera.uuid }, crafter: vera.uuid, craftType: "rune-etch",
+        target: `${vera.uuid}.Item.s`, product: { uuid: "U", snapshot: { name: "Striking", priceCp: 6500, per: 1 } }, quantity: 1 }, stamp), status: "complete" };
+    const shelved = { ...makeRow({ kind: "shelved", idem: "shelve:o2:1", cp: 0, order: "o2", actor: vera.uuid,
+        items: [{ uuid: "U", name: "Longsword", qty: 1, inPlace: true }] }, stamp), state: "applied" };
+    const inPlace = decorate(orderView(etch, { rows: [shelved], viewer, nameOf }), etch);
+    assert.deepEqual([inPlace.deliveryState, inPlace.deliveryText], ["in-place", "Changed where it is, in Vera's inventory."]);
+    assert.equal(lang[labels.ROW_KIND["in-place"]], "Changed in place");
 });

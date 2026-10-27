@@ -272,3 +272,41 @@ test("member balances split a member's party fund share as the fund is split: un
         [["bo", 0, 1650, 150, 1800], ["cy", 100, 550, 50, 700]]);
     assert.equal(w.members.reduce((sum, m) => sum + m.fundUnallocatedCp, 0), w.accounts.unallocatedCp);
 });
+
+/* -------------------------------------------- */
+/*  M5 on M4.1: review fixes                     */
+/* -------------------------------------------- */
+
+test("before start an order is measured against the plan it would freeze, as G8 judges it, not the item's Price (M5 on M4.1)", () => {
+    // A rune upgraded in its slot costs the difference of the two Prices: 60 gp, 30 gp up front, not half of 65 gp.
+    const accepted = order({ status: "accepted", crafter: "Actor.c", craftType: "rune-etch", target: "Actor.c.Item.s" });
+    const plan = { priceCp: 6000, upfrontCp: 3000 };
+    assert.deepEqual(estimateOf(accepted, plan), { priceCp: 6000, upfrontCp: 3000, frozen: false });
+    assert.deepEqual(estimateOf(accepted), { priceCp: 6500, upfrontCp: 3250, frozen: false }, "with no plan, the snapshot's Price");
+    assert.deepEqual(estimateOf({ ...accepted, priceCp: 100, upfrontCp: 50 }, plan), { priceCp: 100, upfrontCp: 50, frozen: true }, "a frozen plan wins");
+    assert.deepEqual(estimateOf(accepted, { priceCp: null, upfrontCp: 1 }).priceCp, 6500, "a plan that is not whole copper is ignored");
+    const rows = [row("pledge", 1000, { actor: "Actor.a" }, 1)];
+    const v = orderView(accepted, { rows, viewer: viewer(), nameOf, plan });
+    assert.deepEqual([v.progress.upfrontCp, v.progress.priceCp, v.progress.remainingCp], [3000, 6000, 2000]);
+    assert.deepEqual(v.shortfall, { phase: "upfront", needCp: 3000, holdsCp: 1000, shortCp: 2000 });
+    // A rune moved off its own runestone is free (GM Core p.225): nothing up front, nothing short.
+    const free = orderView(order({ status: "accepted", crafter: "Actor.c", craftType: "rune-transfer", target: "Actor.c.Item.s" }),
+        { viewer: viewer(), nameOf, plan: { priceCp: 0, upfrontCp: 0 } });
+    assert.deepEqual([free.shortfall.shortCp, free.progress.pct], [0, 100]);
+});
+
+test("a finished formula job goes into a book and an item changed where it was never arrives (M5 on M4.1)", () => {
+    const formula = started({ status: "complete", recipient: { kind: "actor", uuid: "Actor.f" }, product: { type: "formula", uuid: "U", snapshot: {} } });
+    assert.deepEqual(deliveryOf(formula, [], 0), { state: "book", to: "Actor.f" }, "a formula claim, no shelf item");
+    const inPlace = row("shelved", 0, { actor: "Actor.c", items: [{ uuid: "U", name: "Longsword", qty: 1, inPlace: true }] }, 5);
+    const etched = started({ status: "complete", craftType: "rune-etch", recipient: { kind: "actor", uuid: "Actor.c" } });
+    assert.deepEqual(deliveryOf(etched, [inPlace], 0), { state: "in-place", to: "Actor.c" });
+    assert.deepEqual(rowLabel(inPlace), { code: "in-place", mirror: false, items: true }, "the ledger does not say it went on the shelf");
+    const shelved = row("shelved", 0, { actor: "Actor.c", items: [{ uuid: "U", name: "Longsword", qty: 1 }] }, 5);
+    assert.deepEqual([deliveryOf(etched, [shelved], 1).state, rowLabel(shelved).code], ["shelf", "shelved"], "handed over, it goes on the shelf");
+    assert.equal(deliveryOf(etched, [{ ...inPlace, reversedBy: "r" }], 1).state, "shelf", "a reversed row counts for nothing");
+    for (const kind of ["material-in", "material-out", "custody-in", "custody-out"]) {
+        assert.equal(rowLabel(row(kind, 0, { actor: "Actor.b" }, 1)).items, true, `${kind} moves items, not money: no "0 gp" beside it`);
+    }
+    assert.equal(rowLabel(row("purchase", 300, { actor: "Actor.b", how: { via: "purse" } }, 1)).items, false);
+});

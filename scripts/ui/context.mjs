@@ -9,7 +9,7 @@ import { CLOSED } from "../logic/orders.mjs";
 import { orderView } from "../logic/views.mjs";
 import { shelfItemsFor } from "../foundry/claims.mjs";
 import { orderDays, orderRows, owns, viewer as currentViewer } from "../foundry/orders.mjs";
-import { crafterFacts, gatesFor, productFacts } from "../foundry/products.mjs";
+import { crafterFacts, gatesFor, planEstimate, productFacts } from "../foundry/products.mjs";
 import { rulesFromSettings } from "../foundry/settings.mjs";
 import { gateText, money, nameOf, number, requirementName, sourceName } from "./format.mjs";
 import { DEGREE_CLASS, DEGREE_KEY, DELIVERY, ROUTE, STATUS } from "./labels.mjs";
@@ -24,13 +24,13 @@ function crafterToday(order) {
     return { level: actor.level ?? 0, rank: actor.skills[order.skill ?? "crafting"]?.rank ?? 0 };
 }
 
-/** The gates of an accepted order with a crafter, or null (6.5). */
+/** The gates of an accepted order with a crafter and the plan they judged (6.5), or null. */
 async function gatesOf(order, rows, rules) {
     if (order.status !== "accepted" || !order.crafter) return null;
     const actor = fromUuidSync(order.crafter, { strict: false });
     const product = await productFacts(order.product?.uuid);
     if (!actor || !product) return null;
-    return (await gatesFor(order, crafterFacts(actor), product, rows, rules)).gates;
+    return gatesFor(order, crafterFacts(actor), product, rows, rules);
 }
 
 /** How many of a finished order's items wait on the pickup shelf now. */
@@ -47,8 +47,11 @@ function shelfCountOf(order) {
 export async function orderContext(order, { no = null, rules = rulesFromSettings(), viewer = currentViewer() } = {}) {
     const rows = orderRows(order.id);
     const days = orderDays(order.id);
-    const gates = await gatesOf(order, rows, rules);
-    const view = orderView(order, { rows, days, gates, crafterToday: crafterToday(order), viewer, nameOf, no, rules,
+    const judged = await gatesOf(order, rows, rules);
+    // Before start, the plan the order would freeze, as G8 judges it (M5 on M4.1): a formula job, an upgrade, a rune, a
+    // transfer or a free crafter's order is measured against half its own Price, not half of the item's.
+    const plan = judged ? (judged.plan?.ok ? judged.plan : null) : await planEstimate(order, rules);
+    const view = orderView(order, { rows, days, gates: judged?.gates ?? null, plan, crafterToday: crafterToday(order), viewer, nameOf, no, rules,
         shelfCount: shelfCountOf(order) });
     return decorate(view, order);
 }

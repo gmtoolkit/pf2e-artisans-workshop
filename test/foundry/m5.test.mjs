@@ -5,7 +5,9 @@
  * given back on a cancel, precious stock counted toward the up-front half and consumed at the finish, a Repair, casting
  * pledges as G9, and the scroll built with its pledged spell. M5 on M4.1: purchases paid from the party fund or a purse,
  * an order's purchase earmarked and spent in one move, the fund slot against an earmark of the same money, a formula
- * copy's cost refunded to its source on a cancel, and stock lowering what "Fund this order" fills.
+ * copy's cost refunded to its source on a cancel, and stock lowering what "Fund this order" fills. Review fixes: what an
+ * order needs before start follows its plan as G8 judges it, and a finished formula job or in-place change never reads as
+ * arriving.
  */
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
@@ -26,11 +28,12 @@ const formulas = await import("../../scripts/foundry/formulas.mjs");
 const funds = await import("../../scripts/foundry/funds.mjs");
 const { fundAccounts, spentBySource, unallocatedCp } = await import("../../scripts/logic/funds.mjs");
 const { allocationsByContributor } = await import("../../scripts/logic/split.mjs");
+const { deliveryOf, rowLabel } = await import("../../scripts/logic/views.mjs");
 const { requestLease, resetLease } = await import("../../scripts/foundry/lease.mjs");
 const orders = await import("../../scripts/foundry/orders.mjs");
 const { spellItemSource } = await import("../../scripts/foundry/outputs.mjs");
 const pledges = await import("../../scripts/foundry/pledges.mjs");
-const { crafterFacts, gatesFor, productFacts, resetProducts } = await import("../../scripts/foundry/products.mjs");
+const { crafterFacts, gatesFor, planEstimate, productFacts, resetProducts } = await import("../../scripts/foundry/products.mjs");
 const { reconciliationReport } = await import("../../scripts/foundry/reconcile.mjs");
 const services = await import("../../scripts/foundry/services.mjs");
 const settings = await import("../../scripts/foundry/settings.mjs");
@@ -758,4 +761,76 @@ test("stock lowers what Fund this order fills: the up-front half less the stock,
     const accounts = fundAccounts(records("rows"), Object.fromEntries(records("orders").map((o) => [o.id, o])));
     assert.deepEqual(accounts.orders.map((o) => [o.earmarkedCp, o.stock]), [[100, [{ actor: vera.uuid, cp: 200 }]]], "the stock beside the money");
     assert.equal(accounts.balanced, true, "stock is items, outside the identity");
+});
+
+/* -------------------------------------------- */
+/*  M5 on M4.1: review fixes                     */
+/* -------------------------------------------- */
+
+const g8 = async (id, uuid) => (await gatesFor(read(`orders.${id}`), crafterFacts(vera), await productFacts(uuid), records("rows").filter((r) => r.order === id),
+    settings.rulesFromSettings())).gates.find((g) => g.id === "G8");
+
+test("before start, Fund this order fills what G8 asks for: a formula job's, a free transfer's and an upgrade's own Price (M5 on M4.1)", async () => {
+    vera.addItem({ type: "consumable", name: "Elixir of Life (Minor)", sourceId: ELIXIR, system: { quantity: 1 } });
+    const [job] = (await orders.requestOrder({ uuid: ELIXIR, requester: vera.uuid, recipient: { kind: "actor", uuid: vera.uuid }, crafter: vera.uuid,
+        productType: "formula", route: "reverse-engineer" })).orders;
+    assert.equal(funds.shortfallFor(job).shortCp, 150, "the snapshot is the elixir's 3 gp, not the formula's");
+    assert.deepEqual([(await funds.shortfallNow(job)).shortCp, (await g8(job, ELIXIR)).data.shortCp], [50, 50], "the formula's 1 gp: half of it");
+    const stone = vera.addItem({ type: "equipment", name: "Striking", sourceId: STRIKING,
+        system: { slug: "striking", quantity: 1, usage: { value: "etched-onto-a-weapon" }, price: { value: { gp: 65 } } } });
+    const sword = vera.addItem({ type: "weapon", name: "Longsword", system: { quantity: 1, runes: { potency: 1, striking: 0, property: [] } } });
+    const [transfer] = (await orders.requestOrder({ uuid: STRIKING, requester: vera.uuid, crafter: vera.uuid, craftType: "rune-transfer", target: sword.uuid,
+        variant: { transfer: { source: stone.uuid } } })).orders;
+    assert.equal((await g8(transfer, STRIKING)).ok, true, "free from the rune's own item");
+    assert.deepEqual(await funds.shortfallNow(transfer), { phase: "upfront", needCp: 0, holdsCp: 0, shortCp: 0 }, "and nothing to fund");
+    const flaming = vera.addItem({ type: "weapon", name: "Longsword", system: { quantity: 1, runes: { potency: 1, striking: 1, property: ["flaming"] } } });
+    const [upgrade] = (await orders.requestOrder({ uuid: GFLAMING, requester: vera.uuid, recipient: { kind: "actor", uuid: vera.uuid }, crafter: vera.uuid,
+        craftType: "rune-etch", target: flaming.uuid })).orders;
+    assert.deepEqual([(await funds.shortfallNow(upgrade)).shortCp, (await g8(upgrade, GFLAMING)).data.shortCp], [300000, 300000],
+        "6,500 gp less 500 gp, half of it up front");
+    // Requested with no crafter yet: the change's own Price still, at list.
+    as("p2");
+    const boSword = bo.addItem({ type: "weapon", name: "Longsword", system: { quantity: 1, runes: { potency: 1, striking: 1, property: ["flaming"] } } });
+    const [asked] = (await orders.requestOrder({ uuid: GFLAMING, requester: bo.uuid, craftType: "rune-etch", target: boSword.uuid })).orders;
+    assert.deepEqual(await planEstimate(read(`orders.${asked}`), settings.rulesFromSettings()), { priceCp: 600000, upfrontCp: 300000 });
+    assert.equal(await planEstimate(read(`orders.${job}`), settings.rulesFromSettings()) !== null, true);
+    const [plain] = (await orders.requestOrder({ uuid: ELIXIR, requester: bo.uuid })).orders;
+    assert.equal(await planEstimate(read(`orders.${plain}`), settings.rulesFromSettings()), null, "a plain Craft with no crafter: its snapshot");
+});
+
+test("a finished formula job goes into the book and an etching on the crafter's own item is changed in place: neither arrives (M5 on M4.1)", async () => {
+    vera.addItem({ type: "consumable", name: "Elixir of Life (Minor)", sourceId: ELIXIR, system: { quantity: 1 } });
+    const [job] = (await orders.requestOrder({ uuid: ELIXIR, requester: vera.uuid, recipient: { kind: "actor", uuid: vera.uuid }, crafter: vera.uuid,
+        productType: "formula", route: "reverse-engineer" })).orders;
+    assert.equal((await orders.pledgeTo(job, vera.uuid, 50)).outcome, "ok");
+    assert.equal((await orders.start(job)).ok, true);
+    await toFinishing(job);
+    assert.equal((await orders.finish(job)).ok, true);
+    assert.deepEqual(deliveryOf(read(`orders.${job}`), records("rows").filter((r) => r.order === job), 0), { state: "book", to: vera.uuid });
+    const sword = vera.addItem({ type: "weapon", name: "Longsword", system: { quantity: 1, runes: { potency: 1, striking: 0, property: [] }, price: { value: { gp: 1 } } } });
+    const [etch] = (await orders.requestOrder({ uuid: STRIKING, requester: vera.uuid, recipient: { kind: "actor", uuid: vera.uuid }, crafter: vera.uuid,
+        craftType: "rune-etch", target: sword.uuid })).orders;
+    assert.equal((await orders.pledgeTo(etch, vera.uuid, 3250)).outcome, "ok");
+    assert.equal((await orders.start(etch)).ok, true);
+    await toFinishing(etch);
+    assert.equal((await orders.pledgeTo(etch, vera.uuid, 3150)).outcome, "ok");
+    assert.equal((await orders.finish(etch)).ok, true);
+    const rows = records("rows").filter((r) => r.order === etch);
+    const shelved = rows.find((r) => r.kind === "shelved");
+    assert.deepEqual([shelved.items[0].inPlace, rowLabel(shelved).code], [true, "in-place"]);
+    assert.deepEqual(deliveryOf(read(`orders.${etch}`), rows, 0), { state: "in-place", to: vera.uuid }, "the sword never left Vera");
+    // Bo's sword, handed over and etched for him: it goes on the shelf, as before.
+    const boSword = bo.addItem({ type: "weapon", name: "Longsword", system: { quantity: 1, runes: { potency: 1, striking: 0, property: [] }, price: { value: { gp: 1 } } } });
+    as("p2");
+    const [his] = (await orders.requestOrder({ uuid: STRIKING, requester: bo.uuid, craftType: "rune-etch", target: boSword.uuid })).orders;
+    assert.equal((await custody.handOver({ order: his, item: boSword.uuid, purpose: "target" })).ok, true);
+    assert.equal((await orders.pledgeTo(his, bo.uuid, 6500)).outcome, "ok");
+    as("p1");
+    assert.equal((await orders.accept(his, vera.uuid)).ok, true);
+    assert.equal((await orders.start(his)).ok, true);
+    await toFinishing(his);
+    assert.equal((await orders.finish(his)).ok, true);
+    const hisRows = records("rows").filter((r) => r.order === his);
+    assert.equal(hisRows.find((r) => r.kind === "shelved").items[0].inPlace, undefined);
+    assert.equal(deliveryOf(read(`orders.${his}`), hisRows, 1).state, "shelf");
 });

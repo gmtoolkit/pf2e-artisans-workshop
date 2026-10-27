@@ -127,9 +127,17 @@ export function fundReturnableCp(order, orderRows) {
 /*  What an order still needs                    */
 /* -------------------------------------------- */
 
-/** The up-front half and Price an order would have before start, from its snapshot (6.2.2: half, rounded up). */
-export function estimateOf(order) {
+/**
+ * The up-front half and Price an order would have before start, from its snapshot (6.2.2: half, rounded up). `plan`,
+ * when given, is what the order would freeze if it started now (`{priceCp, upfrontCp}`, as gate G8 judges it), and
+ * stands in for the snapshot (M5 on M4.1): a formula job costs the formula's Price, an upgrade or a rune the Price
+ * difference, a transfer a tenth of the rune's Price or nothing, a free crafter nothing, none of them the item's Price.
+ */
+export function estimateOf(order, plan = null) {
     if (Number.isInteger(order.priceCp)) return { priceCp: order.priceCp, upfrontCp: order.upfrontCp, frozen: true };
+    if (Number.isSafeInteger(plan?.priceCp) && Number.isSafeInteger(plan?.upfrontCp)) {
+        return { priceCp: plan.priceCp, upfrontCp: plan.upfrontCp, frozen: false };
+    }
     const snap = order.product?.snapshot ?? {};
     const priceCp = Math.round(((snap.priceCp ?? 0) * order.quantity) / Math.max(1, snap.per ?? 1));
     return { priceCp, upfrontCp: Math.ceil(priceCp / 2), frozen: false };
@@ -142,13 +150,14 @@ export function estimateOf(order) {
  *   and less the stock, as the retry's commit counts it;
  * - `finish`, once started: what is still committed plus what is left to pay if the crafter finished now (6.2.3);
  * - `closed`: nothing.
+ * Before start, `plan` is the order's plan as G8 judges it (`estimateOf`), so the two agree on what is short.
  * @returns {{phase: "upfront"|"retry"|"finish"|"closed", needCp: number, holdsCp: number, shortCp: number}}
  */
-export function shortfallOf(order, orderRows, orderDays = [], rules = DEFAULT_RULES) {
+export function shortfallOf(order, orderRows, orderDays = [], rules = DEFAULT_RULES, plan = null) {
     const holdsCp = escrowCp(orderRows);
     const result = (phase, needCp) => ({ phase, needCp, holdsCp, shortCp: Math.max(0, needCp - holdsCp) });
     if (CLOSED.includes(order.status)) return { phase: "closed", needCp: 0, holdsCp, shortCp: 0 };
-    const estimate = estimateOf(order);
+    const estimate = estimateOf(order, plan);
     // Earmarked stock stands in for coins in the up-front half (6.6, M5): the start and a retry commit the rest.
     const stockCp = materialsCp(order);
     if (!estimate.frozen || order.status === "requested" || order.status === "accepted") {

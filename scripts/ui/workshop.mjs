@@ -628,7 +628,8 @@ export class WorkshopApp extends HandlebarsApplicationMixin(ApplicationV2) {
      * filled in (the requirement's own button).
      */
     async fundPrompt(id, { prefill = false } = {}) {
-        const short = funds.shortfallFor(id);
+        // Before start, against the plan the order would freeze, as G8 judges it (M5 on M4.1).
+        const short = await funds.shortfallNow(id);
         if (!short) return null;
         const answer = await askMoney({
             kind: "fund", actors: orders.actingChoices(), actor: this.actingActor()?.uuid ?? null,

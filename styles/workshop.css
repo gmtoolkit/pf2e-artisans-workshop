@@ -372,7 +372,11 @@ body.theme-dark .pf2e-artisans-workshop:not(.themed),
 .detail-delivery.delivery-shelf,
 .order-facts .delivery-shelf { color: var(--paw-warning); }
 .detail-delivery.delivery-delivered,
-.order-facts .delivery-delivered { color: var(--paw-crit-success); }
+.order-facts .delivery-delivered,
+.detail-delivery.delivery-book,
+.order-facts .delivery-book,
+.detail-delivery.delivery-in-place,
+.order-facts .delivery-in-place { color: var(--paw-crit-success); }
 .detail-work-rule { margin: 0.2rem 0 0.35rem; }
 .detail-days { list-style: none; }
 .detail-list li { display: flex; flex-wrap: wrap; gap: 0.25rem 0.6rem; align-items: center; }

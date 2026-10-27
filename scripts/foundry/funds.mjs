@@ -22,6 +22,7 @@ import { canReverse, fundWithdrawableCp } from "../logic/views.mjs";
 import { sweepClaims } from "./claims.mjs";
 import { lockedWrite, pledge, reverseRows, withdraw } from "./money.mjs";
 import { finish, orderDays, orderRows, owns, pledgeTo, retry, viewer } from "./orders.mjs";
+import { planEstimate } from "./products.mjs";
 import { rulesFromSettings } from "./settings.mjs";
 import { canWrite } from "./state.mjs";
 import { newId, read, records } from "./store.mjs";
@@ -123,10 +124,25 @@ export function fundOrder(orderId, { source, actor = null, cp }) {
     return Promise.resolve(refuse("other", { reason: "source" }));
 }
 
-/** What the order still lacks for its next step (`shortfallOf`), from this client's copies. */
-export function shortfallFor(orderId) {
+/**
+ * What the order still lacks for its next step (`shortfallOf`), from this client's copies; before start against `plan`
+ * when given (`planEstimate`).
+ */
+export function shortfallFor(orderId, plan = null) {
     const order = read(`orders.${orderId}`);
-    return order ? shortfallOf(order, orderRows(orderId), orderDays(orderId), rulesFromSettings()) : null;
+    return order ? shortfallOf(order, orderRows(orderId), orderDays(orderId), rulesFromSettings(), plan) : null;
+}
+
+/**
+ * What the order still lacks, before start judged against the plan it would freeze now, as gate G8 judges it
+ * (`planEstimate`, M5 on M4.1): a formula job, an upgrade, a rune, a transfer or a free crafter's order needs half of
+ * its own Price, not half of the item's. What "Fund this order" fills.
+ */
+export async function shortfallNow(orderId) {
+    const order = read(`orders.${orderId}`);
+    if (!order) return null;
+    const rules = rulesFromSettings();
+    return shortfallFor(orderId, await planEstimate(order, rules));
 }
 
 /**

@@ -204,3 +204,16 @@ test("an optional amount lets nothing through as 0 (a spell with no cost, M5 on 
     assert.equal(checkAmount({ gp: "x" }, { optional: true }).reason, "bad-number");
     assert.equal(checkAmount({}).reason, "nothing");
 });
+
+test("before start the shortfall is judged against the order's plan when given, as G8 is, stock and all (M5 on M4.1)", () => {
+    // A formula job for this 35 gp elixir costs the formula's Price (say 1 gp), not the elixir's.
+    const job = order({ status: "accepted", crafter: "Actor.c" });
+    assert.deepEqual(estimateOf(job, { priceCp: 100, upfrontCp: 50 }), { priceCp: 100, upfrontCp: 50, frozen: false });
+    assert.deepEqual(shortfallOf(job, [], [], undefined, { priceCp: 100, upfrontCp: 50 }), { phase: "upfront", needCp: 50, holdsCp: 0, shortCp: 50 });
+    assert.equal(shortfallOf(job, []).needCp, 1750, "with no plan, half the snapshot's Price, as before");
+    const stocked = order({ status: "accepted", crafter: "Actor.c", materials: { l1: { id: "l1", from: "Actor.bo", valueCp: 30, ...stamp(1) } } });
+    assert.equal(shortfallOf(stocked, [], [], undefined, { priceCp: 100, upfrontCp: 50 }).needCp, 20, "the plan's half less the stock");
+    assert.deepEqual(shortfallOf(order({ status: "accepted" }), [], [], undefined, { priceCp: 0, upfrontCp: 0 }).shortCp, 0, "a free transfer needs nothing");
+    const frozen = order({ status: "failed", priceCp: 3500, upfrontCp: 1750 });
+    assert.equal(shortfallOf(frozen, [], [], undefined, { priceCp: 100, upfrontCp: 50 }).needCp, 1750, "once started, the frozen plan");
+});

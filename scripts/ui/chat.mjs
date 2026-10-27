@@ -33,7 +33,7 @@ import { setting } from "../foundry/settings.mjs";
 import { canWrite } from "../foundry/state.mjs";
 import { read, records } from "../foundry/store.mjs";
 import { sweepClaims } from "../foundry/claims.mjs";
-import { shortfallFor, fundOrder } from "../foundry/funds.mjs";
+import { shortfallNow, fundOrder } from "../foundry/funds.mjs";
 import { unallocatedCp } from "../logic/funds.mjs";
 import { orderContext } from "./context.mjs";
 import { money, report } from "./format.mjs";
@@ -250,7 +250,7 @@ async function runOp(op, orderId) {
         }
         case "fund": {
             // "Fund this order" from the card: the same choice of source and the four coin fields as in the window (A, B).
-            const short = shortfallFor(orderId);
+            const short = await shortfallNow(orderId);
             if (!short) return null;
             const answer = await askMoney({ kind: "fund", actors: orders.actingChoices(), actor: actingActor()?.uuid ?? null,
                 sources: { fundCp: unallocatedCp(records("rows")) },
