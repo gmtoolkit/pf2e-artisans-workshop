@@ -54,8 +54,10 @@ test("every capture is a PNG in docs/screenshots/, linked from the README in ord
     assert.deepEqual(checkAssets(ROOT, { files }), []);
     assert.ok(CAPTURES.some((c) => c.scheme === "light") && CAPTURES.some((c) => c.scheme === "dark"));
     for (const view of ["queue", "request", "funds", "formulas"]) assert.ok(CAPTURES.some((c) => c.view === view), view);
+    // Each caption follows its image after a hard line break (a trailing backslash): with a plain newline GitHub puts the
+    // caption on the image's line, beside any image narrower than the page (request-form.png is 560 px wide).
     const readme = readFileSync(join(ROOT, "README.md"), "utf8");
     for (const capture of CAPTURES) {
-        assert.ok(readme.includes(`(${SCREENSHOT_DIR}${capture.file})\n*${capture.caption}*`), `README caption of ${capture.file}`);
+        assert.ok(readme.includes(`(${SCREENSHOT_DIR}${capture.file})\\\n*${capture.caption}*`), `README caption of ${capture.file}`);
     }
 });

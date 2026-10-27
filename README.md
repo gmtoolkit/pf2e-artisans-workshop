@@ -38,19 +38,19 @@ talismans, tattoos and snares are in scope.
 A demo party in a test world, taken by `npm run screenshots` (see Development). The wording in the window is draft
 until 1.0: every string is rewritten before the first release, and these captures are taken again then.
 
-![The Queue](docs/screenshots/queue.png)
+![The Queue](docs/screenshots/queue.png)\
 *The Queue: every order with its state and progress, and the detail of one in its last days of work.*
 
-![The request form](docs/screenshots/request-form.png)
+![The request form](docs/screenshots/request-form.png)\
 *The request form: who in the party can make the item, how, and what it needs up front.*
 
-![Funds](docs/screenshots/funds.png)
+![Funds](docs/screenshots/funds.png)\
 *Funds: the strongbox as the party fund, unallocated and earmarked per order, with each member's share.*
 
-![Formulas](docs/screenshots/formulas.png)
+![Formulas](docs/screenshots/formulas.png)\
 *Formulas: a character's book by family, where each formula came from, and the ways to learn another.*
 
-![The Queue in the light theme](docs/screenshots/queue-light.png)
+![The Queue in the light theme](docs/screenshots/queue-light.png)\
 *The Queue in the light theme, with a finished order's cost summary.*
 
 ## Compatibility
