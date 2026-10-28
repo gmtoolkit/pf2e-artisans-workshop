@@ -3,16 +3,25 @@
 A Foundry VTT module for the Pathfinder Second Edition system: one place to run an
 alchemist or crafter, and the party that leans on them.
 
-**Status: early development.** Nothing installable yet: the repository has the M0
-scaffold (manifest, tooling, CI), the M1 rules core (pure crafting and Earn Income
-rules with tests), the M2 storage and sync layer (the shared ledger and strongbox,
-safe coin moves, claims, roster snapshots, purge) and the M3 rules registry and roll
-wrapper (Craft and Earn Income checks rolled with the item's options and recorded once,
-rerolls included), and the M4 Workshop window: the Queue and Funds tabs, the order lifecycle
-from request to delivery, escrow and refunds, chat cards and the request form. Open it from
-the "Workshop" button in the Actors directory or on the Party sheet, or with
-`game.modules.get("pf2e-artisans-workshop").api.ui.open()`. The
-specification is `DESIGN.md`; decisions land in `DECISIONS.md`.
+**Status: built, not released yet.** The specification (`DESIGN.md`; decisions in `DECISIONS.md`) is built and tested
+in a local world, apart from the few pieces `DESIGN.md` records as not built. The first stable release, which the link
+below installs, waits on the author's rewrite of the module's text; until then the link has nothing to install, and test
+builds are pre-releases with their own manifest URLs. Once a GM has switched it on, open the window from the "Workshop"
+button in the Actors directory or on the Party sheet, or with `game.modules.get("pf2e-artisans-workshop").api.ui.open()`.
+
+## Install
+
+In Foundry's setup screen, open **Add-on Modules**, choose **Install Module**, paste this manifest URL into
+**Manifest URL** and choose **Install**:
+
+```
+https://github.com/gmtoolkit/pf2e-artisans-workshop/releases/latest/download/module.json
+```
+
+Then enable it in the world under **Manage Modules**, and as a GM turn on **Enable the Artisan's Workshop** under
+**Configure Settings** (see Settings below): until then it does nothing and shows no buttons. It needs Foundry VTT v14 and
+the PF2e system 8.6.0 or later. Foundry checks the same URL for updates, and hosted servers such as The Forge take the
+same URL.
 
 ## What it is for
 

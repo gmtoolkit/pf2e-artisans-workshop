@@ -29,8 +29,18 @@ finds keys and checks they exist, and how it tells them from hook and query name
 are lower case. CI (`.github/workflows/ci.yml`) runs all of the above, with the strings
 gate in report mode.
 
-Releases (`DESIGN.md` 16.9): publishing a GitHub release runs `.github/workflows/release.yml`. Tag it with the bare
-version (`0.12.0`, no "v"). A pre-release runs the checks above with the strings gate and the registry completeness
+Releases (`DESIGN.md` 16.9): `.github/workflows/release.yml`. Make one with its Release button: on GitHub, Actions,
+Release, Run workflow (from `main`), type the bare version (`0.12.0`, `1.0.0`, `1.1.0-rc.1`; no "v") and tick
+"Pre-release" for a test build. The version must be new and newer than the latest release. Every check runs first; then
+the workflow creates the release as a draft with `module.json` and `module.zip` attached, its notes from `CHANGELOG.md`
+(the version's own `## [x.y.z]` section, else Unreleased), and only then publishes it, so the README's
+`releases/latest` install link never points at a release without its files. Button runs queue one at a time. A run that
+fails up to and including the package job leaves at most a draft, which has no tag: delete it and run the button again
+(the package job also refuses when `main` moved during the run). If only the `publish` job (foundryvtt.com) fails, the
+release is already out: do not delete it or run the button again for that version; fix the cause and use "Re-run failed
+jobs" (a re-run uses the run's own commit, so a fix to `tools/publish-foundry.mjs` means registering that version by
+hand). Publishing a release by hand (tagged with the bare version) runs the same workflow, which uploads the files after
+the fact. A pre-release runs the checks above with the strings gate and the registry completeness
 check in report mode and gets its own manifest URL, for a test table to install by URL; a stable release runs them in
 enforce mode, refuses to package while a notice still has a placeholder, gets the `releases/latest` manifest URL and,
 when the repository has the `FOUNDRY_RELEASE_TOKEN` secret, is registered with foundryvtt.com (a dry run until the

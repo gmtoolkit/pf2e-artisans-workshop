@@ -8539,6 +8539,9 @@ URL. Nothing is listed on foundryvtt.com until the whole scope in section 1 is d
   `docs/` (the package description and the README screenshots of 17.1); upload `module.json` and
   `module.zip`; then, for stable releases only, register the release with the Package Release API.
   Actions are pinned by commit SHA.
+- **On the Release button** (`workflow_dispatch`, added 2026-10-28): the author gives the version and the pre-release
+  flag; the same checks and gate modes run, then the workflow creates the release itself as a draft with both files,
+  and publishes it only once both are attached (16.9).
 
 ### 16.3 Manifest URLs and the Package Release API
 
@@ -8630,7 +8633,14 @@ README section: what the module changes, every setting, how to turn it off, how 
 Built 2026-10-27 and tested locally; nothing has run on GitHub: no tag, release, upload or foundryvtt.com request has been
 made. `tools/` holds the scripts, `.github/` the workflows and forms; the scripts use Node's own modules only.
 
-- **The release workflow** (`.github/workflows/release.yml`, on `release: published`, one run per tag). `plan` runs
+- **The release workflow** (`.github/workflows/release.yml`, one run per version), started two ways. The **Release button**
+  (`workflow_dispatch`, added 2026-10-28 with the README's Install section): the author types the version and ticks
+  "Pre-release" or not; the plan job first reads the repository's releases (`gh release list`) and tags, and the plan
+  refuses a run from any branch but the default, a version that is already a release or tag, and one not newer than the
+  latest stable release (semantic-version precedence, `compareVersions`). Button runs share one concurrency group, so
+  each plan sees the release the run before made (GitHub keeps one pending run per group, so a third run started while
+  one waits cancels the waiting one). A release **published by hand** (`release: published`) is planned from its own tag
+  and flag, in a group of its own, so its run is never cancelled. `plan` runs
   `tools/release-plan.mjs` on the event: the tag must be the bare semver, never `0.0.0`, and a stable release has no
   pre-release suffix (it would land on the stable channel); its outputs are `version`, `prerelease`, `strings-mode` and
   `registry-mode` (`enforce` for a stable release, `report` for a pre-release), `publish` (a stable release and the
@@ -8638,10 +8648,24 @@ made. `tools/` holds the scripts, `.github/` the workflows and forms; the script
   `notes-url` (the release page, or nothing). `check` is CI's checks with the strings gate in the plan's mode; `registry`
   is CI's registry job (same pin, same sparse checkout) with `--enforce` in enforce mode, then the PF2E_SRC tests.
   `package` runs after both and is the only job with `contents: write`, so it installs nothing: `tools/package-release.mjs
-  --version <tag> [--prerelease] --out dist`, then `gh release upload` of `dist/module.json` and `dist/module.zip`.
+  --version <tag> [--prerelease] --out dist`. For a release published by hand it then runs `gh release upload` of
+  `dist/module.json` and `dist/module.zip`; that release exists before the workflow runs, so a failed run leaves it without
+  assets (and, if stable, GitHub's "latest" pointing at it): delete the release and its tag, fix, and publish again. For
+  the button it writes the notes (`tools/release-notes.mjs`: CHANGELOG.md's `## [<version>]` section, else Unreleased,
+  then the channel's manifest URL, cut under GitHub's 125,000-character limit), then makes its last checks with its own
+  token, which sees drafts (`release-plan.mjs --recheck`: no release, draft or tag has the name and it is newer than the
+  latest stable release, which a re-run of an old run or a release made since the plan can change; and the default branch
+  still points at the gated commit, since GitHub refuses the workflow's token a tag at an older commit that changes a
+  workflow file), creates the release as a draft at that commit (`--target $GITHUB_SHA`) with both files, checks the
+  draft holds exactly `module.json` and `module.zip`, and only then publishes it, a stable one with `--latest`, a
+  pre-release with `--latest=false`. A draft has no tag until it is published, so a run that fails up to and including
+  the package job leaves at most a draft: delete it and run the button again. If only `publish` (foundryvtt.com) fails,
+  the release is already out: never delete it or run the button again for that version; fix the cause and re-run the
+  failed job (a re-run uses the run's own commit, so a fix to `publish-foundry.mjs` means registering by hand). Publishing with the workflow's
+  own token starts no second run (GitHub starts no workflow for an event that token caused). This is also the order a
+  repository with immutable releases needs (assets attached before publishing); the by-hand path would fail there.
   `publish` runs only when the plan says so: `tools/publish-foundry.mjs`. Values reach shell steps through `env`, never
-  by interpolating an expression into the script. The release exists before the workflow runs, so a failed run leaves it
-  without assets: delete the release and its tag, fix, and publish again.
+  by interpolating an expression into the script.
 - **Packaging** (`tools/package-release.mjs`, `tools/zip.mjs`). The stamp sets `version`, `manifest` (`releases/latest`
   for a stable release, the version's own URL for a pre-release) and `download`, removes `flags.MOD.unreleased` (and the
   module's flags object when that leaves it empty) and keeps everything else in its order; the stamped manifest must pass
@@ -8684,7 +8708,7 @@ made. `tools/` holds the scripts, `.github/` the workflows and forms; the script
   had to come from a licensor, or was the author's own legal choice, was an `AUTHOR-TODO` placeholder until the author
   settled them on 2026-10-28 (the licences are linked, not reproduced; see the author's steps below).
 - **CI fix**: `packs/pf2e/journals/` joins the pf2e sparse checkout (15.2, As built in M12).
-- Tests: `test/zip.test.mjs`, `package-release.test.mjs`, `release-plan.test.mjs`, `publish-foundry.test.mjs`,
+- Tests: `test/zip.test.mjs`, `package-release.test.mjs`, `release-plan.test.mjs`, `release-notes.test.mjs`, `publish-foundry.test.mjs`,
   `pf2e-watch.test.mjs`, `release-workflows.test.mjs` (the workflows read as text: SHA pins, Node 24, permissions, the
   plan's outputs and where each gate reads its mode, the token's reach, no expression in a script, the sparse lists, the
   issue forms), `notices.test.mjs`, `foundry/readme-settings.test.mjs`.
@@ -8706,7 +8730,8 @@ made. `tools/` holds the scripts, `.github/` the workflows and forms; the script
    `pf2e-8.6.1` since the M12 completeness review (6.11); a new pin's candidates need the same review.
 5. Raises `compatibility.verified` and the pf2e relationship's `verified` to the builds the section 15 matrix ran on (3.1).
 6. Creates the package on foundryvtt.com (the listing submission is by hand), adds the package release token from its
-   edit page as the `FOUNDRY_RELEASE_TOKEN` repository secret, publishes the stable release, checks the `publish` job's
+   edit page as the `FOUNDRY_RELEASE_TOKEN` repository secret, renames CHANGELOG.md's Unreleased section to the version
+   (the button's notes come from it), makes the stable release with the Release button, checks the `publish` job's
    dry run passed, sets the repository variable `FOUNDRY_RELEASE_LIVE` to `true`, and re-runs that job. Checks the
    request against https://foundryvtt.com/article/package-release-api/ first: it follows 16.3, not the article.
 7. Reads and rewrites, or approves, `CONTRIBUTING.md` (it says contributions are under MIT, and describes the AI policy on
@@ -8714,8 +8739,10 @@ made. `tools/` holds the scripts, `.github/` the workflows and forms; the script
    do not exist).
 8. Optionally puts the `publish` job behind a GitHub environment with a required reviewer.
 
-For M12's test table: publish a GitHub pre-release (tag `0.12.0` or `0.12.0-rc.1`, "Set as a pre-release" ticked) and give
-the GM `https://github.com/gmtoolkit/pf2e-artisans-workshop/releases/download/<tag>/module.json`.
+For M12's test table: run the Release button with `0.12.0` or `0.12.0-rc.1` and "Pre-release" ticked (or publish a GitHub
+pre-release by hand) and give the GM `https://github.com/gmtoolkit/pf2e-artisans-workshop/releases/download/<tag>/module.json`.
+The README's Install link (`releases/latest`) resolves only from the first stable release: GitHub's "latest" skips
+pre-releases.
 
 **Follow-ups** (all low):
 

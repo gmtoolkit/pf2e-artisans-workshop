@@ -1,8 +1,11 @@
 /**
  * The release engineering's wiring (DESIGN.md 3.3, 16.2, 16.8, 16.9), read from the workflow and issue-form files as text:
- * the release workflow runs the strings gate and the registry completeness check in the mode the plan gives (enforce for a
- * stable release, report for a pre-release), packages with the plan's version and channel, registers only when the plan
- * says so, and keeps the write permission and the token in the jobs that need them; every action is pinned by commit SHA;
+ * the release workflow runs on a published release and from the Release button, runs the strings gate and the registry
+ * completeness check in the mode the plan gives (enforce for a stable release, report for a pre-release), packages with
+ * the plan's version and channel, uploads to a release published by hand or creates the button's release as a draft and
+ * publishes it once both files are on it, registers only when the plan says so, and keeps the write permission and the
+ * token in the jobs that need them; the README's install link is the manifest URL stable releases get; every action is
+ * pinned by commit SHA;
  * the three workflows check out the same pf2e paths, which cover every pack folder a PF2E_SRC test reads; and the issue
  * forms ask what DESIGN 16.8 says a bug report needs.
  */
@@ -10,6 +13,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { LATEST_MANIFEST } from "../tools/check-manifest.mjs";
 import { outputLines, releasePlan } from "../tools/release-plan.mjs";
 import { ROOT } from "./helpers.mjs";
 
@@ -63,10 +67,15 @@ test("every workflow uses Node 24", () => {
     }
 });
 
-test("the release workflow runs on a published release, read-only except the package job, one run per tag", () => {
-    assert.match(release, /^on:\n {2}release:\n {4}types: \[published\]\n/m);
+test("the release workflow runs on a published release and from the Release button, read-only except the package job, one run per version", () => {
+    assert.match(release, /^on:\n {2}release:\n {4}types: \[published\]\n {2}workflow_dispatch:\n {4}inputs:\n/m);
+    const inputs = release.slice(release.indexOf("    inputs:\n"), release.indexOf("\npermissions:"));
+    assert.match(inputs, / {6}version:\n(?: {8}.*\n)*? {8}required: true\n(?: {8}.*\n)*? {8}type: string\n/);
+    assert.match(inputs, / {6}prerelease:\n(?: {8}.*\n)*? {8}type: boolean\n {8}default: false\n/);
+    assert.deepEqual([...inputs.matchAll(/^ {6}([\w-]+):$/gm)].map((match) => match[1]), ["version", "prerelease"]);
     assert.match(release, /^permissions:\n {2}contents: read\n/m);
-    assert.match(release, /^concurrency:\n {2}group: release-\$\{\{ github\.event\.release\.tag_name \}\}\n {2}cancel-in-progress: false\n/m);
+    // Button runs queue in one group (each plan sees the last run's release); a release published by hand gets its own.
+    assert.match(release, /^concurrency:\n(?: {2}#.*\n)* {2}group: \$\{\{ github\.event_name == 'workflow_dispatch' && 'release-button' \|\| format\('release-\{0\}', github\.event\.release\.tag_name\) \}\}\n {2}cancel-in-progress: false\n/m);
     const all = jobs(release);
     assert.deepEqual(Object.keys(all), ["plan", "check", "registry", "package", "publish"]);
     for (const [name, job] of Object.entries(all)) {
@@ -87,8 +96,14 @@ test("the plan job's outputs are the ones release-plan.mjs writes, and the jobs 
     for (const match of declared) assert.equal(match[1], match[2]);
     for (const match of release.matchAll(/needs\.plan\.outputs\.([\w-]+)/g)) assert.ok(written.includes(match[1]), match[1]);
     const plan = stepNamed(jobs(release).plan, /id: plan/);
-    assert.match(plan, /run: node tools\/release-plan\.mjs\n/);
+    assert.match(plan, /run: node tools\/release-plan\.mjs --releases "\$RUNNER_TEMP\/releases\.json" --tags "\$RUNNER_TEMP\/tags\.txt"\n/);
     assert.match(plan, /FOUNDRY_TOKEN_PRESENT: \$\{\{ secrets\.FOUNDRY_RELEASE_TOKEN != '' \}\}/, "only whether the secret exists");
+    // A dispatched release is checked against what the repository has: every release and every tag, read before the plan.
+    const read = stepNamed(jobs(release).plan, /Read the existing releases and tags/);
+    assert.match(read, /if: github\.event_name == 'workflow_dispatch'\n/);
+    assert.match(read, /gh release list --repo "\$GITHUB_REPOSITORY" --limit 1000 --json tagName,isDraft,isPrerelease,isLatest > "\$RUNNER_TEMP\/releases\.json"\n/);
+    assert.match(read, /gh api "repos\/\$GITHUB_REPOSITORY\/tags" --paginate --jq '\.\[\]\.name' > "\$RUNNER_TEMP\/tags\.txt"\n/);
+    assert.ok(steps(jobs(release).plan).indexOf(read) < steps(jobs(release).plan).indexOf(plan), "read before the plan");
 });
 
 test("the strings gate runs in the plan's mode: enforce for a stable release, report for a pre-release", () => {
@@ -114,8 +129,61 @@ test("the package job stamps with the plan's version and channel and uploads bot
     assert.match(build, /VERSION: \$\{\{ needs\.plan\.outputs\.version \}\}/);
     assert.match(build, /PRERELEASE: \$\{\{ needs\.plan\.outputs\.prerelease \}\}/);
     const upload = stepNamed(jobs(release).package, /gh release upload/);
+    assert.match(upload, /if: github\.event_name == 'release'\n/, "only a release published by hand gets its files uploaded");
     assert.match(upload, /run: gh release upload "\$VERSION" dist\/module\.json dist\/module\.zip --clobber --repo "\$GITHUB_REPOSITORY"\n/);
     assert.match(upload, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+});
+
+test("the Release button's release: notes from CHANGELOG.md, a draft with both files at the gated commit, published only when both are on it", () => {
+    const all = steps(jobs(release).package);
+    const notes = stepNamed(jobs(release).package, /release-notes\.mjs/);
+    const create = stepNamed(jobs(release).package, /gh release create/);
+    assert.ok(notes && create);
+    for (const step of [notes, create]) {
+        assert.match(step, /if: github\.event_name == 'workflow_dispatch'\n/);
+        assert.match(step, /VERSION: \$\{\{ needs\.plan\.outputs\.version \}\}/);
+        assert.match(step, /PRERELEASE: \$\{\{ needs\.plan\.outputs\.prerelease \}\}/);
+    }
+    assert.ok(all.indexOf(stepNamed(jobs(release).package, /package-release\.mjs/)) < all.indexOf(notes) && all.indexOf(notes) < all.indexOf(create));
+    assert.match(notes, /if \[ "\$PRERELEASE" = true \]; then\n\s+node tools\/release-notes\.mjs --version "\$VERSION" --prerelease --out "\$RUNNER_TEMP\/notes\.md"\n\s+else\n\s+node tools\/release-notes\.mjs --version "\$VERSION" --out "\$RUNNER_TEMP\/notes\.md"\n/);
+
+    const lines = create.split("\n").map((line) => line.trim());
+    const at = (line) => {
+        const index = lines.indexOf(line);
+        assert.ok(index !== -1, line);
+        return index;
+    };
+    // Last checks with this job's token (it sees drafts): still free and newer than the latest, main still at the gated commit.
+    const order = [
+        at(`gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName,isDraft,isPrerelease,isLatest > "$RUNNER_TEMP/releases-now.json"`),
+        at(`gh api "repos/$GITHUB_REPOSITORY/tags" --paginate --jq '.[].name' > "$RUNNER_TEMP/tags-now.txt"`),
+        at(`node tools/release-plan.mjs --recheck "$VERSION" --releases "$RUNNER_TEMP/releases-now.json" --tags "$RUNNER_TEMP/tags-now.txt"`),
+        at(`head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq .object.sha)`),
+        at(`if [ "$head" != "$GITHUB_SHA" ]; then`),
+        at(`gh release create "$VERSION" dist/module.json dist/module.zip --draft --prerelease --target "$GITHUB_SHA" --title "$VERSION" --notes-file "$RUNNER_TEMP/notes.md" --repo "$GITHUB_REPOSITORY"`),
+        at(`gh release create "$VERSION" dist/module.json dist/module.zip --draft --target "$GITHUB_SHA" --title "$VERSION" --notes-file "$RUNNER_TEMP/notes.md" --repo "$GITHUB_REPOSITORY"`),
+        at(`assets=$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name] | sort | join(" ")')`),
+        at(`if [ "$assets" != "module.json module.zip" ]; then`),
+        at(`gh release edit "$VERSION" --draft=false --latest=false --repo "$GITHUB_REPOSITORY"`),
+        at(`gh release edit "$VERSION" --draft=false --latest --repo "$GITHUB_REPOSITORY"`),
+    ];
+    assert.deepEqual(order, [...order].sort((x, y) => x - y), "recheck, check main, create, check both files, then publish");
+    // Each command sits in its own branch: the pre-release is created and published as one, the stable release as latest.
+    assert.match(create, /if \[ "\$PRERELEASE" = true \]; then\n\s+gh release create [^\n]*--draft --prerelease [^\n]*\n\s+else\n\s+gh release create "\$VERSION" dist\/module\.json dist\/module\.zip --draft --target /);
+    assert.match(create, /if \[ "\$PRERELEASE" = true \]; then\n\s+gh release edit "\$VERSION" --draft=false --latest=false [^\n]*\n\s+else\n\s+gh release edit "\$VERSION" --draft=false --latest --repo /);
+    assert.equal(lines.filter((line) => line.startsWith("gh release ") && /\b(create|edit|upload|delete)\b/.test(line)).length, 4);
+    assert.equal(lines.filter((line) => line === "exit 1").length, 2);
+    assert.match(create, /DEFAULT_BRANCH: \$\{\{ github\.event\.repository\.default_branch \}\}/);
+    assert.match(create, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+});
+
+test("the README's Install section, above What it is for, gives the manifest URL every stable release stamps", () => {
+    const readme = read("README.md");
+    const install = readme.indexOf("\n## Install\n");
+    assert.ok(install !== -1 && install < readme.indexOf("\n## What it is for\n"));
+    const section = readme.slice(install, readme.indexOf("\n## ", install + 1));
+    assert.ok(section.includes(LATEST_MANIFEST), LATEST_MANIFEST);
+    assert.equal(LATEST_MANIFEST, "https://github.com/gmtoolkit/pf2e-artisans-workshop/releases/latest/download/module.json");
 });
 
 test("only the publish job sees the token, and it runs only when the plan says publish", () => {

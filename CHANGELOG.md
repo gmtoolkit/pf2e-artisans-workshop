@@ -216,6 +216,10 @@ All notable changes to this module are documented here. The format follows
   (1 day of setup), the Traveling Workshop spell (an alchemist's lab, Repair tools and a day of setup already done), access
   to uncommon tengu weapons for Tengu Weapon Familiarity and to sparklers for Firework Technicians, and Morning tab notes for
   Create Familiar Fulu, Apothecary's Garden, Underground Bounty and Zon-Kuthon's moderate boon. The rest show as notes.
+- A Release button for the release workflow (GitHub Actions, Release, Run workflow): give the version and whether it is
+  a pre-release, and once every check passes it creates the release as a draft with `module.json` and `module.zip`,
+  writes its notes from this changelog, and publishes it, so the `releases/latest` manifest URL only ever points at a
+  release with its files. The README has an Install section with that URL.
 
 ### Changed
 

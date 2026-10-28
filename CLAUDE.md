@@ -93,8 +93,10 @@ M12b is in place: archiving and lock pruning (DESIGN 5.3.3 and 5.4, As built in 
 closed, settled orders, ended jobs and the fund's old rows into the Crafting Log, a GM-owned journal players read, leaving one
 `carry` row per actor (`scripts/logic/archive.mjs`, `scripts/foundry/housekeeping.mjs`); the Funds tab lists the archived ledger
 on request; `npm run harness:perf` measures S3, S2 after the archive ages are crossed (DESIGN 15.7, the archiving pass).
-M12's release engineering is in place, not run yet (DESIGN 16.9): the release workflow (`.github/workflows/release.yml`:
-`tools/release-plan.mjs` picks enforce or report mode by the release's pre-release flag, `tools/package-release.mjs` stamps
+M12's release engineering is in place, not run yet (DESIGN 16.9): the release workflow (`.github/workflows/release.yml`, on
+a release published by hand or from its Release button, which creates the release as a draft with both files and then
+publishes it; `tools/release-plan.mjs` picks enforce or report mode by the pre-release flag and checks a button release is
+new, newer than the latest and run from main; `tools/release-notes.mjs` writes its notes from CHANGELOG.md; `tools/package-release.mjs` stamps
 `module.json` and builds `module.zip` with `tools/zip.mjs`, `tools/publish-foundry.mjs` registers stable releases, a dry run
 until `FOUNDRY_RELEASE_LIVE`), the local dry run (`npm run release:dry-run -- --version <x.y.z> [--prerelease]`), the pf2e
 churn watch (`.github/workflows/pf2e-watch.yml`, `tools/pf2e-watch.mjs`), issue forms, the README's For GMs, `CONTRIBUTING.md`

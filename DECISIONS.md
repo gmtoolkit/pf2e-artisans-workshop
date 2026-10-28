@@ -2,6 +2,25 @@
 
 Newest first.
 
+## 2026-10-28: The Release button creates the release; the README's install link is releases/latest
+
+**Decision:** the README's Install section (above "What it is for") gives
+`https://github.com/gmtoolkit/pf2e-artisans-workshop/releases/latest/download/module.json`, the manifest URL every stable
+release stamps. The release workflow gains a Release button (`workflow_dispatch`: version, pre-release flag) beside the
+existing `release: published` trigger. The button's run checks the version is new, newer than the latest stable release
+and run from the default branch, runs every gate, then creates the release as a draft with `module.json` and `module.zip`
+and publishes it only once both are attached; its notes come from CHANGELOG.md. The by-hand path stays for anyone who
+publishes in GitHub's UI.
+
+**Why:** the author asked for an install link to the latest manifest and a workflow to make a latest release. A release
+published by hand is "latest" before its files are uploaded and stays so if the run fails, which would break the README's
+link for everyone; draft first, then publish, means "latest" only ever moves to a release with its files, and a run that
+fails before publishing leaves only a tagless draft (a failure in the later foundryvtt.com job leaves the release out, to
+re-run that job, never to cut again). Button runs queue in one concurrency group and the package job re-checks the
+version with its own token just before creating the release, so an older version can never be published as latest
+after a newer one. One workflow with two triggers keeps a single set of gates. No gate is relaxed: the link
+resolves from the first stable release, which still needs the strings signed off (M13).
+
 ## 2026-10-28: Licence notices link the licences and credit the author by name
 
 **Decision:** the game-material notices (`NOTICE`, the README and the package description) link the licences rather than

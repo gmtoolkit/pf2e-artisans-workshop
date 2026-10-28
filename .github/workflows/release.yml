@@ -1,5 +1,20 @@
-# The release workflow (DESIGN.md 16.2, 16.3, 16.9), run when a GitHub release is published. Tag the release with the
-# bare version ("0.12.0", "0.12.0-rc.1"; no "v"). GitHub fires this for pre-releases too, and the channel decides:
+# The release workflow (DESIGN.md 16.2, 16.3, 16.9). Two ways to start it:
+#
+# - The Release button (Actions, Release, Run workflow, from main): type the bare version ("0.12.0", "1.0.0",
+#   "1.1.0-rc.1"; no "v") and tick "Pre-release" or not. The version must be new and newer than the latest release. Every
+#   gate runs first; then the package job creates the release as a draft with module.json and module.zip attached, and
+#   only then publishes it (a stable one as "latest"), so the releases/latest manifest URL never points at a release
+#   without its files. Button runs queue one at a time, so each one's checks see the release before it. A run that fails
+#   up to and including the package job leaves at most a draft, which has no tag: delete it and run the button again
+#   (also when main moved during the run, which the package job refuses). If only the publish job (foundryvtt.com) fails,
+#   the release is already out: do not delete it or run the button again for that version; fix the cause and use "Re-run
+#   failed jobs" (a re-run uses the run's own commit, so a fix to tools/publish-foundry.mjs needs a registration by hand).
+# - Publishing a release by hand, tagged with the bare version. GitHub fires `release: published` for pre-releases too.
+#   The release exists before this runs, so a failed run leaves it without assets: delete the release and its tag, fix,
+#   and publish again. (A release the button publishes does not start this event: GitHub starts no workflow for an event
+#   the workflow's own token caused.)
+#
+# Either way the channel decides the rest:
 #
 # - a pre-release runs the strings gate and the registry completeness check in report mode, keeps its version-specific
 #   manifest URL (testers stay on the pre-release channel) and is never registered with foundryvtt.com, so the M12 test
@@ -11,19 +26,34 @@
 #
 # tools/release-plan.mjs reads the event and decides; tools/package-release.mjs stamps module.json and builds module.zip
 # (`npm run release:dry-run -- --version <x.y.z> [--prerelease]` builds the same package locally into a scratch folder);
-# tools/publish-foundry.mjs registers it. The release exists before this runs, so a failed run leaves it without assets:
-# delete the release and its tag, fix, and publish again. Actions are pinned by commit SHA; the comment names the release.
+# tools/release-notes.mjs writes the button's release notes from CHANGELOG.md; tools/publish-foundry.mjs registers it.
+# Actions are pinned by commit SHA; the comment names the release.
 name: Release
+run-name: Release ${{ github.event.release.tag_name || inputs.version }}
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, bare (0.12.0, 1.0.0, 1.1.0-rc.1; no "v")
+        required: true
+        type: string
+      prerelease:
+        description: Pre-release (its own manifest URL, gates in report mode, not registered with foundryvtt.com)
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event.release.tag_name }}
+  # Button runs share one group, so the next one's plan sees the release the last one made. (GitHub keeps one pending run
+  # per group: a third button run started while one is pending cancels the pending one.) A release published by hand
+  # gets its own group, so its run is never cancelled and its files always get uploaded.
+  group: ${{ github.event_name == 'workflow_dispatch' && 'release-button' || format('release-{0}', github.event.release.tag_name) }}
   cancel-in-progress: false
 
 jobs:
@@ -45,9 +75,17 @@ jobs:
         with:
           node-version: 24
 
+      - name: Read the existing releases and tags (a release the button makes must be new)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName,isDraft,isPrerelease,isLatest > "$RUNNER_TEMP/releases.json"
+          gh api "repos/$GITHUB_REPOSITORY/tags" --paginate --jq '.[].name' > "$RUNNER_TEMP/tags.txt"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Plan the release (channel, gate modes, whether to register it)
         id: plan
-        run: node tools/release-plan.mjs
+        run: node tools/release-plan.mjs --releases "$RUNNER_TEMP/releases.json" --tags "$RUNNER_TEMP/tags.txt"
         env:
           # Only whether the secret exists reaches this step, never its value.
           FOUNDRY_TOKEN_PRESENT: ${{ secrets.FOUNDRY_RELEASE_TOKEN != '' }}
@@ -190,10 +228,59 @@ jobs:
           PRERELEASE: ${{ needs.plan.outputs.prerelease }}
 
       - name: Upload module.json and module.zip to the release
+        if: github.event_name == 'release'
         run: gh release upload "$VERSION" dist/module.json dist/module.zip --clobber --repo "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.plan.outputs.version }}
+
+      - name: Write the release notes from CHANGELOG.md
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "$PRERELEASE" = true ]; then
+            node tools/release-notes.mjs --version "$VERSION" --prerelease --out "$RUNNER_TEMP/notes.md"
+          else
+            node tools/release-notes.mjs --version "$VERSION" --out "$RUNNER_TEMP/notes.md"
+          fi
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+
+      - name: Create the release as a draft with both files, then publish it
+        # Last checks first, with this job's token, which sees drafts: the version is still free and newer than the latest
+        # release (a re-run of an old run, or a release made since the plan, can change that), and main still points at
+        # the commit every gate ran on (GitHub refuses the workflow's token a tag at an older commit that changes a
+        # workflow file). A draft has no tag until it is published; the tag then points at that commit.
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName,isDraft,isPrerelease,isLatest > "$RUNNER_TEMP/releases-now.json"
+          gh api "repos/$GITHUB_REPOSITORY/tags" --paginate --jq '.[].name' > "$RUNNER_TEMP/tags-now.txt"
+          node tools/release-plan.mjs --recheck "$VERSION" --releases "$RUNNER_TEMP/releases-now.json" --tags "$RUNNER_TEMP/tags-now.txt"
+          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq .object.sha)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "::error title=Release::$DEFAULT_BRANCH moved from $GITHUB_SHA to $head during the run; run the Release button again"
+            exit 1
+          fi
+          if [ "$PRERELEASE" = true ]; then
+            gh release create "$VERSION" dist/module.json dist/module.zip --draft --prerelease --target "$GITHUB_SHA" --title "$VERSION" --notes-file "$RUNNER_TEMP/notes.md" --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$VERSION" dist/module.json dist/module.zip --draft --target "$GITHUB_SHA" --title "$VERSION" --notes-file "$RUNNER_TEMP/notes.md" --repo "$GITHUB_REPOSITORY"
+          fi
+          assets=$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name] | sort | join(" ")')
+          if [ "$assets" != "module.json module.zip" ]; then
+            echo "::error title=Release::the draft has \"$assets\", not module.json and module.zip; it stays a draft"
+            exit 1
+          fi
+          if [ "$PRERELEASE" = true ]; then
+            gh release edit "$VERSION" --draft=false --latest=false --repo "$GITHUB_REPOSITORY"
+          else
+            gh release edit "$VERSION" --draft=false --latest --repo "$GITHUB_REPOSITORY"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
 
   publish:
     # Stable releases only, and only with the FOUNDRY_RELEASE_TOKEN secret (release-plan.mjs). A dry run until the
