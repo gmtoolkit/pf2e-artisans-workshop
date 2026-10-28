@@ -128,8 +128,12 @@ export const CAPTURES = Object.freeze([
  */
 export const NEXT_CAPTURES = Object.freeze([]);
 
-/** Names that must never appear in a capture: the fixture actors' labels and the character imported into the dev world. */
-export const BANNED_NAMES = Object.freeze(["Fixture"]);
+/**
+ * Names that must never appear in a capture: the fixture actors' labels, plus any private names of the local dev world
+ * (a real player's imported character, for instance) from `WORKSHOP_PRIVATE_NAMES`, comma-separated, so they never have
+ * to be written into the repository.
+ */
+export const BANNED_NAMES = Object.freeze(["Fixture", ...(process.env.WORKSHOP_PRIVATE_NAMES ?? "").split(",").map((name) => name.trim()).filter(Boolean)]);
 
 /** The viewport of every capture (17.1). */
 const SIZE = { width: 1440, height: 900 };

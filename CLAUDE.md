@@ -108,7 +108,7 @@ world and writes `docs/screenshots/`, the only folder where the asset check allo
 `DECISIONS.md` holds every
 decision made so far, newest first; read it before proposing a design change.
 
-Development commands and layout are in the README's Development section. Use Node 24
+Development commands and layout are in `docs/DEVELOPMENT.md`. Use Node 24
 (`DESIGN.md` 3.2); `npm run lint` and `npm test` must pass before a PR.
 
 `DESIGN.md` is the specification (domain model, storage and sync, rules engine,
