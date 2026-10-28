@@ -8681,10 +8681,8 @@ made. `tools/` holds the scripts, `.github/` the workflows and forms; the script
 - **Licences and notices** (16.6). `LICENSE` is the MIT text alone. `NOTICE` (shipped) holds the Community Use Policy
   notice, the ORC notice and the Open Game License part (designation, the full licence, section 15); the README and the
   package description carry the same CUP notice, ORC notice and section 15 (`test/notices.test.mjs`). Every piece that
-  must come verbatim from a licensor, or is the author's own legal choice, is an `AUTHOR-TODO` placeholder: the ORC
-  licence-location statement, the upstream attribution lines, this module's credit line, Reserved Material, Expressly
-  Designated Licensed Material, the OGL designation of Open Game Content and Product Identity, the full OGL 1.0a text, and
-  the section 15 lines.
+  had to come from a licensor, or was the author's own legal choice, was an `AUTHOR-TODO` placeholder until the author
+  settled them on 2026-10-28 (the licences are linked, not reproduced; see the author's steps below).
 - **CI fix**: `packs/pf2e/journals/` joins the pf2e sparse checkout (15.2, As built in M12).
 - Tests: `test/zip.test.mjs`, `package-release.test.mjs`, `release-plan.test.mjs`, `publish-foundry.test.mjs`,
   `pf2e-watch.test.mjs`, `release-workflows.test.mjs` (the workflows read as text: SHA pins, Node 24, permissions, the
@@ -8693,11 +8691,12 @@ made. `tools/` holds the scripts, `.github/` the workflows and forms; the script
 
 **Before 1.0, the author:**
 
-1. Pastes the licensors' text into the `AUTHOR-TODO` placeholders of `NOTICE`, the README and the package description,
-   alike in all three (the notices test holds them together): the ORC licence-location statement from the ORC License;
-   the attribution line of each ORC work used, from that book's own ORC notice; the OGL 1.0a text; each OGL book's section
-   15 lines from that book. Decides the source list first (Follow-ups: 16.6 names four ORC books, the registry cites more),
-   and the module's own credit line, Reserved Material, Expressly Designated Licensed Material and OGL designation.
+1. Done 2026-10-28 (author's direction): the notices link the licences instead of reproducing them, ORC at
+   https://paizo.com/orclicense and OGL 1.0a at https://opengamingfoundation.org/ogl.html; the attribution names Player
+   Core, Player Core 2, GM Core and Treasure Vault (Remastered); the credit line is "PF2e Artisan's Workshop © 2026 Cliff
+   Colvin"; Reserved Material is the module's name; there is no Expressly Designated Licensed Material; the OGL designates
+   the mechanics taken from OGL books as Open Game Content and the module's name and own text as Product Identity; section
+   15 lists Wizards of the Coast, Secrets of Magic and this module. `test/notices.test.mjs` holds all three files to it.
 2. Checks the Community Use Policy notice word for word against paizo.com/licenses/communityuse: it was written in M0,
    and the test holds the repository's copy, not Paizo's.
 3. Rewrites every string, the README (For GMs included), the package description, `module.json`'s title and description

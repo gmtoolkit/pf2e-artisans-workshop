@@ -1,9 +1,9 @@
 /**
  * The game-material notices (DESIGN.md 16.6, 16.9). Paizo's Community Use Policy notice must be copied exactly from
  * paizo.com/licenses/communityuse, with "This module" as the work's name; `NOTICE`, the README and the package description
- * carry it word for word. `NOTICE` holds the ORC notice and the Open Game License in full; the README and the package
- * description carry the same ORC notice and the same OGL section 15, so when the author pastes the licensors' text into the
- * placeholders it goes into all three alike. `LICENSE` is the MIT licence alone, so GitHub and Foundry read it as MIT. The
+ * carry it word for word. `NOTICE` holds the ORC notice and the Open Game License notices, which link the licences
+ * themselves (paizo.com/orclicense, opengamingfoundation.org/ogl.html) and credit the author; the README and the package
+ * description carry the same ORC notice and the same OGL section 15. `LICENSE` is the MIT licence alone, so GitHub and Foundry read it as MIT. The
  * placeholders themselves block a stable release (tools/package-release.mjs).
  */
 import assert from "node:assert/strict";
@@ -43,7 +43,7 @@ test("the README and the package description carry NOTICE's ORC notice and OGL s
     const orc = normalise(block("ORC Notice"));
     const ogl = block("Open Game License");
     const section15 = normalise(ogl.slice(ogl.indexOf("15. COPYRIGHT NOTICE")));
-    assert.ok(orc.startsWith(normalise("[AUTHOR-TODO: paste the ORC License's location statement")) || orc.startsWith("This product is licensed under the ORC License"));
+    assert.ok(orc.startsWith("This product is licensed under the ORC License, available at https://paizo.com/orclicense."));
     assert.match(orc, /Attribution: This product is based on the following Licensed Material:/);
     assert.match(orc, /Reserved Material: /);
     assert.match(orc, /Expressly Designated Licensed Material: /);
@@ -59,4 +59,14 @@ test("LICENSE is the MIT licence alone; the notices live in NOTICE, which ships"
     assert.match(license, /^MIT License\n\nCopyright \(c\) 2026 Cliff Colvin\n/);
     assert.match(license, /SOFTWARE\.\n$/);
     assert.doesNotMatch(license, /Paizo|ORC|Open Game/);
+});
+
+test("the notices are complete: no placeholder left, both licences linked, the author credited, in all three files", () => {
+    for (const file of ["NOTICE", "README.md", "docs/package-description.md"]) {
+        const text = normalise(read(file));
+        assert.doesNotMatch(text, /AUTHOR-TODO/, file);
+        assert.ok(text.includes("https://paizo.com/orclicense"), `${file}: ORC License link`);
+        assert.ok(text.includes("https://opengamingfoundation.org/ogl.html"), `${file}: Open Game License link`);
+        assert.ok(text.includes("PF2e Artisan's Workshop © 2026 Cliff Colvin"), `${file}: credit line`);
+    }
 });

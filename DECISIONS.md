@@ -2,6 +2,22 @@
 
 Newest first.
 
+## 2026-10-28: Licence notices link the licences and credit the author by name
+
+**Decision:** the game-material notices (`NOTICE`, the README and the package description) link the licences rather than
+reproducing them: the ORC License at https://paizo.com/orclicense and the Open Game License 1.0a at
+https://opengamingfoundation.org/ogl.html. The ORC attribution names Player Core, Player Core 2, GM Core and Treasure Vault
+(Remastered), © Paizo Inc.; the credit line is "PF2e Artisan's Workshop © 2026 Cliff Colvin"; Reserved Material is the
+module's name; there is no Expressly Designated Licensed Material. Under the OGL, the mechanics taken from OGL books (the
+Secrets of Magic tattoo process, the legacy registry entries) are Open Game Content and the module's name and own text are
+Product Identity; section 15 lists Wizards of the Coast, Secrets of Magic and this module.
+
+**Why:** the author's direction; the module ships numbers and no rules text, so links keep the notices short and
+accurate.
+
+**Consequences:** no `AUTHOR-TODO` placeholder is left, so the notices no longer block a stable release;
+`test/notices.test.mjs` holds the three files to the same text and to both links.
+
 ## 2026-10-27: What pruning depends on, and what an archive run guards (M12b review)
 
 **Decision:**

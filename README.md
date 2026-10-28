@@ -259,7 +259,7 @@ rules first.
 
 ## License and notices
 
-The code is MIT (see `LICENSE`). `NOTICE` holds the game-material notices in full, with the complete Open Game License.
+The code is MIT (see `LICENSE`). `NOTICE` holds the game-material notices; the ORC License and the Open Game License are linked from them.
 This module is unofficial fan content: it is not affiliated with, published, endorsed or specifically approved by Paizo
 Inc. It ships no Paizo rules text; it uses the numbers of the crafting rules, and refers to the PF2e system's compendium
 for everything else.
@@ -273,35 +273,30 @@ products, visit paizo.com.
 
 ### ORC Notice
 
-[AUTHOR-TODO: paste the ORC License's location statement verbatim from the ORC License itself. In Paizo's Remaster books
-it is the first sentence of the ORC Notice, beginning "This product is licensed under the ORC License held in the Library
-of Congress", and it ends with the warranty disclaimer.]
+This product is licensed under the ORC License, available at https://paizo.com/orclicense. All warranties are disclaimed
+as set forth therein.
 
-Attribution: This product is based on the following Licensed Material: [AUTHOR-TODO: paste, verbatim from each book's
-own ORC Notice, the attribution line of every ORC-licensed work the module takes numbers from (title, copyright year,
-Paizo Inc., authors). DESIGN.md 16.6 names Player Core, Player Core 2, GM Core and Treasure Vault (Remastered); the
-rules registry also cites other Remaster books (DESIGN.md 16.9, Follow-ups, has the list and how to regenerate it).]
+Attribution: This product is based on the following Licensed Material: Pathfinder Player Core, Pathfinder Player Core 2,
+Pathfinder GM Core and Pathfinder Treasure Vault (Remastered), © Paizo Inc.
 
-If you use our Licensed Material in your own published works, please credit us in your product as follows: [AUTHOR-TODO:
-the credit line you want, for example "PF2e Artisan's Workshop (c) 2026, Cliff Colvin".]
+If you use our Licensed Material in your own published works, please credit us in your product as follows: PF2e
+Artisan's Workshop © 2026 Cliff Colvin.
 
 Reserved Material: Reserved Material elements in this product include all elements designated as Reserved Material under
-the ORC License. [AUTHOR-TODO: name this module's own Reserved Material, if any (its name, for example), or delete this
-placeholder.]
+the ORC License, and the name "PF2e Artisan's Workshop".
 
-Expressly Designated Licensed Material: [AUTHOR-TODO: say which of this module's material, if any, you designate as
-Licensed Material (for example the numeric tables in scripts/data/), or write "This product contains no Expressly
-Designated Licensed Material."]
+Expressly Designated Licensed Material: This product contains no Expressly Designated Licensed Material.
 
 ### Open Game License
 
-Open Game Content and Product Identity are designated, and the complete Open Game License Version 1.0a is given, in
-`NOTICE`.
+Open Game Content: the game mechanics this module takes from books released under the Open Game License (the Pathfinder
+Secrets of Magic tattoo process and the numbers of its legacy registry entries). Product Identity: the name "PF2e
+Artisan's Workshop" and the module's own text.
+
+The Open Game License Version 1.0a is available at https://opengamingfoundation.org/ogl.html.
 
 15. COPYRIGHT NOTICE
 
-[AUTHOR-TODO: paste, verbatim from the section 15 of each OGL book the module takes numbers from, every line that book's
-section 15 lists (it starts with "Open Game License v 1.0a Copyright 2000, Wizards of the Coast, Inc." and the System
-Reference Document line, and ends with the book's own line and its authors): Pathfinder Secrets of Magic for the tattoo
-process, and the legacy books of the badged registry entries (DESIGN.md 16.9, Follow-ups, has the list). Keep each
-line once. Then add this module's own line, for example "PF2e Artisan's Workshop (c) 2026, Cliff Colvin".]
+Open Game License v 1.0a © 2000, Wizards of the Coast, Inc.
+Pathfinder Secrets of Magic © 2021, Paizo Inc.
+PF2e Artisan's Workshop © 2026 Cliff Colvin.
